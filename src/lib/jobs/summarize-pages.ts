@@ -4,7 +4,10 @@
  *
  * The panel imports this module statically, so it is on Summarize PDF's
  * first load and must stay small: its one import is the page-spans leaf,
- * which the truncation notice already ships to that page.
+ * which the truncation notice already ships to that page. The chosen-pages
+ * no-text sentence is NOT here for that reason: it lives in
+ * `./chosen-pages-no-text`, which no panel imports (its docblock has the
+ * measured history).
  */
 
 import { pagesPhrase, type PageSpan } from "@/lib/pdf/page-spans";
@@ -57,21 +60,3 @@ export function pagesOutOfRangeMessage(
 ): string {
   return `${pagesOutOfRangeSentence(total, beyond)} Nothing was sent to the AI model.`;
 }
-
-/**
- * What Summarize says when the pages a person CHOSE hold no selectable text,
- * though the document as a whole does (Summarize's page range, audit
- * summarize-pdf#5). One owner for both sides of the upload, like
- * `NO_SELECTABLE_TEXT_MESSAGE` in `./ai-no-text` — but HERE, not there:
- * `./ai-no-text` is on every worker panel's first load (through
- * `pdf-security-client`), and the panel's lazy judgement using this export
- * kept it in that shared module, +42..47 B gz on 20 tool pages that never show
- * it (measured 2026-11-16 on the merged build). The worker refuses with it
- * after the route reserved the allowance (not refunded, the allowance FAQ's
- * cross-tool ruling), so it says nothing about charging; the panel's
- * pre-upload refusal appends its own "Nothing was uploaded."
- */
-export const NO_TEXT_IN_CHOSEN_PAGES_MESSAGE = {
-  "summarize-pdf":
-    "The pages you chose have no selectable text. Choose other pages, or run OCR PDF first.",
-} as const;

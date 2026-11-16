@@ -179,10 +179,16 @@ export const TRANSLATE_NO_TEXT_MESSAGE =
  * the file leaves the offending page exactly as long as it was. This names the
  * page(s) and their sizes instead — the same data `missingPageMarker` puts in a
  * delivered package — and gives no advice that cannot work.
+ *
+ * `scope` is REQUIRED: "document" for a whole-document job (today's sentence,
+ * byte for byte), "chosen" for a job that chose pages, where "every page with
+ * text in this document" would be false (only the chosen pages were weighed).
+ * The single-page sentence is true in both.
  */
 export function translateEveryPageTooLongMessage(
   oversize: readonly { pageNumber: number; characters: number }[],
   ceiling: number,
+  scope: "document" | "chosen",
 ): string {
   const limit = ceiling.toLocaleString("en-US");
   const size = (n: number) => n.toLocaleString("en-US");
@@ -206,8 +212,12 @@ export function translateEveryPageTooLongMessage(
     rest > 0
       ? `${named.join(", ")}, and ${rest} more ${rest === 1 ? "page is" : "pages are"} over it too`
       : `${named.slice(0, -1).join(", ")} and ${named.at(-1)}`;
+  // Only the subject differs, so only the subject is branched: this module
+  // ships in the shared worker-panel chunks of 21 pages' first load,
+  // where a second copy of the whole clause cost +36 B gz and the branched
+  // subject costs +23 (measured 2026-11-16, bundle-budget's S6 entry).
   return (
-    `Every page with text in this document holds more than one pass of ` +
+    `Every page ${scope === "chosen" ? "you chose that has text" : "with text in this document"} holds more than one pass of ` +
     `Translate PDF can translate (about ${limit} characters): ${list}. ` +
     `${tail}any of those pages shorter.`
   );

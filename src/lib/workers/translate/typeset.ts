@@ -59,7 +59,9 @@ import { TRANSLATE_RTL_LANGUAGES } from "@/lib/jobs/translate-pdf-render";
 import type { DocumentPackage, PackageDocument } from "../html-render/engine";
 import { HTML_DOCUMENT_URL } from "../html-render/document-url";
 import { PRINT_TO_PDF_OPTIONS } from "../html-render/print-params";
+import type { PageSpan } from "@/lib/pdf/page-spans";
 import { gapMarkdown, type TranslationPart } from "./assembly";
+import { pagesLabel } from "./page-labels";
 
 export interface TypesetInput {
   readonly parts: readonly TranslationPart[];
@@ -149,13 +151,18 @@ function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (ch) => ESCAPES[ch]!);
 }
 
-/** "Page 4" or "Pages 4–9": a body's heading, from its own pages. */
-export function pageRangeLabel(pages: readonly number[]): string {
-  const first = pages[0];
-  const last = pages[pages.length - 1];
-  return pages.length === 1 || first === last
-    ? `Page ${first}`
-    : `Pages ${first}–${last}`;
+/**
+ * "Page 4", "Pages 4–9" or, under a selection, "Pages 2, 4": a body's
+ * heading, from its own pages and the job's chosen spans (`null` for a whole
+ * document). `pagesLabel` is the one author (`./page-labels`): a fallen-back
+ * chunk of chosen pages 2 and 4 is never headed "Pages 2–4", which would
+ * claim page 3.
+ */
+export function pageRangeLabel(
+  pages: readonly number[],
+  chosen: readonly PageSpan[] | null,
+): string {
+  return pagesLabel(pages, chosen);
 }
 
 /**
@@ -294,7 +301,7 @@ function build(input: TypesetInput): {
     if (part.kind === "body") {
       const heading =
         part.pages.length > 0
-          ? `<h2>${w.fixed(pageRangeLabel(part.pages))}</h2>\n`
+          ? `<h2>${w.fixed(pageRangeLabel(part.pages, part.chosen))}</h2>\n`
           : "";
       out.push(`<section>${heading}${bodyHtml(part.text, w)}</section>`);
     } else {

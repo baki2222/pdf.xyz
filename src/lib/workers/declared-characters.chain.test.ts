@@ -176,6 +176,43 @@ describe("the declared count reaches the route's contract", () => {
     ).toBe(DECLARED_PAGES);
   });
 
+  it("a SELECTION job (audit #29 slice 6): pages and both declarations survive the client and the REAL parser together", async () => {
+    // The panel declares the chosen pages' characters and text pages beside
+    // `pages`; the charge is right only while all three reach the route in
+    // the same body. A client that sent the selection and dropped its
+    // declaration would reserve the maximum for two pages.
+    const chosen: [number, number][] = [
+      [2, 2],
+      [4, 4],
+    ];
+    const { fetchImpl, jobBodies } = captureTransport();
+    await runWorkerTranslate(
+      {
+        filename: "report.pdf",
+        bytes: BYTES,
+        targetLanguage: "fr",
+        sourceLanguage: "auto",
+        declaredCharacters: DECLARED,
+        declaredTextPages: DECLARED_PAGES,
+        pages: chosen,
+      },
+      { fetchImpl, pollIntervalMs: 0, maxPollAttempts: 1 },
+    );
+    expect(jobBodies.length).toBe(1);
+    const parsed = parseCreateJobRequest(jobBodies[0]);
+    expect(
+      parsed.ok,
+      parsed.ok ? "" : "a selection body does not parse at the route",
+    ).toBe(true);
+    if (!parsed.ok) return;
+    expect(
+      (parsed.value.options as Record<string, unknown>).pages,
+      "the chosen pages did not survive the wire and the parser",
+    ).toEqual(chosen);
+    expect(parsed.value.declaredCharacters).toBe(DECLARED);
+    expect(parsed.value.declaredTextPages).toBe(DECLARED_PAGES);
+  });
+
   it("CONTROL: an undeclared job parses too, and declares nothing", async () => {
     // The default path must keep working — a direct API caller that sends no
     // count is not an error, it just pays the maximum. If this went red the

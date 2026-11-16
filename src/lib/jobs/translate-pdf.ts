@@ -6,7 +6,9 @@
  * pure parser — no Next.js, no storage, no AI SDK. It defines exactly what a
  * translation request may ask for (into which language, from which language, with an
  * optional directive) so the UI, the worker engine, and the docs share one honest
- * source of truth. It depends only on `./responses` and `./filenames`, so a client
+ * source of truth. It depends only on `./responses`, `./filenames`, `./ocr` (PDF to
+ * Word's OCR option parser, which the OCR request is validated by) and
+ * `./page-spans-option` (the one wire grammar for a page selection), so a client
  * component can import the validator without pulling a Node built-in or the AI
  * provider into the bundle.
  *
@@ -19,6 +21,7 @@
 
 import { apiError, type ParseResult } from "./responses";
 import { parsePdfToWordOptions } from "./ocr";
+import { parsePageSpansOption } from "./page-spans-option";
 import {
   MAX_DISPLAY_FILENAME_LENGTH,
   sanitizeDisplayFilename,
@@ -174,6 +177,24 @@ export interface TranslateOptions {
    * prompt directive, never a key/path/log line.
    */
   instructions?: string;
+  /**
+   * Translate only these pages: canonical 1-based PHYSICAL spans (see
+   * `./page-spans-option`, the grammar Summarize's `pages` uses). Absent means
+   * the whole document. The route checks only the shape; whether page 15
+   * exists is the worker's refusal (`pages_out_of_range`).
+   *
+   * An image that predates this key ignores it (this parser is lenient to
+   * unknown keys) and translates the WHOLE document under a delivery cap sized
+   * for the selection, which then withholds most of it. That is why the route
+   * admits a request carrying it only while the heartbeat proves
+   * `translatePageRange`. Never combined with `ocr` (refused by the parser):
+   * a scan is charged undeclared and recognised whole.
+   *
+   * Spelled out rather than `PageSpan[]` (the same type, `@/lib/pdf/page-spans`)
+   * because the /privacy options walk reads each option's type in this file
+   * to decide whether it is free text: page numbers are not.
+   */
+  pages?: (readonly [number, number])[];
 }
 
 /**
@@ -289,6 +310,23 @@ export function parseTranslateOptions(
       }
       result.instructions = trimmed;
     }
+  }
+
+  // THE PAGE SELECTION (competitor audit #29, slice 6), through the one wire
+  // grammar Summarize uses. Refused with OCR: a scan declares no count, is
+  // charged undeclared, and OCR-first recognises the whole file, so a
+  // selection on it would be a choice nothing honours. Checked here, before
+  // the route charges anything.
+  if (options.pages !== undefined) {
+    if (translateAsksForOcr(options)) {
+      return invalid(
+        "`pages` cannot be combined with `ocr`. Choose pages only for a PDF with selectable text.",
+        "pages",
+      );
+    }
+    const pages = parsePageSpansOption(options.pages, "pages");
+    if (!pages.ok) return pages;
+    result.pages = pages.value;
   }
 
   return { ok: true, value: result };

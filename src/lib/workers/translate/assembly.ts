@@ -16,19 +16,31 @@
  * complete; a reader who meets it in place has not.
  */
 import type { DeliveryBound } from "@/lib/jobs/delivery-cap";
+import type { PageSpan } from "@/lib/pdf/page-spans";
 import {
   missingPageMarker,
   withheldPagesMarker,
   type DeliveryLimit,
   type TranslatePlan,
 } from "./chunking";
+import { pagesLabel } from "./page-labels";
+
+/**
+ * The pages the person chose (canonical physical spans), or `null` for a
+ * whole-document job. REQUIRED on every part, never optional: every label a
+ * part is written with derives from it (`./page-labels`), and a dropped
+ * optional field is invisible at every hop (CLAUDE.md rule 5), where a
+ * required one makes every constructor say what it means. Set once, in
+ * {@link assembleParts}.
+ */
+type Chosen = { readonly chosen: readonly PageSpan[] | null };
 
 /**
  * One translated run of pages: the model's reply with this product's page
  * markers removed (`./page-map`), trimmed. In the PDF, a chunk whose markers
  * verified arrives as one body per page; the ZIP always gets one per call.
  */
-export interface TranslationBody {
+export interface TranslationBody extends Chosen {
   readonly kind: "body";
   /** Real page numbers, ascending; empty for an unchunked (single) document. */
   readonly pages: readonly number[];
@@ -36,26 +48,28 @@ export interface TranslationBody {
 }
 
 /** A place in the document where pages are NOT translated, and why. */
-export type TranslationGap =
-  | {
-      readonly kind: "gap";
-      readonly reason: "oversize";
-      readonly pages: readonly number[];
-      /** Characters on the page that exceeded one call. */
-      readonly characters: number;
-    }
-  | {
-      readonly kind: "gap";
-      readonly reason: "interrupted";
-      readonly pages: readonly number[];
-    }
-  | {
-      readonly kind: "gap";
-      readonly reason: "withheld";
-      readonly pages: readonly number[];
-      readonly boundBy: DeliveryBound;
-      readonly limit: DeliveryLimit;
-    };
+export type TranslationGap = Chosen &
+  (
+    | {
+        readonly kind: "gap";
+        readonly reason: "oversize";
+        readonly pages: readonly number[];
+        /** Characters on the page that exceeded one call. */
+        readonly characters: number;
+      }
+    | {
+        readonly kind: "gap";
+        readonly reason: "interrupted";
+        readonly pages: readonly number[];
+      }
+    | {
+        readonly kind: "gap";
+        readonly reason: "withheld";
+        readonly pages: readonly number[];
+        readonly boundBy: DeliveryBound;
+        readonly limit: DeliveryLimit;
+      }
+  );
 
 export type TranslationPart = TranslationBody | TranslationGap;
 
@@ -75,6 +89,11 @@ export interface TranslatedSegment {
  * with the text makes that impossible rather than unlikely; it changes the
  * Markdown only in that case, which the characterisation fixtures do not
  * exercise (and `assembly.test.ts` pins the corrected placement).
+ *
+ * `chosen` is the job's page selection (or `null`), stamped on every part so
+ * each label is derived from it (`./page-labels`). The engine's two calls
+ * (the PDF's parts and the ZIP's) each pass it: they are separate call sites,
+ * and each has its own test.
  */
 export function assembleParts(
   translated: readonly TranslatedSegment[],
@@ -85,6 +104,7 @@ export function assembleParts(
     boundBy: DeliveryBound;
     limit: DeliveryLimit;
   } | null,
+  chosen: readonly PageSpan[] | null,
 ): TranslationPart[] {
   if (plan === null) {
     return [
@@ -92,6 +112,7 @@ export function assembleParts(
         kind: "body",
         pages: [],
         text: translated.map((t) => t.text).join("\n\n"),
+        chosen,
       },
     ];
   }
@@ -99,7 +120,10 @@ export function assembleParts(
   for (const t of translated) {
     const at = t.pages[0];
     if (at !== undefined)
-      placed.push({ at, part: { kind: "body", pages: t.pages, text: t.text } });
+      placed.push({
+        at,
+        part: { kind: "body", pages: t.pages, text: t.text, chosen },
+      });
   }
   for (const page of plan.oversize) {
     placed.push({
@@ -109,13 +133,19 @@ export function assembleParts(
         reason: "oversize",
         pages: [page.pageNumber],
         characters: page.characters,
+        chosen,
       },
     });
   }
   if (interruptedPages.length > 0) {
     placed.push({
       at: interruptedPages[0]!,
-      part: { kind: "gap", reason: "interrupted", pages: interruptedPages },
+      part: {
+        kind: "gap",
+        reason: "interrupted",
+        pages: interruptedPages,
+        chosen,
+      },
     });
   }
   // Positioned like every other gap: at the page where delivery stopped, not
@@ -129,6 +159,7 @@ export function assembleParts(
         pages: withheld.pages,
         boundBy: withheld.boundBy,
         limit: withheld.limit,
+        chosen,
       },
     });
   }
@@ -136,12 +167,16 @@ export function assembleParts(
   return placed.map((p) => p.part);
 }
 
-/** The gap left where a chunk failed part-way through a document. */
-export function interruptedNotice(pages: readonly number[]): string {
-  const list =
-    pages.length === 1
-      ? `Page ${pages[0]}`
-      : `Pages ${pages[0]}–${pages[pages.length - 1]}`;
+/**
+ * The gap left where a chunk failed part-way through a document. Its page
+ * list is `pagesLabel`'s, so under a selection it names only chosen pages
+ * ("Pages 4, 6"); for a whole document it is `first–last`, byte for byte.
+ */
+export function interruptedNotice(
+  pages: readonly number[],
+  chosen: readonly PageSpan[] | null,
+): string {
+  const list = pagesLabel(pages, chosen);
   return [
     "",
     `> ⚠️ **${list} could not be translated.**`,
@@ -159,9 +194,9 @@ export function gapMarkdown(gap: TranslationGap): string {
         characters: gap.characters,
       });
     case "interrupted":
-      return interruptedNotice(gap.pages);
+      return interruptedNotice(gap.pages, gap.chosen);
     case "withheld":
-      return withheldPagesMarker(gap.pages, gap.boundBy, gap.limit);
+      return withheldPagesMarker(gap.pages, gap.boundBy, gap.limit, gap.chosen);
   }
 }
 

@@ -61,9 +61,9 @@ export type TruncationWindow = AiWindowMeta;
 
 /**
  * A window over an untruncated document: everything, nothing to disclose.
- * With a page selection (Summarize's page range) it carries the pages the
- * person chose as `pagesSent`: all of them went, blank ones included (they
- * were chosen, and all of their zero characters were sent).
+ * With a page selection (Summarize's and Translate's page range) it carries
+ * the pages the person chose as `pagesSent`: all of them went, blank ones
+ * included (they were chosen, and all of their zero characters were sent).
  */
 function whole(
   text: string,
@@ -144,15 +144,17 @@ function tableDescribes(assembled: string, starts: readonly PageStart[]) {
  * index + 1 would name a page the user could go and check and find wrong,
  * which is a new confident false claim replacing the old one.
  *
- * `selection` (Summarize's page range, canonical spans) is the pages the
- * person chose; `assembled` and `starts` must then be built from those pages
- * only. The window carries `pagesSent`: the whole selection when it fits;
+ * `selection` (a page range, canonical spans) is the pages the person
+ * chose; `assembled` and `starts` must then be built from those pages only.
+ * Summarize passes its `pages` option; Translate passes the spans of the
+ * pages that survived its filter (so its echo witnesses the filter). The window carries `pagesSent`: the whole selection when it fits;
  * when truncated, the selection clipped at the last page whose text STARTED
  * before the cut (that page's own number, never a chunk position); and
  * nothing at all when the table does not describe the string, so the panel
  * reads "not confirmed" rather than a page list derived from a wrong table.
  * Without `selection` the result is exactly what it was before, field for
- * field: chat, ai-extract and translate never pass one.
+ * field: chat and ai-extract never pass one, and neither does a
+ * whole-document Summarize or Translate job.
  */
 export function describeWindow(
   assembled: string,

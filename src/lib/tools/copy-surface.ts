@@ -178,6 +178,16 @@ export function copyFiles(): string[] {
     // Summarize's page-choice refusal at the route and the panel's rollback
     // warning (2026-11-16, slice 5): one module both sides import.
     path.join(ROOT, "src", "lib", "jobs", "summarize-pages.ts"),
+    // The chosen-pages no-text sentence both tools' measures and engines say
+    // (2026-11-16, slice 6): moved out of summarize-pages.ts so no panel
+    // ships it; walked from its first file.
+    path.join(ROOT, "src", "lib", "jobs", "chosen-pages-no-text.ts"),
+    // Translate's page-choice refusal at the route (2026-11-16, competitor
+    // audit #29 slice 6), walked from its first file.
+    path.join(ROOT, "src", "lib", "jobs", "translate-pages.ts"),
+    // The typed page text's one author, shared by Summarize's and
+    // Translate's measures (2026-11-16, slice 6): the span-limit refusal.
+    path.join(ROOT, "src", "lib", "pdf", "typed-page-spans.ts"),
     // Summarize's refusals before upload (2026-11-16, slice 5): a locked,
     // unreadable or text-less PDF, and chosen pages the PDF cannot give.
     path.join(ROOT, "src", "lib", "workers", "summarize-measure.ts"),
@@ -225,6 +235,17 @@ export function copyFiles(): string[] {
       "workers",
       "summarize",
       "pages-capability.ts",
+    ),
+    // The Translate page-range proof (2026-11-16, audit #29 slice 6): its
+    // check lines and the selection sentence it expects are printed by the
+    // in-image proof step.
+    path.join(
+      ROOT,
+      "src",
+      "lib",
+      "workers",
+      "translate",
+      "page-range-capability.ts",
     ),
     // The PDF to Office exports' OCR switch hints, per tool (2026-11-08,
     // audit pdf-to-excel#2), drawn by the export panel.

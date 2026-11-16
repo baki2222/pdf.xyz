@@ -11,6 +11,8 @@ import {
   translatedPdfOutputName,
 } from "./translate-pdf";
 import { parseAiToolOptions } from "./ai-tool-options";
+import { parsePageSpansOption } from "./page-spans-option";
+import { CORPUS } from "./page-spans-option.corpus";
 
 describe("parseTranslateOptions", () => {
   it("accepts a target language and defaults the source to auto-detect", () => {
@@ -197,6 +199,110 @@ describe("parseTranslateOptions — the source and target must differ", () => {
     expect(
       parseTranslateOptions({ targetLanguage: "es", sourceLanguage: "auto" })
         .ok,
+    ).toBe(true);
+  });
+});
+
+/**
+ * Translate a page range (competitor audit #29, slice 6): `pages` is read by
+ * the ONE wire grammar (`parsePageSpansOption`), so every row of its
+ * both-directions corpus gets the same verdict, and the same words, through
+ * this parser. Imported, not copied: a row added there is asked here too.
+ */
+describe("parseTranslateOptions — pages", () => {
+  it("health: the shared corpus is not quietly small, and holds both verdicts", () => {
+    expect(CORPUS.length).toBeGreaterThanOrEqual(15);
+    expect(CORPUS.some(([, , b]) => b === "accepted")).toBe(true);
+    expect(CORPUS.some(([, , b]) => b !== "accepted")).toBe(true);
+  });
+
+  it.each(CORPUS.map(([name, value]) => [name, value] as const))(
+    "%s: the grammar's verdict and words, on field `pages`",
+    (_name, value) => {
+      const direct = parsePageSpansOption(value, "pages");
+      const r = parseTranslateOptions({ targetLanguage: "fr", pages: value });
+      if (direct.ok) {
+        expect(r).toEqual({
+          ok: true,
+          value: {
+            targetLanguage: "fr",
+            sourceLanguage: DEFAULT_TRANSLATE_SOURCE,
+            pages: direct.value,
+          },
+        });
+      } else {
+        expect(r.ok).toBe(false);
+        if (!r.ok) {
+          expect(r.error.body.error.code).toBe("invalid_request");
+          expect(r.error.body.error.details?.[0]?.field).toBe("pages");
+          expect(r.error.body.error.message).toBe(
+            direct.error.body.error.message,
+          );
+        }
+      }
+    },
+  );
+
+  it("a bag without `pages` parses to exactly what it did before the key existed", () => {
+    expect(
+      parseTranslateOptions({
+        targetLanguage: "fr",
+        sourceLanguage: "en",
+        instructions: "formal",
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        targetLanguage: "fr",
+        sourceLanguage: "en",
+        instructions: "formal",
+      },
+    });
+  });
+
+  it("refuses `pages` with `ocr`, on field `pages`, before anything is charged", () => {
+    const bag = {
+      targetLanguage: "fr",
+      pages: [[1, 1]],
+      ocr: true,
+      languages: ["eng"],
+    };
+    for (const r of [
+      parseTranslateOptions(bag),
+      parseAiToolOptions("translate-pdf", bag)!,
+    ]) {
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.body.error.code).toBe("invalid_request");
+        expect(r.error.body.error.details?.[0]?.field).toBe("pages");
+        expect(r.error.body.error.message).toMatch(/cannot be combined with/);
+      }
+    }
+    // POSITIVE CONTROLS: each half alone is admissible.
+    expect(
+      parseTranslateOptions({ targetLanguage: "fr", pages: [[1, 1]] }).ok,
+    ).toBe(true);
+    expect(
+      parseTranslateOptions({
+        targetLanguage: "fr",
+        ocr: true,
+        languages: ["eng"],
+      }).ok,
+    ).toBe(true);
+  });
+
+  it("an explicit `ocr: false` is not an OCR request, so pages are kept", () => {
+    const r = parseTranslateOptions({
+      targetLanguage: "fr",
+      pages: [[2, 2]],
+      ocr: false,
+    });
+    expect(r.ok && r.value.pages).toEqual([[2, 2]]);
+  });
+
+  it("stays lenient to other unknown keys (tightening is its own decision)", () => {
+    expect(
+      parseTranslateOptions({ targetLanguage: "fr", futureKey: 1 }).ok,
     ).toBe(true);
   });
 });

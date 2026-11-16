@@ -281,7 +281,9 @@ export function headedByPage(
   if (lines.some((l) => /^Pages /.test(l))) return false;
   const headingAt: number[] = [];
   for (let n = 1; n <= pages.length; n += 1) {
-    const at = lines.flatMap((l, i) => (l === pageRangeLabel([n]) ? [i] : []));
+    const at = lines.flatMap((l, i) =>
+      l === pageRangeLabel([n], null) ? [i] : [],
+    );
     if (at.length !== 1) return false;
     headingAt.push(at[0]!);
   }
@@ -308,7 +310,10 @@ export function headedByRange(
 ): boolean {
   const lines = linesOf(text);
   if (lines.some((l) => /^Page \d+$/.test(l))) return false;
-  const range = pageRangeLabel(pages.map((_, i) => i + 1));
+  const range = pageRangeLabel(
+    pages.map((_, i) => i + 1),
+    null,
+  );
   const at = lines.flatMap((l, i) => (l === range ? [i] : []));
   if (at.length !== 1) return false;
   let last = at[0]!;

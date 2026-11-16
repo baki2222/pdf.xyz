@@ -599,6 +599,21 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /\btranslat[^.]{0,80}\b(?:heads?|headed|headings?)\b[^.]{0,40}\bpages?\b|\bpage headings?\b[^.]{0,60}\btranslat/i,
     catalogueCopy: true,
   },
+  translatePageRange: {
+    // Added 2026-11-16 with the key (competitor audit #29, slice 6: page
+    // ranges). The sentences a hedge about it would sit in: translating the
+    // pages a reader chooses, shaped for the advertisement slice 7 writes
+    // ("Enter a page range and translate the rest tomorrow"). FALSE: no
+    // shipped sentence offers it, so "each subject matcher's declared
+    // catalogue coverage is the truth" REQUIRES this to match nothing, and
+    // slice 7 flips it on purpose. Kept off Split, Extract and Delete pages
+    // ("page range" with no "translat…"): "translat…" must come first, or
+    // the whole phrase "enter a page range … translat…" must appear. See
+    // "the translatePageRange subject".
+    subject:
+      /\btranslat[^.]{0,80}\b(?:page ranges?|pages? you (?:choose|chose|enter)|choose (?:which )?pages)\b|\benter a page range\b[^.]{0,60}\btranslat/i,
+    catalogueCopy: false,
+  },
 };
 
 /* ------------------------------------------------------------------ *
@@ -1679,6 +1694,67 @@ describe("the translatePageMap subject (competitor audit #29 slice 4, 2026-11-16
     expect(promise).not.toMatch(/nothing yet/);
     expect(promise).toMatch(/own page heading/);
     expect(promise).toMatch(/page-range heading otherwise/);
+  });
+});
+
+describe("the translatePageRange subject (competitor audit #29 slice 6, 2026-11-16)", () => {
+  /**
+   * `catalogueCopy: false`, like translatePageMap's: the planted sentences
+   * below are the ONLY things that exercise the subject (house rule 1), and
+   * the negative control holds it off the page-range copy of other tools.
+   */
+  it("reaches nothing shipped today (measured: no member)", () => {
+    const members = COPY.filter((entry) =>
+      SUBJECTS.translatePageRange!.subject.test(entry.text),
+    ).map((entry) => `${entry.slug} ${entry.where}`);
+    expect(members).toEqual([]);
+  });
+
+  it("positive control: slice 7's advertisement is a member, and a planted deferral is caught", () => {
+    // The sentence slice 7 is planned to ship.
+    expect(
+      SUBJECTS.translatePageRange!.subject.test(
+        "Enter a page range and translate the rest tomorrow, with no splitting.",
+      ),
+    ).toBe(true);
+    const planted: CopyEntry = {
+      slug: "translate-pdf",
+      where: "useCases[0].body",
+      text: "Soon you will be able to translate only the pages you choose.",
+    };
+    expect(SUBJECTS.translatePageRange!.subject.test(planted.text)).toBe(true);
+    expect(
+      hedgeOffenders([planted], []).some((line) =>
+        line.includes('hedges "translatePageRange"'),
+      ),
+    ).toBe(true);
+  });
+
+  it("negative control: other tools' page-range copy is NOT a member", () => {
+    const near = COPY.filter(
+      (entry) =>
+        entry.slug !== "translate-pdf" && /\bpage ranges?\b/i.test(entry.text),
+    );
+    // Health: the sentences this control is about are still in the corpus.
+    expect(near.length).toBeGreaterThanOrEqual(3);
+    for (const entry of near)
+      expect(
+        SUBJECTS.translatePageRange!.subject.test(entry.text),
+        `${entry.slug} ${entry.where}`,
+      ).toBe(false);
+    expect(
+      SUBJECTS.translatePageRange!.subject.test(
+        "Enter a page range to extract, such as 1-3, 8.",
+      ),
+    ).toBe(false);
+  });
+
+  it("the operations promise is positive, like summarizePages's (the panel offers it only while it reads true)", () => {
+    const promise = ADVERTISED_WORKER_CAPABILITIES.find(
+      (c) => c.key === "translatePageRange",
+    )?.promise;
+    expect(promise, "the operations row lost its promise").toBeDefined();
+    expect(promise).toMatch(/sends only the pages the reader chose/);
   });
 });
 

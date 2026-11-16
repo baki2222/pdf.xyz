@@ -134,7 +134,7 @@ async function main(): Promise<number> {
       },
       readBack,
       input: {
-        parts: [{ kind: "body", pages: [1], text: c.text }],
+        parts: [{ kind: "body", pages: [1], text: c.text, chosen: null }],
         target: c.target,
         sourceName: "probe.pdf",
       },

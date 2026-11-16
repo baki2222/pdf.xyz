@@ -129,6 +129,7 @@ describe("createHeartbeatPublisher", () => {
         translatePdfLanguages: [],
         translateReadingOrder: true,
         translatePageMap: true,
+        translatePageRange: true,
       },
       deps: { client: fake, now: () => 1_000 },
     });
@@ -181,6 +182,7 @@ describe("createHeartbeatReader / readWorkerHeartbeatLiveness", () => {
             translatePdfLanguages: [],
             translateReadingOrder: true,
             translatePageMap: true,
+            translatePageRange: true,
           },
           at: now,
         }),

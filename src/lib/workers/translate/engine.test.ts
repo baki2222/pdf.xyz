@@ -513,6 +513,7 @@ describe("translate refuses more text than the model may write back", () => {
       translateEveryPageTooLongMessage(
         [{ pageNumber: 1, characters: huge.length }],
         TRANSLATE_MAX_INPUT_CHARS,
+        "document",
       ),
     );
     expect(run.message).toContain(

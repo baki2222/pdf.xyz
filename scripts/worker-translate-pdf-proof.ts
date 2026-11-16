@@ -258,7 +258,7 @@ async function main(): Promise<number> {
   for (const c of REWRITE_CASES) {
     const result = await render({
       input: {
-        parts: [{ kind: "body", pages: [1], text: c.text }],
+        parts: [{ kind: "body", pages: [1], text: c.text, chosen: null }],
         target: c.target,
         sourceName: "proof.pdf",
       },

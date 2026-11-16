@@ -455,6 +455,24 @@ export interface HeartbeatCapabilities {
    * nothing, and the absence parses as `false`.
    */
   readonly translatePageMap: boolean;
+  /**
+   * This image's Translate PDF translates only the pages a person chose
+   * (`pages` on the job, competitor audit #29 slice 6): it applies the
+   * selection by PHYSICAL page number BEFORE the reading-order gate, the
+   * planner and the delivery cap, so the model receives exactly those pages,
+   * the page markers carry their real numbers, and every label names only
+   * chosen pages.
+   *
+   * PROVEN AT START-UP (`translate/page-range-capability.ts`,
+   * `provesTranslatePageRange`) on the image's OWN Translate extractor, over
+   * a generated five-page PDF whose page 1 is blank, so an index-for-number
+   * defect sends the wrong pages and is seen. An image built before the key
+   * IGNORES `pages` (its parser is lenient to unknown keys) and translates the
+   * whole document under a delivery cap sized for the selection, so the web
+   * offers a page choice, and `POST /api/jobs` admits one, only while this
+   * reads `true` on an observed heartbeat. The absence parses as `false`.
+   */
+  readonly translatePageRange: boolean;
 }
 
 /**
