@@ -22,13 +22,11 @@
 import { describe, expect, it } from "vitest";
 import {
   PAGE_JOIN,
-  collapseLayoutPadding,
   pageTextChunks,
   type ExtractedPdfText,
 } from "@/lib/pdf/text";
-import { parseBboxFlow, parseLayoutText } from "../pdf-text/parse";
-import { flowText, type PdfFlowText } from "../pdf-text/flow";
-import * as samples from "@/tests/poppler-samples";
+import type { PdfFlowText } from "../pdf-text/flow";
+import { discoverReadingOrderPairs } from "@/tests/reading-order-pairs";
 import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
 import {
   capPagesToDelivery,
@@ -81,30 +79,7 @@ const KNOWN_PAIRS = [
   "TWO_COLUMN",
 ] as const;
 
-interface Pair {
-  name: string;
-  layout: ExtractedPdfText;
-  flow: PdfFlowText;
-}
-
-function discoverPairs(): Pair[] {
-  const exported = samples as unknown as Record<string, unknown>;
-  const names = Object.keys(exported)
-    .filter((key) => key.endsWith("_LAYOUT"))
-    .map((key) => key.slice(0, -"_LAYOUT".length))
-    .filter((base) => typeof exported[`${base}_BBOX`] === "string")
-    .sort();
-  return names.map((name) => ({
-    name,
-    // The shared extractor's "collapse" shape: what Translate reads today.
-    layout: parseLayoutText(
-      collapseLayoutPadding(exported[`${name}_LAYOUT`] as string),
-    ),
-    flow: flowText(parseBboxFlow(exported[`${name}_BBOX`] as string)),
-  }));
-}
-
-const PAIRS = discoverPairs();
+const PAIRS = discoverReadingOrderPairs();
 
 async function compose(
   layout: ExtractedPdfText,

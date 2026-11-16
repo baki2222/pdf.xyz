@@ -20,8 +20,13 @@ import { OFFICE_TO_PDF_TOOLS } from "@/lib/workers/office-conversion/engine";
 import { tools } from "@/lib/tools";
 import { capabilityForMode } from "./capabilities";
 import { TRANSLATE_PDF_RENDER_TIMEOUT_MS } from "./translate-pdf-render";
+import { TRANSLATE_FLOW_TIMEOUT_MS } from "./translate-reading-order";
+import { resolveNativePdfTextConfig } from "@/lib/workers/pdf-text/native-config";
 import { resolveNativeHtmlRenderConfig } from "@/lib/workers/html-render/native-config";
-import { translatePdfRenderConfig } from "@/lib/workers/translate/native";
+import {
+  translateFlowConfig,
+  translatePdfRenderConfig,
+} from "@/lib/workers/translate/native";
 import { RATE_LIMITS } from "./types";
 import {
   AI_CALL_TIMEOUT_MS,
@@ -86,9 +91,13 @@ describe("each budget outlasts the worker's own work", () => {
     // provider call has returned. The pipeline margin (60 s) is smaller than
     // Chromium's own 120 s budget, so a wait that did not add the render
     // would abandon a job whose calls were already paid for.
+    // 2026-11-16 (reading order): Translate's second extraction, the
+    // `-bbox-layout` run, comes before the calls but after the charge, so it
+    // is waited for too. Red without the term in `perChunk` at 12 chunks.
     for (const chunks of [1, 2, 5, 12]) {
       expect(pollWaitMs(translateJobPoll(chunks))).toBeGreaterThanOrEqual(
         chunks * AI_TIMEOUT_MS_BOUNDS.default +
+          TRANSLATE_FLOW_TIMEOUT_MS +
           TRANSLATE_PDF_RENDER_TIMEOUT_MS +
           PIPELINE_MARGIN_MS,
       );
@@ -100,15 +109,38 @@ describe("each budget outlasts the worker's own work", () => {
   // now runs after the RETRIED call too. Worst case: 120 s timeout, 2 s
   // requeue, 120 s retried call, 60 s render, 60 s margin = 362,000 ms. Red on
   // that code with "expected 303000 to be greater than or equal to 362000".
+  //
+  // 2026-11-16 (reading order): a retried attempt extracts again, the
+  // `-bbox-layout` run included, so the floor carries the flow deadline too:
+  // 392,000 ms. For one chunk the floor is the binding term, so a flow term
+  // added only per chunk would change nothing for a small document.
   it("translate: the retried call's render is waited for too (the one-chunk floor)", () => {
     for (const chunks of [1, 2, 5, 12]) {
       expect(pollWaitMs(translateJobPoll(chunks))).toBeGreaterThanOrEqual(
         2 * AI_TIMEOUT_MS_BOUNDS.default +
           retryRequeueDelayMs(1) +
+          TRANSLATE_FLOW_TIMEOUT_MS +
           TRANSLATE_PDF_RENDER_TIMEOUT_MS +
           PIPELINE_MARGIN_MS,
       );
     }
+  });
+
+  it("translate: the flow run's deadline the worker sets is never longer than the wait adds", () => {
+    // The second, independent number: the worker's own deadline for the
+    // `-bbox-layout` run, read from its config resolver.
+    const config = resolveNativePdfTextConfig({});
+    expect(translateFlowConfig(config).timeoutMs).toBe(
+      Math.min(config.timeoutMs, TRANSLATE_FLOW_TIMEOUT_MS),
+    );
+    expect(translateFlowConfig(config).timeoutMs).toBeLessThanOrEqual(
+      TRANSLATE_FLOW_TIMEOUT_MS,
+    );
+    expect(translateFlowConfig({ ...config, timeoutMs: 5_000 }).timeoutMs).toBe(
+      5_000,
+    );
+    // Health: the shared default is longer, so the min is doing work.
+    expect(config.timeoutMs).toBeGreaterThan(TRANSLATE_FLOW_TIMEOUT_MS);
   });
 
   it("translate: the render bound the worker hands Chromium is the one the wait adds", () => {
