@@ -13,6 +13,7 @@ import { render, screen } from "@testing-library/react";
 import { DeliveryNotice } from "./delivery-notice";
 import type { Job } from "@/lib/jobs/types";
 import type { AiDeliveryMeta } from "@/lib/jobs/ai-results";
+import { WITHHELD_UNDERCOUNT_SENTENCE } from "@/lib/jobs/translate-withheld-copy";
 
 function job(delivery?: AiDeliveryMeta): Job {
   return {
@@ -61,7 +62,7 @@ describe("DeliveryNotice", () => {
     expect(screen.getByText(/Translated 8 of 12 pages/)).toBeInTheDocument();
   });
 
-  it("names the ALLOWANCE bound, and what to do about it", () => {
+  it("names the ALLOWANCE bound, and offers no step that cannot work", () => {
     render(
       <DeliveryNotice
         job={job({
@@ -73,10 +74,13 @@ describe("DeliveryNotice", () => {
     );
     const text = document.body.textContent ?? "";
     expect(text).toMatch(/allowance/i);
-    expect(
-      text,
-      "the notice says something is missing and not what to do about it",
-    ).toMatch(/separate document/i);
+    // INVERTED 2026-11-17: this required "separate document", the advice the
+    // notice gave. A rerun of those pages is declared by the same browser
+    // count and is refused the same way
+    // (`translate-withheld-remedy.chain.test.ts`), so the notice now says
+    // what happened, in the package marker's words, and no longer advises it.
+    expect(text).toContain(WITHHELD_UNDERCOUNT_SENTENCE);
+    expect(text).not.toMatch(/separate document/i);
   });
 
   it("names the PAGE bound differently, because the action differs", () => {

@@ -36,6 +36,7 @@ import {
   separatorOverhead,
 } from "./page-markers";
 import { pagesLabel } from "./page-labels";
+import { WITHHELD_UNDERCOUNT_SENTENCE } from "@/lib/jobs/translate-withheld-copy";
 
 /** One provider call's worth of whole pages, in document order. */
 export interface TranslateChunk {
@@ -402,6 +403,15 @@ export function capPagesToDelivery(
  * declaration was OF: under a selection the browser declared the chosen
  * pages, so "the document" would be the wrong one. For a whole-document job
  * both are byte-identical to what they were (the ZIP's characterisation SHAs).
+ *
+ * THE REMEDY IS PER BOUND (2026-11-17). Both bounds ended "Translate the
+ * remaining pages as a separate document." For the PAGE bound that works: a
+ * page count is exact, so the remaining pages are declared correctly the
+ * next time. For the CHARACTERS bound it does not: a rerun is declared by
+ * the same browser count, so its reservation is short in the same
+ * proportion and the rerun is refused before any model call
+ * (`translate-withheld-remedy.chain.test.ts`). That arm says what happened
+ * instead, in the panel's words ({@link WITHHELD_UNDERCOUNT_SENTENCE}).
  */
 export function withheldPagesMarker(
   pages: readonly number[],
@@ -421,7 +431,7 @@ export function withheldPagesMarker(
   return [
     "",
     `> \u26a0\ufe0f **${list} ${pages.length === 1 ? "is" : "are"} not translated.**`,
-    `> ${because} Everything above was translated, and nothing was charged beyond what was reserved. Translate the remaining pages as a separate document.`,
+    `> ${because} Everything above was translated, and nothing was charged beyond what was reserved. ${boundBy === "characters" ? WITHHELD_UNDERCOUNT_SENTENCE : "Translate the remaining pages as a separate document."}`,
     "",
   ].join("\n");
 }
