@@ -4485,7 +4485,7 @@ export const guides: Guide[] = [
         heading: "Pick the size your form asks for",
         body: [
           `Every size on this page counts 1 KB as ${KB_BYTES.toLocaleString("en-US")} bytes. Find the size the form asks for and choose it as the table shows. A size your file is already under cannot be chosen.`,
-          `Each link opens ${nameOf("compress-pdf")} with that size set for you once you add a file, unless your file is already under it.`,
+          `Each link opens ${nameOf("compress-pdf")} with that size set for you once you add a file, as long as our server is available and your file is not already under it.`,
         ],
         table: sizeTable("compress-pdf"),
       },

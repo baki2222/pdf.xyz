@@ -1432,8 +1432,9 @@ describe("Quality chip titles say what the engine is sent", () => {
 
 /**
  * A size guide's `?size=` link (audit #2, 2026-11-17). The Compress size
- * guide's table links here with a size set "once you add a file, unless your
- * file is already under it". The panel mounts only after a file is added, so
+ * guide's table links here with a size set "once you add a file, as long as
+ * our server is available and your file is not already under it". The panel
+ * mounts only after a file is added and the server is confirmed, so
  * that is when the link is read; it never sets a size the reader could not
  * have chosen, and never one the Custom box would warn about.
  */
