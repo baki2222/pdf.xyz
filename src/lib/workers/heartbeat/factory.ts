@@ -399,6 +399,38 @@ export function liveWorkerSelectsChatPages(
   return liveness.observed && liveness.capabilities?.chatRetrieval === true;
 }
 
+/**
+ * May Summarize PDF read only the pages a person chose (competitor audit
+ * summarize-pdf#5)? ONE pure predicate, read by the page's offer (`GET
+ * /api/worker/status`, which shows the "Part to summarize" control) and by
+ * the admission gate (`POST /api/jobs` for a summarize job carrying
+ * `pages`), so the two cannot drift apart.
+ *
+ * The property is "the running image slices the text by physical page
+ * BEFORE the read cap", not "the code is merged": an image built before the
+ * feature parses the options leniently, drops `pages` without a word, and
+ * summarizes the document's opening pages under an allowance sized for the
+ * selection. Only a fresh, observed heartbeat carrying `summarizePages:
+ * true` (proven at the daemon's start-up, `summarize/pages-capability.ts`,
+ * on the image's own pdftotext) says so; a stale, absent or unreachable
+ * beat, or an older image's record (no key, parsed as false), says no.
+ */
+export function liveWorkerSummarizesPages(
+  liveness: HeartbeatLiveness,
+): boolean {
+  return liveness.observed && liveness.capabilities?.summarizePages === true;
+}
+
+/** The admission gate's question, read from the broker. See {@link liveWorkerSummarizesPages}. */
+export async function runningWorkerSummarizesPages(
+  env: EnvSource = process.env,
+  deps: HeartbeatRedisDeps = {},
+): Promise<boolean> {
+  return liveWorkerSummarizesPages(
+    await readWorkerHeartbeatLiveness(env, deps),
+  );
+}
+
 /** The admission gates' question, read from the broker. See {@link liveWorkerRendersHtmlZip}. */
 export async function runningWorkerRendersHtmlZip(
   env: EnvSource = process.env,

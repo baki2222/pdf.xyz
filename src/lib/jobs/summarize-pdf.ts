@@ -4,10 +4,12 @@
  *
  * This is the AI-tool analogue of `@/lib/jobs/request-signatures.ts`: pure data plus
  * a pure parser — no Next.js, no storage, no AI SDK. It defines exactly what a
- * summary request may ask for (how long, in what shape, with an optional focus) so
- * the UI, the worker engine, and the docs share one honest source of truth. It
- * depends only on `./responses` and `./filenames`, so a client component can import
- * the validator without pulling a Node built-in or the AI provider into the bundle.
+ * summary request may ask for (how long, in what shape, with an optional focus and
+ * an optional page selection) so the UI, the worker engine, and the docs share one
+ * honest source of truth. It depends only on `./responses`, `./filenames` and
+ * `./page-spans-option` (pure, and itself only `./responses` plus a dependency-free
+ * leaf), so a client component can import the validator without pulling a Node
+ * built-in or the AI provider into the bundle.
  *
  * HONEST SCOPE (load-bearing): this contract only *describes* a request. Producing a
  * summary requires a configured AI provider and selectable text in the PDF; the
@@ -19,6 +21,7 @@ import {
   MAX_DISPLAY_FILENAME_LENGTH,
   sanitizeDisplayFilename,
 } from "./filenames";
+import { parsePageSpansOption } from "./page-spans-option";
 
 /** The neutral stem used when nothing safe survives filename sanitization. */
 const FALLBACK_STEM = "document";
@@ -55,6 +58,20 @@ export interface SummarizeOptions {
    * never a key/path/log line.
    */
   focus?: string;
+  /**
+   * Summarize only these pages: canonical 1-based PHYSICAL spans (see
+   * `./page-spans-option`). Absent means the whole document. The route checks
+   * only the shape; whether page 15 exists is the worker's refusal.
+   *
+   * An image that predates this key ignores it (this parser is lenient to
+   * unknown keys) and summarizes the prefix, which is why the route admits a
+   * request carrying it only while the heartbeat proves `summarizePages`.
+   *
+   * Spelled out rather than `PageSpan[]` (the same type, `@/lib/pdf/page-spans`)
+   * because the /privacy options walk reads each option's type in this file
+   * to decide whether it is free text: page numbers are not.
+   */
+  pages?: (readonly [number, number])[];
 }
 
 function invalid(message: string, field: string): ParseResult<never> {
@@ -122,6 +139,12 @@ export function parseSummarizeOptions(
       }
       result.focus = trimmed;
     }
+  }
+
+  if (options.pages !== undefined) {
+    const pages = parsePageSpansOption(options.pages, "pages");
+    if (!pages.ok) return pages;
+    result.pages = pages.value;
   }
 
   return { ok: true, value: result };

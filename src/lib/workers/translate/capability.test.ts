@@ -168,12 +168,12 @@ describe("the advertised set and the wire contract agree", () => {
     const advertised = ADVERTISED_WORKER_CAPABILITIES.map((c) => c.key);
 
     // BOUND THE CORPUS: two empty lists are equal, and `[] ⊆ []` is the
-    // strongest possible pass. The wire has had twenty capabilities since
-    // `translateReadingOrder` landed on 2026-11-16 beside `docxTableWraps` and
-    // `chatRetrieval` (all three on 2026-11-16: nineteen with any two, eighteen
-    // with one; seventeen since `translatePdfLanguages` and `docxTypefaces`
-    // landed on 2026-11-15; sixteen and fifteen since `docxTables`, the same
-    // day; fourteen since
+    // strongest possible pass. The wire has had twenty-one capabilities since
+    // `summarizePages`, `translateReadingOrder` and `docxTableWraps` landed
+    // on 2026-11-16 in three branches merged the same day (each said
+    // "nineteen" or "twenty" alone); eighteen since `chatRetrieval`, the same
+    // day; seventeen since `translatePdfLanguages` and `docxTypefaces` on
+    // 2026-11-15; fifteen since `docxTables`, the same day; fourteen since
     // `docxRunStyles`,
     // the same day; thirteen since `htmlZip`,
     // twelve since `translateOcr`, eleven since
@@ -184,7 +184,7 @@ describe("the advertised set and the wire contract agree", () => {
       wire.length,
       "the heartbeat's capability set is implausibly small — the corpus, not " +
         "the code, is what failed",
-    ).toBeGreaterThanOrEqual(20);
+    ).toBeGreaterThanOrEqual(21);
 
     expect(
       [...advertised].sort(),
@@ -267,6 +267,7 @@ describe("the advertised set and the wire contract agree", () => {
       translateOcr: true,
       htmlZip: true,
       chatRetrieval: true,
+      summarizePages: true,
       translatePdfLanguages: true,
       translateReadingOrder: true,
     };

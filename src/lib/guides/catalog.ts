@@ -5023,7 +5023,7 @@ export const guides: Guide[] = [
         heading: "What you get back",
         body: [
           "The summary appears on the page, with Copy summary and a download each for the plain text and the Markdown. The full download is a ZIP holding summary.md, summary.txt, manifest.json and README.txt. The Markdown and plain-text files hold the same summary; the manifest and README record which provider and model wrote it and the options you chose.",
-          `The model reads a bounded amount of the document's text, and the exact figure is stated on the Summarize PDF page itself. A longer document is summarized from its first page up to that point, and both the results panel and summary.md say how far the reading got, by page. Files themselves are capped at ${ceilingMb("summarize-pdf")} MB.`,
+          `The model reads a bounded amount of the document's text, and the exact figure is stated on the Summarize PDF page itself. Past that point the summary covers only the pages that fit, taken in page order, and both the results panel and summary.md name the pages that were read. Files themselves are capped at ${ceilingMb("summarize-pdf")} MB.`,
         ],
       },
       {
@@ -5059,7 +5059,7 @@ export const guides: Guide[] = [
       },
       {
         question: "How long a PDF can it summarize?",
-        answer: `Files up to ${ceilingMb("summarize-pdf")} MB can be added, and the model reads a bounded amount of their text, stated on the Summarize PDF page. Past that, the summary covers the opening pages, and the result says how far the reading got.`,
+        answer: `Files up to ${ceilingMb("summarize-pdf")} MB can be added, and the model reads a bounded amount of their text, stated on the Summarize PDF page. Past that, the summary covers only the pages that fit, taken in page order, and the result names the pages that were read.`,
       },
       {
         question: "Can it summarize a scanned PDF?",
@@ -5067,7 +5067,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-16",
   },
   {
     slug: "how-to-convert-pdf-to-pdfa",

@@ -65,9 +65,22 @@ export interface AiWindowMeta {
   selection?: "relevance";
   /**
    * The pages sent, as inclusive ascending disjoint `[first, last]` spans of
-   * REAL page numbers. Present only with `selection`; dropped by the writer
-   * when invalid or more than 64, in which case the notice says only that
-   * some pages were read, never a range.
+   * REAL page numbers. Two producers, told apart by `selection`:
+   *
+   *  - WITH `selection` (chat): the pages chosen for the question. Dropped by
+   *    the writer when invalid or more than 64, in which case the notice says
+   *    only that some pages were read, never a range.
+   *  - WITHOUT it (Summarize's page range): the pages the PERSON chose whose
+   *    text reached the model — the whole selection, or when truncated the
+   *    selection clipped at the last page whose text started before the cut.
+   *    Present on untruncated windows too. Canonical (non-adjacent) and inside
+   *    the document, or DROPPED whole, never repaired: the panel compares it
+   *    with what it sent (`./selection-echo`), and a missing echo reads as
+   *    "not confirmed", which is true, where a repaired one would read as a
+   *    confident page list nobody chose.
+   *
+   * Absent on every whole-document or prefix window, so those records stay
+   * byte-identical to a worker's that predates both.
    */
   pagesSent?: readonly (readonly [number, number])[];
   /** How many pages were sent. Present only with `selection`. */
@@ -314,7 +327,10 @@ function count(value: unknown): number {
  *    `null`;
  *  - a relevance window (see {@link boundSelection}) keeps `selection` only
  *    when truncated, forces `lastCompletePage` to `null`, and keeps a page
- *    list only when every span is a real range inside the document.
+ *    list only when every span is a real range inside the document;
+ *  - a window WITHOUT `selection` keeps `pagesSent` (the pages a person chose,
+ *    see {@link boundChosenPages}) only when it is already canonical and
+ *    inside the document, truncated or not, and otherwise drops it whole.
  */
 export function buildAiResultMeta(raw: AiResultMeta): AiResultMeta {
   const w = raw.truncation;
@@ -329,6 +345,10 @@ export function buildAiResultMeta(raw: AiResultMeta): AiResultMeta {
       : null;
 
   const selection = truncated ? boundSelection(w, totalPages) : null;
+  const chosen =
+    w.selection === undefined
+      ? boundChosenPages(w.pagesSent, totalPages, truncated, last)
+      : undefined;
   const used = boundUsage(raw.usage);
   const pdf = boundPdf(raw.pdf);
   const readingOrder = boundReadingOrder(raw.readingOrder);
@@ -372,6 +392,7 @@ export function buildAiResultMeta(raw: AiResultMeta): AiResultMeta {
       // fields above (deep-equal to a pre-retrieval worker's record).
       ...(selection ? { selection: "relevance" as const } : {}),
       ...(selection?.pagesSent ? { pagesSent: selection.pagesSent } : {}),
+      ...(chosen ? { pagesSent: chosen } : {}),
       ...(selection && selection.pagesRead !== undefined
         ? { pagesRead: selection.pagesRead }
         : {}),
@@ -413,6 +434,60 @@ function boundSelection(
     ...(spans ? { pagesSent: spans } : {}),
     ...(pagesRead !== undefined ? { pagesRead } : {}),
   };
+}
+
+/**
+ * Re-bound the pages a person chose (Summarize's page range), or `undefined`
+ * to drop them. Unlike {@link boundSpans} this REPAIRS NOTHING: the list must
+ * already be canonical — 1 to {@link CHOSEN_MAX_SPANS} pairs of integers,
+ * `1 ≤ first ≤ last ≤ totalPages`, ascending, disjoint and non-adjacent —
+ * because the panel deep-compares it with what it sent, and a clamped or
+ * merged echo would be a page list the worker never wrote.
+ *
+ * A local loop rather than `parsePageSpansOption`: this module ships to the
+ * browser (`delivery-notice.tsx`), and that parser would bring `./responses`
+ * with it. `page-spans-option.test.ts` holds the two to one verdict, the
+ * span limit included.
+ *
+ * Truncated, the clip must reach at least `lastCompletePage` (when known):
+ * a clip ending before the last page read in full contradicts the record.
+ */
+/**
+ * A chosen selection's span limit: `MAX_PAGE_SPANS` (`./page-spans-option`),
+ * restated rather than imported for the reason above. The echo is the
+ * selection or a clip of it, so it never has more spans than the request.
+ */
+const CHOSEN_MAX_SPANS = 20;
+
+function boundChosenPages(
+  raw: unknown,
+  totalPages: number,
+  truncated: boolean,
+  lastCompletePage: number | null,
+): [number, number][] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  if (raw.length > CHOSEN_MAX_SPANS || totalPages < 1) return undefined;
+  const spans: [number, number][] = [];
+  for (const span of raw as unknown[]) {
+    if (!Array.isArray(span) || span.length !== 2) return undefined;
+    const [first, last] = span as unknown[];
+    if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last))
+      return undefined;
+    const a = first as number;
+    const b = last as number;
+    if (a < 1 || a > b || b > totalPages) return undefined;
+    const prev = spans[spans.length - 1];
+    if (prev && a <= prev[1] + 1) return undefined;
+    spans.push([a, b]);
+  }
+  if (
+    truncated &&
+    lastCompletePage !== null &&
+    spans[spans.length - 1]![1] < lastCompletePage
+  )
+    return undefined;
+  return spans;
 }
 
 function boundSpans(

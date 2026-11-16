@@ -17,6 +17,13 @@
  * "3, 5", because page 4 was never sent and a range would say it was.
  */
 
+/**
+ * One inclusive `[first, last]` range of 1-based PHYSICAL page numbers (1 is
+ * the first page object in document order, never a printed /PageLabels
+ * label). Type-only, so naming it here costs this leaf nothing at runtime.
+ */
+export type PageSpan = readonly [number, number];
+
 /** Consecutive page numbers merged into inclusive `[first, last]` ranges. */
 export function pageSpans(pages: readonly number[]): [number, number][] {
   const sorted = [...new Set(pages)].sort((a, b) => a - b);
@@ -36,6 +43,43 @@ export function formatSpans(
   return spans
     .map(([first, last]) => (first === last ? `${first}` : `${first}–${last}`))
     .join(", ");
+}
+
+/** How many pages `spans` cover. */
+export const pagesIn = (spans: readonly PageSpan[]): number =>
+  spans.reduce((sum, [first, last]) => sum + last - first + 1, 0);
+
+/**
+ * "page 4", "pages 3–5 and 9", "pages 1, 3 and 5–6": each span in
+ * `formatSpans`'s own words (one author for "3–5"), joined with a final
+ * "and" for a reader, singular for exactly one page. The one phrase for a
+ * span in a sentence: the truncation notices, Summarize's section labels and
+ * its out-of-range refusal (`src/lib/pdf/page-spans.guard.test.ts` holds
+ * every module that imports this leaf to it).
+ */
+export function pagesPhrase(spans: readonly PageSpan[]): string {
+  const parts = spans.map((span) => formatSpans([span]));
+  const list =
+    parts.length === 1
+      ? parts[0]!
+      : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]!}`;
+  return `${pagesIn(spans) === 1 ? "page" : "pages"} ${list}`;
+}
+
+/**
+ * The pages a PERSON chose, as an AI window names them: `pagesSent` on a
+ * window WITHOUT `selection` (a relevance window is chat's and has its own
+ * path), or null. Structural, so this leaf imports no type: the truncation
+ * notices and Summarize's selection sentence
+ * (`@/lib/workers/ai/selection-notice`) both read it.
+ */
+export function chosenSpans(window: {
+  readonly selection?: unknown;
+  readonly pagesSent?: readonly PageSpan[];
+}): readonly PageSpan[] | null {
+  if (window.selection !== undefined) return null;
+  const spans = window.pagesSent;
+  return spans && spans.length > 0 ? spans : null;
 }
 
 /** The spans of `pages` and the text that names them. */

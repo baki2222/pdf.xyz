@@ -45,7 +45,10 @@ import {
   providerCharactersSent,
   providerRequestsSent,
   provesAiReadCap,
+  summaryProofSpans,
 } from "./read-cap-proof";
+import { parseSummarizeOptions } from "@/lib/jobs/summarize-pdf";
+import { JOB_LIMITS } from "@/lib/jobs/types";
 
 const WHOLE_RUN = Math.ceil(
   TRANSLATE_MAX_INPUT_CHARS * TRANSLATE_EXTRACTOR_HEADROOM,
@@ -193,13 +196,13 @@ describe.each(perCallTools())(
       async (declared) => {
         // The composed chain: the route's own pricing -> the read bound it hands
         // the worker -> the processor -> the provider request, counted whole.
-        for (const { options, plant } of probesOf(tool)) {
+        for (const { options, plant, pageCounts } of probesOf(tool)) {
           const priced = await priceOf(tool, declared, options);
           expect(
             priced.charge,
             "the run was charged a whole run, so this asks nothing about options",
           ).toBeLessThan(WHOLE_RUN);
-          for (const pageCount of PROOF_PAGE_COUNTS) {
+          for (const pageCount of pageCounts ?? PROOF_PAGE_COUNTS) {
             const sent = await providerCharactersSent(
               tool,
               priced.delivery,
@@ -227,8 +230,8 @@ describe("the instruction allowance the route charges", () => {
     let largest = 0;
     let runs = 0;
     for (const tool of perCallTools()) {
-      for (const { options, plant } of probesOf(tool)) {
-        for (const pageCount of PROOF_PAGE_COUNTS) {
+      for (const { options, plant, pageCounts } of probesOf(tool)) {
+        for (const pageCount of pageCounts ?? PROOF_PAGE_COUNTS) {
           const sent = await providerCharactersSent(
             tool,
             { characters: 400 },
@@ -367,5 +370,73 @@ describe("chat's planted heavy body reaches the relevance branch, and stays insi
 describe("the capability published as aiReadCap", () => {
   it("is proven by this image", async () => {
     expect(await provesAiReadCap()).toBe(true);
+  });
+});
+
+describe("Summarize's page selection under the read cap (slice 5)", () => {
+  /**
+   * A chosen page range adds instruction text the route charges for only
+   * through `AI_PER_CALL_INSTRUCTION_CHARACTERS`: the model notice naming the
+   * pages. The paged heavy body is what makes this proof bound it.
+   */
+  const paged = probesOf("summarize-pdf").filter((p) => p.pageCounts);
+
+  it("probes one paged body per proof page count, each built for its count", () => {
+    expect(paged).toHaveLength(PROOF_PAGE_COUNTS.length);
+    expect(paged.map((p) => p.pageCounts)).toEqual(
+      PROOF_PAGE_COUNTS.map((n) => [n]),
+    );
+    // 300 pages: the most spans the contract allows, at the highest pages.
+    expect(summaryProofSpans(300)).toHaveLength(20);
+    expect(summaryProofSpans(300)[0]).toEqual([262, 262]);
+    expect(summaryProofSpans(300)[19]).toEqual([300, 300]);
+    expect(summaryProofSpans(1)).toEqual([[1, 1]]);
+    expect(summaryProofSpans(38)).toEqual([[1, 1]]);
+    expect(summaryProofSpans(39)[0]).toEqual([1, 1]);
+  });
+
+  it("every paged body is one the route accepts: parsed, and within the options byte cap", () => {
+    for (const { options } of paged) {
+      const parsed = parseSummarizeOptions(options);
+      expect(parsed.ok, JSON.stringify(options).slice(0, 80)).toBe(true);
+      expect(
+        new TextEncoder().encode(JSON.stringify(options)).byteLength,
+      ).toBeLessThanOrEqual(JOB_LIMITS.maxOptionsBytes);
+    }
+  });
+
+  it("HEALTH: on every proof page count the chosen pages fill the cap, so a longer notice has no document-side slack to hide in", async () => {
+    // Read through the detector: the uncapped run's DOCUMENT characters are
+    // the chosen pages' text. Below the cap, a padded notice could pass the
+    // total bound green while the document came in short.
+    for (const { options, pageCounts } of paged) {
+      const pageCount = pageCounts![0]!;
+      const uncapped = await providerCharactersSent(
+        "summarize-pdf",
+        undefined,
+        options,
+        pageCount,
+      );
+      expect(
+        uncapped,
+        `${pageCount} pages: the run did not complete`,
+      ).not.toBeNull();
+      expect(uncapped!.document).toBeGreaterThanOrEqual(400);
+    }
+  });
+
+  it("the paged run really is a selection run: its prompt names the chosen pages", async () => {
+    for (const { options, pageCounts } of paged) {
+      const requests = await providerRequestsSent(
+        "summarize-pdf",
+        { characters: 400 },
+        options,
+        pageCounts![0]!,
+      );
+      expect(requests).not.toBeNull();
+      expect(requests![0]!.system ?? "").toMatch(
+        /The text above covers pages? [^;]+ of \d+, the pages? the user chose/,
+      );
+    }
   });
 });

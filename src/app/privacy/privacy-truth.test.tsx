@@ -365,6 +365,18 @@ function freeTextFieldsIn(fileName: string, source: string): OptionsWalk {
     }
     if (ts.isArrayTypeNode(type))
       return visit(type.elementType, `${at}[]`, seen);
+    // A tuple (Summarize's `pages` spans, 2026-11-16): every element is
+    // walked, named or not, so a string inside one is still free text.
+    if (ts.isTupleTypeNode(type)) {
+      type.elements.forEach((element, i) =>
+        visit(
+          ts.isNamedTupleMember(element) ? element.type : element,
+          `${at}[${i}]`,
+          seen,
+        ),
+      );
+      return;
+    }
     if (ts.isUnionTypeNode(type) || ts.isIntersectionTypeNode(type)) {
       for (const member of type.types) visit(member, at, seen);
       return;
@@ -636,6 +648,8 @@ describe("the derived subjects are the real ones (health)", () => {
         d: Mode;
         e: (typeof MODES)[number];
         f: number;
+        h: (readonly [number, number])[];
+        i: [first: number, label: string];
       }
       export const parseProbeOptions = (raw: unknown): ParseResult<ProbeOptions> => {
         throw raw;
@@ -645,6 +659,7 @@ describe("the derived subjects are the real ones (health)", () => {
       "ProbeOptions.a",
       "ProbeOptions.b[]",
       "ProbeOptions.c[]",
+      "ProbeOptions.i[1]",
       "ProbeOptions.inherited",
     ]);
   });

@@ -363,6 +363,25 @@ export interface HeartbeatCapabilities {
    */
   readonly chatRetrieval: boolean;
   /**
+   * This image's Summarize PDF reads only the pages a person chose — physical
+   * page numbers, matched by each page's own number so a blank page does not
+   * shift the rest — before the read cap, and refuses a page past the end
+   * before any provider call (2026-11-16, audit summarize-pdf#5, slice 5).
+   *
+   * PROVEN AT START-UP (`summarize/pages-capability.ts`,
+   * `provesSummarizePages`): `summarize-pdf` jobs through the executor's
+   * order with the image's REAL `pdftotext` and a recording provider, over a
+   * 4-page PDF whose page 2 is blank. `pages: [[3,3]]` must send page 3's
+   * text and neither page 1's nor page 4's, and the manifest, summary.md,
+   * README, system prompt and stored record must all name page 3 of 4; no
+   * `pages` must send every page; `pages: [[5,5]]` must fail with no provider
+   * call. An image built before the key IGNORES `pages` and summarizes the
+   * whole document, so the web offers a page choice, and `POST /api/jobs`
+   * accepts one, only while this reads `true` on an observed heartbeat. The
+   * absence parses as `false`.
+   */
+  readonly summarizePages: boolean;
+  /**
    * The Translate PDF target languages this image prints as a reflowed PDF
    * beside the translation ZIP (2026-11-15, competitor audit #29 slice 1),
    * as codes from `TRANSLATE_LANGUAGES`, sorted.

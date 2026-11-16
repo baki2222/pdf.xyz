@@ -525,6 +525,17 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /\bhow far into the document\b|\bread up to that point\b|\bpages? that (?:were|was) read\b|\bwhich page it reached\b|\bHow much of my PDF does Chat with PDF read\b|\bpages? (?:are|is) chosen\b|\bonly part (?:of (?:it|the document) )?was read\b|\bshares? (?:the most|enough)\b[^.?!]*\bwords\b/i,
     catalogueCopy: true,
   },
+  summarizePages: {
+    // Added 2026-11-16 with the key (audit summarize-pdf#5, slice 5). The
+    // sentences a hedge about it would sit in: summarizing the pages or the
+    // bookmarked section a reader chooses. Not bare "page range": Split,
+    // Extract and a dozen other tools take one, which is no claim about
+    // this capability. `false` while PR 5a ships no such sentence; PR 5b,
+    // which adds the advertisement after the key is observed, flips it.
+    subject:
+      /\bsummar\w*[^.?!]{0,60}\b(?:pages? you cho(?:o)?se|chosen pages|bookmarked section|a page range)\b|\bchoose pages or a bookmarked section\b/i,
+    catalogueCopy: false,
+  },
   translatePdfLanguages: {
     // Added 2026-11-15 with the key (competitor audit #29, slice 1). The
     // sentences a hedge about it would sit in: Translate's reflowed PDF of

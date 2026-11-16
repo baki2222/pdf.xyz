@@ -13,7 +13,8 @@
  *
  * Driven through the real panel and the real browser job client over a
  * recording network. The extractor is swapped through
- * `summarizePreflightDeps` (and put back) because pdfjs cannot run under the
+ * `summarizeRunDeps` (and put back; `summarizePreflightDeps` until
+ * 2026-11-16, when one parse began to preflight and count together) because pdfjs cannot run under the
  * test DOM (it needs `DOMMatrix`), and `vi.mock` would leave the text module
  * cached with the stub for later files; what it returns — or throws, by
  * pdfjs's own exception names — is the input under test. The positive control
@@ -31,7 +32,8 @@ import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
 import { resetTelemetry } from "@/lib/telemetry/track";
 
-import { summarizePreflightDeps } from "@/lib/workers/summarize-client";
+import { selectExtraction } from "@/lib/pdf/page-selection";
+import { summarizeRunDeps } from "@/lib/workers/summarize-client";
 import { SummarizeWorkerPanel } from "./summarize-worker-panel";
 
 /** What the stubbed extractor does in the current test. */
@@ -40,7 +42,9 @@ const extraction = {
     throw new Error("unset");
   }) as () => Promise<ExtractedPdfText>,
 };
-const realExtract = summarizePreflightDeps.extract;
+const realRead = summarizeRunDeps.read;
+/** How many times the panel parsed the PDF in the current test. */
+let parses = 0;
 
 const tool = getToolBySlug("summarize-pdf")!;
 const providers = getProviderReadiness("remote-configured");
@@ -125,7 +129,11 @@ function network() {
 }
 
 async function summarize() {
-  summarizePreflightDeps.extract = () => extraction.run();
+  parses = 0;
+  summarizeRunDeps.read = async () => {
+    parses += 1;
+    return { extracted: await extraction.run(), select: selectExtraction };
+  };
   render(
     <InToolPage tool={tool}>
       <SummarizeWorkerPanel tool={tool} />
@@ -150,7 +158,7 @@ async function summarize() {
 }
 
 afterEach(() => {
-  summarizePreflightDeps.extract = realExtract;
+  summarizeRunDeps.read = realRead;
   resetTelemetry();
   vi.unstubAllGlobals();
   document.body.innerHTML = "";
@@ -212,5 +220,8 @@ describe("Summarize panel — a PDF that cannot be summarized is refused before 
     expect(await summarize()).toHaveTextContent(/stubbed server/);
     expect(urls).toContain("/api/uploads");
     expect(urls).toContain("/api/jobs");
+    // ONE parse preflights AND counts (two pdfjs parses per Run until
+    // 2026-11-16: the preflight, then `countDeclaredCharacters`).
+    expect(parses).toBe(1);
   });
 });

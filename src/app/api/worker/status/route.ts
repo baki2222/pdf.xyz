@@ -19,6 +19,7 @@ import {
 import {
   liveWorkerRendersHtmlZip,
   liveWorkerSelectsChatPages,
+  liveWorkerSummarizesPages,
   liveWorkerTranslatesScans,
   readWorkerHeartbeatLiveness,
 } from "@/lib/workers/heartbeat";
@@ -108,6 +109,12 @@ export async function GET(request: Request): Promise<Response> {
   const workerTranslatePdfLanguages = observed
     ? capabilities?.translatePdfLanguages
     : undefined;
+  // Summarize's chosen pages (competitor audit summarize-pdf#5): the panel's
+  // "Part to summarize" control, offered only on a fresh beat that proves it.
+  // The SAME predicate `POST /api/jobs` admits a `pages` job on, so the offer
+  // and the gate cannot drift (`summarize-pages.route.test.ts` runs each beat
+  // through both routes). An older image publishes no key; absent is false.
+  const workerSummarizePages = liveWorkerSummarizesPages(liveness);
 
   return respond(
     ok(
@@ -125,6 +132,7 @@ export async function GET(request: Request): Promise<Response> {
         workerHtmlZip,
         workerTranslatePdfLanguages,
         workerChatRetrieval,
+        workerSummarizePages,
       ),
     ),
   );

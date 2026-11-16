@@ -238,7 +238,13 @@ describe("text-drawing call sites", () => {
     // the export will) and src/lib/probes/translate-ocr-proof.ts (#304: the
     // capability probe draws its scan's words through embedDrawingFont).
     // Both are real members, not a widened scan.
-    expect(drawing.length).toBeLessThan(48);
+    // 48 until 2026-11-16, when the merge of Summarize page ranges (slice 5)
+    // with main at #340 reached exactly 48. All 48 members were printed: the
+    // two new ones are src/lib/workers/summarize/pages-capability.ts (the
+    // chosen-pages proof draws its four probe pages through pdf-lib) and
+    // src/lib/workers/translate/reading-order-capability.ts (#340's proof),
+    // each branch 47 alone. Real members, not a widened scan.
+    expect(drawing.length).toBeLessThan(52);
   });
 
   it("finds the modules that are known to draw text", () => {

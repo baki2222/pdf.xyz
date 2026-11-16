@@ -36,6 +36,7 @@ const CAPS: HeartbeatCapabilities = {
   translateOcr: true,
   htmlZip: true,
   chatRetrieval: true,
+  summarizePages: true,
   translatePdfLanguages: [],
   translateReadingOrder: true,
 };
@@ -108,6 +109,7 @@ describe("buildHeartbeat / serialize / parse", () => {
       translateOcr: false,
       htmlZip: false,
       chatRetrieval: false,
+      summarizePages: false,
       translatePdfLanguages: [],
       translateReadingOrder: false,
     });
@@ -264,6 +266,7 @@ describe("buildHeartbeat / serialize / parse", () => {
         translateOcr: false,
         htmlZip: false,
         chatRetrieval: false,
+        summarizePages: false,
         translatePdfLanguages: [],
         translateReadingOrder: false,
       },

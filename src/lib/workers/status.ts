@@ -140,6 +140,17 @@ export interface WorkerStatus {
    * chosen. Optional: absent reads as `false`.
    */
   chatRetrieval?: boolean;
+  /**
+   * Whether Summarize PDF may offer a choice of pages or a bookmarked section
+   * (2026-11-16, competitor audit summarize-pdf#5). True only when an
+   * OBSERVED heartbeat proves `summarizePages` (`liveWorkerSummarizesPages`,
+   * the predicate `POST /api/jobs` admits a `pages` job on): an image built
+   * before the feature drops `pages` silently and summarizes the opening
+   * pages, and the image ships separately from this web tier, so merged code
+   * is not evidence. Until it reads true the panel offers the whole document
+   * only, exactly as before. Optional: absent reads as `false`.
+   */
+  summarizePages?: boolean;
 }
 
 const NO_COMPRESS: CompressCapability = {
@@ -266,6 +277,11 @@ export function buildWorkerStatus(
    * (`liveWorkerSelectsChatPages`).
    */
   workerChatRetrieval?: boolean,
+  /**
+   * Whether the observed worker's heartbeat proves `summarizePages`
+   * (`liveWorkerSummarizesPages`, the predicate the admission gate uses).
+   */
+  workerSummarizePages?: boolean,
 ): WorkerStatus {
   const ocr = buildOcrCapability(
     mode,
@@ -297,6 +313,8 @@ export function buildWorkerStatus(
   const translatePdfLanguages =
     workerObserved === true ? [...(workerTranslatePdfLanguages ?? [])] : [];
   const chatRetrieval = workerObserved === true && workerChatRetrieval === true;
+  const summarizePages =
+    workerObserved === true && workerSummarizePages === true;
 
   if (mode === "local-dev") {
     const engines = DEEP_COMPRESSION_TOOLS.filter((tool) => tools?.[tool]);
@@ -320,6 +338,7 @@ export function buildWorkerStatus(
       htmlZip,
       translatePdfLanguages,
       chatRetrieval,
+      summarizePages,
     };
   }
 
@@ -343,6 +362,7 @@ export function buildWorkerStatus(
       htmlZip,
       translatePdfLanguages,
       chatRetrieval,
+      summarizePages,
     };
   }
 
@@ -368,5 +388,6 @@ export function buildWorkerStatus(
     htmlZip,
     translatePdfLanguages,
     chatRetrieval,
+    summarizePages,
   };
 }

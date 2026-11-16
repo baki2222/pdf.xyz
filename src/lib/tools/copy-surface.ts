@@ -170,6 +170,22 @@ export function copyFiles(): string[] {
     // to the picker's hook.
     path.join(ROOT, "src", "lib", "jobs", "ocr-start-copy.ts"),
     path.join(ROOT, "src", "lib", "jobs", "pdf-security.ts"),
+    // The page-selection option's refusals (2026-11-16, Summarize page
+    // ranges): what `POST /api/jobs` answers a malformed `pages` list. The
+    // panel parses before upload, so a reader meets them only through a
+    // client that skips it; walked from its first file all the same.
+    path.join(ROOT, "src", "lib", "jobs", "page-spans-option.ts"),
+    // Summarize's page-choice refusal at the route and the panel's rollback
+    // warning (2026-11-16, slice 5): one module both sides import.
+    path.join(ROOT, "src", "lib", "jobs", "summarize-pages.ts"),
+    // Summarize's refusals before upload (2026-11-16, slice 5): a locked,
+    // unreadable or text-less PDF, and chosen pages the PDF cannot give.
+    path.join(ROOT, "src", "lib", "workers", "summarize-measure.ts"),
+    // Summarize's selection sentence, "This summary covers pages 3–5 of 40,
+    // the pages you chose." (2026-11-16, slice 5): moved out of the
+    // truncation module on review so the AI panels' shared chunk does not
+    // carry it. Walked from its first file, as a new phrase module must be.
+    path.join(ROOT, "src", "lib", "workers", "ai", "selection-notice.ts"),
     // The pdf.js board's page limit as the reader:'pdfjs' tool pages state it
     // (2026-11-10), beside the constant the guard enforces.
     path.join(ROOT, "src", "lib", "pdf", "pdfjs-board-limit.ts"),
@@ -199,6 +215,16 @@ export function copyFiles(): string[] {
       "workers",
       "chat-with-pdf",
       "retrieval-proof-questions.ts",
+    ),
+    // The Summarize page-range proof (2026-11-16, slice 5): its check lines
+    // and fake summary are printed by the in-image proof step.
+    path.join(
+      ROOT,
+      "src",
+      "lib",
+      "workers",
+      "summarize",
+      "pages-capability.ts",
     ),
     // The PDF to Office exports' OCR switch hints, per tool (2026-11-08,
     // audit pdf-to-excel#2), drawn by the export panel.
