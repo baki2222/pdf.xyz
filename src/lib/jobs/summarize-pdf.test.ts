@@ -7,6 +7,7 @@ import {
   parseSummarizeOptions,
   summaryOutputName,
 } from "./summarize-pdf";
+import { parsePageSpansOption } from "./page-spans-option";
 
 describe("parseSummarizeOptions", () => {
   it("defaults an empty bag to a standard paragraph summary", () => {
@@ -69,6 +70,63 @@ describe("parseSummarizeOptions", () => {
   it("rejects a non-object options bag", () => {
     // @ts-expect-error deliberately wrong type
     expect(parseSummarizeOptions([]).ok).toBe(false);
+  });
+
+  it("carries canonical page spans through, and leaves the key out when absent", () => {
+    const r = parseSummarizeOptions({
+      length: "brief",
+      pages: [
+        [3, 5],
+        [9, 9],
+      ],
+    });
+    expect(r).toEqual({
+      ok: true,
+      value: {
+        length: "brief",
+        format: DEFAULT_SUMMARY_FORMAT,
+        pages: [
+          [3, 5],
+          [9, 9],
+        ],
+      },
+    });
+    // A whole-document bag parses to exactly what it did before the key existed.
+    const whole = parseSummarizeOptions({ length: "brief" });
+    expect(whole.ok && Object.keys(whole.value)).toEqual(["length", "format"]);
+  });
+
+  it.each([
+    ["empty", []],
+    [
+      "adjacent",
+      [
+        [1, 2],
+        [3, 4],
+      ],
+    ],
+    ["page zero", [[0, 1]]],
+    ["a string", "1-3"],
+  ])(
+    "refuses %s pages with the wire grammar's words, on field `pages`",
+    (_n, pages) => {
+      const r = parseSummarizeOptions({ pages });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.body.error.code).toBe("invalid_request");
+        expect(r.error.body.error.details?.[0]?.field).toBe("pages");
+        const direct = parsePageSpansOption(pages, "pages");
+        expect(direct.ok).toBe(false);
+        if (!direct.ok)
+          expect(r.error.body.error.message).toBe(
+            direct.error.body.error.message,
+          );
+      }
+    },
+  );
+
+  it("stays lenient to other unknown keys (tightening is its own decision)", () => {
+    expect(parseSummarizeOptions({ futureKey: 1 }).ok).toBe(true);
   });
 });
 

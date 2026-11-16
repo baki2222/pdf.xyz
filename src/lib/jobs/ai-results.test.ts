@@ -57,10 +57,34 @@ describe("a relevance window survives the writer", () => {
     });
   });
 
-  it("drops spans and pagesRead with no selection (a prefix window stays six fields)", () => {
+  // INVERTED 2026-11-16 (Summarize page ranges). Until then this read "drops
+  // spans and pagesRead with no selection": `pagesSent` existed only beside
+  // `selection: "relevance"`. Summarize's chosen pages now write `pagesSent`
+  // WITHOUT `selection`, so a window without it keeps a CANONICAL page list
+  // (as the pages a person chose) and still drops `pagesRead`. A
+  // non-canonical list (chat's merge-me shapes) is dropped whole, so the
+  // window is the six fields again — the half of the old pin that still holds.
+  it("with no selection, keeps a canonical page list as the chosen pages and drops pagesRead", () => {
+    const { selection: _s, ...prefix } = RELEVANCE;
+    const out = rebuilt({ ...prefix, lastCompletePage: 3 });
+    expect(out.pagesSent).toEqual(RELEVANCE.pagesSent);
+    expect(out.pagesRead).toBeUndefined();
+    expect(out.selection).toBeUndefined();
+  });
+
+  it("with no selection, a non-canonical page list is dropped and the window stays six fields", () => {
     const { selection: _s, ...prefix } = RELEVANCE;
     expect(
-      Object.keys(rebuilt({ ...prefix, lastCompletePage: 3 })).sort(),
+      Object.keys(
+        rebuilt({
+          ...prefix,
+          lastCompletePage: 3,
+          pagesSent: [
+            [1, 3],
+            [4, 4],
+          ],
+        }),
+      ).sort(),
     ).toEqual([
       "charactersSent",
       "charactersTotal",

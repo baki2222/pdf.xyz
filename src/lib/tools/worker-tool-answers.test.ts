@@ -2369,6 +2369,11 @@ describe("every label a worker page quotes exists in the panel it mounts", () =>
       )) {
         if (ENGINE_NAMES.has(label)) continue;
         checked += 1;
+        // Added 2026-11-16 (plain-copy ruling): a quoted FAQ QUESTION of the
+        // same page is a name the reader sees there, not a panel label —
+        // PDF_TO_WORD_WRAPS points to the tables FAQ by its question. It
+        // counts only while that question is on the page.
+        if (page(tool.slug).faq.some((e) => e.question === label)) continue;
         const source = panels.get(tool.slug);
         if (!source?.includes(label)) missing.push(`${tool.slug}: “${label}”`);
       }

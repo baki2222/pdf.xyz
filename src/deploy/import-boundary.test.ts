@@ -103,6 +103,11 @@ const ALLOWED = new Set(
     // Reached only by the daemon's proved-capability table, the in-image
     // proof script (`scripts/worker-chat-retrieval-proof.ts`) and tests.
     "src/lib/workers/chat-with-pdf/retrieval-capability.ts",
+    // Summarize PDF's page-range proof (2026-11-16, slice 5): it runs the
+    // daemon's summarize deps (`summarize/native`, the `pdftotext` runner).
+    // Reached only by the daemon's proved-capability table, the in-image
+    // proof script (`scripts/worker-summarize-pages-proof.ts`) and tests.
+    "src/lib/workers/summarize/pages-capability.ts",
     "src/lib/workers/local-dev.ts",
     "src/lib/workers/daemon/runtime.ts",
     // 2026-11-15: the daemon's proved-capability table (every proof, incl.

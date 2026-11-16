@@ -38,6 +38,7 @@ import {
   MAX_TURN_CHARS,
 } from "@/lib/jobs/chat-with-pdf";
 import { MAX_SUMMARY_FOCUS_CHARS } from "@/lib/jobs/summarize-pdf";
+import { MAX_PAGE_SPANS } from "@/lib/jobs/page-spans-option";
 import {
   MAX_EXTRACTION_FIELDS,
   MAX_EXTRACTION_PROMPT_CHARS,
@@ -207,6 +208,16 @@ export const PER_CALL_PROCESSORS: Readonly<
         readonly options: Record<string, unknown>;
         readonly plant: string;
       }[];
+      /**
+       * Heavy bodies that depend on the proof document's page count — a
+       * Summarize page selection must name pages the document HAS, or the
+       * run is refused and proves nothing. Each is probed on every
+       * {@link PROOF_PAGE_COUNTS} entry with the body built for that count
+       * (see {@link probesOf}).
+       */
+      readonly pagedHeavyOptions?: readonly ((
+        pageCount: number,
+      ) => Record<string, unknown>)[];
     }
   >
 > = {
@@ -219,6 +230,20 @@ export const PER_CALL_PROCESSORS: Readonly<
         format: "outline",
         focus: "x".repeat(MAX_SUMMARY_FOCUS_CHARS),
       },
+    ],
+    pagedHeavyOptions: [
+      // A page selection (slice 5) adds instruction text of its own: the
+      // model notice names the chosen pages ("pages 262, 264, … and 300 of
+      // 300, the pages the user chose; no other page was sent."), and this
+      // proof is what bounds that notice under the instruction allowance.
+      // The most spans the contract allows, at the highest (longest-named)
+      // page numbers, non-adjacent; [[1,1]] on a document too short for them.
+      (pageCount) => ({
+        length: "detailed",
+        format: "outline",
+        focus: "x".repeat(MAX_SUMMARY_FOCUS_CHARS),
+        pages: summaryProofSpans(pageCount),
+      }),
     ],
   },
   "chat-with-pdf": {
@@ -273,6 +298,19 @@ export const PER_CALL_PROCESSORS: Readonly<
     ],
   },
 };
+
+/**
+ * The heaviest canonical page selection a `pageCount`-page proof document can
+ * take: {@link MAX_PAGE_SPANS} single pages at the highest numbers, one apart
+ * (non-adjacent, so canonical), or `[[1, 1]]` when the document is too short.
+ */
+export function summaryProofSpans(pageCount: number): [number, number][] {
+  if (pageCount < 2 * MAX_PAGE_SPANS - 1) return [[1, 1]];
+  return Array.from({ length: MAX_PAGE_SPANS }, (_, i) => {
+    const page = pageCount - 2 * (MAX_PAGE_SPANS - 1 - i);
+    return [page, page] as [number, number];
+  });
+}
 
 /** What one per-call run put in front of the provider, in characters. */
 export interface ProviderCharacters {
@@ -361,12 +399,17 @@ export async function documentCharactersSent(
 }
 
 /**
- * Every body a tool is probed with: the minimal one, the heavy ones, then the
- * planted heavy ones with the plant their document carries.
+ * Every body a tool is probed with: the minimal one, the heavy ones, the
+ * planted heavy ones with the plant their document carries, then each paged
+ * heavy body once per proof page count, built for that count and probed on
+ * it ALONE (`pageCounts`). A probe without `pageCounts` runs on every
+ * {@link PROOF_PAGE_COUNTS} entry.
  */
-export function probesOf(
-  tool: string,
-): { options: Record<string, unknown>; plant?: string }[] {
+export function probesOf(tool: string): {
+  options: Record<string, unknown>;
+  plant?: string;
+  pageCounts?: readonly number[];
+}[] {
   const entry = PER_CALL_PROCESSORS[tool];
   if (!entry) return [];
   return [
@@ -376,6 +419,12 @@ export function probesOf(
       options,
       plant,
     })),
+    ...(entry.pagedHeavyOptions ?? []).flatMap((build) =>
+      PROOF_PAGE_COUNTS.map((pageCount) => ({
+        options: build(pageCount),
+        pageCounts: [pageCount],
+      })),
+    ),
   ];
 }
 
@@ -411,8 +460,8 @@ export async function provesAiReadCap(): Promise<boolean> {
       const uncapped = await documentCharactersSent(tool);
       if (uncapped === null || uncapped < PROOF_CHARACTERS) return false;
       if (entry.heavyOptions.length === 0) return false;
-      for (const { options, plant } of probesOf(tool)) {
-        for (const pageCount of PROOF_PAGE_COUNTS) {
+      for (const { options, plant, pageCounts } of probesOf(tool)) {
+        for (const pageCount of pageCounts ?? PROOF_PAGE_COUNTS) {
           const capped = await providerCharactersSent(
             tool,
             { characters: PROOF_CAP },

@@ -1252,7 +1252,7 @@ export const guides: Guide[] = [
         heading: "What to expect from the converted document",
         body: [
           `The output is a DOCX file, the standard editable Word format. ${PDF_TO_WORD_KEEPS}`,
-          "Headings keep their bold and size but not a Word heading style, lists arrive as lines of text, and a table comes through as a Word table only when it has at least three rows and one of its columns holds figures, and one whose cells wrap onto further lines may come through whole, in part or as lines of text, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
+          "Headings keep their bold and size but not a Word heading style, lists arrive as lines of text, and a table comes through as a Word table only when it has at least three rows and one of its columns holds figures; in such a table a cell that wraps onto further lines may stay in its row as one paragraph or come through as a row or a line of its own, as it does in the table's first column, where the wrap ends the table, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
           "That makes PDF to Word the right tool when you need the words back to rework them — rewrite a paragraph, fix a date, reuse a section — and the wrong one when the look of the page is what matters. For that, keep the PDF itself.",
         ],
       },
@@ -1671,7 +1671,7 @@ export const guides: Guide[] = [
         id: "changing-existing-text",
         heading: "Changing the text that is already there",
         body: [
-          `To rework the wording itself, convert the file with ${nameOf("pdf-to-word")}: it exports the PDF's selectable text as an editable Word document, in reading order, each word keeping its bold, italics, size and colour where our reader matches it, with each picture between the paragraphs. The page layout is not recreated, words are set in standard Office fonts, and only a table with at least three rows and a column of figures comes through as a Word table (one whose cells wrap onto further lines may come through whole, in part or as lines of text), so it suits documents where the words matter more than the look.`,
+          `To rework the wording itself, convert the file with ${nameOf("pdf-to-word")}: it exports the PDF's selectable text as an editable Word document, in reading order, each word keeping its bold, italics, size and colour where our reader matches it, with each picture between the paragraphs. The page layout is not recreated, words are set in standard Office fonts, and only a table with at least three rows and a column of figures comes through as a Word table (a cell in it that wraps onto further lines may stay in its row or come through as a row or a line of its own, and in the table's first column the wrap ends the table), so it suits documents where the words matter more than the look.`,
         ],
       },
       {
@@ -5023,7 +5023,7 @@ export const guides: Guide[] = [
         heading: "What you get back",
         body: [
           "The summary appears on the page, with Copy summary and a download each for the plain text and the Markdown. The full download is a ZIP holding summary.md, summary.txt, manifest.json and README.txt. The Markdown and plain-text files hold the same summary; the manifest and README record which provider and model wrote it and the options you chose.",
-          `The model reads a bounded amount of the document's text, and the exact figure is stated on the Summarize PDF page itself. A longer document is summarized from its first page up to that point, and both the results panel and summary.md say how far the reading got, by page. Files themselves are capped at ${ceilingMb("summarize-pdf")} MB.`,
+          `The model reads a bounded amount of the document's text, and the exact figure is stated on the Summarize PDF page itself. Past that point the summary covers only the pages that fit, taken in page order, and both the results panel and summary.md name the pages that were read. Files themselves are capped at ${ceilingMb("summarize-pdf")} MB.`,
         ],
       },
       {
@@ -5059,7 +5059,7 @@ export const guides: Guide[] = [
       },
       {
         question: "How long a PDF can it summarize?",
-        answer: `Files up to ${ceilingMb("summarize-pdf")} MB can be added, and the model reads a bounded amount of their text, stated on the Summarize PDF page. Past that, the summary covers the opening pages, and the result says how far the reading got.`,
+        answer: `Files up to ${ceilingMb("summarize-pdf")} MB can be added, and the model reads a bounded amount of their text, stated on the Summarize PDF page. Past that, the summary covers only the pages that fit, taken in page order, and the result names the pages that were read.`,
       },
       {
         question: "Can it summarize a scanned PDF?",
@@ -5067,7 +5067,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-16",
   },
   {
     slug: "how-to-convert-pdf-to-pdfa",

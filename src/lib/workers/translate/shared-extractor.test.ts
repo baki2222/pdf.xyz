@@ -212,10 +212,10 @@ describe("the shared pdftotext extractor stays shared, and Translate is not on i
     ).toBeGreaterThan(50);
     const engines = files.filter((f) => f.startsWith("src/lib/workers/"));
     expect(engines.length, JSON.stringify(files)).toBeGreaterThanOrEqual(4);
-    expect(files.length, JSON.stringify(files)).toBeGreaterThanOrEqual(10);
+    expect(files.length, JSON.stringify(files)).toBeGreaterThanOrEqual(11);
   });
 
-  it("the call sites are exactly ten: the nine consumers and Translate's proof control, and not translate/native.ts", () => {
+  it("the call sites are exactly eleven: the ten consumers and Translate's proof control, and not translate/native.ts", () => {
     expect(files).not.toContain("src/lib/workers/translate/native.ts");
     expect(files).toEqual(
       [
@@ -233,6 +233,10 @@ describe("the shared pdftotext extractor stays shared, and Translate is not on i
         "src/lib/workers/chat-with-pdf/retrieval-capability.ts",
         "src/lib/workers/ocr-native.ts",
         "src/lib/workers/summarize/native.ts",
+        // Summarize's chosen-pages proof (slice 5, merged beside #340): reads
+        // -layout like summarize does, so poppler's own blank-page numbering
+        // is what gets proved.
+        "src/lib/workers/summarize/pages-capability.ts",
       ].sort(),
     );
   });

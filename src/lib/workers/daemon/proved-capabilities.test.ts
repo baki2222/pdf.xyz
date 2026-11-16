@@ -387,3 +387,35 @@ describe("the chatRetrieval entry is a proof, not a constant", () => {
     );
   });
 });
+
+describe("the summarizePages entry is a proof, not a constant", () => {
+  /**
+   * The same two holds as chatRetrieval's above, for the same reason: every
+   * other test here spies on `prove`, so `summarizePages: { prove: () =>
+   * true }` would pass them all (audit summarize-pdf#5, slice 5).
+   */
+  it("answers false where this image has no pdftotext", async () => {
+    const value = await PROVED_CAPABILITIES.summarizePages.prove({
+      PDFXYZ_PDF_TEXT_BIN: "/nonexistent/pdfxyz-no-pdftotext",
+    });
+    expect(value).toBe(false);
+  });
+
+  it("is the call to provesSummarizePages, imported from pages-capability", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/lib/workers/daemon/proved-capabilities.ts"),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /^import \{ provesSummarizePages \} from "@\/lib\/workers\/summarize\/pages-capability";$/m,
+    );
+    const entry =
+      /^ {2}summarizePages: \{([\s\S]*?)\},?$/m.exec(source)?.[1] ?? "";
+    expect(entry, "no summarizePages entry in PROVED_CAPABILITIES").not.toBe(
+      "",
+    );
+    expect(entry).toMatch(
+      /prove: \(env\) => provesSummarizePages\(\{ env \}\),\s*parse: bool/,
+    );
+  });
+});

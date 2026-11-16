@@ -583,12 +583,17 @@ const REFUSES_NO_TEXT_BEFORE_UPLOAD: Record<
   (noText: boolean) => Promise<boolean>
 > = {
   "summarize-pdf": async (noText) => {
-    const { preflightSummarize } =
+    // The check the panel runs at Run (`measureSummarizeRun`, which
+    // replaced `preflightSummarize` on 2026-11-16), on the whole document.
+    const { measureSummarizeRun } =
       await import("@/lib/workers/summarize-client");
+    const { selectExtraction } = await import("@/lib/pdf/page-selection");
+    const extract = noText ? NO_TEXT_PDF : SOME_TEXT_PDF;
     return !(
-      await preflightSummarize(
+      await measureSummarizeRun(
         new Uint8Array([1]),
-        noText ? NO_TEXT_PDF : SOME_TEXT_PDF,
+        { kind: "whole" },
+        async () => ({ extracted: await extract(), select: selectExtraction }),
       )
     ).ok;
   },

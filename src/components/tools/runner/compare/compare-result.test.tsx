@@ -186,7 +186,10 @@ describe("the changes view draws a bounded number of rows", () => {
     expect(document.activeElement?.getAttribute("data-row")).toBe(
       `0:${Math.floor((total - 1) / ROWS_SHOWN) * ROWS_SHOWN}`,
     );
-  });
+    // Explicit timeout (2026-11-16): drawing 2,000 rows in jsdom, 400 at a
+    // press, timed out at the 5 s default on Linux CI (run 43826798688) with
+    // nothing wrong. The assertions above are unchanged.
+  }, 30_000);
 
   it("the last Show more changes moves focus to the first change it drew", () => {
     const pages = Array.from({ length: 12 }, (_, p) => body(`p${p}`));

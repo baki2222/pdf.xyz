@@ -525,6 +525,17 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /\bhow far into the document\b|\bread up to that point\b|\bpages? that (?:were|was) read\b|\bwhich page it reached\b|\bHow much of my PDF does Chat with PDF read\b|\bpages? (?:are|is) chosen\b|\bonly part (?:of (?:it|the document) )?was read\b|\bshares? (?:the most|enough)\b[^.?!]*\bwords\b/i,
     catalogueCopy: true,
   },
+  summarizePages: {
+    // Added 2026-11-16 with the key (audit summarize-pdf#5, slice 5). The
+    // sentences a hedge about it would sit in: summarizing the pages or the
+    // bookmarked section a reader chooses. Not bare "page range": Split,
+    // Extract and a dozen other tools take one, which is no claim about
+    // this capability. `false` while PR 5a ships no such sentence; PR 5b,
+    // which adds the advertisement after the key is observed, flips it.
+    subject:
+      /\bsummar\w*[^.?!]{0,60}\b(?:pages? you cho(?:o)?se|chosen pages|bookmarked section|a page range)\b|\bchoose pages or a bookmarked section\b/i,
+    catalogueCopy: false,
+  },
   translatePdfLanguages: {
     // Added 2026-11-15 with the key (competitor audit #29, slice 1). The
     // sentences a hedge about it would sit in: Translate's reflowed PDF of
@@ -1432,10 +1443,34 @@ describe("the translateReadingOrder subject (competitor audit #29 slice 3, 2026-
         "Translate sends a two-column page one column after the other.",
       ),
     ).toBe(true);
-    // And it does not bite on the disclosure that ships.
-    const claims = COPY.filter((entry) =>
-      POSITIVE_COLUMN_ORDER.test(entry.text),
+    // And it does not bite on the disclosure that ships. Scoped to
+    // TRANSLATE's copy (2026-11-16, #28 slice 3 PR-2): PDF to Word's tables
+    // FAQ says a share-capped table's cells come through "read column by
+    // column", which describes PDF to Word's own extraction, not this
+    // capability. Unscoped, the check fired on that sentence.
+    const isTranslateCopy = (entry: CopyEntry) => /translate/i.test(entry.slug);
+    expect(
+      COPY.filter(isTranslateCopy).length,
+      "the Translate copy scope is empty: the check below would pass vacuously",
+    ).toBeGreaterThan(0);
+    const claims = COPY.filter(
+      (entry) =>
+        isTranslateCopy(entry) && POSITIVE_COLUMN_ORDER.test(entry.text),
     ).map((entry) => `${entry.slug} ${entry.where}`);
+    // Scope control: a column-order claim in Translate's copy is caught; the
+    // same words in another tool's copy are not this capability.
+    const plantedTranslate: CopyEntry = {
+      slug: "translate-pdf",
+      where: "planted",
+      text: "Translate sends a two-column page column by column.",
+    };
+    expect(
+      isTranslateCopy(plantedTranslate) &&
+        POSITIVE_COLUMN_ORDER.test(plantedTranslate.text),
+    ).toBe(true);
+    expect(isTranslateCopy({ slug: "pdf-to-word", where: "x", text: "" })).toBe(
+      false,
+    );
     expect(
       claims,
       "a sentence now claims the columns are read in order. The operations " +
@@ -1754,6 +1789,14 @@ describe("the docxTableWraps subject (backlog #28 slice 3, 2026-11-16)", () => {
    * Word table, each wrapped cell kept in its row, or as a smaller table and
    * lines of text, or as lines of text alone") describes outcomes and does
    * not read as a deferral of the capability.
+   *
+   * Re-measured 2026-11-16 with PR-2's DEFINITE copy: the same seven
+   * entries, the rest of this file still green over them. The intro, the
+   * tables FAQ and PDF_TO_WORD_KEEPS now carry the definite sentence ("…
+   * stays in its row as one paragraph, except in a table's first column …"),
+   * reached by "stays in its row"; the two guide sentences carry "may stay
+   * in its row", reached both by wrap + Word + table and by "stay in its
+   * row".
    *
    * Decided, not found: NO PDF to Excel or Extract Tables sentence is a
    * member. The PDF to Excel guide's "gives you two rows" (a wrapped cell in
