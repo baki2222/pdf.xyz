@@ -4,21 +4,24 @@
  * summarize-pdf#5).
  *
  * A LAZY feature module: the panel imports it with `import()` only when the
- * running worker proves `summarizePages` and a file is chosen, because it
- * reads the outline with pdf-lib (`topLevelBookmarks`, Split PDF's "By
- * bookmarks" reader, which already skips URL and action bookmarks, resolves
- * named destinations and stops a hostile `/Next` loop). The titles never
+ * running worker proves `summarizePages` and a file is chosen. The outline
+ * is read with pdf.js (`readPdfOutline`, `./pdf-outline`), as a viewer
+ * resolves a click: URL and action items are
+ * skipped and named destinations resolved. The brief named pdf-lib's
+ * `readTopLevelBookmarks` (Split's reader); measured on the merged build,
+ * that path made webpack re-split every runner's chunks, +278 B gz on each
+ * of ~40 pdf-engine tool pages, so the reader moved and Split's pdf-lib
+ * reader became the test's INDEPENDENT oracle instead. The titles never
  * leave the browser: only the chosen section's span is sent.
  *
  * Page numbers are PHYSICAL (1 is the first page object), the same numbers
  * the typed "Pages" field and the worker use, never /PageLabels labels.
  */
 
-import { loadPdf } from "./engine";
-import { loadPdfLib } from "./pdf-lib";
 import type { PageSpan } from "./page-spans";
 import { rangesFromStarts } from "./ranges";
-import { topLevelBookmarks, type TopLevelBookmark } from "./split-modes";
+import type { OutlineStart } from "./pdf-outline";
+import type { PdfTextReader } from "./text";
 import { pageSpanFromRange } from "@/lib/jobs/page-spans-option";
 
 /** A section the panel offers: the bookmark's title and its pages. */
@@ -65,7 +68,7 @@ export function cleanSectionTitle(title: string, page: number): string {
  * (`pageSpanFromRange`).
  */
 export function summarySections(
-  bookmarks: readonly TopLevelBookmark[],
+  bookmarks: readonly OutlineStart[],
   pageCount: number,
 ): SummarySection[] {
   const titleAt = new Map<number, string>();
@@ -91,11 +94,15 @@ export function summarySections(
  */
 export async function readSummarySections(
   bytes: Uint8Array,
+  /** See `PdfTextReader`; tests pass pdf.js's legacy build. */
+  loadReader?: PdfTextReader,
 ): Promise<SummarySection[]> {
   try {
-    const lib = await loadPdfLib();
-    const src = await loadPdf(bytes);
-    return summarySections(topLevelBookmarks(lib, src), src.getPageCount());
+    // Fetched here, not from `./text-lazy`: an export there rides the first
+    // load of every panel that counts text (+~90 B gz on AI Extract).
+    const { readPdfOutline } = await import("./pdf-outline");
+    const { starts, pageCount } = await readPdfOutline(bytes, loadReader);
+    return summarySections(starts, pageCount);
   } catch {
     return [];
   }

@@ -1,10 +1,13 @@
 // @native-canvas
 /**
  * Summarize's "Part to summarize" sections, held against an INDEPENDENT
- * reader: pdf.js's own outline (`getOutline` → `getDestination` →
- * `getPageIndex`, the walk a viewer does on a click; the same oracle
- * `bookmarks.pdfjs.test.ts` uses), never the pdf-lib reader the module
- * itself calls. So the module cannot certify itself.
+ * reader: Split PDF's pdf-lib outline reader (`readTopLevelBookmarks`, its
+ * own object walk and named-destination resolution), never the pdf.js
+ * reader the module itself calls. So the module cannot certify itself.
+ * (Until review on 2026-11-16 the module read with pdf-lib and pdf.js was
+ * the oracle; the reader moved to pdf.js for the bundle — see the module —
+ * and the oracle swapped sides with it.) The test's own pdf.js walk stays as
+ * the positive control that the fixture holds what it claims.
  *
  * The fixture carries every shape that has bitten an outline reader: a
  * first bookmark on page 3 (pages 1-2 must NOT become a section), a URL
@@ -15,6 +18,7 @@
 import { describe, expect, it } from "vitest";
 import { PDFName, PDFNumber } from "pdf-lib";
 import { loadPdfjs } from "./pdfjs";
+import { readTopLevelBookmarks } from "./split-modes";
 import {
   MAX_SECTION_TITLE,
   MAX_SUMMARY_SECTIONS,
@@ -77,12 +81,12 @@ async function viewerTopLevel(
 
 /** The rule, written over the ORACLE's items, independently of the module. */
 function expectedFrom(
-  items: { title: string; page: number | null }[],
+  items: { title: string; pageIndex: number }[],
   pageCount: number,
 ) {
   const first = new Map<number, string>();
-  for (const { title, page } of items)
-    if (page !== null && !first.has(page)) first.set(page, title);
+  for (const { title, pageIndex } of items)
+    if (!first.has(pageIndex + 1)) first.set(pageIndex + 1, title);
   const starts = [...first.keys()].sort((a, b) => a - b);
   return starts.map((start, i) => ({
     title: first.get(start)!,
@@ -127,7 +131,10 @@ describe("Summarize sections, read against pdf.js's own outline", () => {
       { title: "Methods", page: 4 },
     ]);
     const sections = await readSummarySections(bytes);
-    expect(sections).toEqual(expectedFrom(viewer, 7));
+    const oracle = await readTopLevelBookmarks(bytes);
+    // Health: the oracle saw the four page-opening bookmarks.
+    expect(oracle).toHaveLength(4);
+    expect(sections).toEqual(expectedFrom(oracle, 7));
     expect(sections).toEqual([
       { title: "Introduction", span: [3, 3] },
       { title: "Methods", span: [4, 4] },
