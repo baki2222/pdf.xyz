@@ -235,9 +235,10 @@ export interface HeartbeatCapabilities {
    * read back the image's poppler text, exactly. Until that date a table
    * came through as paragraphs with its cells separated by tabs; copy that
    * says a table comes through as a Word table is true of a download only
-   * while this reads `true`. It does NOT cover tables whose cells wrap onto
-   * a second line (a future `docxTableWraps`). An image built before this
-   * key publishes nothing, and the absence parses as `false`.
+   * while this reads `true`. Tables whose cells wrap onto a second line
+   * are not proven by this key: they are covered by `docxTableWraps` since
+   * 2026-11-16 (#28 slice 3). An image built before this key publishes
+   * nothing, and the absence parses as `false`.
    */
   readonly docxTables: boolean;
   /**
@@ -271,6 +272,41 @@ export interface HeartbeatCapabilities {
    * before this key publishes nothing, and the absence parses as `false`.
    */
   readonly docxTypefaces: boolean;
+  /**
+   * This image's PDF to Word keeps a table cell whose text continues onto
+   * the lines below it, in a column of text other than the first, in its
+   * row as one paragraph, not as rows or lines of its own (2026-11-16,
+   * backlog #28 slice 3: wraps).
+   *
+   * PROVEN AT START-UP by running a generated PDF — an Item / Description /
+   * Amount table with a bold header and four rows, two of whose
+   * descriptions continue onto one and two lines below them, and a total
+   * alone under Amount — as a real job would, in the executor's order
+   * (soundness gate, the registry's processor on `pdfOfficeExportDeps(env)`,
+   * artifact-manifest gate), and reading the .docx back with a structural
+   * reader that shares nothing with the writer
+   * (`pdf-office-export/capability.ts`, `provesDocxTableWraps`): exactly
+   * one table of 3 columns and 5 rows, each wrapped description whole in
+   * its row as exactly one paragraph, the total outside the table, the
+   * header bold and the body not, the text read back the image's poppler
+   * text exactly, AND the words read back the probe's own words exactly (a
+   * second bound: a word flow doubled or lost moves the .docx and the
+   * flow's text together). Until that date a table whose cells wrap came
+   * through as a smaller table and lines of text, or as lines of text
+   * alone; copy that says a wrapped cell stays in its row is true of a
+   * download only while this reads `true`. It does NOT cover: wraps in a
+   * table's first column (they end the table); a lone figure under a table;
+   * any wrap under a column of figures below the header, even a word such
+   * as "incl. VAT"; two cells wrapping on the same baseline (they form a
+   * row of their own); tables whose wrapped lines outnumber their rows;
+   * header lines that sit above the row; or a wrapped line poppler reads as
+   * a block of its own, apart from its cell, in a table whose rows are set
+   * as close as its lines (flow.ts rule 7 takes such a line only when it
+   * sits tighter than the rows, `WRAP_TIGHT_PITCHES`: a subheading or a
+   * note between two rows is a block of its own a row pitch down). An image built before this key
+   * publishes nothing, and the absence parses as `false`.
+   */
+  readonly docxTableWraps: boolean;
   /**
    * This image's Translate PDF recognises a SCAN with the OCR processor and
    * translates what OCR read, when the job asks for it — and runs no OCR on a

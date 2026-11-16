@@ -61,6 +61,7 @@ import {
   provesDocxPictures,
   provesDocxRunStyles,
   provesDocxTables,
+  provesDocxTableWraps,
   provesDocxTypefaces,
   provesPptxPictures,
   provesPptxPresentationChain,
@@ -135,6 +136,10 @@ export const PROVED_CAPABILITIES = defineProvers({
   },
   docxTypefaces: {
     prove: (env) => provesDocxTypefaces(pdfOfficeExportDeps(env)),
+    parse: bool,
+  },
+  docxTableWraps: {
+    prove: (env) => provesDocxTableWraps(pdfOfficeExportDeps(env)),
     parse: bool,
   },
   translateOcr: { prove: () => provesTranslateOcr(), parse: bool },
