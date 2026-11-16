@@ -998,9 +998,10 @@ describe("catalogue copy may not hedge a worker capability", () => {
     // the key that image would have to publish
     // (`SUMMARIZE_PAGES_CAPABILITY`). `WIRE_KEYS` is derived from this
     // tree's source, NOT read from production: this ties the copy to the
-    // key's name only. The live bound is the operator's deploy check, which
-    // must read production `/api/worker/status` and see `summarizePages`
-    // true (see `src/lib/tools/summarize-page-choice.ts`).
+    // key's name only. The live bound is the operator's deploy
+    // verification, which reads production `/api/worker/status`, fails
+    // unless `summarizePages` is true, and lives outside this repo (see
+    // `src/lib/tools/summarize-page-choice.ts`).
     const key = SUMMARIZE_PAGES_CAPABILITY;
     expect(WIRE_KEYS).toContain(key);
     const subject = SUBJECTS[key]?.subject;

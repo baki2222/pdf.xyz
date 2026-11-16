@@ -38,13 +38,14 @@
  *    CI, or an older one left running, is outside it.
  *
  * The LIVE bound is therefore an operator check, not a repo test: the
- * deploy verification (`verify-live`) reads production
- * `/api/worker/status` and must fail when `summarizePages` is not `true`.
- * It lives outside this repository, so no test here can fail when it is
- * skipped. When this was written that check did NOT yet read the key; the
- * operator is to add it. Until then nothing fails if a redeployed image
- * stops publishing `summarizePages` — except the panel itself, which hides
- * the control, so the page would advertise a choice it does not offer.
+ * deploy verification (`.claude/verify-live.sh`) reads production
+ * `/api/worker/status` and fails when `summarizePages` is not `true`. That
+ * script is not tracked in this repository and CI never runs it; it runs
+ * only when the operator runs it. So no test here fails when it is skipped,
+ * and between its runs a redeployed image that stops publishing
+ * `summarizePages` is seen by nothing here — only by the panel, which
+ * hides the control, so the page would advertise a choice it does not
+ * offer.
  *
  * ── WHAT IT MAY NOT SAY ─────────────────────────────────────────────────────
  *
