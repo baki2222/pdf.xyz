@@ -1417,10 +1417,34 @@ describe("the translateReadingOrder subject (competitor audit #29 slice 3, 2026-
         "Translate sends a two-column page one column after the other.",
       ),
     ).toBe(true);
-    // And it does not bite on the disclosure that ships.
-    const claims = COPY.filter((entry) =>
-      POSITIVE_COLUMN_ORDER.test(entry.text),
+    // And it does not bite on the disclosure that ships. Scoped to
+    // TRANSLATE's copy (2026-11-16, #28 slice 3 PR-2): PDF to Word's tables
+    // FAQ says a share-capped table's cells come through "read column by
+    // column", which describes PDF to Word's own extraction, not this
+    // capability. Unscoped, the check fired on that sentence.
+    const isTranslateCopy = (entry: CopyEntry) => /translate/i.test(entry.slug);
+    expect(
+      COPY.filter(isTranslateCopy).length,
+      "the Translate copy scope is empty: the check below would pass vacuously",
+    ).toBeGreaterThan(0);
+    const claims = COPY.filter(
+      (entry) =>
+        isTranslateCopy(entry) && POSITIVE_COLUMN_ORDER.test(entry.text),
     ).map((entry) => `${entry.slug} ${entry.where}`);
+    // Scope control: a column-order claim in Translate's copy is caught; the
+    // same words in another tool's copy are not this capability.
+    const plantedTranslate: CopyEntry = {
+      slug: "translate-pdf",
+      where: "planted",
+      text: "Translate sends a two-column page column by column.",
+    };
+    expect(
+      isTranslateCopy(plantedTranslate) &&
+        POSITIVE_COLUMN_ORDER.test(plantedTranslate.text),
+    ).toBe(true);
+    expect(isTranslateCopy({ slug: "pdf-to-word", where: "x", text: "" })).toBe(
+      false,
+    );
     expect(
       claims,
       "a sentence now claims the columns are read in order. The operations " +
