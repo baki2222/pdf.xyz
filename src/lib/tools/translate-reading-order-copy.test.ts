@@ -357,8 +357,10 @@ describe("Translate says a two-column page is read column by column (slice 5)", 
 
 describe("Translate says how the PDF heads pages, with the per-job condition (slice 5)", () => {
   it("the examples are the worker's own heading labels", () => {
-    expect(TRANSLATE_PAGE_HEADINGS).toContain(pageRangeLabel([2]));
-    expect(TRANSLATE_PAGE_HEADINGS).toContain(pageRangeLabel([1, 2, 3]));
+    // `null`: a whole-document job's labels (since slice 6 every label
+    // names its scope; the copy describes the whole-document case).
+    expect(TRANSLATE_PAGE_HEADINGS).toContain(pageRangeLabel([2], null));
+    expect(TRANSLATE_PAGE_HEADINGS).toContain(pageRangeLabel([1, 2, 3], null));
   });
 
   it("states both outcomes, and promises no exact boundary", () => {
