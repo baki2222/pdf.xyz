@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Spinner } from "./runner/runner-kit";
@@ -48,6 +48,7 @@ export function workerSlotState(
 export function WorkerStatusSlot({
   state,
   reserve,
+  reserveStyle,
   children,
 }: {
   state: WorkerSlotState;
@@ -56,6 +57,12 @@ export function WorkerStatusSlot({
    * spelled out here: Tailwind turns a class named in a comment into CSS.
    */
   reserve: string;
+  /**
+   * An inline min-height that overrides `reserve` while set (inline wins).
+   * Absent, no style attribute is rendered, so the slot is byte-identical
+   * to a panel that never passes one.
+   */
+  reserveStyle?: CSSProperties;
   children: ReactNode;
 }) {
   return (
@@ -67,6 +74,7 @@ export function WorkerStatusSlot({
       data-slot="worker-status"
       data-state={state}
       className={cn("grid grid-cols-1 content-start", reserve)}
+      {...(reserveStyle ? { style: reserveStyle } : {})}
     >
       {children}
     </div>

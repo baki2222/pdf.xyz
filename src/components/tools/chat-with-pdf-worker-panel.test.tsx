@@ -702,7 +702,33 @@ describe("ChatWithPdfWorkerPanel — how a longer file's pages are chosen", () =
     const { line, ready } = await renderWith({ ...READY, chatRetrieval: true });
     expect(await screen.findByText(ready)).toBeInTheDocument();
     expect(screen.getByText(line)).toBeInTheDocument();
+    // The line brings its own reserve, inline (no new utility class: the
+    // shared stylesheet is at its ceiling), and only with the line.
+    const slot = document.querySelector('[data-slot="worker-status"]')!;
+    expect(slot.getAttribute("class")).toBe(MAIN_SLOT_CLASS);
+    expect(slot.getAttribute("style") ?? "").toMatch(/min-height:/);
   });
+
+  /**
+   * The slot exactly as main rendered it (2026-11-16, origin/main): while
+   * the line is off, the page-selection line costs no reader any height.
+   */
+  const MAIN_SLOT_CLASS =
+    "grid grid-cols-1 content-start min-h-[28.5rem] sm:min-h-[20rem] lg:min-h-[22.5rem]";
+
+  for (const [name, status] of [
+    ["the key is absent (an older image)", READY],
+    ["the key is false", { ...READY, chatRetrieval: false }],
+  ] as const) {
+    it(`keeps main's slot, byte for byte, when ${name}`, async () => {
+      const { ready } = await renderWith(status);
+      expect(await screen.findByText(ready)).toBeInTheDocument();
+      const slot = document.querySelector('[data-slot="worker-status"]')!;
+      expect(slot.getAttribute("data-state")).toBe("run");
+      expect(slot.getAttribute("class")).toBe(MAIN_SLOT_CLASS);
+      expect(slot.hasAttribute("style")).toBe(false);
+    });
+  }
 
   for (const [name, status] of [
     ["the key is absent (an older image)", READY],

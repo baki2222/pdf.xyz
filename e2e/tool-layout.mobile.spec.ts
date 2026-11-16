@@ -503,10 +503,14 @@ for (const width of SLOT_WIDTHS) {
  * the observed worker proves `chatRetrieval`. `READY_WORKER_STATUS` carries
  * no optional capability key, so the cases above never draw it; this one
  * does, at each reserve's narrowest width (360 for the base, 640 for `sm:`,
- * 1024 for `lg:`), and holds the run area to the same reserve and the same
- * SLOT_HEADROOM rule. The reserve is read from the slot's computed
- * min-height, not its box: content that overflows grows the box, and the
- * box would then read as a reserve exactly as tall as the content.
+ * 1024 for `lg:`), and holds the run area to the reserve drawn with the
+ * line (the panel's inline `RETRIEVAL_SLOT_STYLE`, a step function of the
+ * viewport width with the same breakpoints) and the same SLOT_HEADROOM
+ * rule. With the line off the slot is main's, held by the cases above and
+ * by the panel test "keeps main's slot, byte for byte". The reserve is read
+ * from the slot's computed min-height, not its box: content that overflows
+ * grows the box, and the box would then read as a reserve exactly as tall
+ * as the content.
  */
 for (const width of [360, 640, 1024] as const) {
   test.describe(`${width}px, chatRetrieval observed`, () => {
