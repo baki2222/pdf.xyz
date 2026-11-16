@@ -425,13 +425,17 @@ const MARKDOWN_BLOCK_PHRASE: Record<MarkdownBlockKind, string> = {
  * read off PDF_LINK_SCHEMES. The review of that change found "opens when
  * clicked" said with no scope: a link in a table cell still only prints
  * (markdown-runs.test.ts reads no annotation for it), so the sentence says
- * "outside table cells".
+ * "outside table cells". Until the review of 2026-11-17 the faces sentence had
+ * no scope either; one character outside Western European text sets the whole
+ * PDF in one Noto face (the page's own FAQ says so), so it is scoped too.
+ * stale-page-claims.test.ts bans the unscoped shape and reads the faces from
+ * the PDF on both sides of the line.
  */
 export const MARKDOWN_SYNTAX_FACT = (() => {
   const names = MARKDOWN_BLOCK_KINDS.map((k) => MARKDOWN_BLOCK_PHRASE[k]);
   const list = `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
   const schemes = PDF_LINK_SCHEMES.map((s) => s.slice(0, -1));
-  return `${list[0]!.toUpperCase()}${list.slice(1)}. In paragraphs, list items and quotes, bold, italics and backtick code are set in their own faces. A link keeps its address in parentheses, and outside table cells it opens when clicked if that address is ${schemes.slice(0, -1).join(", ")} or ${schemes.at(-1)}.`;
+  return `${list[0]!.toUpperCase()}${list.slice(1)}. For Western European text, bold, italics and backtick code are set in their own faces in paragraphs, list items and quotes. A link keeps its address in parentheses, and outside table cells it opens when clicked if that address is ${schemes.slice(0, -1).join(", ")} or ${schemes.at(-1)}.`;
 })();
 
 /**
@@ -1510,8 +1514,13 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
     case "overlay":
       return [
         {
+          // CHANGED 2026-11-17: said "its first page is drawn over every page
+          // of your document", false of three paging modes and of Selected
+          // pages. Served on /tools/overlay-pdf through factFaq (pageFaq
+          // keeps it beside the authored FAQ), as a visible answer and in the
+          // FAQPage JSON-LD.
           question: "Can I add a letterhead or logo to every page?",
-          answer: `Yes. Save it as a PDF and add it as the overlay: its first page is drawn over every page of your document. With a multi-page overlay you choose how its pages map to yours: ${overlayPagingLabels}.`,
+          answer: `Yes. Save it as a PDF and add it as the overlay. A one-page overlay is drawn over every page of your document, or only the pages you list. With a multi-page overlay you choose how its pages map to yours: ${overlayPagingLabels}.`,
         },
         {
           question: "How is the overlay sized on each page?",

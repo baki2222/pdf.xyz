@@ -21,6 +21,7 @@ import { regionMean, renderPdfPages, type Rgb } from "@/tests/pdf-render";
 import { getToolBySlug } from "@/lib/tools";
 import { pageSteps, stepText } from "@/lib/tools/page-copy";
 import { ToolRunner } from "./tool-runner";
+import { overlayDropHint } from "./overlay-runner";
 import { runnerMounted } from "@/tests/runner-mounted";
 
 /**
@@ -293,6 +294,41 @@ describe("overlay-pdf: what the downloaded file shows", () => {
     const last = OVERLAY_PAGINGS.find((p) => p.id === "last")!;
     fireEvent.click(screen.getByRole("radio", { name: last.label }));
     expect(screen.getByText(last.hint)).toBeTruthy();
+  }, 30_000);
+
+  it("the overlay drop zone's hint names every paging mode, as rendered", async () => {
+    // WAS "Its first page is applied to every page of your base PDF", typed
+    // before the paging modes existed: false of Cycle pages, Repeat last page
+    // and Once, then stop, and of the page choice. The hint is now built from
+    // OVERLAY_PAGINGS, and this reads it where the visitor does: in the DOM.
+    const { container } = render(
+      <Router>
+        <ToolRunner kind="overlay" slug={SLUG} />
+      </Router>,
+    );
+    await runnerMounted(container);
+    fireEvent.change(
+      container.querySelector<HTMLInputElement>('input[type="file"]')!,
+      { target: { files: [pdfFile(await letter(), "letter.pdf")] } },
+    );
+    await screen.findByText(/drop the overlay pdf here/i);
+    const names = (hint: string) =>
+      OVERLAY_PAGINGS.every((p) => hint.includes(`"${p.label}"`));
+    // Health: the modes are there to be named, with real labels.
+    expect(OVERLAY_PAGINGS.length).toBeGreaterThanOrEqual(4);
+    for (const p of OVERLAY_PAGINGS) expect(p.label.length).toBeGreaterThan(0);
+    const rendered = screen.getByText(overlayDropHint());
+    expect(names(rendered.textContent ?? "")).toBe(true);
+    // Negative control: the old sentence names no mode, so it fails here.
+    expect(
+      names("Its first page is applied to every page of your base PDF"),
+    ).toBe(false);
+    // Positive control on the derivation: a planted mode is named the day it
+    // is offered, without anyone editing the hint.
+    const planted = [...OVERLAY_PAGINGS, { label: "Planted mode" }];
+    expect(overlayDropHint(planted)).toContain('"Planted mode"');
+    for (const p of OVERLAY_PAGINGS)
+      expect(overlayDropHint(planted)).toContain(`"${p.label}"`);
   }, 30_000);
 
   it("Selected pages puts the letterhead only on the pages listed, and the result says which were left", async () => {

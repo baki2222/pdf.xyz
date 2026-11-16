@@ -102,7 +102,9 @@ describe("chosen-pages-no-text: one author, no panel's first load", () => {
     }
   });
 
-  it("the importers are both measures, both engines and the page-range proof, and no component", () => {
+  // CHANGED 2026-11-17: Summarize's page-range proof (#348) imports the leaf
+  // too, for the no-text refusal its out-of-range step must tell apart.
+  it("the importers are both measures, both engines and both page-range proofs, and no component", () => {
     const importers = sources
       .filter((f) => f !== LEAF && staticEdges(f).includes(LEAF))
       .map(posix)
@@ -110,6 +112,7 @@ describe("chosen-pages-no-text: one author, no panel's first load", () => {
     expect(importers).toEqual([
       "src/lib/workers/summarize-measure.ts",
       "src/lib/workers/summarize/engine.ts",
+      "src/lib/workers/summarize/pages-capability.ts",
       "src/lib/workers/translate-measure.ts",
       "src/lib/workers/translate/engine.ts",
       "src/lib/workers/translate/page-range-capability.ts",
