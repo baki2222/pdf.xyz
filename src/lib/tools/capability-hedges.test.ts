@@ -467,6 +467,17 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /\b(?:[Tt]ypefaces?|[Ff]onts?)\b(?:[^.?!]|\.(?=\w)){0,120}\b(?:Word|DOCX)\b|\b(?:Word|DOCX)\b(?:[^.?!]|\.(?=\w)){0,120}\b(?:[Tt]ypefaces?|fonts?)\b|\bstandard Office fonts?\b|\band Office fonts\b|\bset in (?:a font that comes|fonts that come) with Windows or Office\b/,
     catalogueCopy: true,
   },
+  docxTableWraps: {
+    // Added 2026-11-16 with the key (backlog #28, slice 3: wraps). The
+    // sentences a hedge about it would sit in: a wrap and a table and Word
+    // (or DOCX) in one sentence, either order, and the shape "stays in its
+    // row". CASE-SENSITIVE, like docxTables: "word" in lower case is any
+    // word. Its members (and the planted-deferral control) are pinned with
+    // the copy change of the same slice.
+    subject:
+      /\bwrap\w*\b(?:[^.?!]|\.(?=\w)){0,160}\b(?:Word|DOCX)\b(?:[^.?!]|\.(?=\w)){0,40}\btables?\b|\b(?:Word|DOCX)\b(?:[^.?!]|\.(?=\w)){0,40}\btables?\b(?:[^.?!]|\.(?=\w)){0,160}\bwrap\w*\b|\bstays? in (?:its|their) row\b/,
+    catalogueCopy: true,
+  },
   translateOcr: {
     // Added 2026-11-09 with the key (audit translate-pdf#3). The sentences a
     // hedge about it would sit in: a scan recognised ON OUR SERVER, the way
