@@ -568,3 +568,70 @@ describe("a reply of nothing but markers is unanswered, judged on the STRIPPED t
     expect(nfkcBrand(typesetText(inputs[0]!))).toBe(false);
   });
 });
+
+// ── a marker glued into text with no spaces (the composed chain) ────────────
+
+describe("a marker glued into unspaced text: every word reaches the ZIP and the render input", () => {
+  const cp = (...codes: number[]) => String.fromCodePoint(...codes);
+  // Japanese and Thai page texts, from code points; no space between words.
+  const ja1 = cp(
+    0x3053,
+    0x308c,
+    0x306f,
+    0x4e00,
+    0x30da,
+    0x30fc,
+    0x30b8,
+    0x3002,
+  );
+  const ja2 = cp(
+    0x3053,
+    0x308c,
+    0x306f,
+    0x4e8c,
+    0x30da,
+    0x30fc,
+    0x30b8,
+    0x3002,
+  );
+  const th1 = cp(0x0e2b, 0x0e19, 0x0e49, 0x0e32, 0x0e41, 0x0e23, 0x0e01);
+  const th2 = cp(0x0e2b, 0x0e19, 0x0e49, 0x0e32, 0x0e2a, 0x0e2d, 0x0e07);
+  const lenticular = (inner: string) => `${cp(0x3010)}${inner}${cp(0x3011)}`;
+
+  for (const [name, first, second, glue] of [
+    [
+      "Japanese, re-bracketed in lenticular brackets",
+      ja1,
+      ja2,
+      lenticular("PDFXYZ_PAGE_2"),
+    ],
+    ["Thai, brackets dropped", th1, th2, "PDFXYZ_PAGE_2"],
+  ] as const) {
+    it(`${name}: missing, and the second page's words survive`, async () => {
+      // The model glues the marker to both neighbours: no whitespace at all.
+      const provider = providerAnswering((segment) =>
+        ok(segment.split(separatorFor(2)).join(glue)),
+      );
+      const { pdf, inputs } = recordingPdf();
+      const run = await runTranslate(INPUT, OPTIONS, {
+        extract: pagesOf([first, second]),
+        provider,
+        now: NOW,
+        pdf,
+      });
+      // Health: the marker was sent, and the reply really is glued.
+      expect(provider.calls).toHaveLength(1);
+      const segment = segmentOf(provider.calls[0]!);
+      expect(segment).toBe(`${first}${separatorFor(2)}${second}`);
+      expect(run.ok).toBe(true);
+      if (!run.ok) return;
+      expect(run.meta.pageMap.fellBack.missing).toBe(1);
+      invariants(run.meta.pageMap);
+      const { md, txt } = await zipText(run);
+      for (const body of [md, txt, typesetText(inputs[0]!)]) {
+        expect(body).toContain(`${first}${second}`);
+        expect(nfkcBrand(body)).toBe(false);
+      }
+    });
+  }
+});

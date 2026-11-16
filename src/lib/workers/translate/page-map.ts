@@ -25,10 +25,13 @@
  * the full-width ones). CJK numerals are not digits.
  *
  * STRIP TOKEN (removal, anchored on the BRAND). "pdfxyz" in any compatibility
- * form, plus its non-space tail up to the next whitespace or closing bracket,
- * plus adjacent bracket runs of either width and glued emphasis characters. It
- * is found by normalising each character on its own, so the rest of the line
- * is never NFKC-normalised, and so never edited.
+ * form, plus a tail bounded by the marker grammar (`TAIL`: `_PAGE_<digits>`,
+ * or one short Latin word and digits for a translated PAGE), plus adjacent
+ * bracket runs (angle of either width, and the CJK pairs in `OPENING`) and
+ * glued emphasis characters. The tail never runs "to the next whitespace":
+ * CJK and Thai have none between words, and such a tail deleted the next
+ * sentence. It is found by normalising each character on its own, so the
+ * rest of the line is never NFKC-normalised, and so never edited.
  *
  * ── WHAT `text` IS ──────────────────────────────────────────────────────────
  *
@@ -79,13 +82,43 @@ const EDGES = new RegExp(`^[${EDGE}]+|[${EDGE}]+$`, "gu");
 const MARKER_LINE =
   /^(?:#{1,6}\s+|>\s+|[-*+]\s+)?[*_`]{0,3}<{1,3}\s*pdfxyz\s*_\s*page\s*_\s*(\p{Nd}+)\s*>{1,3}[*_`]{0,3}$/iu;
 
-const OPENING = "<＜«‹〈〈⟨《";
-const CLOSING = ">＞»›〉〉⟩》";
+/**
+ * Bracket runs stripped beside a token. Angle brackets of either width, then
+ * the CJK pairs a model reaches for when it re-brackets a marker:
+ * lenticular, corner (both widths), white corner, tortoise-shell and
+ * full-width parentheses.
+ */
+const OPENING = "<＜«‹〈〈⟨《【「｢『〔（";
+const CLOSING = ">＞»›〉〉⟩》】」｣』〕）";
+/** CJK numerals zero to nine, ten, hundred, thousand. */
+const CJK_NUMERALS = "〇一二三四五六七八九十百千";
 const EMPHASIS = "*_`";
 const BRAND = "pdfxyz";
 
 const isNd = (c: string): boolean => /^\p{Nd}$/u.test(c);
 const isSpace = (c: string): boolean => /^\s$/u.test(c);
+
+/**
+ * The strip token's tail after the brand, on the per-character folded form:
+ * either `_ page _ <digits>` (separators `_` or `-`, inner spaces allowed only
+ * around a separator), or one Latin word of at most 12 letters (a translated
+ * PAGE, a plural) between optional separators, then at most 6 digits. Bounded
+ * on purpose: it can never reach past the marker's own grammar into the text.
+ */
+const TAIL_PAGE = /^(?:\s*[_-]\s*|)page(?:\s*[_-]\s*|)\p{Nd}{0,6}/u;
+const TAIL_WORD = /^[_-]?\p{Script=Latin}{0,12}[_-]?\p{Nd}{0,6}/u;
+
+/**
+ * How many folded characters of `rest` belong to the token. The PAGE form
+ * wins when it ends on a digit (the id closes the marker); otherwise the
+ * longer of the two, so "PAGES_2" is taken whole rather than as "PAGE".
+ */
+function tailLength(rest: string): number {
+  const page = TAIL_PAGE.exec(rest)?.[0] ?? "";
+  if (page !== "" && isNd(Array.from(page).pop()!)) return page.length;
+  const word = TAIL_WORD.exec(rest)?.[0] ?? "";
+  return Math.max(page.length, word.length);
+}
 
 /**
  * A decimal digit's value. Every `\p{Nd}` block is a contiguous run 0-9, and
@@ -136,14 +169,25 @@ function stripTokenSpans(line: string): Array<[number, number]> {
     let start = origin[at]!;
     let end = origin[at + BRAND.length - 1]! + 1;
 
-    // The tail: everything up to the next whitespace or closing bracket.
+    // The tail: the marker grammar only, never "up to the next whitespace".
+    // CJK and Thai put no space between words, so a to-whitespace tail ate
+    // the model's next sentence whenever a marker was glued to it.
+    const taken = tailLength(folded.slice(at + BRAND.length));
+    if (taken > 0) end = origin[at + BRAND.length + taken - 1]! + 1;
+    // A CJK-numeral id ("<<<PDFXYZ_PAGE_" + U+4E8C + ">>>") is taken only when
+    // a closing bracket closes it: unbracketed, the same characters may be
+    // the first word of the next page.
+    let id = end;
     while (
-      end < chars.length &&
-      !isSpace(chars[end]!) &&
-      !CLOSING.includes(chars[end]!)
-    ) {
-      end += 1;
-    }
+      id < chars.length &&
+      id - end < 6 &&
+      CJK_NUMERALS.includes(chars[id]!)
+    )
+      id += 1;
+    let shut = id;
+    while (shut < chars.length && isSpace(chars[shut]!)) shut += 1;
+    if (id > end && shut < chars.length && CLOSING.includes(chars[shut]!))
+      end = id;
     // A closing bracket run, possibly after inner spaces, then emphasis.
     let probe = end;
     while (probe < chars.length && isSpace(chars[probe]!)) probe += 1;

@@ -64,6 +64,81 @@ const arabicIndic2 = `<<<PDFXYZ_PAGE_${cp(0x0662)}>>>`;
 const devanagari2 = `<<<PDFXYZ_PAGE_${cp(0x0968)}>>>`;
 const cjk2 = `<<<PDFXYZ_PAGE_${cp(0x4e8c)}>>>`;
 
+/**
+ * Text with no space between words (CJK, Thai), and the glued English case.
+ * The strip token's tail once ran "up to the next whitespace or closing
+ * bracket", so a marker glued to the next sentence ate that sentence: every
+ * entry below puts NOTHING between the token and the following text.
+ */
+const jaPage1 = cp(
+  0x3053,
+  0x308c,
+  0x306f,
+  0x4e00,
+  0x30da,
+  0x30fc,
+  0x30b8,
+  0x76ee,
+  0x3067,
+  0x3059,
+  0x3002,
+);
+const jaPage2 = cp(
+  0x3053,
+  0x308c,
+  0x306f,
+  0x4e8c,
+  0x30da,
+  0x30fc,
+  0x30b8,
+  0x76ee,
+  0x3067,
+  0x3059,
+  0x3002,
+  0x6b21,
+  0x306e,
+  0x6587,
+  0x3002,
+);
+const zhPage1 = cp(0x4e00, 0x9875, 0x3002);
+const zhPage2 = cp(
+  0x7b2c,
+  0x4e8c,
+  0x9875,
+  0x7684,
+  0x5185,
+  0x5bb9,
+  0x5f88,
+  0x957f,
+  0x3002,
+);
+const thPage1 = cp(0x0e2b, 0x0e19, 0x0e49, 0x0e32, 0x0e41, 0x0e23, 0x0e01);
+const thPage2 = cp(0x0e2b, 0x0e19, 0x0e49, 0x0e32, 0x0e2a, 0x0e2d, 0x0e07);
+/** A bare token wrapped in one CJK bracket pair, given as code points. */
+const cjkWrapped = (open: number, close: number): string =>
+  `${cp(open)}PDFXYZ_PAGE_2${cp(close)}`;
+const lenticular2 = cjkWrapped(0x3010, 0x3011); // 【】
+const fwParen2 = cjkWrapped(0xff08, 0xff09); // （）
+const corner2 = cjkWrapped(0x300c, 0x300d); // 「」
+const whiteCorner2 = cjkWrapped(0x300e, 0x300f); // 『』
+const tortoise2 = cjkWrapped(0x3014, 0x3015); // 〔〕
+const halfCorner2 = cjkWrapped(0xff62, 0xff63); // half-width 「」
+
+/** One glued entry: `before` + token + `after`, nothing between. */
+const glued = (
+  name: string,
+  before: string,
+  token: string,
+  after: string,
+): Entry => ({
+  name,
+  pages: [1, 2],
+  reply: `${before}${token}${after}`,
+  injected: [token],
+  verdict: "missing",
+  text: `${before}${after}`,
+});
+
 const CORPUS: readonly Entry[] = [
   {
     name: "exact",
@@ -292,11 +367,66 @@ const CORPUS: readonly Entry[] = [
     verdict: "verified",
     pieces: [A, B],
   },
+  glued(
+    "Japanese, lenticular brackets glued both sides",
+    jaPage1,
+    lenticular2,
+    jaPage2,
+  ),
+  glued(
+    "Japanese, brackets dropped, bare token glued",
+    jaPage1,
+    "PDFXYZ_PAGE_2",
+    jaPage2,
+  ),
+  glued("Chinese, full-width parentheses glued", zhPage1, fwParen2, zhPage2),
+  glued("Chinese, bare token glued", zhPage1, "PDFXYZ_PAGE_2", zhPage2),
+  glued("Japanese, corner brackets glued", jaPage1, corner2, jaPage2),
+  glued(
+    "Japanese, white corner brackets glued",
+    jaPage1,
+    whiteCorner2,
+    jaPage2,
+  ),
+  glued("Chinese, tortoise-shell brackets glued", zhPage1, tortoise2, zhPage2),
+  glued(
+    "Japanese, half-width corner brackets glued",
+    jaPage1,
+    halfCorner2,
+    jaPage2,
+  ),
+  glued("Thai, bare token glued", thPage1, "PDFXYZ_PAGE_2", thPage2),
+  glued("Thai, full marker glued", thPage1, M(2), thPage2),
+  glued(
+    "English, glued periods both sides",
+    "Page one ends.",
+    "PDFXYZ_PAGE_2",
+    ".Page two starts here.",
+  ),
+  glued("English, full marker glued both sides", A, M(2), B),
+  glued("full-width marker glued both sides", A, fullWidthInline2, B),
+  glued("translated word glued to the next sentence", A, translatedWord, B),
+  glued("brand alone glued into Japanese", jaPage1, "PDFXYZ", jaPage2),
+  glued(
+    "CJK-numeral id, bracketed, glued into Japanese",
+    jaPage1,
+    cjk2,
+    jaPage2,
+  ),
+  // Unbracketed, a CJK numeral after the token may be the next page's first
+  // word, so it stays: the token ends at "PAGE_".
+  glued(
+    "unbracketed CJK numeral after a glued token stays text",
+    jaPage1,
+    "PDFXYZ_PAGE_",
+    cp(0x4e8c, 0x30da, 0x30fc, 0x30b8, 0x3002),
+  ),
+  glued("plural word, PAGES, glued", A, "<<<PDFXYZ_PAGES_2>>>", B),
 ];
 
 // FATAL: a corpus that quietly shrinks reports the strongest possible pass.
-if (CORPUS.length < 21) {
-  throw new Error(`the reply corpus holds ${CORPUS.length} entries, below 21`);
+if (CORPUS.length < 46) {
+  throw new Error(`the reply corpus holds ${CORPUS.length} entries, below 46`);
 }
 
 /** The non-whitespace multiset, as a sorted string. */
@@ -322,8 +452,8 @@ function catcher(entry: Entry, token: string): string | null {
 }
 
 describe("readPageMarkers — the reply corpus", () => {
-  it(`health: the corpus holds at least 21 entries and every verdict`, () => {
-    expect(CORPUS.length).toBeGreaterThanOrEqual(21);
+  it(`health: the corpus holds at least 46 entries and every verdict`, () => {
+    expect(CORPUS.length).toBeGreaterThanOrEqual(46);
     const verdicts = new Set(CORPUS.map((e) => e.verdict));
     expect([...verdicts].sort()).toEqual(
       ["empty", "missing", "order", "verified"].sort(),
@@ -362,7 +492,7 @@ describe("readPageMarkers — the reply corpus", () => {
         );
       }
     }
-    expect(tokens).toBeGreaterThanOrEqual(30);
+    expect(tokens).toBeGreaterThanOrEqual(51);
   });
 
   it("no decoration: every pattern is the first to catch some injected marker", () => {
