@@ -201,20 +201,7 @@ const PAGE_NOTICES = [
     pageNumber: 1,
     characters: TRANSLATE_MAX_INPUT_CHARS + 1,
   }),
-  withheldPagesMarker(
-    [1],
-    "characters",
-    { characters: 1 },
-    null,
-    "separate-document",
-  ),
-  withheldPagesMarker(
-    [1],
-    "characters",
-    { characters: 1 },
-    null,
-    "choose-pages",
-  ),
+  withheldPagesMarker([1], "characters", { characters: 1 }, null),
 ];
 if (!PAGE_NOTICES.every((notice) => notice.includes("Page 1"))) {
   throw new Error(

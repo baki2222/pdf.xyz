@@ -32,7 +32,7 @@ import {
 import { TRANSLATE_TOOL } from "@/lib/workers/translate/engine";
 import {
   nothingDeliverableMessage,
-  WITHHELD_SEPARATE_DOCUMENT,
+  withheldPagesMarker,
 } from "@/lib/workers/translate/chunking";
 import { deliveryConsequence } from "@/components/tools/delivery-notice";
 import {
@@ -274,9 +274,10 @@ const sentenceWith = (text: string, needle: RegExp): string => {
  * Every split sentence the product has shipped on a Translate surface. The
  * static ones are history (typed, verbatim); the per-job ones are DERIVED
  * from the functions that still write them, so a reworded tail moves here.
- * Those per-job sentences are kept where page choice does not solve their
- * situation (verdicts in the slice 7 PR); they are not static copy, so they
- * are in the corpus and not under the ban.
+ * Those per-job sentences are kept: page choice does not solve their
+ * situation (verdicts in the slice 7 PR; for the withheld notice, the
+ * advised rerun is pinned to fail in `withheld-remedy.test.ts`). They are
+ * not static copy, so they are in the corpus and not under the ban.
  */
 const SPLIT_SHIPPED: readonly { at: string; sentence: string }[] = [
   ...SPLIT_ADVICE_SHIPPED_STATIC,
@@ -288,8 +289,11 @@ const SPLIT_SHIPPED: readonly { at: string; sentence: string }[] = [
     ),
   },
   {
-    at: "withheldPagesMarker, separate-document remedy, per job",
-    sentence: WITHHELD_SEPARATE_DOCUMENT,
+    at: "withheldPagesMarker, per job",
+    sentence: sentenceWith(
+      withheldPagesMarker([2], "characters", { characters: 9 }, null),
+      /separate document/,
+    ),
   },
   {
     at: "nothingDeliverableMessage, characters, per job",

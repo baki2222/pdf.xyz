@@ -303,10 +303,6 @@ export function createTranslateProcessor(
           ...(extract ? { extract } : {}),
           // Per job: the name the reflowed PDF is titled with.
           document: { name: file.filename },
-          // No page choice for a job that asked for OCR: the panel shows no
-          // Pages field for a scan, so its withheld-pages notice must not
-          // offer one (slice 7). Otherwise this worker's own proof.
-          ...(request ? { pageChoice: () => false } : {}),
           limits: {
             ...deps.limits,
             ...(cap.cap ? { delivery: cap.cap } : {}),

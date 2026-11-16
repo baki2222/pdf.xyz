@@ -82,20 +82,13 @@ describe("page labels: whole-document jobs keep main's bytes (golden)", () => {
       "characters",
       { characters: 4_000 },
       null,
-      "separate-document",
     );
     expect(withheld).toContain(`**Pages 5${EN}7 are not translated.**`);
     expect(withheld).toContain(
       "This job reserved enough of the daily allowance for 4,000 characters of text, and the document holds more.",
     );
     expect(
-      withheldPagesMarker(
-        pages,
-        "pages",
-        { characters: 9, pages: 2 },
-        null,
-        "separate-document",
-      ),
+      withheldPagesMarker(pages, "pages", { characters: 9, pages: 2 }, null),
     ).toContain(
       "This document was submitted as 2 pages of text and holds more than that.",
     );
@@ -166,7 +159,6 @@ describe("page labels: under a selection, only chosen pages are named", () => {
         "characters",
         { characters: 1 },
         row.chosen,
-        "separate-document",
       );
       const singular = row.pages.length === 1;
       expect(row.label.startsWith("Page ")).toBe(singular);
@@ -190,7 +182,6 @@ describe("page labels: under a selection, only chosen pages are named", () => {
       "characters",
       { characters: 4_000 },
       chosen,
-      "separate-document",
     );
     expect(chars).toContain("the pages you chose hold more.");
     expect(chars).not.toContain("the document holds more");
@@ -199,7 +190,6 @@ describe("page labels: under a selection, only chosen pages are named", () => {
       "pages",
       { characters: 9, pages: 2 },
       chosen,
-      "separate-document",
     );
     expect(pages).toContain(
       "The pages you chose were submitted as 2 pages of text and hold more than that.",

@@ -49,7 +49,6 @@ import type { AiProviderDeps } from "../ai/native";
 import type { TranslateDeps, TranslatePdfDeps } from "./engine";
 import { renderTranslationPdf } from "./pdf-render";
 import { settledTranslatePdfLanguages } from "./pdf-languages";
-import { settledTranslatePageRange } from "./page-range-proved";
 import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
 import type { NativeHtmlRenderConfig } from "../html-render/native-config";
 import {
@@ -163,10 +162,6 @@ export function translateDeps(
     ...(render
       ? { pdf: { render, languages: settledTranslatePdfLanguages } }
       : {}),
-    // This process's own `translatePageRange` verdict (`./page-range-proved`),
-    // read at job time: null until the start-up proof settles. The engine
-    // offers page choice in a withheld-pages notice only when it is true.
-    pageChoice: settledTranslatePageRange,
     limits: {
       maxInputBytes: 100 * 1024 * 1024,
       maxOutputBytes: 50 * 1024 * 1024,
