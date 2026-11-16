@@ -7,6 +7,7 @@
  * validate against, so the menu cannot offer what the worker refuses.
  */
 import {
+  CHROMIUM_DEFAULT_PAPER_INCHES,
   HTML_MARGINS,
   HTML_ONE_PAGE_MAX_INCHES,
   HTML_ORIENTATIONS,
@@ -21,6 +22,17 @@ import {
   type HtmlViewport,
 } from "@/lib/jobs/html-render-options";
 
+/**
+ * The paper "As the page sets it" falls back to, by its name in the menu:
+ * Chromium's own default, Letter. Read from the inches, so the sentences
+ * below name the paper the worker really prints on.
+ */
+const FALLBACK_PAPER = HTML_PAGE_SIZES.find(
+  (s) =>
+    s.inches?.[0] === CHROMIUM_DEFAULT_PAPER_INCHES[0] &&
+    s.inches?.[1] === CHROMIUM_DEFAULT_PAPER_INCHES[1],
+)!.label;
+
 const SELECT =
   "border-line bg-wash text-fg focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none";
 
@@ -31,7 +43,7 @@ const SELECT =
  * both carry it (review of e7fc8e57: the label said "739 px" for every page).
  */
 function paperWidthQualifier(options: HtmlRenderOptions): string {
-  return options.pageSize === "auto" ? " on Letter" : "";
+  return options.pageSize === "auto" ? ` on ${FALLBACK_PAPER}` : "";
 }
 
 /** The sentence under the controls: what the chosen layout will do. */
@@ -60,7 +72,9 @@ export function htmlLayoutNote(options: HtmlRenderOptions): string | null {
       `One long page: the PDF is a single page as tall as the content, up to ${HTML_ONE_PAGE_MAX_INCHES} inches; anything longer continues on more pages.`,
     );
   if (!g.preferCSSPageSize && options.pageSize === "auto")
-    notes.push("The paper is Letter, whatever page size the page asks for.");
+    notes.push(
+      `The paper is ${FALLBACK_PAPER}, whatever page size the page asks for.`,
+    );
   return notes.length > 0 ? notes.join(" ") : null;
 }
 

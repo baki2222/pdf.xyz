@@ -144,6 +144,9 @@ describe("Resize PDF · pick the pages, each labelled with its size", () => {
       }),
     );
     fireEvent.click(await tile(3));
+    // A4 pressed: since audit backlog #5 (2026-11-16) the target starts on
+    // the browser region's paper, US Letter in jsdom's en-US.
+    fireEvent.click(screen.getByRole("button", { name: A4.label }));
     fireEvent.click(screen.getByRole("button", { name: /^resize pdf$/i }));
     fireEvent.click(
       await screen.findByRole(
