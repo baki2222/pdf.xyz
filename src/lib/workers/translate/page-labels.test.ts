@@ -152,7 +152,7 @@ describe("page labels: under a selection, only chosen pages are named", () => {
         ).toBe(true);
   });
 
-  it("the verb's number matches the label's (one page ⇔ singular)", () => {
+  it("the verb's number matches the label's (one page if and only if singular)", () => {
     for (const row of rows) {
       const marker = withheldPagesMarker(
         row.pages,

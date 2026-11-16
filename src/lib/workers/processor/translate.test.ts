@@ -367,3 +367,58 @@ describe("the reflowed PDF is the SECOND artifact, never the first", () => {
     ).toMatch(/reflowed PDF/);
   });
 });
+
+/**
+ * Translate's chosen pages (audit #29 slice 6) through the processor: the
+ * options parser keeps `pages`, a page past the end is a fact about the
+ * request (its own `jobError` case, never the `default:` arm's
+ * `internal_error`), and the meta carries the chosen COUNT only on a job
+ * that chose pages.
+ */
+describe("translate chosen pages through the processor", () => {
+  const paged: PdfTextExtractor = async () => {
+    const pages = [
+      { pageNumber: 1, text: "First page words." },
+      { pageNumber: 2, text: "Second page words." },
+    ].map((p) => ({ ...p, characterCount: p.text.length }));
+    const text = pages.map((p) => p.text).join("\n\n");
+    return {
+      pageCount: 2,
+      pages,
+      text,
+      characterCount: text.length,
+      hasText: true,
+    };
+  };
+  const ok = provider({
+    ok: true,
+    text: "Mots.",
+    model: "claude-sonnet-5",
+    usage: { inputTokens: 1, outputTokens: 1 },
+  });
+
+  it("a page past the end is unprocessable_entity, not an internal error", async () => {
+    const p = createTranslateProcessor({ extract: paged, provider: ok });
+    const result = await p.process(
+      input({ targetLanguage: "fr", pages: [[3, 3]] }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("unprocessable_entity");
+    expect(result.error.retryable).toBe(false);
+    expect(result.error.message).toBe(
+      "This PDF has 2 pages, so page 3 cannot be translated. Nothing was sent to the AI model.",
+    );
+  });
+
+  it("selectedPages rides the meta of a selection job only", async () => {
+    const p = createTranslateProcessor({ extract: paged, provider: ok });
+    const chosen = await p.process(
+      input({ targetLanguage: "fr", pages: [[2, 2]] }),
+    );
+    const whole = await p.process(input({ targetLanguage: "fr" }));
+    if (!chosen.ok || !whole.ok) throw new Error("expected delivery");
+    expect(chosen.meta).toMatchObject({ selectedPages: 1 });
+    expect(Object.keys(whole.meta ?? {})).not.toContain("selectedPages");
+  });
+});

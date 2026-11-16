@@ -75,14 +75,22 @@ export interface AiWindowMeta {
    *  - WITH `selection` (chat): the pages chosen for the question. Dropped by
    *    the writer when invalid or more than 64, in which case the notice says
    *    only that some pages were read, never a range.
-   *  - WITHOUT it (Summarize's page range): the pages the PERSON chose whose
-   *    text reached the model — the whole selection, or when truncated the
-   *    selection clipped at the last page whose text started before the cut.
-   *    Present on untruncated windows too. Canonical (non-adjacent) and inside
-   *    the document, or DROPPED whole, never repaired: the panel compares it
-   *    with what it sent (`./selection-echo`), and a missing echo reads as
-   *    "not confirmed", which is true, where a repaired one would read as a
-   *    confident page list nobody chose.
+   *  - WITHOUT it (Summarize's and Translate's page range): the pages the
+   *    PERSON chose whose text reached the model — the whole selection, or
+   *    when truncated the selection clipped at the last page whose text
+   *    started before the cut. Present on untruncated windows too. Canonical
+   *    (non-adjacent) and inside the document, or DROPPED whole, never
+   *    repaired: the panel compares it with what it sent
+   *    (`./selection-echo`), and a missing echo reads as "not confirmed",
+   *    which is true, where a repaired one would read as a confident page
+   *    list nobody chose.
+   *  - For Translate it means "in the job's READ WINDOW", never "translated":
+   *    the delivery cap may withhold a tail of it and a failed call may leave
+   *    a run of it untranslated, and both are reported elsewhere (`delivery`
+   *    and the positioned gaps in the package). Translate derives it from the
+   *    pages that SURVIVED its filter, not from the request, so the echo is
+   *    a witness of the filter. No sentence may read it as "these pages were
+   *    translated".
    *
    * Absent on every whole-document or prefix window, so those records stay
    * byte-identical to a worker's that predates both.
