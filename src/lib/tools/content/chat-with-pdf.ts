@@ -11,6 +11,7 @@ import {
   AI_PER_CALL_RUNS_PER_DAY_AT_LEAST,
   AI_PER_CALL_RUN_CEILING,
 } from "@/lib/jobs/ai-allowance";
+import { AI_CEILING_PAUSE } from "@/lib/jobs/ai-spend-ceiling";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { getToolBySlug } from "@/lib/tools";
 import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
@@ -223,7 +224,7 @@ const content: ToolContent = {
     },
     {
       q: "How many questions can I ask in a day?",
-      a: `Each question is paid for out of ${AI_ALLOWANCE_CLAUSE}, which every AI tool draws on, not this tool alone. ${AI_ALLOWANCE_WHO_SHARES} Every question, follow-ups included, is a run of its own, and one question never costs more than ${RUN_CEILING} characters of that pool, whether the PDF is one page or a thousand. That makes at least ${QUESTIONS_PHRASE} a day if nothing else has used the pool. Apart from that, a service-wide daily limit on AI processing can pause every AI tool until the next day.`,
+      a: `Each question is paid for out of ${AI_ALLOWANCE_CLAUSE}, which every AI tool draws on, not this tool alone. ${AI_ALLOWANCE_WHO_SHARES} Every question, follow-ups included, is a run of its own, and one question never costs more than ${RUN_CEILING} characters of that pool, whether the PDF is one page or a thousand. That makes at least ${QUESTIONS_PHRASE} a day if nothing else has used the pool. Apart from that, a service-wide daily limit on AI processing can pause every AI tool ${AI_CEILING_PAUSE}.`,
     },
     {
       q: "Does the AI provider train on my PDF or keep a copy?",
