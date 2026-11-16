@@ -64,7 +64,7 @@ describe("Split PDF's size field, as the guide quotes it", () => {
  * the guides' table lists and `?size=` parser into it (review of 2026-11-17,
  * +248 B gz); the guide's arithmetic lives in `split-size-guide.ts` instead.
  */
-describe("split-size.ts stays constants only", () => {
+describe("split-size.ts stays constants only, with no imports", () => {
   /** The specifiers a source imports or re-exports at runtime (not `import type`). */
   const runtimeImports = (source: string) =>
     [
@@ -73,9 +73,10 @@ describe("split-size.ts stays constants only", () => {
       ),
     ].map((m) => m[1]!);
 
-  it("imports nothing but ./size-presets", () => {
+  it("imports nothing, and its MB is size-presets' MB", () => {
     const source = readFileSync(join(__dirname, "split-size.ts"), "utf8");
-    expect(runtimeImports(source)).toEqual(["./size-presets"]);
+    expect(runtimeImports(source)).toEqual([]);
+    expect(SPLIT_MB).toBe(MB);
   });
 
   it("the reader sees a runtime import, and skips a type-only one (controls)", () => {

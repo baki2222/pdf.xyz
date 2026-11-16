@@ -6,7 +6,7 @@
  * Kept apart from `split-size.ts` so Split PDF's runner, which reads only the
  * field's constants, never loads `size-targets.ts` (the guides' tables and
  * `?size=` parsing). `split-size.test.ts` holds `split-size.ts` to
- * importing nothing but `./size-presets`.
+ * importing nothing.
  */
 import { decimalBytes } from "./size-targets";
 import { SPLIT_MB, SPLIT_SIZE_STEP_MB, SPLIT_STEPS_PER_MB } from "./split-size";
