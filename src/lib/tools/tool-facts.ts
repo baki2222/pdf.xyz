@@ -167,6 +167,10 @@ import { tools } from "./catalog";
 import { STICKY_STAYS_COMMENT } from "@/lib/pdf/editor/sticky";
 import { toolFileCeilingMb } from "./file-ceilings";
 import type { Tool } from "./types";
+import {
+  TRANSLATE_OVER_ALLOWANCE_REMEDY,
+  TRANSLATE_PAGES_NEED_TEXT,
+} from "./translate-page-choice";
 
 /* ------------------------------------------------------------------ *
  *  Owned constants the runners import back, so fact and behavior agree.
@@ -2318,9 +2322,12 @@ export function factFaq(tool: Tool): readonly ToolFaqEntry[] {
       // charged" and "has to be split into smaller files" became false for a
       // run that chooses pages; rewritten true in both modes, naming no
       // remedy (slice 7 does, after the key is observed in production).
+      // CHANGED 2026-11-17 (audit #29 slice 7): the remedy joined, with the
+      // scan limit beside it (this answer ships alone as FAQPage JSON-LD),
+      // after `translatePageRange` was observed in production.
       entries.push({
         question: `How much of my PDF can ${tool.name} translate in one run?`,
-        answer: `${TRANSLATE_MAX_INPUT_CHARS.toLocaleString("en-US")} characters of selectable text per pass — about ${translatePagesAtSparsest} sparsely-set ${pluralPages(translatePagesAtSparsest)}, or ${translatePagesAtDensest} ${pluralPages(translatePagesAtDensest)} of dense text. Translation writes roughly as much as it reads, so that ceiling is the model's output budget — far below the reading cap the other AI tools state. A longer document is not refused for length: it is split at page boundaries, translated a few pages at a time, then reassembled in order. A SINGLE page holding more than that many characters cannot be translated at all — it is skipped, and the result says so in place, at the point where that page was. The text sent for translation is charged against the free daily allowance when the job is created, so a document needing more than is left today is refused before it runs, with nothing charged, rather than half translated; one over ${AI_CHARACTER_ALLOWANCE_DELIVERED.toLocaleString("en-US")} characters, the whole day's allowance, cannot be translated in a single day. If our server finds more text or more pages than the job reserved, translation stops there and a notice in place names the untranslated pages and why, so nothing stops silently.`,
+        answer: `${TRANSLATE_MAX_INPUT_CHARS.toLocaleString("en-US")} characters of selectable text per pass — about ${translatePagesAtSparsest} sparsely-set ${pluralPages(translatePagesAtSparsest)}, or ${translatePagesAtDensest} ${pluralPages(translatePagesAtDensest)} of dense text. Translation writes roughly as much as it reads, so that ceiling is the model's output budget — far below the reading cap the other AI tools state. A longer document is not refused for length: it is split at page boundaries, translated a few pages at a time, then reassembled in order. A SINGLE page holding more than that many characters cannot be translated at all — it is skipped, and the result says so in place, at the point where that page was. The text sent for translation is charged against the free daily allowance when the job is created, so a document needing more than is left today is refused before it runs, with nothing charged, rather than half translated; one over ${AI_CHARACTER_ALLOWANCE_DELIVERED.toLocaleString("en-US")} characters, the whole day's allowance, cannot be translated in a single day. ${TRANSLATE_OVER_ALLOWANCE_REMEDY} ${TRANSLATE_PAGES_NEED_TEXT} If our server finds more text or more pages than the job reserved, translation stops there and a notice in place names the untranslated pages and why, so nothing stops silently.`,
       });
     } else if (tool.slug === CHAT_TOOL_SLUG) {
       // PER QUESTION: every question is its own job, and since L08 (9ebe3e6)
