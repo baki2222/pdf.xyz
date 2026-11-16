@@ -168,9 +168,10 @@ describe("the advertised set and the wire contract agree", () => {
     const advertised = ADVERTISED_WORKER_CAPABILITIES.map((c) => c.key);
 
     // BOUND THE CORPUS: two empty lists are equal, and `[] ⊆ []` is the
-    // strongest possible pass. The wire has had sixteen capabilities since
-    // `translatePdfLanguages` and `docxTypefaces` landed on 2026-11-15
-    // (sixteen and fifteen since `docxTables`, the same day; fourteen since
+    // strongest possible pass. The wire has had eighteen capabilities since
+    // `translateReadingOrder` landed on 2026-11-16 (seventeen since
+    // `translatePdfLanguages` and `docxTypefaces` landed on 2026-11-15;
+    // sixteen and fifteen since `docxTables`, the same day; fourteen since
     // `docxRunStyles`,
     // the same day; thirteen since `htmlZip`,
     // twelve since `translateOcr`, eleven since
@@ -181,7 +182,7 @@ describe("the advertised set and the wire contract agree", () => {
       wire.length,
       "the heartbeat's capability set is implausibly small — the corpus, not " +
         "the code, is what failed",
-    ).toBeGreaterThanOrEqual(17);
+    ).toBeGreaterThanOrEqual(18);
 
     expect(
       [...advertised].sort(),
@@ -263,6 +264,7 @@ describe("the advertised set and the wire contract agree", () => {
       translateOcr: true,
       htmlZip: true,
       translatePdfLanguages: true,
+      translateReadingOrder: true,
     };
     expect(Object.keys(proven).sort()).toEqual(
       ADVERTISED_WORKER_CAPABILITIES.map((c) => c.key).sort(),

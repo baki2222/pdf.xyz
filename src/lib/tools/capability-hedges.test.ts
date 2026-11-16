@@ -136,6 +136,7 @@ import {
   TRANSLATE_OCR_SCOPE,
   TRANSLATE_SCAN_ROUTE,
 } from "@/lib/jobs/translate-ocr";
+import { ADVERTISED_WORKER_CAPABILITIES } from "@/lib/workers/observability/snapshot";
 import { toolFacts } from "./tool-facts";
 import {
   cardSummary,
@@ -497,6 +498,19 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     // that day — see "the translatePdfLanguages subject reaches Translate's
     // PDF sentence".
     subject: /\breflowed PDF\b/i,
+    catalogueCopy: true,
+  },
+  translateReadingOrder: {
+    // Added 2026-11-16 with the key (competitor audit #29, slice 3: reading
+    // order). The sentence a hedge about it would sit in: Translate's
+    // column-order disclosure, the way its copy says it ("compare the order
+    // of the translated paragraphs with the original", "the two columns'
+    // lines ... to the model"). NOT bare "two-column": PDF to Word's copy
+    // says it, and that is not this capability. Measured that day — see "the
+    // translateReadingOrder subject reaches Translate's column-order
+    // sentence".
+    subject:
+      /translated paragraphs with the original|columns' lines (?:reach|to) the model/i,
     catalogueCopy: true,
   },
 };
@@ -1224,6 +1238,87 @@ describe("the translatePdfLanguages subject (competitor audit #29, 2026-11-15)",
         line.includes('hedges "translatePdfLanguages"'),
       ),
     ).toBe(true);
+  });
+});
+
+/**
+ * A POSITIVE column-order claim: "the columns are read in order", "one column
+ * after the other". None ships at merge (2026-11-16): the copy discloses
+ * interleaving instead, true on both images. Exercised in both directions
+ * below, so a shape nothing matches cannot pass for a clean catalogue.
+ */
+const POSITIVE_COLUMN_ORDER =
+  /\bcolumns?\b[^.]{0,40}\b(?:in order|one after the other)\b|\bone column after the other\b|\bcolumn by column\b/i;
+
+describe("the translateReadingOrder subject (competitor audit #29 slice 3, 2026-11-16)", () => {
+  /**
+   * BOTH DIRECTIONS (house rule 1). Measured when the key landed: exactly one
+   * member, Translate PDF's useCases[1] — the both-states disclosure slice 3
+   * wrote ("our server can send the two columns' lines to the model
+   * interleaved, so compare the order of the translated paragraphs with the
+   * original"). A member elsewhere is a sentence about this capability
+   * nobody paired.
+   */
+  it("reaches Translate's column-order sentence, and nothing else", () => {
+    const members = COPY.filter((entry) =>
+      SUBJECTS.translateReadingOrder!.subject.test(entry.text),
+    ).map((entry) => `${entry.slug} ${entry.where}`);
+    expect(members.sort()).toEqual(["translate-pdf useCases[1].body"]);
+  });
+
+  it("that sentence still DISCLOSES interleaving (true of every fallback page, on both images)", () => {
+    // Fallback pages (ink, longer, rtl, bbox_failed, page_count) are sent as
+    // -layout on the NEW image too, so dropping the disclosure would be a
+    // positive claim by omission. The flip that removes it must keep a
+    // fallback clause for as long as any fallback reason exists.
+    const member = COPY.find(
+      (entry) =>
+        entry.slug === "translate-pdf" && entry.where === "useCases[1].body",
+    );
+    expect(member, "Translate's useCases[1] left the corpus").toBeDefined();
+    expect(member!.text).toMatch(/interleav/i);
+  });
+
+  it("positive control: a deferral planted in that sentence is caught", () => {
+    const planted: CopyEntry = {
+      slug: "translate-pdf",
+      where: "useCases[1].body",
+      text: "Columns are read in order soon, so compare the order of the translated paragraphs with the original.",
+    };
+    expect(
+      hedgeOffenders([planted], []).some((line) =>
+        line.includes('hedges "translateReadingOrder"'),
+      ),
+    ).toBe(true);
+  });
+
+  it("no shipped sentence claims the columns are read in order, so the operations promise claims nothing either", () => {
+    // Positive control first: the shape bites on the claim S5 will write.
+    expect(POSITIVE_COLUMN_ORDER.test("The columns are read in order.")).toBe(
+      true,
+    );
+    expect(
+      POSITIVE_COLUMN_ORDER.test(
+        "Translate sends a two-column page one column after the other.",
+      ),
+    ).toBe(true);
+    // And it does not bite on the disclosure that ships.
+    const claims = COPY.filter((entry) =>
+      POSITIVE_COLUMN_ORDER.test(entry.text),
+    ).map((entry) => `${entry.slug} ${entry.where}`);
+    expect(
+      claims,
+      "a sentence now claims the columns are read in order. The operations " +
+        "row's promise for translateReadingOrder (observability/snapshot.ts) " +
+        "says no copy rests on the proof yet: edit it in the same commit.",
+    ).toEqual([]);
+    const promise = ADVERTISED_WORKER_CAPABILITIES.find(
+      (c) => c.key === "translateReadingOrder",
+    )?.promise;
+    expect(promise, "the operations row lost its promise").toBeDefined();
+    expect(POSITIVE_COLUMN_ORDER.test(promise!)).toBe(false);
+    expect(promise).toMatch(/nothing yet/);
+    expect(promise).toMatch(/interleav/);
   });
 });
 

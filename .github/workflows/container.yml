@@ -237,6 +237,25 @@ jobs:
       - name: Worker image Translate PDF reflowed-PDF proof (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:translate-pdf-proof
 
+      # Translate PDF's reading order (2026-11-16, competitor audit #29 slice
+      # 3): the start-up proof the heartbeat publishes as
+      # `translateReadingOrder` — a generated two-column page as one
+      # translate-pdf job through the executor's order on the image's REAL
+      # pdftotext (-layout, then -bbox-layout): the text the model received
+      # and the delivered translation.txt must hold each column's sentence
+      # whole, left before right, and that page's -layout reading must
+      # interleave them on this binary. The control (the shared extractor
+      # every other AI tool reads) must fail ON ORDER. Then a measurement
+      # corpus (prose, a two-column paper, newsletter, sidebar, highlights, a
+      # table, an OCR layer, CJK, Arabic, Hebrew, empty pages, 300 pages):
+      # per-page layout/flow characters and send mode, bbox bytes and ms, and
+      # the chunk page-sets must equal -layout-only planning on every
+      # document, each run as a whole job that must succeed. Prints
+      # `pdftotext -v` and both verdicts' failed lists.
+      # Stub model, generated text; no user document, secret, queue or store.
+      - name: Worker image Translate PDF reading-order proof (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:translate-reading-order-proof
+
       # Worker options (2026-10-24): compress-pdf's Grayscale through the
       # image's REAL Ghostscript, read back as 1-component images (with a
       # colour run as the control), and protect-pdf's permission restrictions

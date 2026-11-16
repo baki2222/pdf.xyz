@@ -88,6 +88,11 @@ const ALLOWED = new Set(
     "src/lib/workers/translate/pdf-readers.ts",
     "src/lib/workers/translate/pdf-capability.ts",
     "src/lib/workers/translate/pdf-measure.ts",
+    // Translate's reading-order proof (2026-11-16, audit #29 slice 3): it
+    // runs `translateDeps(env).extract`, the image's real pdftotext. Reached
+    // only by the daemon's proved-capability table, the in-image proof
+    // script and tests.
+    "src/lib/workers/translate/reading-order-capability.ts",
     "src/lib/workers/local-dev.ts",
     "src/lib/workers/daemon/runtime.ts",
     // 2026-11-15: the daemon's proved-capability table (every proof, incl.

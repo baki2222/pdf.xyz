@@ -189,6 +189,16 @@ export function copyFiles(): string[] {
     // The Translate OCR proof's German page and verdict lines (2026-11-09),
     // walked for the reason options-proof.ts is.
     path.join(ROOT, "src", "lib", "probes", "translate-ocr-proof.ts"),
+    // The Translate reading-order probe's column sentences (2026-11-16),
+    // walked for the reason options-proof.ts is.
+    path.join(
+      ROOT,
+      "src",
+      "lib",
+      "workers",
+      "translate",
+      "reading-order-capability.ts",
+    ),
     // Protect PDF's permission switch labels and their two "why it cannot
     // be turned off" sentences (2026-10-24), drawn by the panel and the page.
     path.join(ROOT, "src", "lib", "jobs", "pdf-permission-labels.ts"),
