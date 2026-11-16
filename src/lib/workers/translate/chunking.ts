@@ -29,6 +29,11 @@
 
 import { PAGE_JOIN } from "@/lib/pdf/text";
 import type { DeliveryBound } from "@/lib/jobs/delivery-cap";
+import {
+  collidesWithMarker,
+  separatorFor,
+  separatorOverhead,
+} from "./page-markers";
 
 /** One provider call's worth of whole pages, in document order. */
 export interface TranslateChunk {
@@ -43,10 +48,40 @@ export interface TranslateChunk {
   readonly text: string;
   /**
    * What the chunk WEIGHS: each page's `text` length plus one
-   * {@link PAGE_JOIN} per boundary. Never less than `text.length`, because a
-   * page's `send` is never longer than its `text` (`./reading-order`).
+   * `separatorFor(page)` (`./page-markers`) per boundary, whether or not the
+   * chunk ends up marked. Never less than `text.length`, because a page's
+   * `send` is never longer than its `text` (`./reading-order`) and a separator
+   * is never shorter than {@link PAGE_JOIN}.
    */
   readonly characters: number;
+  /**
+   * Whether this chunk carries page markers between its pages. Always false
+   * for a one-page chunk, which has no boundary to mark.
+   */
+  readonly marked: boolean;
+  /**
+   * Why a MULTI-PAGE chunk is not marked; `null` when it is marked or has one
+   * page. "collision": a page's sent text, or the job's instructions, holds
+   * the marker's brand (`collidesWithMarker`). "budget": its markers did not
+   * fit what was left of the reservation's slack ({@link capPagesToDelivery}).
+   */
+  readonly markerFallback: "collision" | "budget" | null;
+}
+
+/** How {@link planTranslateChunks} decides which chunks carry markers. */
+export interface MarkerPlanOptions {
+  /**
+   * Characters of marker overhead (`separatorOverhead`) the plan may spend,
+   * chunk by chunk in document order. Default `Infinity`: the plan an
+   * UNCAPPED worker would send, which is what the browser preflight gets.
+   */
+  readonly markerBudget?: number;
+  /**
+   * `false` marks nothing and counts every multi-page chunk as a collision:
+   * the engine passes it when the job's instructions hold the brand. Default
+   * `true`. Neither option touches sizing.
+   */
+  readonly markers?: boolean;
 }
 
 /**
@@ -92,25 +127,60 @@ export interface TranslatePlan {
  * An oversize page ENDS the chunk being built. It is not skipped over to keep
  * packing, because the pages after it belong after the gap — the plan has to
  * stay in document order for the assembly to place the gap where the page was.
+ *
+ * ── MARKERS ARE SIZED ALWAYS, AND DECIDED AFTER ─────────────────────────────
+ *
+ * Every boundary is sized as `separatorFor(next page)`, whether or not the
+ * chunk is then marked, so the page-sets of a plan never depend on collision,
+ * budget or `send`: the browser preflight (budget `Infinity`, no `send`) and
+ * the worker (a capped budget) cut the same chunks. Only then is each
+ * multi-page chunk marked, in document order: not on a collision (which spends
+ * nothing), else only if its overhead fits the remaining budget, which it then
+ * spends. `chunking.markers.test.ts` (v) holds the independence.
  */
 export function planTranslateChunks(
   pageChunks: readonly PlannedPage[],
   ceiling: number,
+  options: MarkerPlanOptions = {},
 ): TranslatePlan {
   const chunks: TranslateChunk[] = [];
   const oversize: OversizePage[] = [];
   const pages: number[] = [];
+  const markers = options.markers ?? true;
+  let budget = options.markerBudget ?? Number.POSITIVE_INFINITY;
 
   let pending: PlannedPage[] = [];
   let pendingChars = 0;
 
   const flush = (): void => {
     if (pending.length === 0) return;
+    let marked = false;
+    let markerFallback: TranslateChunk["markerFallback"] = null;
+    if (pending.length > 1) {
+      const overhead = pending
+        .slice(1)
+        .reduce((sum, p) => sum + separatorOverhead(p.pageNumber), 0);
+      if (
+        !markers ||
+        pending.some((p) => collidesWithMarker(p.send ?? p.text))
+      ) {
+        markerFallback = "collision";
+      } else if (overhead <= budget) {
+        marked = true;
+        budget -= overhead;
+      } else {
+        markerFallback = "budget";
+      }
+    }
     chunks.push({
       index: chunks.length,
       pages: pending.map((p) => p.pageNumber),
+      // Still PAGE_JOIN: markers are sized and decided here, and sent in a
+      // later commit of the same change.
       text: pending.map((p) => p.send ?? p.text).join(PAGE_JOIN),
       characters: pendingChars,
+      marked,
+      markerFallback,
     });
     pending = [];
     pendingChars = 0;
@@ -128,12 +198,11 @@ export function planTranslateChunks(
       continue;
     }
 
-    const joined =
-      pending.length === 0 ? size : pendingChars + PAGE_JOIN.length + size;
+    const boundary = separatorFor(page.pageNumber).length;
+    const joined = pending.length === 0 ? size : pendingChars + boundary + size;
     if (joined > ceiling) flush();
     pending.push(page);
-    pendingChars =
-      pending.length === 1 ? size : pendingChars + PAGE_JOIN.length + size;
+    pendingChars = pending.length === 1 ? size : pendingChars + boundary + size;
   }
   flush();
 
@@ -208,12 +277,28 @@ export interface CappedPlan {
  * ── EVERY SENT CHARACTER IS WEIGHED, WITH ONE RECORDED EXCEPTION ────────────
  *
  * The general rule: any character in `chunk.text` that a page's `text` length
- * does not include must be COUNTED — here, in {@link planTranslateChunks}, and
- * therefore in the browser preflight, which plans with the same function.
- * Since reading order, a page is weighed by its `-layout` `text` while its
- * flow `send` is what goes out, so a term added to the sent text (a page
- * marker, say) is invisible to every bound unless it is counted explicitly.
- * `reading-order.chain.test.ts` ("sent ≤ weighed") goes red when it is not.
+ * does not include must be COUNTED. Since reading order, a page is weighed by
+ * its `-layout` `text` while its flow `send` is what goes out, so a term added
+ * to the sent text is invisible to every bound unless it is counted
+ * explicitly. `reading-order.chain.test.ts` ("sent ≤ weighed") goes red when
+ * it is not.
+ *
+ * Page markers (`./page-markers`) are such a term, and they are counted in two
+ * places, for two different bounds:
+ *
+ * - SIZED in {@link planTranslateChunks}: every boundary weighs
+ *   `separatorFor(page)`, so `text.length ≤ characters ≤ ceiling` per call
+ *   (`chunking.markers.test.ts` (i)), and the browser preflight, which plans
+ *   with the same function, inherits it.
+ * - BUDGETED here, out of the reservation's SLACK: the walk below is NOT
+ *   changed (same size, same cut, same `boundBy`), and after the cut the
+ *   markers may spend only `limit.characters − Σ delivered size`
+ *   (`chunking.markers.test.ts` (iii)). A chunk whose markers do not fit is
+ *   sent unmarked. Charging markers inside the walk would withhold a page an
+ *   unmarked plan delivers, and the withheld notice ("the document holds
+ *   more") would then be false; `chunking.markers.test.ts` (ii) proves the
+ *   delivered set is identical to a reference copy of the walk without
+ *   markers.
  *
  * The one exception is {@link PAGE_JOIN}: chunks are joined with it, so a call
  * carries two characters per page boundary that this walk does not count
@@ -222,7 +307,8 @@ export interface CappedPlan {
  * toward delivering slightly more than was reserved rather than slightly
  * less — the direction that cannot truncate an honest caller's document. The
  * test subtracts exactly this term (`UNCOUNTED_JOIN_PER_BOUNDARY`) and no
- * other; it is not a precedent for a second uncounted term.
+ * other; it is not a precedent for a second uncounted term, and markers are
+ * not one (they are budgeted, above).
  *
  * ── STOPS; DOES NOT SKIP ────────────────────────────────────────────────────
  *
@@ -262,8 +348,11 @@ export function capPagesToDelivery(
   }
 
   const delivered = pageChunks.slice(0, cut);
+  // The reservation's slack: what the delivered pages left of the character
+  // bound. Markers spend only this, so the walk above never moves.
+  const markerBudget = limit.characters - characters;
   return {
-    plan: planTranslateChunks(delivered, ceiling),
+    plan: planTranslateChunks(delivered, ceiling, { markerBudget }),
     withheldPages: pageChunks.slice(cut).map((page) => page.pageNumber),
     boundBy,
   };

@@ -85,7 +85,12 @@ describe("capPagesToDelivery — conservation", () => {
       }
 
       // What was actually SENT never exceeds the character bound.
-      const sent = capped.plan.chunks.reduce((n, c) => n + c.characters, 0);
+      // Until translatePageMap (2026-11) this summed `c.characters`, which was
+      // then exactly the sent text. A chunk now WEIGHS a page-marker separator
+      // per boundary whether or not it sends one, so what is sent is read
+      // from the text itself; marker characters a chunk does send are paid
+      // from the reservation's slack (chunking.markers.test.ts (iii)).
+      const sent = capped.plan.chunks.reduce((n, c) => n + c.text.length, 0);
       if (Number.isFinite(limit.characters)) {
         expect(
           sent,

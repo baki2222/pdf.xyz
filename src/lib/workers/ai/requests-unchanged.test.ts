@@ -19,7 +19,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import type { ExtractedPdfText } from "@/lib/pdf/text";
+import { PAGE_JOIN, type ExtractedPdfText } from "@/lib/pdf/text";
 import type { AiCompletionRequest, AiProvider } from "./provider";
 import { runChatWithPdf } from "../chat-with-pdf/engine";
 import { runSummarize } from "../summarize/engine";
@@ -360,6 +360,29 @@ async function recordAll(): Promise<Record<string, Recorded[]>> {
   return out;
 }
 
+/**
+ * Cases whose requests legitimately differ from the fixture, with the change
+ * that moved them. Never re-record the fixture to clear one (its docblock);
+ * each is held instead by the relation in "a moved case sends main's pages":
+ * same system prompt and parameters, and the same pages in the same order
+ * across all its segments.
+ */
+const MOVED_SINCE_FIXTURE: Readonly<Record<string, string>> = {
+  "translate/prefix":
+    "translatePageMap (2026-11): every page boundary is sized as a page-marker separator, so chunk page-sets move near the ceiling",
+};
+
+/** Each request's text between the `---` delimiters, in order. */
+function segmentsOf(requests: readonly Recorded[]): string[] {
+  return requests.map((request) => {
+    const content = String(request.messages[0]!.content);
+    const open = content.indexOf("\n---\n");
+    const close = content.lastIndexOf("\n---");
+    expect(open, "a request without its delimited segment").toBeGreaterThan(0);
+    return content.slice(open + 5, close);
+  });
+}
+
 function loadFixture(): Record<string, Recorded[]> {
   return JSON.parse(readFileSync(FIXTURE, "utf8")) as Record<
     string,
@@ -400,7 +423,42 @@ describe("AI provider requests are main's bytes wherever retrieval adds no page"
   });
 
   it("every recorded request is deep-equal to main's", async () => {
-    expect(await recordAll()).toEqual(loadFixture());
+    // Until translatePageMap (2026-11) this compared EVERY case:
+    //   expect(await recordAll()).toEqual(loadFixture());
+    // The cases in MOVED_SINCE_FIXTURE are compared by the relation below
+    // instead; the fixture itself is not re-recorded.
+    const recorded = await recordAll();
+    const fixture = loadFixture();
+    for (const name of Object.keys(MOVED_SINCE_FIXTURE)) {
+      delete recorded[name];
+      delete fixture[name];
+    }
+    expect(recorded).toEqual(fixture);
+  });
+
+  it("a moved case sends main's pages, in main's order, under main's system prompt; only the cut moved", async () => {
+    const fixture = loadFixture();
+    for (const [name, why] of Object.entries(MOVED_SINCE_FIXTURE)) {
+      const provider = recorder();
+      await CASES[name]!(provider);
+      const seen = provider.seen;
+      // The exemption is live: a case that matches main again leaves the
+      // list, or this list grows into a place where differences hide.
+      expect(seen, `${name} matches main again; drop it (${why})`).not.toEqual(
+        fixture[name],
+      );
+      for (const request of seen) {
+        const { messages, ...rest } = request;
+        const { messages: mainMessages, ...mainRest } = fixture[name]![0]!;
+        expect(rest, name).toEqual(mainRest);
+        expect(messages.length, name).toBe(mainMessages.length);
+      }
+      expect(segmentsOf(seen).join(PAGE_JOIN), name).toBe(
+        segmentsOf(fixture[name]!).join(PAGE_JOIN),
+      );
+      // Health: the relation reads real text, not two empty joins.
+      expect(segmentsOf(seen).join("").length, name).toBeGreaterThan(1_000);
+    }
   });
 
   it("a throwing selector sends main's prefix request, and the read-cap proof still holds", async () => {

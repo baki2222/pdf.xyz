@@ -35,6 +35,7 @@ import {
 import { DEFAULT_OCR_OUTPUT_MODE, ocrOutputsForMode } from "@/lib/jobs/ocr";
 import { getToolBySlug } from "@/lib/tools";
 import { translatePreflight } from "./preflight";
+import { separatorOverhead } from "./page-markers";
 import { runTranslate } from "./engine";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 
@@ -301,7 +302,17 @@ describe("what may be submitted still is (positive controls)", () => {
     expect(plan.chunks[0]!.text).toBe(
       textPages.map((p) => p.text).join(PAGE_JOIN),
     );
-    expect(plan.chunks[0]!.characters).toBe(plan.chunks[0]!.text.length);
+    // Until translatePageMap (2026-11), and true again once the markers are
+    // sent: `expect(plan.chunks[0]!.characters).toBe(plan.chunks[0]!.text.length);`
+    // Every boundary is SIZED as a separator, and this commit still sends
+    // PAGE_JOIN, so the weight exceeds the text by the separators' overhead.
+    expect(plan.chunks[0]!.characters).toBe(
+      plan.chunks[0]!.text.length +
+        plan.chunks[0]!.pages.slice(1).reduce(
+          (n, page) => n + separatorOverhead(page),
+          0,
+        ),
+    );
   });
 
   it("passes a document with one oversize page and one it can translate", async () => {

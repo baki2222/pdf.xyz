@@ -81,7 +81,16 @@ describe("the assembly places each body by its own pages", () => {
     const parts = assembleParts(
       [{ text: "B", pages: [3] }],
       {
-        chunks: [{ index: 0, pages: [3], text: "x", characters: 1 }],
+        chunks: [
+          {
+            index: 0,
+            pages: [3],
+            text: "x",
+            characters: 1,
+            marked: false,
+            markerFallback: null,
+          },
+        ],
         oversize: [{ pageNumber: 2, characters: 99_999 }],
         pages: [2, 3],
       },

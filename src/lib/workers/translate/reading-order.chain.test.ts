@@ -42,6 +42,7 @@ import {
   type ReadingOrderPage,
   type TranslateExtracted,
 } from "./reading-order";
+import { separatorFor } from "./page-markers";
 
 /**
  * The two characters per page boundary `capPagesToDelivery` does not count
@@ -277,9 +278,15 @@ describe("weight invariance: flow changes what is sent, never what is weighed", 
       expect(chunk.text).toBe(
         members.map((b) => b.send ?? b.text).join(PAGE_JOIN),
       );
+      // Until translatePageMap (2026-11) a boundary weighed PAGE_JOIN:
+      //   members.reduce((sum, b) => sum + b.text.length, 0) +
+      //     (members.length - 1) * PAGE_JOIN.length
+      // It now weighs a page-marker separator whether or not one is sent.
       expect(chunk.characters).toBe(
         members.reduce((sum, b) => sum + b.text.length, 0) +
-          (members.length - 1) * PAGE_JOIN.length,
+          members
+            .slice(1)
+            .reduce((sum, b) => sum + separatorFor(b.pageNumber).length, 0),
       );
       sentFlow += members.filter((b) => b.send !== undefined).length;
     }
