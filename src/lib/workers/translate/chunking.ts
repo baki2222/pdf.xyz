@@ -164,9 +164,15 @@ export function planTranslateChunks(
       const overhead = pending
         .slice(1)
         .reduce((sum, p) => sum + separatorOverhead(p.pageNumber), 0);
+      // Judged on the pages JOINED, not one by one: the brand tolerates a
+      // space inside it (`MARKER_GAP`), so a page ending "PDF" before one
+      // starting "XYZ" holds it across the boundary, and a model that runs
+      // the two paragraphs together would have the reader strip both words.
+      // The joined text holds every page's own text, so this is never weaker
+      // than the per-page test.
       if (
         !markers ||
-        pending.some((p) => collidesWithMarker(p.send ?? p.text))
+        collidesWithMarker(pending.map((p) => p.send ?? p.text).join(PAGE_JOIN))
       ) {
         markerFallback = "collision";
       } else if (overhead <= budget) {

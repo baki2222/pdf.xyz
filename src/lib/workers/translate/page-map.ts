@@ -15,17 +15,24 @@
  *
  * ── TWO PATTERNS, KEPT APART ────────────────────────────────────────────────
  *
- * MARKER LINE (recognition, strict on the word). After NFKC and after
- * trimming whitespace and bidi/format characters, the line is
- * `<{1,3} PDFXYZ _ PAGE _ <digits> >{1,3}`, case-insensitive, inner spaces
- * allowed, optionally wrapped in up to three emphasis/code characters and
+ * MARKER LINE (recognition, strict on the word). After NFKC, after deleting
+ * every format character (`\p{Cf}`) and after trimming whitespace and
+ * bidi characters, the line is `<{1,3} PDFXYZ _ PAGE _ <digits> >{1,3}`,
+ * case-insensitive, with whitespace allowed inside PDFXYZ and PAGE and
+ * between the parts (where the `_` may also be missing), so a model that
+ * writes `<<<PDF XYZ_PAGE_2>>>` or puts a zero-width space or soft hyphen
+ * in the brand is still read, optionally wrapped in up to three emphasis/code characters and
  * optionally prefixed by a Markdown heading, quote or bullet. The word must be
  * PAGE. The id is the digit run read by numeric value from any `\p{Nd}` digits,
  * so Arabic-Indic and Devanagari digits read as their values (NFKC maps only
  * the full-width ones). CJK numerals are not digits.
  *
  * STRIP TOKEN (removal, anchored on the BRAND). "pdfxyz" in any compatibility
- * form, plus a tail bounded by the marker grammar (`TAIL`: `_PAGE_<digits>`,
+ * form, with any `MARKER_GAP` (whitespace, `\p{Cf}`) between its letters,
+ * found by the SAME pattern and the SAME per-character fold as the collision
+ * rule (`./page-markers`), so a page judged safe is never stripped as marker
+ * text; plus a tail bounded by the marker grammar (`TAIL`: `_PAGE_<digits>`,
+ * gaps tolerated between the parts when the id closes it,
  * or one short Latin word and digits for a translated PAGE), plus adjacent
  * bracket runs (angle of either width, and the CJK pairs in `OPENING`) and
  * glued emphasis characters. The tail never runs "to the next whitespace":
@@ -55,6 +62,7 @@
  */
 
 import { PAGE_JOIN } from "@/lib/pdf/text";
+import { MARKER_GAP, foldChar, gapped } from "./page-markers";
 
 export type PageMarkerVerdict = "verified" | "missing" | "order" | "empty";
 
@@ -79,8 +87,18 @@ const EDGES = new RegExp(`^[${EDGE}]+|[${EDGE}]+$`, "gu");
  * The marker line, applied to an NFKC-normalised, edge-trimmed line. Group 1
  * is the digit run.
  */
-const MARKER_LINE =
-  /^(?:#{1,6}\s+|>\s+|[-*+]\s+)?[*_`]{0,3}<{1,3}\s*pdfxyz\s*_\s*page\s*_\s*(\p{Nd}+)\s*>{1,3}[*_`]{0,3}$/iu;
+const spacedWord = (word: string): string =>
+  Array.from(word).join(String.raw`\s*`);
+const MARKER_LINE = new RegExp(
+  String.raw`^(?:#{1,6}\s+|>\s+|[-*+]\s+)?[*_\x60]{0,3}<{1,3}\s*` +
+    spacedWord("pdfxyz") +
+    String.raw`\s*_?\s*` +
+    spacedWord("page") +
+    String.raw`\s*_?\s*(\p{Nd}+)\s*>{1,3}[*_\x60]{0,3}$`,
+  "iu",
+);
+/** Every format character, deleted before a line is tried as a marker line. */
+const FORMAT = /\p{Cf}/gu;
 
 /**
  * Bracket runs stripped beside a token. Angle brackets of either width, then
@@ -93,7 +111,8 @@ const CLOSING = ">＞»›〉〉⟩》】」｣』〕）";
 /** CJK numerals zero to nine, ten, hundred, thousand. */
 const CJK_NUMERALS = "〇一二三四五六七八九十百千";
 const EMPHASIS = "*_`";
-const BRAND = "pdfxyz";
+/** The brand on the folded form: the collision rule's own pattern, global. */
+const BRAND = new RegExp(gapped("pdfxyz"), "giu");
 
 const isNd = (c: string): boolean => /^\p{Nd}$/u.test(c);
 const isSpace = (c: string): boolean => /^\s$/u.test(c);
@@ -107,6 +126,18 @@ const isSpace = (c: string): boolean => /^\s$/u.test(c);
  */
 const TAIL_PAGE = /^(?:\s*[_-]\s*|)page(?:\s*[_-]\s*|)\p{Nd}{0,6}/u;
 const TAIL_WORD = /^[_-]?\p{Script=Latin}{0,12}[_-]?\p{Nd}{0,6}/u;
+/**
+ * The PAGE form closed by its id, with a `MARKER_GAP` (whitespace, `\p{Cf}`)
+ * allowed inside PAGE and around or in place of each separator: what a model
+ * writes as `PDFXYZ PAGE 2` or `PDFXYZ_PAGE_` + ZWSP + `2`. The id is
+ * required, so a gap never lets the tail take an ordinary word ("PDF XYZ
+ * pages" keeps "pages").
+ */
+const SEP = `(?:${MARKER_GAP}[_-]${MARKER_GAP}|${MARKER_GAP})`;
+const TAIL_PAGE_ID = new RegExp(
+  `^${SEP}${gapped("page")}${SEP}` + String.raw`\p{Nd}{1,6}`,
+  "u",
+);
 
 /**
  * How many folded characters of `rest` belong to the token. The PAGE form
@@ -114,6 +145,8 @@ const TAIL_WORD = /^[_-]?\p{Script=Latin}{0,12}[_-]?\p{Nd}{0,6}/u;
  * longer of the two, so "PAGES_2" is taken whole rather than as "PAGE".
  */
 function tailLength(rest: string): number {
+  const closed = TAIL_PAGE_ID.exec(rest)?.[0];
+  if (closed !== undefined) return closed.length;
   const page = TAIL_PAGE.exec(rest)?.[0] ?? "";
   if (page !== "" && isNd(Array.from(page).pop()!)) return page.length;
   const word = TAIL_WORD.exec(rest)?.[0] ?? "";
@@ -137,7 +170,7 @@ function digitValue(c: string): number {
 
 /** The page id a marker line carries, or `null` when the line is not one. */
 export function markerLineId(line: string): number | null {
-  const normal = line.normalize("NFKC").replace(EDGES, "");
+  const normal = line.normalize("NFKC").replace(FORMAT, "").replace(EDGES, "");
   const match = MARKER_LINE.exec(normal);
   if (!match) return null;
   let id = 0;
@@ -155,7 +188,7 @@ function stripTokenSpans(line: string): Array<[number, number]> {
   let folded = "";
   const origin: number[] = [];
   chars.forEach((c, i) => {
-    const f = c.normalize("NFKC").toLowerCase();
+    const f = foldChar(c);
     for (let j = 0; j < f.length; j += 1) origin.push(i);
     folded += f;
   });
@@ -163,17 +196,20 @@ function stripTokenSpans(line: string): Array<[number, number]> {
   const spans: Array<[number, number]> = [];
   let from = 0;
   for (;;) {
-    const at = folded.indexOf(BRAND, from);
-    if (at < 0) break;
-    from = at + BRAND.length;
+    BRAND.lastIndex = from;
+    const found = BRAND.exec(folded);
+    if (!found) break;
+    const at = found.index;
+    const brand = found[0].length;
+    from = at + brand;
     let start = origin[at]!;
-    let end = origin[at + BRAND.length - 1]! + 1;
+    let end = origin[at + brand - 1]! + 1;
 
     // The tail: the marker grammar only, never "up to the next whitespace".
     // CJK and Thai put no space between words, so a to-whitespace tail ate
     // the model's next sentence whenever a marker was glued to it.
-    const taken = tailLength(folded.slice(at + BRAND.length));
-    if (taken > 0) end = origin[at + BRAND.length + taken - 1]! + 1;
+    const taken = tailLength(folded.slice(at + brand));
+    if (taken > 0) end = origin[at + brand + taken - 1]! + 1;
     // A CJK-numeral id ("<<<PDFXYZ_PAGE_" + U+4E8C + ">>>") is taken only when
     // a closing bracket closes it: unbracketed, the same characters may be
     // the first word of the next page.

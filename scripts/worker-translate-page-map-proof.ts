@@ -17,13 +17,19 @@
  *     — the real reader must see arm A's PDF lose its page headings, and the
  *     in-probe control must see the two arms become indistinguishable. A
  *     control that failed for any other set proves a different thing.
- *  3. The heartbeat's own entry point, `provesTranslatePageMap(env)`, must
+ *  3. The glued case: arm A's model glues each marker between the pages'
+ *     words with its brand broken by a zero-width space. Must fail EXACTLY
+ *     [control, pdf_a, wire_a, zip_identity] (`GLUED_FAILED`) — and so never
+ *     zip_clean: the real reader must find no trace of the broken brand in
+ *     either ZIP or in the PDF as poppler reads it.
+ *  4. The heartbeat's own entry point, `provesTranslatePageMap(env)`, must
  *     be true.
  *
  * Exit codes: 0 = proven; 1 = the probe false (including `pdf_unavailable`:
  * the CI image has Chromium and the CI-required PDF languages are proven
  * there, so no PDF to label is itself a failure), the control true or false
- * for the wrong set, or the entry point false; 2 = no pdftotext in this
+ * for the wrong set, the glued run for any other set, or the entry point
+ * false; 2 = no pdftotext in this
  * image. Run by `.github/workflows/container.yml`; no secret, queue, store,
  * network, model or user document is touched — the model is a stub and the
  * document is generated here.
@@ -33,6 +39,8 @@ import { resolveNativePdfTextReader } from "@/lib/workers/pdf-text/native";
 import { resolveNativePdfTextConfig } from "@/lib/workers/pdf-text/native-config";
 import { translateDeps } from "@/lib/workers/translate/native";
 import {
+  GLUED_FAILED,
+  gluedBrokenBrandAnswer,
   probeTranslatePageMap,
   provesTranslatePageMap,
   stripSeparatorsAnswer,
@@ -113,6 +121,28 @@ async function main(): Promise<number> {
   )
     failures.push(
       `the control failed [${got.join(",")}], not [${CONTROL_FAILED.join(",")}]`,
+    );
+
+  const t3 = performance.now();
+  const glued = await probeTranslatePageMap({
+    extract: deps.extract,
+    pdf: deps.pdf,
+    readPdfText,
+    env: process.env,
+    answerA: gluedBrokenBrandAnswer,
+  });
+  printVerdict(
+    "glued (arm A glues each marker inline, brand broken by a ZWSP)",
+    glued,
+    performance.now() - t3,
+  );
+  const gotGlued = [...glued.failed].sort();
+  if (
+    gotGlued.length !== GLUED_FAILED.length ||
+    gotGlued.some((c, i) => c !== GLUED_FAILED[i])
+  )
+    failures.push(
+      `the glued run failed [${gotGlued.join(",")}], not [${GLUED_FAILED.join(",")}]`,
     );
 
   const entry = await provesTranslatePageMap(process.env);

@@ -73,7 +73,9 @@ const NOW = () => "2026-11-16T00:00:00.000Z";
 /** Far above any page number a document here carries. */
 const MAX_PAGE = 999;
 
-const nfkcBrand = (text: string) => /pdfxyz/i.test(text.normalize("NFKC"));
+/** P5: NFKC, whitespace and `\p{Cf}` removed, then /pdfxyz/i (review minor 1). */
+const nfkcBrand = (text: string) =>
+  /pdfxyz/i.test(text.normalize("NFKC").replace(/[\s\p{Cf}]/gu, ""));
 
 function segmentOf(request: AiCompletionRequest): string {
   const content = request.messages[0]!.content;
@@ -634,4 +636,259 @@ describe("a marker glued into unspaced text: every word reaches the ZIP and the 
       }
     });
   }
+});
+
+// ── P5, SCOPED: brand text in the output only where the document holds it ──
+//
+// The brief's form (guard-honesty audit 2026-11-16) was: "nfkc /pdfxyz/i
+// appears in the output ONLY in chunks counted as fellBack.collision; an
+// output holding it with collision === 0 is red". That is FALSE for a
+// ONE-PAGE chunk whose own text holds the brand: it carries no markers, so
+// it is never counted (D7 counts multi-page chunks only), and its reply,
+// which faithfully carries the document's word, ships untouched. The
+// relation written below is the corrected one (review minor 4):
+//
+//   (per chunk) a body holds the brand => its chunk was sent UNMARKED and
+//     the chunk's own sent text holds the brand;
+//   (per job) the output holds the brand => fellBack.collision > 0, or some
+//     ONE-PAGE chunk's sent text holds it. So collision === 0 with no such
+//     one-page chunk and a brand anywhere in the output is red.
+//
+// P5's predicate here is this file's own `nfkcBrand` (NFKC, whitespace and
+// \p{Cf} removed), never `collidesWithMarker`: an independent bound.
+//
+// MUTATION (2026-11-16): the engine shipping a marked reply unstripped
+// (`const text = completion.text.trim()`) turns the generated test red on the
+// broken-brand arms, among 19 red across the marker files.
+
+describe("P5, scoped: brand text reaches the output only from the document's own collision chunks", () => {
+  const cp = (...codes: number[]) => String.fromCodePoint(...codes);
+  const BRANDS = [
+    "pdfxyz",
+    "PDF XYZ",
+    cp(0xff30, 0xff24, 0xff26, 0xff38, 0xff39, 0xff3a),
+    `pdfxyz${cp(0x0301)}`,
+    `PDF${cp(0x200b)}XYZ`,
+    `PD${cp(0x00ad)}FXYZ`,
+    markerFor(2),
+  ];
+  /** A seeded LCG, so a red run names a reproducible document. */
+  const rng = (seed: number) => {
+    let s = seed >>> 0;
+    return () => {
+      s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+      return s / 2 ** 32;
+    };
+  };
+  const SMALL = {
+    maxOutputTokens: Math.ceil(1_000 / TRANSLATE_CHARS_PER_OUTPUT_TOKEN),
+  };
+
+  interface Case {
+    readonly name: string;
+    readonly texts: readonly string[];
+    readonly instructions?: string;
+  }
+
+  function generated(n: number): Case[] {
+    const out: Case[] = [];
+    for (let k = 0; k < n; k += 1) {
+      const r = rng(1000 + k);
+      const pages = 1 + Math.floor(r() * 8);
+      const texts = Array.from({ length: pages }, (_, i) => {
+        const words = 15 + Math.floor(r() * 90);
+        const body = Array.from(
+          { length: words },
+          (_, w) => `d${k}p${i + 1}w${w}`,
+        );
+        if (r() < 0.25)
+          body.splice(
+            Math.floor(r() * words),
+            0,
+            BRANDS[Math.floor(r() * BRANDS.length)]!,
+          );
+        return body.join(" ");
+      });
+      out.push({
+        name: `generated #${k} (${pages} pages)`,
+        texts,
+        ...(r() < 0.12 ? { instructions: "Keep PDFXYZ as it is" } : {}),
+      });
+    }
+    return out;
+  }
+
+  const respell = (glue: (n: number) => string) => (segment: string) => {
+    let out = segment;
+    for (let n = 1; n <= MAX_PAGE; n += 1)
+      out = out.split(separatorFor(n)).join(glue(n));
+    return out;
+  };
+
+  /** Echo, and echo with each marker re-spelled as a BROKEN brand. */
+  const ARMS: ReadonlyArray<readonly [string, (segment: string) => string]> = [
+    ["echo", (segment) => segment],
+    [
+      "markers with a space in the brand, on their own lines",
+      respell((n) => `${PAGE_JOIN}<<<PDF XYZ_PAGE_${n}>>>${PAGE_JOIN}`),
+    ],
+    [
+      "markers with a ZWSP in the brand, glued inline",
+      respell((n) => ` <<<PDF${cp(0x200b)}XYZ_PAGE_${n}>>> `),
+    ],
+  ];
+
+  async function runCase(c: Case, answer: (segment: string) => string) {
+    const extract = pagesOf(c.texts);
+    const options = {
+      ...OPTIONS,
+      ...(c.instructions ? { instructions: c.instructions } : {}),
+    };
+    const { pdf, inputs } = recordingPdf();
+    const provider = providerAnswering((segment) => ok(answer(segment)));
+    const run = await runTranslate(INPUT, options, {
+      extract,
+      provider,
+      now: NOW,
+      pdf,
+      limits: SMALL,
+    });
+    if (!run.ok) throw new Error(`${c.name}: run failed: ${run.message}`);
+    // The oracle: the plan the engine made, from the same inputs.
+    const extracted = await extract(INPUT);
+    const { blocks } = translatePageBlocks(extracted.pages);
+    const capped = capPagesToDelivery(
+      blocks,
+      translateMaxInputChars(SMALL.maxOutputTokens),
+      { characters: Number.POSITIVE_INFINITY },
+      { markers: !(c.instructions && nfkcBrand(c.instructions)) },
+    );
+    const sent = new Map(blocks.map((b) => [b.pageNumber, b.send ?? b.text]));
+    const chunkOf = (page: number) =>
+      capped.plan.chunks.find((ch) => ch.pages.includes(page))!;
+    const sourceOf = (pages: readonly number[]) =>
+      pages.map((p) => sent.get(p)!).join(PAGE_JOIN);
+    return { run, inputs, chunkOf, sourceOf, chunks: capped.plan.chunks };
+  }
+
+  /** The corrected relation; returns what it saw so the health checks can count. */
+  async function judge(c: Case, answer: (segment: string) => string) {
+    const { run, inputs, chunkOf, sourceOf, chunks } = await runCase(c, answer);
+    if (!run.ok) throw new Error("unreachable");
+    const { md, txt } = await zipText(run);
+    const outputs = [md, txt, typesetText(inputs[0]!)];
+    const brandInOutput = outputs.some(nfkcBrand);
+
+    // Per chunk.
+    for (const part of inputs[0]!.parts) {
+      if (part.kind !== "body" || !nfkcBrand(part.text)) continue;
+      const chunk = chunkOf(part.pages[0]!);
+      expect(chunk.marked, `${c.name}: a MARKED chunk shipped the brand`).toBe(
+        false,
+      );
+      expect(
+        nfkcBrand(sourceOf(chunk.pages)),
+        `${c.name}: the brand reached a body whose chunk's source holds none`,
+      ).toBe(true);
+    }
+
+    // Per job.
+    const collision = run.meta.pageMap.fellBack.collision;
+    const onePageBrand = chunks.some(
+      (ch) => ch.pages.length === 1 && nfkcBrand(sourceOf(ch.pages)),
+    );
+    if (brandInOutput)
+      expect(
+        collision > 0 || onePageBrand,
+        `${c.name}: brand in the output with collision === 0 and no one-page brand chunk`,
+      ).toBe(true);
+    return {
+      brandInOutput,
+      collision,
+      onePageBrand,
+      marked: run.meta.pageMap.marked,
+      alone: chunks.some(
+        (ch) =>
+          ch.pages.length === 1 &&
+          c.texts[ch.pages[0]! - 1]!.length < 40 &&
+          nfkcBrand(sourceOf(ch.pages)),
+      ),
+    };
+  }
+
+  it("a ONE-PAGE chunk holding the brand ships it with collision === 0: the brief's form is false, the corrected one holds", async () => {
+    // One page alone, and a brand page alone in its chunk between two pages
+    // too long to share one with it (ceiling ~1,000 characters).
+    const ceiling = translateMaxInputChars(SMALL.maxOutputTokens);
+    const long = (tag: string) => {
+      let text = "";
+      for (let w = 0; text.length < ceiling - 40; w += 1)
+        text += `${text ? " " : ""}${tag}w${w}`;
+      return text;
+    };
+    const cases: Case[] = [
+      { name: "a one-page document", texts: ["See pdfxyz docs."] },
+      {
+        name: "a brand page alone between long pages",
+        texts: [long("a"), "Made with PDF XYZ.", long("b")],
+      },
+    ];
+    for (const c of cases) {
+      const seen = await judge(c, (s) => s);
+      expect(seen.alone, `${c.name}: health, the brand page is alone`).toBe(
+        true,
+      );
+      expect(seen.brandInOutput, `${c.name}: health, the brand shipped`).toBe(
+        true,
+      );
+      expect(seen.collision, `${c.name}: never counted`).toBe(0);
+      expect(seen.onePageBrand, `${c.name}: a one-page brand chunk`).toBe(true);
+    }
+  });
+
+  it("a multi-page collision chunk ships the document's brand, counted as collision", async () => {
+    const seen = await judge(
+      {
+        name: "two short pages, one quoting the brand",
+        texts: ["Alder one.", "See pdfxyz docs."],
+      },
+      (s) => s,
+    );
+    expect(seen.brandInOutput).toBe(true);
+    expect(seen.collision).toBe(1);
+    expect(seen.onePageBrand).toBe(false);
+  });
+
+  it("generated documents x three model arms: the corrected relation holds, and every branch of it is exercised", async () => {
+    const cases = generated(60);
+    let runs = 0;
+    let brandRuns = 0;
+    let viaCollision = 0;
+    let viaOnePageOnly = 0;
+    let cleanMarked = 0;
+    for (const c of cases)
+      for (const [arm, answer] of ARMS) {
+        const seen = await judge({ ...c, name: `${c.name}, ${arm}` }, answer);
+        runs += 1;
+        if (seen.brandInOutput) brandRuns += 1;
+        if (seen.brandInOutput && seen.collision > 0) viaCollision += 1;
+        if (seen.brandInOutput && seen.collision === 0) viaOnePageOnly += 1;
+        if (!seen.brandInOutput && seen.marked > 0) cleanMarked += 1;
+      }
+    // Health: not vacuous in any direction.
+    expect(runs).toBe(180);
+    expect(brandRuns).toBeGreaterThanOrEqual(20);
+    expect(
+      viaCollision,
+      "brand via a counted collision",
+    ).toBeGreaterThanOrEqual(5);
+    expect(
+      viaOnePageOnly,
+      "brand via a one-page chunk only",
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      cleanMarked,
+      "marked runs that shipped clean",
+    ).toBeGreaterThanOrEqual(25);
+  });
 });

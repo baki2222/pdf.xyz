@@ -12,6 +12,16 @@
  * stripping removes the marker and nothing else.
  *
  * Non-ASCII characters are built from code points, never typed.
+ *
+ * MUTATIONS (review minor 1, 2026-11-16, each on a scratch copy, the mutated
+ * line grepped back, restored and `cmp`-clean):
+ *  - the reader's brand without gaps (`new RegExp("pdfxyz")`): 4 glued
+ *    broken-brand entries, "no hole", the shared-fold test, the scoped P5
+ *    chain test and the probe's glued case red;
+ *  - format characters not deleted before the marker-line test: the ZWSP,
+ *    soft-hyphen and ZWSP-before-id marker-line entries red;
+ *  - no whitespace allowed inside PDFXYZ/PAGE on a marker line: the space
+ *    and no-break-space marker-line entries red.
  */
 import { describe, expect, it } from "vitest";
 import { PAGE_JOIN } from "@/lib/pdf/text";
@@ -123,6 +133,21 @@ const corner2 = cjkWrapped(0x300c, 0x300d); // 「」
 const whiteCorner2 = cjkWrapped(0x300e, 0x300f); // 『』
 const tortoise2 = cjkWrapped(0x3014, 0x3015); // 〔〕
 const halfCorner2 = cjkWrapped(0xff62, 0xff63); // half-width 「」
+
+/**
+ * The brand BROKEN by whitespace or a format character (review minor 1,
+ * 2026-11-16). Before, nothing recognised these, so the marker shipped as
+ * visible text in the ZIP and the PDF while P5's plain /pdfxyz/i passed.
+ */
+const ZWSP = cp(0x200b);
+const SHY = cp(0x00ad);
+const NBSP = cp(0x00a0);
+const spacedBrand2 = "<<<PDF XYZ_PAGE_2>>>";
+const zwspBrand2 = `<<<PDF${ZWSP}XYZ_PAGE_2>>>`;
+const shyBrand2 = `<<<PD${SHY}FXYZ_PAGE_2>>>`;
+const nbspBrand2 = `<<<PDF${NBSP}XYZ_PAGE_2>>>`;
+const zwspBeforeId2 = `<<<PDFXYZ_PAGE_${ZWSP}2>>>`;
+const spacedParts2 = "<<<PDFXYZ PAGE 2>>>";
 
 /** One glued entry: `before` + token + `after`, nothing between. */
 const glued = (
@@ -422,12 +447,86 @@ const CORPUS: readonly Entry[] = [
     cp(0x4e8c, 0x30da, 0x30fc, 0x30b8, 0x3002),
   ),
   glued("plural word, PAGES, glued", A, "<<<PDFXYZ_PAGES_2>>>", B),
+  // ── the brand broken by whitespace or a format character ──────────────
+  ...(
+    [
+      ["a space inside the brand", spacedBrand2],
+      ["a zero-width space inside the brand", zwspBrand2],
+      ["a soft hyphen inside the brand", shyBrand2],
+      ["a no-break space inside the brand", nbspBrand2],
+      ["a zero-width space before the id", zwspBeforeId2],
+      ["spaces in place of the underscores", spacedParts2],
+    ] as const
+  ).map(([name, token]): Entry => ({
+    name: `marker line, ${name}`,
+    pages: [1, 2],
+    reply: `${A}${J}${token}${J}${B}`,
+    injected: [token],
+    verdict: "verified",
+    pieces: [A, B],
+  })),
+  glued("a space inside the brand, glued both sides", A, spacedBrand2, B),
+  glued(
+    "a zero-width space inside a bare token, glued into Japanese",
+    jaPage1,
+    `PDF${ZWSP}XYZ_PAGE_2`,
+    jaPage2,
+  ),
+  glued(
+    "a soft hyphen inside the brand alone, glued into Japanese",
+    jaPage1,
+    `PD${SHY}FXYZ`,
+    jaPage2,
+  ),
+  glued("spaces in place of the underscores, glued", A, spacedParts2, B),
+  {
+    name: "a spaced brand before an ordinary word: the word stays",
+    pages: [1, 2],
+    reply: `${A} PDF XYZ pages${J}${B}`,
+    injected: ["PDF XYZ"],
+    verdict: "missing",
+    text: `${A} pages${J}${B}`,
+  },
+  // ── ordinary text that holds part of the brand: untouched ─────────────
+  {
+    name: "ordinary text, PDF alone and XYZ alone",
+    pages: [1, 2],
+    reply: `${A} Save it as a PDF.${J}XYZ Corp agreed. ${B}`,
+    injected: [],
+    verdict: "missing",
+    text: `${A} Save it as a PDF.${J}XYZ Corp agreed. ${B}`,
+  },
+  {
+    name: "ordinary text, the product's own name pdf.xyz",
+    pages: [1, 2],
+    reply: `${A} Made with pdf.xyz and pdf-xyz.${J}${B}`,
+    injected: [],
+    verdict: "missing",
+    text: `${A} Made with pdf.xyz and pdf-xyz.${J}${B}`,
+  },
+  {
+    name: "ordinary text, PDF and XYZ apart",
+    pages: [1, 2],
+    reply: `The PDF and XYZ files.${J}${B}`,
+    injected: [],
+    verdict: "missing",
+    text: `The PDF and XYZ files.${J}${B}`,
+  },
 ];
 
 // FATAL: a corpus that quietly shrinks reports the strongest possible pass.
-if (CORPUS.length < 46) {
-  throw new Error(`the reply corpus holds ${CORPUS.length} entries, below 46`);
+if (CORPUS.length < 60) {
+  throw new Error(`the reply corpus holds ${CORPUS.length} entries, below 60`);
 }
+
+/**
+ * P5's predicate, written here and NOT imported from `./page-markers`, so it
+ * is a second, independent bound on the reader: NFKC of the whole text, every
+ * whitespace and `\p{Cf}` character removed, then /pdfxyz/i. A plain
+ * `/pdfxyz/i` on NFKC passed "<<<PDF XYZ_PAGE_2>>>" (review minor 1).
+ */
+const p5Brand = (text: string): boolean =>
+  /pdfxyz/i.test(text.normalize("NFKC").replace(/[\s\p{Cf}]/gu, ""));
 
 /** The non-whitespace multiset, as a sorted string. */
 const ink = (s: string): string =>
@@ -452,8 +551,8 @@ function catcher(entry: Entry, token: string): string | null {
 }
 
 describe("readPageMarkers — the reply corpus", () => {
-  it(`health: the corpus holds at least 46 entries and every verdict`, () => {
-    expect(CORPUS.length).toBeGreaterThanOrEqual(46);
+  it(`health: the corpus holds at least 60 entries and every verdict`, () => {
+    expect(CORPUS.length).toBeGreaterThanOrEqual(60);
     const verdicts = new Set(CORPUS.map((e) => e.verdict));
     expect([...verdicts].sort()).toEqual(
       ["empty", "missing", "order", "verified"].sort(),
@@ -473,8 +572,10 @@ describe("readPageMarkers — the reply corpus", () => {
       } else {
         expect(reading.pieces, "pieces only when verified").toBeUndefined();
       }
-      // P5: no marker reaches a reader, in the reader's normal form...
-      expect(reading.text.normalize("NFKC")).not.toMatch(/pdfxyz/i);
+      // P5: no marker reaches a reader, in the reader's normal form with
+      // whitespace and format characters removed (a brand broken by one
+      // reads as the brand)...
+      expect(p5Brand(reading.text), `${entry.name}: P5`).toBe(false);
       // ...and stripping removed exactly the marker ink, nothing else.
       expect(ink(reading.text), `${entry.name}: ink`).toBe(
         ink(withoutInjected(entry)),
@@ -492,7 +593,7 @@ describe("readPageMarkers — the reply corpus", () => {
         );
       }
     }
-    expect(tokens).toBeGreaterThanOrEqual(51);
+    expect(tokens).toBeGreaterThanOrEqual(66);
   });
 
   it("no decoration: every pattern is the first to catch some injected marker", () => {
@@ -510,6 +611,19 @@ describe("readPageMarkers — the reply corpus", () => {
       ).not.toHaveLength(0);
     }
     expect(PAGE_MARKER_PATTERNS.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("POSITIVE CONTROL for P5: the predicate sees a broken brand that a plain NFKC /pdfxyz/i misses", () => {
+    const plain = (t: string) => /pdfxyz/i.test(t.normalize("NFKC"));
+    for (const broken of [spacedBrand2, zwspBrand2, shyBrand2, nbspBrand2]) {
+      expect(p5Brand(`${A} ${broken} ${B}`), JSON.stringify(broken)).toBe(true);
+    }
+    // The old form was blind to the space, ZWSP and soft-hyphen spellings.
+    expect(plain(spacedBrand2)).toBe(false);
+    expect(plain(zwspBrand2)).toBe(false);
+    expect(plain(shyBrand2)).toBe(false);
+    // And it is not so broad it flags the ordinary entries.
+    expect(p5Brand(`Made with pdf.xyz. The PDF and XYZ files.`)).toBe(false);
   });
 
   it("a reply with no marker token at all is reply.trim(), byte for byte", () => {

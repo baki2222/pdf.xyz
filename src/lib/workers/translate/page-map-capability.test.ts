@@ -26,6 +26,12 @@
  *    echoes and appends one extra word" (`[]`, not `[zip_identity]`);
  *  - `zip_content` always passes: 3 red, among them "arm A returns nothing"
  *    and "both arms return the same marker-free filler".
+ *
+ * MUTATIONS (review minors, 2026-11-16, same procedure):
+ *  - `markers_sent`'s per-line comparison made `false &&`: exactly the two
+ *    "OUT OF ORDER" / "WRONG page id" controls red;
+ *  - the probe's P5 predicate back to plain NFKC /pdfxyz/i: exactly the
+ *    "broken brand counts as a brand line" test red.
  */
 import { describe, expect, it } from "vitest";
 import { PAGE_JOIN, type ExtractedPdfText } from "@/lib/pdf/text";
@@ -38,6 +44,8 @@ import { markerFor, separatorFor, separatorOverhead } from "./page-markers";
 import {
   echoAnswer,
   expectedPageMap,
+  GLUED_FAILED,
+  gluedBrokenBrandAnswer,
   headedByPage,
   headedByRange,
   pageMapInvariantsHold,
@@ -110,7 +118,9 @@ describe("the page-map probe's pieces", () => {
     for (const page of PAGE_MAP_PROBE_PAGES)
       for (const token of page.tokens)
         expect(all.split(token).length - 1, token).toBe(1);
-    expect(/pdfxyz/i.test(all.normalize("NFKC"))).toBe(false);
+    expect(
+      /pdfxyz/i.test(all.normalize("NFKC").replace(/[\s\p{Cf}]/gu, "")),
+    ).toBe(false);
   });
 
   it("the target is DERIVED: the first CI-required printable language that is not the source", () => {
@@ -324,6 +334,100 @@ describe("probeTranslatePageMap — both arms through the executor's order", () 
     );
     expect(verdict.failed).toEqual(["prompt_a"]);
     expect(verdict.ok).toBe(false);
+  });
+
+  // markers_sent compares the segment's brand lines with markerFor(2),
+  // markerFor(3), in order (review minor 3, 2026-11-16: it had no control).
+  // The request is rewritten at the registry seam INSIDE the delimited
+  // segment only (the instruction outside it names markerFor(2) and must
+  // stay intact for prompt_a), and arm A's model undoes the rewrite, so the
+  // reply, the record and the PDF are exactly the happy path's: only the
+  // check that reads what was SENT can see it.
+  const rewriteSent = (
+    rewrite: (segment: string) => string,
+  ): PageMapProbeDeps["registry"] => {
+    const open = `${NL}---${NL}`;
+    return (d) =>
+      new ProcessorRegistry().register(
+        createTranslateProcessor({
+          ...d,
+          provider: {
+            ...d.provider!,
+            complete: (request: AiCompletionRequest) =>
+              d.provider!.complete({
+                ...request,
+                messages: request.messages.map((m) => {
+                  const at = m.content.indexOf(open);
+                  const close = m.content.lastIndexOf(`${NL}---`);
+                  if (at < 0 || close <= at) return m;
+                  const head = m.content.slice(0, at + open.length);
+                  return {
+                    ...m,
+                    content:
+                      head +
+                      rewrite(m.content.slice(head.length, close)) +
+                      m.content.slice(close),
+                  };
+                }),
+              }),
+          },
+        }),
+      );
+  };
+  const swapMarkers = (s: string, x: string, y: string) =>
+    s
+      .split(x)
+      .map((piece) => piece.split(y).join(x))
+      .join(y);
+
+  it("POSITIVE CONTROL: a request whose markers are OUT OF ORDER → exactly markers_sent", async () => {
+    const swap = (s: string) => swapMarkers(s, markerFor(2), markerFor(3));
+    // Health: the swap really reorders, and undoes itself.
+    const sample = `a${separatorFor(2)}b${separatorFor(3)}c`;
+    expect(swap(sample)).toBe(`a${separatorFor(3)}b${separatorFor(2)}c`);
+    expect(swap(swap(sample))).toBe(sample);
+    const verdict = await probeTranslatePageMap(
+      deps({ registry: rewriteSent(swap), answerA: swap }),
+    );
+    expect(verdict.failed).toEqual(["markers_sent"]);
+    expect(verdict.ok).toBe(false);
+  });
+
+  it("POSITIVE CONTROL: a request carrying a WRONG page id → exactly markers_sent", async () => {
+    const wrong = (s: string) => s.split(markerFor(3)).join(markerFor(4));
+    const right = (s: string) => s.split(markerFor(4)).join(markerFor(3));
+    const verdict = await probeTranslatePageMap(
+      deps({ registry: rewriteSent(wrong), answerA: right }),
+    );
+    expect(verdict.failed).toEqual(["markers_sent"]);
+    expect(verdict.ok).toBe(false);
+  });
+
+  it("a marker-ish line with a broken brand in the request counts as a brand line (markers_sent reads P5's form)", async () => {
+    // A third brand line, broken by a space, planted after the real ones:
+    // the check must count it, or a request could carry an extra marker the
+    // model then echoes as visible text.
+    const plant = (s: string) => `${s}${NL}${NL}<<<PDF XYZ_PAGE_9>>>`;
+    const unplant = (s: string) =>
+      s.split(`${NL}${NL}<<<PDF XYZ_PAGE_9>>>`).join("");
+    const verdict = await probeTranslatePageMap(
+      deps({ registry: rewriteSent(plant), answerA: unplant }),
+    );
+    expect(verdict.failed).toEqual(["markers_sent"]);
+  });
+
+  it("the glued, broken-brand model (the in-image proof's third run) → exactly control, pdf_a, wire_a, zip_identity; never zip_clean", async () => {
+    // Health: the answer really glues a broken brand and drops every separator.
+    const sample = `a${separatorFor(2)}b`;
+    const glued = gluedBrokenBrandAnswer(sample);
+    expect(glued.includes(separatorFor(2))).toBe(false);
+    expect(glued).toBe(`a <<<PDF${String.fromCharCode(0x200b)}XYZ_PAGE_2>>> b`);
+    const verdict = await probeTranslatePageMap(
+      deps({ answerA: gluedBrokenBrandAnswer }),
+    );
+    expect(sorted(verdict.failed)).toEqual(GLUED_FAILED);
+    expect(verdict.failed).not.toContain("zip_clean");
+    expect(verdict.arms?.a.pageMap?.fellBack.missing).toBe(1);
   });
 
   it("POSITIVE CONTROL: a marker that reaches a reader's text → exactly zip_clean", async () => {

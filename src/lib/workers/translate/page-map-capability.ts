@@ -67,7 +67,8 @@
  *    order. Without it, `zip_identity` and `zip_clean` pass over two empty
  *    ZIPs;
  *  - `zip_clean`: neither ZIP's `translation.md`/`.txt` nor either PDF's text
- *    holds /pdfxyz/i after NFKC (no marker reaches a reader);
+ *    holds /pdfxyz/i after NFKC with whitespace and `\p{Cf}` removed (no
+ *    marker reaches a reader, even one with a broken brand);
  *  - `control`: the two PDFs read back differently, arm A's heading
  *    predicate FAILS on arm B's PDF text, and arm B's fails on arm A's. If
  *    the reader cannot tell the two apart, the probe has proved nothing.
@@ -199,6 +200,36 @@ export const stripSeparatorsAnswer: PageMapAnswer = (segment) => {
 };
 
 /**
+ * A third model, for the in-image proof's glued case: every `separatorFor(n)`
+ * replaced by the marker GLUED between the two pages' words with its brand
+ * broken by a zero-width space (review minors 1 and 5). The reply cannot
+ * verify, so the chunk falls back to its range; what the proof reads is that
+ * the real image's PDF and ZIP hold no trace of the broken brand.
+ */
+export const gluedBrokenBrandAnswer: PageMapAnswer = (segment) => {
+  let out = segment;
+  for (let n = 1; n <= MAX_PAGE; n += 1)
+    out = out
+      .split(separatorFor(n))
+      .join(` <<<PDF${String.fromCharCode(0x200b)}XYZ_PAGE_${n}>>> `);
+  return out;
+};
+
+/**
+ * What the probe must report with {@link gluedBrokenBrandAnswer} as arm A,
+ * sorted: arm A falls back (wire_a), its PDF is headed by range (pdf_a), the
+ * two arms read alike (control), and its ZIP joins the pages with a space
+ * where arm B's has a blank line (zip_identity). Never zip_clean: no trace
+ * of the broken brand may reach a reader.
+ */
+export const GLUED_FAILED: readonly PageMapCheck[] = [
+  "control",
+  "pdf_a",
+  "wire_a",
+  "zip_identity",
+];
+
+/**
  * The target the probe prints, DERIVED: the first CI-required PDF language
  * this image proved it can print that is not the probe's source (the
  * translate job refuses source === target, and that list starts with "en").
@@ -215,7 +246,13 @@ export function pageMapProbeTarget(
   );
 }
 
-const hasBrand = (text: string) => /pdfxyz/i.test(text.normalize("NFKC"));
+/**
+ * P5's predicate: NFKC of the whole text with every whitespace and format
+ * (`\p{Cf}`) character removed, then /pdfxyz/i, so a brand a model broke with
+ * a space or a zero-width character reads as the brand (review minor 1).
+ */
+const hasBrand = (text: string) =>
+  /pdfxyz/i.test(text.normalize("NFKC").replace(/[\s\p{Cf}]/gu, ""));
 
 const linesOf = (text: string) =>
   text

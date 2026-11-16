@@ -32,7 +32,12 @@ import {
   type PlannedPage,
   type TranslatePlan,
 } from "./chunking";
-import { markerFor, separatorFor, separatorOverhead } from "./page-markers";
+import {
+  collidesWithMarker,
+  markerFor,
+  separatorFor,
+  separatorOverhead,
+} from "./page-markers";
 
 const CEILING = TRANSLATE_MAX_INPUT_CHARS;
 const cp = (...codes: number[]): string => String.fromCodePoint(...codes);
@@ -469,6 +474,40 @@ describe("the collision rule", () => {
       plan.chunks[0]!.markerFallback,
       "a full-width PDFXYZ page was marked: the collision test is not reading NFKC",
     ).toBe("collision");
+  });
+
+  it("a page holding a brand broken by a space, a ZWSP or a soft hyphen, or followed by a combining mark, is sent unmarked (the reader strips each)", () => {
+    for (const broken of [
+      "PDF XYZ",
+      `PDF${cp(0x200b)}XYZ`,
+      `PD${cp(0x00ad)}FXYZ`,
+      `pdfxyz${cp(0x0301)}`,
+    ]) {
+      const plan = planTranslateChunks(
+        [page(1, "Intro."), page(2, `Made with ${broken} tools.`)],
+        CEILING,
+      );
+      expect(plan.chunks[0]!.markerFallback, JSON.stringify(broken)).toBe(
+        "collision",
+      );
+    }
+    // Punctuation is not a gap: the product's own name is ordinary text.
+    const plain = planTranslateChunks(
+      [page(1, "Intro."), page(2, "Made with pdf.xyz tools.")],
+      CEILING,
+    );
+    expect(plain.chunks[0]!.marked).toBe(true);
+  });
+
+  it("a brand split ACROSS a page boundary collides: judged on the chunk's pages joined", () => {
+    // Neither page holds it alone; a model that runs the two paragraphs
+    // together writes "PDF XYZ", which the reader would strip.
+    const pages = [page(1, "Saved as a PDF"), page(2, "XYZ Corp agreed.")];
+    expect(collidesWithMarker(pages[0]!.text)).toBe(false);
+    expect(collidesWithMarker(pages[1]!.text)).toBe(false);
+    const plan = planTranslateChunks(pages, CEILING);
+    expect(plan.chunks).toHaveLength(1);
+    expect(plan.chunks[0]!.markerFallback).toBe("collision");
   });
 
   it("the SENT text decides: a brand only in `text` but not in `send` does not collide", () => {
