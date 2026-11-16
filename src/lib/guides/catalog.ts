@@ -64,7 +64,8 @@ import {
   IMAGE_PAGE_FACT,
   IMAGE_PAGE_OPTIONS_FACT,
   imageDefaultPaperCopy,
-  TEXT_PAGE_FACT,
+  MARKDOWN_PAGE_FACT,
+  TEXT_PAGE_SETUP_SENTENCE,
   TRANSLATE_LANGUAGES_ANSWER,
   countWord,
   forgottenPasswordAnswer,
@@ -238,6 +239,7 @@ import {
   MAX_PAGE_SIDE_PT,
   imagePageLayout,
 } from "@/lib/pdf/image-page-layout";
+import { TEXT_PAGE_SETUP_LABELS } from "@/lib/pdf/text-page-options";
 import { A4_SCAN_SETUP_COPY, IGNORED_DPI_COPY } from "@/lib/pdf/image-density";
 import {
   SMALL_IMAGES_CHOICES,
@@ -2412,7 +2414,7 @@ export const guides: Guide[] = [
         id: "the-page",
         heading: "What the PDF looks like",
         body: [
-          `${TEXT_PAGE_FACT} There is no page-size or margin setting.`,
+          `${MARKDOWN_PAGE_FACT} There is no page-size or margin setting.`,
           `Sources can be up to ${MAX_SOURCE_MB} MB. For plain notes without any Markdown, Text to PDF paginates the text as it is; to go the other way, PDF to Markdown turns a PDF's selectable text back into Markdown.`,
         ],
       },
@@ -2430,7 +2432,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I choose the page size?",
-        answer: `No. ${TEXT_PAGE_FACT}`,
+        answer: `No. ${MARKDOWN_PAGE_FACT}`,
       },
       {
         question: "Does Markdown to PDF work offline?",
@@ -3531,7 +3533,7 @@ export const guides: Guide[] = [
         id: "html-files",
         heading: "Converting an HTML file instead",
         body: [
-          `${nameOf("html-to-pdf")} takes an .html or .htm file, or pasted HTML code, instead of an address. Drag the file onto the drop zone or paste the code, set the same Page layout options, and press Render PDF; the PDF is named after your file. Leave Page size on its default and a CSS @page rule in your file decides the paper.`,
+          `${nameOf("html-to-pdf")} takes an .html or .htm file, or pasted HTML code, instead of an address. Drag the file onto the drop zone or paste the code, set the same Page layout options, and press Render PDF; the PDF is named after your file. Choose “As the page sets it” under Page size and a CSS @page rule in your file decides the paper.`,
         ],
       },
     ],
@@ -3564,7 +3566,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-11-14",
+    updated: "2026-11-16",
   },
   {
     slug: "how-to-extract-images-from-a-pdf",
@@ -5894,14 +5896,15 @@ export const guides: Guide[] = [
       "save text as a pdf",
     ],
     intro: [
-      `To convert a text file to PDF, open ${nameOf("text-to-pdf")}, drop your .txt file on the page or paste the text into the Text content box, press Create PDF, then press Download PDF. You get a paginated PDF on ${US_LETTER_LABEL} pages.`,
-      "Every page carries a small heading, the file's name without its extension, or “text” for pasted text, and a page-of-total count in the footer. Long lines wrap at spaces, a word too long for one line is broken, tabs become spaces, and blank lines and leading indentation are kept. There are no settings for page size, font or margins.",
+      `To convert a text file to PDF, open ${nameOf("text-to-pdf")}, drop your .txt file on the page or paste the text into the Text content box, press Create PDF, then press Download PDF. You get a paginated PDF. The paper starts on ${imageDefaultPaperCopy()}.`,
+      `Every page carries a small heading, the file's name without its extension, or “text” for pasted text, and a page-of-total count in the footer. Long lines wrap at spaces, a word too long for one line is broken, tabs become spaces, and blank lines and leading indentation are kept. ${TEXT_PAGE_SETUP_SENTENCE} The font and the margins are fixed.`,
       `The PDF is made in your browser, so your text stays on your device and there is no account to create. The text can be up to ${MAX_SOURCE_MB} MB.`,
     ],
     steps: [
       `Open the ${nameOf("text-to-pdf")} tool.`,
       "Drop a .txt file on the box that says “Drop TXT files here, or browse”, or click browse to choose one. Loading a file replaces whatever is in the box; two or more files open a batch list instead, one PDF per file.",
       "Or paste or type straight into the Text content box. The figure beside its heading counts the characters and the size as you go, and you can edit the text before converting.",
+      `If you want another page, choose it under ${TEXT_PAGE_SETUP_LABELS.pageSize}, ${TEXT_PAGE_SETUP_LABELS.orientation} and ${TEXT_PAGE_SETUP_LABELS.fontSize}, below the box.`,
       "Press Create PDF. The button reads Creating PDF… while the pages are set.",
       `Under “PDF created”, press Download PDF. notes.txt is saved as ${TXT_EXAMPLE_OUT}, and pasted text as ${TXT_PASTED_OUT}.`,
       "Press Start over to clear the box for the next text.",
@@ -5944,8 +5947,8 @@ export const guides: Guide[] = [
       },
       {
         question:
-          "Is there a setting for A4 paper, another font or wider margins?",
-        answer: `No. Every PDF is ${US_LETTER_LABEL}, with fixed margins and text size, and the page heading is also the document's Title property. For more control over the look, write Markdown and use ${nameOf("markdown-to-pdf")}.`,
+          "Can I make the PDF on A4 paper, in landscape or with bigger text?",
+        answer: `Yes. ${TEXT_PAGE_SETUP_SENTENCE} The font and the margins are fixed, and the page heading is also the document's Title property. For more control over the look, write Markdown and use ${nameOf("markdown-to-pdf")}.`,
       },
       {
         question: "Which languages come out correctly?",
@@ -5958,7 +5961,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-08",
+    updated: "2026-11-16",
   },
   {
     slug: "how-to-prepare-a-pdf-for-others-to-sign",
@@ -6338,7 +6341,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-14",
+    updated: "2026-11-16",
   },
   // Overlay PDF, titled for the task it truly does: lay one PDF on every
   // page of another. Read off overlay.ts and overlay-runner.tsx: the overlay

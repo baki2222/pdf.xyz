@@ -117,7 +117,7 @@ const content: ToolContent = {
     },
     {
       title: "Check how your own site prints",
-      body: `By default the PDF shows the result of your print CSS rather than your screen layout, including any @page size it sets, with backgrounds printed and no header or footer lines added; untick ${WEBPAGE_CAPTURE_LABELS.printStyles} to print the screen layout for comparison. The site must be reachable from the public internet: a localhost address is refused, and a preview that only resolves inside your office network cannot be reached.`,
+      body: `By default the PDF shows the result of your print CSS rather than your screen layout, with backgrounds printed and no header or footer lines added; untick ${WEBPAGE_CAPTURE_LABELS.printStyles} to print the screen layout for comparison, and choose “As the page sets it” under Page size to print on the @page size your stylesheet sets. The site must be reachable from the public internet: a localhost address is refused, and a preview that only resolves inside your office network cannot be reached.`,
     },
   ],
 

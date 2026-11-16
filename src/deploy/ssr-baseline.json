@@ -12011,7 +12011,7 @@
     },
     "tools/html-to-pdf.html": {
       "title": "HTML to PDF: Print an HTML File with Chromium — pdf.xyz",
-      "description": "Upload an .html file or paste HTML code, and headless Chromium prints it to PDF, running its scripts and applying print CSS and @page size. Input deleted after.",
+      "description": "Upload an .html file or paste HTML code: headless Chromium prints it with its scripts and print CSS, on A4, Letter or its own @page size. Input deleted after.",
       "canonical": "https://pdf.xyz/tools/html-to-pdf",
       "robots": "index, follow",
       "h1": ["HTML to PDF"],
