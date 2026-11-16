@@ -1,8 +1,11 @@
 /**
  * Measure the glyph-sharing facts the ToUnicode rewrite is derived from
  * (`radical-glyph-facts.json`, read by `radical-equivalents.ts`): for every
- * CJK face fontconfig offers, and every Kangxi radical that face maps, the
- * OTHER code points its cmap sends to the same glyph.
+ * CJK face fontconfig offers, and every radical that face maps — Kangxi
+ * (U+2F00–U+2FD5) and, since 2026-11-16, the CJK Radicals Supplement
+ * (U+2E80–U+2EF3, assigned code points only) — the OTHER code points its
+ * cmap sends to the same glyph; and every Extension A code point whose glyph
+ * the face shares with another code point.
  *
  * Run only by scripts (`measure-cjk-radical-glyphs.ts`, and the image proof
  * `worker-translate-pdf-proof.ts`), never by the render path: it opens every
@@ -13,15 +16,29 @@
 import { readFileSync } from "node:fs";
 import type { FontkitCollection, FontkitFont } from "fontkit";
 import {
-  KANGXI_FIRST,
+  EXT_A_FIRST,
+  EXT_A_LAST,
+  isRadical,
   KANGXI_LAST,
+  SUPPLEMENT_FIRST,
   type CompactRadicalGlyphFacts,
   type RadicalGlyphFacts,
 } from "./radical-equivalents";
 
 const hex = (n: number) => n.toString(16);
 
-/** One face's facts: radical → the other code points on its glyph. */
+/**
+ * The radicals measured, in order: the Supplement then Kangxi, assigned only.
+ * Their sole bound is the Unicode blocks (`isRadical`), never the facts.
+ */
+export function measuredRadicals(): number[] {
+  const out: number[] = [];
+  for (let r = SUPPLEMENT_FIRST; r <= KANGXI_LAST; r++)
+    if (isRadical(r)) out.push(r);
+  return out;
+}
+
+/** One face's facts: source → the other code points on its glyph. */
 export function faceFacts(font: FontkitFont): Record<string, string> {
   const byGlyph = new Map<number, number[]>();
   for (const cp of font.characterSet) {
@@ -32,19 +49,27 @@ export function faceFacts(font: FontkitFont): Record<string, string> {
     else byGlyph.set(id, [cp]);
   }
   const out: Record<string, string> = {};
-  for (let r = KANGXI_FIRST; r <= KANGXI_LAST; r++) {
-    if (!font.hasGlyphForCodePoint(r)) continue;
-    const id = font.glyphForCodePoint(r).id;
-    if (id === 0) continue;
-    const sharers = (byGlyph.get(id) ?? [])
-      .filter((cp) => cp !== r)
+  const sharersOf = (cp: number): number[] | null => {
+    if (!font.hasGlyphForCodePoint(cp)) return null;
+    const id = font.glyphForCodePoint(cp).id;
+    if (id === 0) return null;
+    return (byGlyph.get(id) ?? [])
+      .filter((other) => other !== cp)
       .sort((a, b) => a - b);
-    out[hex(r)] = sharers.map(hex).join(" ");
+  };
+  for (const r of measuredRadicals()) {
+    const sharers = sharersOf(r);
+    if (sharers) out[hex(r)] = sharers.map(hex).join(" ");
+  }
+  for (let cp = EXT_A_FIRST; cp <= EXT_A_LAST; cp++) {
+    const sharers = sharersOf(cp);
+    if (sharers && sharers.length > 0)
+      out[hex(cp)] = sharers.map(hex).join(" ");
   }
   return out;
 }
 
-/** The facts for every face in `files` that maps a Kangxi radical. */
+/** The facts for every face in `files` that maps a radical. */
 export async function measureRadicalGlyphFacts(
   files: readonly string[],
 ): Promise<RadicalGlyphFacts> {
