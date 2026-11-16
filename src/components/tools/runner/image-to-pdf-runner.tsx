@@ -223,15 +223,16 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
   // Max file size. "none" runs exactly the PDF this tool always made.
   const [limit, setLimit] = useState<SizeLimitChoice>("none");
   const [customKb, setCustomKb] = useState("");
-  // A guide's `?size=` link (audit #2) sets the limit when the first images
-  // arrive, once, and only if the reader has not pressed a size chip: the
-  // chips are drawn only after an image is added, and a choice the reader
-  // made always wins. Read in the handler, so the server render and the
-  // first client render never depend on it.
-  const limitTouched = useRef(false);
+  // A guide's `?size=` link (audit #2) sets the limit once, when the first
+  // images arrive. A choice the reader makes always wins because of that
+  // order, not a flag: the size chips are drawn only after an image is
+  // added, and `linkApplied` is set on that first add (even when the link
+  // names no size), so the link is never read again after a chip can be
+  // pressed. Read in the handler, so the server render and the first client
+  // render never depend on it.
   const linkApplied = useRef(false);
   const applyLinkedLimit = useCallback(() => {
-    if (linkApplied.current || limitTouched.current) return;
+    if (linkApplied.current) return;
     linkApplied.current = true;
     const bytes = parseSizeParam(window.location.search, LIMIT_TABLE_SIZES);
     if (bytes === null) return;
@@ -1075,7 +1076,6 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
             >
               <ChipButton
                 onClick={() => {
-                  limitTouched.current = true;
                   if (!busy) setLimit("none");
                 }}
                 disabled={busy}
@@ -1087,7 +1087,6 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                 <ChipButton
                   key={p.bytes}
                   onClick={() => {
-                    limitTouched.current = true;
                     if (!busy) setLimit(p.bytes);
                   }}
                   disabled={busy}
@@ -1098,7 +1097,6 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
               ))}
               <ChipButton
                 onClick={() => {
-                  limitTouched.current = true;
                   if (!busy) setLimit("custom");
                 }}
                 disabled={busy}
