@@ -298,8 +298,12 @@ export interface HeartbeatCapabilities {
    * table's first column (they end the table); a lone figure under a table;
    * any wrap under a column of figures below the header, even a word such
    * as "incl. VAT"; two cells wrapping on the same baseline (they form a
-   * row of their own); tables whose wrapped lines outnumber their rows; or
-   * header lines that sit above the row. An image built before this key
+   * row of their own); tables whose wrapped lines outnumber their rows;
+   * header lines that sit above the row; or a wrapped line poppler reads as
+   * a block of its own, apart from its cell, in a table whose rows are set
+   * as close as its lines (flow.ts rule 7 takes such a line only when it
+   * sits tighter than the rows, `WRAP_TIGHT_PITCHES`: a subheading or a
+   * note between two rows is a block of its own a row pitch down). An image built before this key
    * publishes nothing, and the absence parses as `false`.
    */
   readonly docxTableWraps: boolean;

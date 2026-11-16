@@ -97,12 +97,20 @@
  *        slot, never a combined slot (two cells chained into one column);
  *      - its centre sits at most `WRAP_GAP_PITCHES` median row pitches below
  *        the line above it — this separates a wrap from white space only:
- *        a line one row pitch below the last row still passes it, so
- *      - under the run's LAST row it must also be in that cell's poppler
- *        block (its line above in the block is the cell's line or its
- *        previous continuation): a note, a source line or the next table's
- *        caption centred under a table is a block of its own on every
- *        capture (`src/tests/poppler-samples-image.ts`, S16), a wrap is not;
+ *        a line one row pitch below a row still passes it, so
+ *      - under EVERY row it must also be in that cell's poppler block (its
+ *        line above in the block is the cell's line or its previous
+ *        continuation), OR start a block of its own set tighter than the
+ *        rows are (`WRAP_TIGHT_PITCHES`, 0.9 median row pitches): a note, a
+ *        source line or the next table's caption under a table (S16), and a
+ *        subheading, a note or a row whose only cell is its description
+ *        BETWEEN two rows (S17), is a block of its own one row pitch down on
+ *        every capture (`src/tests/poppler-samples-image.ts`); a wrap in a
+ *        text PDF is in its cell's block, and an OCR'd wrap (S9), a block
+ *        of its own, sits 0.70 row pitches down. Until 2026-11-16 the block
+ *        condition held under the run's LAST row only, with no geometric
+ *        alternative, and the S17 lines were folded into the row above,
+ *        merging the tables on either side (review 2026-11-16);
  *      - it does not itself carry a sentence (rule 4) into a line outside
  *        the run;
  *      - the cell holds at most `MAX_WRAP_LINES_PER_CELL` continuations and
@@ -126,7 +134,11 @@
  *     form an ALIGNED band, so they are a row of their own as before (and
  *     their words in a figure column may tab the whole table); a header line
  *     ABOVE the first row is not a continuation; nothing joins across a
- *     page break.
+ *     page break; a wrapped line poppler reads as a block of its own is
+ *     absorbed only when set tighter than the rows (a table whose rows are
+ *     set as close as its lines keeps such wraps apart, as before), and a
+ *     one-line block of its own set tighter than the rows IS absorbed, even
+ *     when it is a note.
  *     Until 2026-11-16: "a cell that wraps onto a second line breaks its run
  *     (the continuation is a one-cell band), so a table with multi-line cells
  *     is read in poppler's order, column by column."
@@ -186,6 +198,7 @@ import {
   SEGMENT_GAP_PITCHES,
   tableGrid,
   WRAP_GAP_PITCHES,
+  WRAP_TIGHT_PITCHES,
   wordTableDoubt,
   type TableGrid,
 } from "./table-grid";
@@ -981,7 +994,6 @@ function placedPage(
         heldUnder.set(current, tails);
       }
     }
-    const lastRow = rowBands[rowBands.length - 1];
     // Tentative geometry: every held continuation absorbed.
     const tops = table.map((band) => band[0]!.yCenter);
     const bottoms = table.map(
@@ -1039,12 +1051,15 @@ function placedPage(
       const above = lastOf.get(band);
       const aboveY = above?.yCenter ?? band[0]!.yCenter;
       if (line.yCenter - aboveY > WRAP_GAP_PITCHES * median) return i;
-      // Under the run's last row: in the cell's own poppler block.
-      if (band === lastRow) {
-        const cellLine =
-          above?.line ?? band.find((l) => l.cells.includes(target))!.line;
-        if (line.prev !== cellLine) return i;
-      }
+      // Under EVERY row: in the cell's own poppler block, or starting a
+      // block of its own set tighter than the rows are. A one-line block of
+      // its own a row pitch down is a note, a subheading or a row.
+      const cellLine =
+        above?.line ?? band.find((l) => l.cells.includes(target))!.line;
+      const tight =
+        line.prev === null &&
+        line.yCenter - aboveY <= WRAP_TIGHT_PITCHES * median;
+      if (line.prev !== cellLine && !tight) return i;
       // Rule 4 on the continuation itself.
       if (
         wrapsInto(line.line, line.next) &&

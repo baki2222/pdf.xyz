@@ -156,6 +156,32 @@ describe("PDF to Word keeps a wrapped cell in its row (#28 slice 3), on the imag
     expect(out.tables.map((t) => t.rows.length)).toEqual([5]);
   });
 
+  it("S17 a subheading, a note and a description-only row between two rows: two Word tables, the line in neither (review 2026-11-16)", async () => {
+    for (const [x, line, rows] of [
+      [image.IMAGE_TABLE_INTERRUPT_SUBHEADING_BBOX, "Spare parts", [3, 3]],
+      [image.IMAGE_TABLE_INTERRUPT_MIDNOTE_BBOX, "Prices exclude VAT", [4, 3]],
+      [
+        image.IMAGE_TABLE_INTERRUPT_BLANKFIRST_BBOX,
+        "Interest credited",
+        [3, 3],
+      ],
+    ] as const) {
+      const flow = flowOf(x);
+      const out = await word(flow);
+      conserved(out, flow);
+      expect(
+        out.tables.map((t) => t.rows.length),
+        line,
+      ).toEqual(rows);
+      const cells = out.tables.flatMap((t) => rowsOf(t).flat());
+      expect(
+        cells.filter((c) => c.includes(line)),
+        line,
+      ).toEqual([]);
+      expect(out.read.join("\n")).toContain(line);
+    }
+  });
+
   it("D1 health (M9): an absorbed cell written as one paragraph per line is REFUSED by the engine as incomplete_output", async () => {
     // CHANGED 2026-11-16 (the copy part's mutation pass). Until then the
     // split was made in the DocxDocument: the cell became two run lists in

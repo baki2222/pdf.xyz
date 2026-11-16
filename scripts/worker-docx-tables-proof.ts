@@ -55,7 +55,11 @@
  *     image's poppler flow absorbed (`wrapLines`). Each absorbed cell (a
  *     flow table cell whose words sit on two or more lines) must be a .docx
  *     cell of that text holding exactly ONE paragraph, and its text is
- *     printed.
+ *     printed;
+ *  9. a subheading, a note and a description-only row set BETWEEN two rows
+ *     in a poppler block of their own (S17, review 2026-11-16) must each
+ *     come out as {@link EXPECTED.interrupts}: the Word tables kept apart,
+ *     nothing absorbed, and the line in no table cell.
  *
  * Exit codes: 0 = proven; 1 = a check failed; 2 = an engine is not
  * available in this image. Run by `.github/workflows/container.yml`; no
@@ -85,6 +89,7 @@ import {
 } from "@/tests/pdf-office-fixtures";
 import {
   bankStatementPdf,
+  tableInterruptPdf,
   wrappedInvoicePdf,
 } from "@/tests/word-wrap-fixtures";
 
@@ -104,6 +109,11 @@ const EXPECTED = {
     probe: { tables: 1, rows: [5], absorbed: 3 },
     invoice: { tables: 2, rows: [6, 3], absorbed: 5 },
     statement: { tables: 1, rows: [6], absorbed: 4 },
+  },
+  interrupts: {
+    subheading: { line: "Spare parts", rows: [3, 3] },
+    midnote: { line: "Prices exclude VAT", rows: [4, 3] },
+    blankfirst: { line: "Interest credited", rows: [3, 3] },
   },
 } as const;
 
@@ -301,6 +311,19 @@ async function main(): Promise<number> {
       flow.wrapLines === want.absorbed &&
       flow.cells.length > 0 &&
       whole.every(Boolean);
+  }
+
+  // 9. S17: a one-line block of its own between two rows is not a wrap.
+  for (const name of ["subheading", "midnote", "blankfirst"] as const) {
+    const pdf = await tableInterruptPdf(name);
+    const got = await tables(deps, pdf);
+    const flow = await absorbedOf(deps, pdf);
+    const want = EXPECTED.interrupts[name];
+    const inCell = got.cells.some((ps) => ps.join("\n").includes(want.line));
+    console.log(
+      `interrupt (${name}): ${got.count} Word table(s) of rows ${JSON.stringify(got.rows)}, ${flow.wrapLines} line(s) absorbed, ${JSON.stringify(want.line)} ${inCell ? "IN a table cell" : "in no table cell"}; expected rows ${JSON.stringify(want.rows)}, 0 absorbed, in no cell`,
+    );
+    ok &&= same(got.rows, want.rows) && flow.wrapLines === 0 && !inCell;
   }
   console.log(ok ? "PROVEN" : "FAIL");
   return ok ? 0 : 1;

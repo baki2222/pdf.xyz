@@ -20,6 +20,7 @@ import {
   SEGMENT_GAP_PITCHES,
   wordTableDoubt,
   WRAP_GAP_PITCHES,
+  WRAP_TIGHT_PITCHES,
   type TableGrid,
 } from "./table-grid";
 
@@ -72,6 +73,14 @@ describe("insideSlot", () => {
 describe("WRAP_GAP_PITCHES", () => {
   it("is at most SEGMENT_GAP_PITCHES: a line the wrap gap admits is never a gap that splits the table", () => {
     expect(WRAP_GAP_PITCHES).toBeLessThanOrEqual(SEGMENT_GAP_PITCHES);
+  });
+});
+
+describe("WRAP_TIGHT_PITCHES", () => {
+  it("is under 1 row pitch and under WRAP_GAP_PITCHES: a one-line block of its own a row pitch down is a row's spacing, never a cell's", () => {
+    expect(WRAP_TIGHT_PITCHES).toBeLessThan(1);
+    expect(WRAP_TIGHT_PITCHES).toBeLessThan(WRAP_GAP_PITCHES);
+    expect(WRAP_TIGHT_PITCHES).toBeGreaterThan(0);
   });
 });
 

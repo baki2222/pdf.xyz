@@ -77,6 +77,28 @@ export const SEGMENT_GAP_PITCHES = 1.3;
  */
 export const WRAP_GAP_PITCHES = 1.25;
 /**
+ * #28 slice 3 (wraps): a continuation that STARTS a poppler block of its own
+ * (not in its cell's block) is still a wrap when its centre sits at most
+ * this many of the run's median ROW pitches below the line above it — set
+ * tighter than the rows are set apart, as a cell's lines are. On a text PDF
+ * poppler puts a wrapped line in its cell's block; on an OCR'd page, and in
+ * the stand-in extractor (`src/tests/poppler-flow-standin.ts`), it does not.
+ *
+ * Measured 2026-11-16 over both corpora and the stand-in: every wrapped line
+ * sits 0.667-0.813 row pitches below its line (OCR'd own-block lines
+ * 0.698-0.705; WRAPPED_TABLE's 0.813 the widest), and every one-line band
+ * of its own that is NOT a wrap — a note, a caption, a subheading, a
+ * description-only row (S16, S17) — exactly 1.0. 0.9 sits between them.
+ * Held under 1 by a test (a line one row pitch below a row is a row's
+ * spacing, never a cell's), and bounded from both sides by pins: S17
+ * absorbs at 1.0, and the OCR'd invoice loses its own-block wraps under 0.7.
+ *
+ * What it cannot do: a one-line block of its own set TIGHTER than the rows
+ * (a note squeezed under a row of a loosely spaced table) is absorbed into
+ * that row's cell. A stated limit of `flow.ts`'s rule 7.
+ */
+export const WRAP_TIGHT_PITCHES = 0.9;
+/**
  * The most continuation lines one cell absorbs; past it the run is cut.
  * `docx-table-measure.ts wrap-cell` (a 60-row table whose last cell carries
  * 51 lines) keeps exactly 50, in 29 ms / +3 MB on the dev host and 79 ms /

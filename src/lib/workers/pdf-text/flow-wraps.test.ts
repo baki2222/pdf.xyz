@@ -699,9 +699,22 @@ describe("flow rule 7 — pinned outcomes, measured on the image's poppler (§10
     );
   });
 
-  it("S9 OCR'd invoice: the same tables as the drawn one", () => {
-    const ocr = tablesOf(on(image.IMAGE_OCR_WRAPPED_INVOICE_BBOX)[0]!);
+  /**
+   * On the OCR text layer poppler reads most wrapped lines as blocks of their
+   * OWN ("Natural colour", "Recycled fabric", "less steel, two cups" — the
+   * shape of a subheading or a note between two rows, S17), so they are
+   * absorbed by rule 7's geometric path (`WRAP_TIGHT_PITCHES`: 0.70 row
+   * pitches down, a note sits 1.0), not by the block condition. Review
+   * 2026-11-16 measured the block condition alone under every row at 1 of 5.
+   */
+  it("S9 OCR'd invoice: the same tables as the drawn one, its own-block wraps absorbed by geometry", () => {
+    const page = on(image.IMAGE_OCR_WRAPPED_INVOICE_BBOX)[0]!;
+    expect(page.wrapLines).toBe(5);
+    const ocr = tablesOf(page);
     expect(ocr.map((t) => t.length)).toEqual([6, 3]);
+    expect(ocr[0]![2]![1]).toBe(
+      "Cotton tote bag Natural colour Recycled fabric",
+    );
   });
 
   it("S16 a note at 1.0 and 1.5 row pitches, and the next table's centred caption: none absorbed", () => {
@@ -714,6 +727,137 @@ describe("flow rule 7 — pinned outcomes, measured on the image's poppler (§10
     expect(outside(on(image.IMAGE_TABLE_NOTE_1_0_BBOX)[0]!)).toContain(
       "Prices exclude VAT",
     );
+  });
+
+  /**
+   * S17 (review 2026-11-16): a one-line band of its own BETWEEN two rows.
+   * Until 2026-11-16 the block condition held under the run's last row only,
+   * so each of these was folded into the row above ("Service visit Spare
+   * parts", "Gasket Prices exclude VAT" with Total / Paid / Due pulled into
+   * the same table, "Card payment Interest credited": a statement row lost
+   * as a row). Now each is read exactly as slice 2 reads it: two tables, the
+   * line outside both.
+   */
+  it("S17 a subheading, a note and a description-only row between two rows: none absorbed, the tables kept apart", () => {
+    for (const [x, line, tables] of [
+      [image.IMAGE_TABLE_INTERRUPT_SUBHEADING_BBOX, "Spare parts", [3, 3]],
+      [image.IMAGE_TABLE_INTERRUPT_MIDNOTE_BBOX, "Prices exclude VAT", [4, 3]],
+      [
+        image.IMAGE_TABLE_INTERRUPT_BLANKFIRST_BBOX,
+        "Interest credited",
+        [3, 3],
+      ],
+    ] as const) {
+      const key = line;
+      const page = on(x)[0]!;
+      expect(on(x), key).toEqual(off(x));
+      expect(page.wrapLines ?? 0, key).toBe(0);
+      expect(
+        tablesOf(page).map((t) => t.length),
+        key,
+      ).toEqual(tables);
+      expect(outside(page), key).toContain(line);
+    }
+  });
+
+  it("S17 FLIP: the same line put in the row-above cell's poppler block IS absorbed, under a MIDDLE row — the block condition is what refuses it", () => {
+    const page = parseBboxFlow(image.IMAGE_TABLE_INTERRUPT_SUBHEADING_BBOX)
+      .pages[0]!;
+    const text = (l: FlowPage["blocks"][number]["lines"][number]) =>
+      l.words.map((w) => w.text).join(" ");
+    const line = page.blocks.find((b) => text(b.lines[0]!) === "Spare parts")!;
+    const visit = page.blocks.find(
+      (b) => text(b.lines[0]!) === "Service visit",
+    )!;
+    const moved: FlowPage = {
+      ...page,
+      blocks: page.blocks
+        .filter((b) => b !== line)
+        .map((b) =>
+          b === visit ? { ...b, lines: [...b.lines, ...line.lines] } : b,
+        ),
+    };
+    const flipped = pageOn(moved);
+    expect(flipped.wrapLines).toBe(1);
+    const [t] = tablesOf(flipped);
+    expect(t![2]).toEqual(["B-200", "Service visit Spare parts", "95.00"]);
+    // B-200 is a middle row: C-300, D-400 and E-500 follow it in one table.
+    expect(t).toHaveLength(6);
+  });
+
+  it("S17 stated limit (WRAP_TIGHT_PITCHES): the same block of its own set TIGHTER than the rows — 12 pt under its row, rows 18 apart — IS absorbed", () => {
+    const page = parseBboxFlow(image.IMAGE_TABLE_INTERRUPT_SUBHEADING_BBOX)
+      .pages[0]!;
+    const text = (l: FlowPage["blocks"][number]["lines"][number]) =>
+      l.words.map((w) => w.text).join(" ");
+    const visit = page.blocks.find(
+      (b) => text(b.lines[0]!) === "Service visit",
+    )!.lines[0]!;
+    // Everything below B-200's line moves up 6 pt: the line sits 12 pt
+    // (0.67 row pitches) under it, C-300 still 18 pt under the line.
+    const up = (y: number) => (y > visit.yMax ? y - 6 : y);
+    const moved: FlowPage = {
+      ...page,
+      blocks: page.blocks.map((b) => ({
+        ...b,
+        lines: b.lines.map((l) => ({
+          ...l,
+          yMin: up(l.yMin),
+          yMax: up(l.yMax),
+          words: l.words.map((w) => ({
+            ...w,
+            yMin: up(w.yMin),
+            yMax: up(w.yMax),
+          })),
+        })),
+      })),
+    };
+    const flipped = pageOn(moved);
+    expect(flipped.wrapLines).toBe(1);
+    const [t] = tablesOf(flipped);
+    expect(t![2]).toEqual(["B-200", "Service visit Spare parts", "95.00"]);
+    expect(t).toHaveLength(6);
+    // Health: unmoved, the same page absorbs nothing (the S17 pin).
+    expect(pageOn(page).wrapLines ?? 0).toBe(0);
+  });
+
+  it("WRAP_TIGHT_PITCHES takes only a line that STARTS its block: the same tight line, read by poppler as continuing ANOTHER cell's block, is refused", () => {
+    const page = parseBboxFlow(image.IMAGE_TABLE_INTERRUPT_SUBHEADING_BBOX)
+      .pages[0]!;
+    const text = (l: FlowPage["blocks"][number]["lines"][number]) =>
+      l.words.map((w) => w.text).join(" ");
+    const visit = page.blocks.find(
+      (b) => text(b.lines[0]!) === "Service visit",
+    )!.lines[0]!;
+    const up = (y: number) => (y > visit.yMax ? y - 6 : y);
+    const shifted = page.blocks.map((b) => ({
+      ...b,
+      lines: b.lines.map((l) => ({
+        ...l,
+        yMin: up(l.yMin),
+        yMax: up(l.yMax),
+        words: l.words.map((w) => ({
+          ...w,
+          yMin: up(w.yMin),
+          yMax: up(w.yMax),
+        })),
+      })),
+    }));
+    const line = shifted.find((b) => text(b.lines[0]!) === "Spare parts")!;
+    const filter = shifted.find(
+      (b) => text(b.lines[0]!) === "Filter cartridge",
+    )!;
+    const moved: FlowPage = {
+      ...page,
+      blocks: shifted
+        .filter((b) => b !== line)
+        .map((b) =>
+          b === filter ? { ...b, lines: [...b.lines, ...line.lines] } : b,
+        ),
+    };
+    const out = pageOn(moved);
+    expect(out.wrapLines ?? 0).toBe(0);
+    expect(outside(out)).toContain("Spare parts");
   });
 
   it("S16 FLIP: the same note put in the last cell's poppler block IS absorbed — the block condition is what refuses it", () => {
