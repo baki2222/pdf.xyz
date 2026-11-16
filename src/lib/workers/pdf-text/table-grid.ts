@@ -165,7 +165,11 @@ function overlapped(
  * wrapped cells. They feed it different spans — detect.ts a contiguous
  * PARTITION of the table's width, flow.ts its cells' own x-extents with white
  * gaps between — so over flow's spans a line wholly in a gap, or one far
- * wider than its column, still passes; flow.ts adds {@link insideSlot}.
+ * wider than its column, still passes; flow.ts adds {@link overlappedSpan}
+ * (exactly one span), which over disjoint spans already implies
+ * {@link insideSlot} (a tested property, table-grid-wraps.test.ts). Until
+ * 2026-11-16 this said flow.ts adds `insideSlot` itself; it no longer calls
+ * it.
  */
 export function fitsAsCell(
   spans: readonly (readonly [number, number])[],
@@ -198,8 +202,12 @@ export function overlappedSpan(
  * Column k's SLOT: from the end of the column before it to the start of the
  * column after it (the page edge for the first and last). A wrapped line may
  * be wider than every one-line cell of its column, so it is held inside the
- * slot, not the span. flow.ts's absorption and its placement invariant
- * (INV-4) both call this: one bound, so they cannot disagree.
+ * slot, not the span. flow.ts's absorption does not call it: its
+ * {@link overlappedSpan} test implies it over disjoint spans (the property
+ * table-grid-wraps.test.ts samples), and the placement invariant (INV-4,
+ * flow-wraps.test.ts) checks absorbed lines against it. Until 2026-11-16
+ * this said both call it; flow.ts dropped the call when the explicit slot
+ * test was measured never to fire.
  */
 export function insideSlot(
   spans: readonly (readonly [number, number])[],

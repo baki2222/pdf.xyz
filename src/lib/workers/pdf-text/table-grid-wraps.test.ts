@@ -47,7 +47,7 @@ describe("fitsAsCell", () => {
     expect(fitsAsCell(SPANS, 450, 500)).toBe(false);
     expect(fitsAsCell(SPANS, 460, 500)).toBe(false);
   });
-  it("over gapped spans a line wholly in a gap, or wider than its column, still passes — which is why flow adds overlappedSpan and insideSlot", () => {
+  it("over gapped spans a line wholly in a gap, or wider than its column, still passes — which is why flow adds overlappedSpan (implying insideSlot)", () => {
     expect(fitsAsCell(SPANS, 310, 390)).toBe(true);
     expect(overlappedSpan(SPANS, 310, 390)).toBe(-1);
     expect(fitsAsCell(SPANS, 120, 330)).toBe(true);
