@@ -468,6 +468,18 @@ describe("Translate panel: the result names the chosen pages, or warns", () => {
     expect(screen.getByText(/Translated 1 of 2 pages\./)).toBeInTheDocument();
   }, 20_000);
 
+  it("a truncated echo: the sentence names the CHOSEN pages and where the window stopped", async () => {
+    // The worker's window clipped at page 2 (truncated); the person chose
+    // 2 and 4, and is told so (review 2026-11-17).
+    await runChosen(completed({ truncated: true, pagesSent: [[2, 2]] }));
+    expect(
+      await screen.findByText(
+        "You chose pages 2 and 4 of 5; this translation reached page 2. No other page was sent to the AI model.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(TRANSLATE_PAGES_UNCONFIRMED_MESSAGE)).toBeNull();
+  }, 20_000);
+
   it("a whole-document run shows no selection sentence and no warning", async () => {
     const { run } = await mount(OFFERED, await fivePages(), completed({}));
     fireEvent.click(run);

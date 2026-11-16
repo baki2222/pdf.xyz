@@ -984,9 +984,10 @@ function TranslateBuilder({
 }
 
 /**
- * Which pages this job was sent (audit #29 slice 6), from the worker's own
- * record (`translateSelectionSentence`, the function the README, the manifest
- * and translation.md use), or, when this run SENT pages and the result does
+ * Which pages this job was sent (audit #29 slice 6): the pages this run
+ * CHOSE (`sent`) beside what the worker's record says it read
+ * (`translateSelectionSentence`, the function the README, the manifest and
+ * translation.md use), or, when this run SENT pages and the result does
  * not confirm exactly those (`selectionConfirmed`), the rollback warning
  * INSTEAD. An image that predates page selection translates the whole
  * document and says nothing false, so silence is the defect this catches.
@@ -1017,7 +1018,7 @@ export function TranslateSelectionNotice({
       </p>
     );
   }
-  const sentence = window ? translateSelectionSentence(window) : "";
+  const sentence = window ? translateSelectionSentence(window, sent) : "";
   if (!sentence) return null;
   return (
     <p role="status" className="text-muted text-sm">

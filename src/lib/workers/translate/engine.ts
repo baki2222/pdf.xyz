@@ -1075,7 +1075,7 @@ export async function runTranslate(
   // The selection lines, ONLY on a selection job: a whole-document ZIP gains
   // no key and no line (review r1: artifacts[0] identical to main for every
   // whole-document job). Present together or not at all.
-  const selectionNotice = translateSelectionSentence(window);
+  const selectionNotice = translateSelectionSentence(window, chosen);
 
   const createdAt = now();
   const manifest: TranslationManifest = {
@@ -1238,7 +1238,7 @@ interface TranslationManifest {
      * on a whole-document job, whose ZIP must not move a byte.
      */
     pagesSent?: readonly PageSpan[];
-    /** `translateSelectionSentence(window)`, present exactly with `pagesSent`. */
+    /** `translateSelectionSentence(window, options.pages)`, present exactly with `pagesSent`. */
     selectionNotice?: string;
   };
   translation: { characters: number };

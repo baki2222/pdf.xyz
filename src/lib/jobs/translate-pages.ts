@@ -12,6 +12,7 @@
  */
 
 import { chosenSpans, pagesPhrase, type PageSpan } from "@/lib/pdf/page-spans";
+import { selectionConfirmed } from "./selection-echo";
 
 /**
  * The route's refusal of a translate job carrying `pages` while the running
@@ -60,23 +61,54 @@ export function translatePagesOutOfRangeMessage(
 }
 
 /**
- * What a reader is told about a job that chose pages: the chosen pages, and
- * that no other page was sent. One author for the panel, translation.md, the
- * README and the manifest; "" for a whole-document job (`chosenSpans` reads
- * no selection).
+ * What a reader is told about a job that chose pages: the pages the person
+ * CHOSE, and that no other page was sent. One author for the panel,
+ * translation.md, the README and the manifest; "" for a whole-document job
+ * (`chosenSpans` reads no selection).
  *
- * It claims only what `pagesSent` supports: the pages in the job's read
- * window (`AiWindowMeta.pagesSent`). It never says "translated" or "covers":
- * the delivery cap may withhold a tail and a failed call may leave a run
- * untranslated, and both are reported elsewhere (`delivery`, the positioned
- * gaps), so this sentence stays true beside either.
+ * "You chose" reads `chosen`, the request's own spans (`options.pages` on the
+ * worker, what the panel sent), never `window.pagesSent`: a truncated window
+ * clips `pagesSent` at the last page whose text started before the cut, so
+ * reading it here said the person chose fewer pages than they did (review
+ * 2026-11-17). What the window READ is stated separately, from the window,
+ * only when it stops short of the last chosen page ("; this translation
+ * reached page 6") — the same number the truncation notice names.
+ *
+ * `chosen` that the window does not confirm (`selectionConfirmed`: a filter
+ * that did nothing echoes other pages) gives "": no sentence is better than
+ * "No other page was sent" over a job that sent other pages, and the panel
+ * shows its rollback warning there instead. With no `chosen` (a panel that
+ * resumed a job and never saw the request), an untruncated window's pages
+ * are the choice; a truncated one is named only as what was read.
+ *
+ * It never says "translated" or "covers": the delivery cap may withhold a
+ * tail and a failed call may leave a run untranslated, and both are reported
+ * elsewhere (`delivery`, the positioned gaps), so this sentence stays true
+ * beside either.
  */
-export function translateSelectionSentence(window: {
-  readonly totalPages: number;
-  readonly selection?: unknown;
-  readonly pagesSent?: readonly PageSpan[];
-}): string {
-  const spans = chosenSpans(window);
-  if (spans === null) return "";
-  return `You chose ${pagesPhrase(spans)} of ${window.totalPages}. No other page was sent to the AI model.`;
+export function translateSelectionSentence(
+  window: {
+    readonly totalPages: number;
+    readonly truncated: boolean;
+    readonly selection?: unknown;
+    readonly pagesSent?: readonly PageSpan[];
+  },
+  chosen?: readonly PageSpan[] | null,
+): string {
+  const read = chosenSpans(window);
+  if (read === null) return "";
+  const total = window.totalPages;
+  const lastRead = read[read.length - 1]![1];
+  const tail = "No other page was sent to the AI model.";
+  if (chosen && chosen.length > 0) {
+    if (!selectionConfirmed(chosen, window)) return "";
+    const reach =
+      lastRead < chosen[chosen.length - 1]![1]
+        ? `; this translation reached page ${lastRead}`
+        : "";
+    return `You chose ${pagesPhrase(chosen)} of ${total}${reach}. ${tail}`;
+  }
+  return window.truncated
+    ? `This translation read ${pagesPhrase(read)} of ${total}. ${tail}`
+    : `You chose ${pagesPhrase(read)} of ${total}. ${tail}`;
 }

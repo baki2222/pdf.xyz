@@ -262,6 +262,34 @@ describe("chosen pages [2, 4] of six: only those pages reach the model", () => {
   });
 });
 
+describe("a truncated selection: the sentence names the CHOSEN pages", () => {
+  // Pages 2-6 of SIX under a 110-character window: the cut falls inside page
+  // 4, so `pagesSent` is [[2, 4]]. Review 2026-11-17: the sentence read
+  // `pagesSent` for "You chose" and so told the person they chose 2 to 4.
+  const chosen: PageSpan[] = [[2, 6]];
+  const limits = { maxInputChars: 110 };
+
+  it("health: the window IS truncated and clipped below the choice", async () => {
+    const { result } = await run(withPages(chosen), { limits });
+    if (!result.ok) throw new Error(result.message);
+    expect(result.meta.window.truncated).toBe(true);
+    expect(result.meta.window.pagesSent).toEqual([[2, 4]]);
+  });
+
+  it("README.txt, translation.md and the manifest say 2 to 6 were chosen, and the window reached 4", async () => {
+    const { result } = await run(withPages(chosen), { limits });
+    if (!result.ok) throw new Error(result.message);
+    const sentence = `You chose pages 2${EN}6 of 6; this translation reached page 4. No other page was sent to the AI model.`;
+    const files = await zipFiles(result.output);
+    expect(files.manifest.source.selectionNotice).toBe(sentence);
+    // `pagesSent` stays what the window read: the record keeps both facts.
+    expect(files.manifest.source.pagesSent).toEqual([[2, 4]]);
+    expect(files.md).toContain(`>${NL}> **${sentence}**`);
+    expect(files.readme).toContain(sentence);
+    expect(files.readme).not.toContain(`You chose pages 2${EN}4`);
+  });
+});
+
 describe("numbering from page 5", () => {
   const chosen: PageSpan[] = [[5, 6]];
 
