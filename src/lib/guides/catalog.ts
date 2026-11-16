@@ -5544,7 +5544,7 @@ export const guides: Guide[] = [
         body: [
           `The conversation lives in your browser tab, and every question is a job of its own: the page uploads the PDF again and sends the most recent exchanges with it, up to ${MAX_CONTEXT_EXCHANGES}. A note above the button says how many travel with the next question, and whether any were shortened or left out to stay within the request limits.`,
           "Our server does not link one question to the next. Reloading the page, choosing another file, or pressing Remove beside the file name starts a new conversation.",
-          `Each question reads a bounded amount of text, with your question and the conversation sent with it counted first, and the exact figure is stated on the ${nameOf("chat-with-pdf")} page. Past that point the model is told not to claim the document lacks something, and a notice above the answer says how far into the document the reading got. For a long file, pull the part you need into its own PDF with ${nameOf("extract-pages")} and ask that; its [p.N] citations then count the pages of the extracted copy. Files are capped at ${ceilingMb("chat-with-pdf")} MB.`,
+          `Each question reads a bounded amount of text, with your question and the conversation sent with it counted first, and the exact figure is stated on the ${nameOf("chat-with-pdf")} page. Past that point the model is told not to claim the document lacks something, and a notice above the answer says that only part of the document was read, naming the pages when it can. For a long file, pull the part you need into its own PDF with ${nameOf("extract-pages")} and ask that; its [p.N] citations then count the pages of the extracted copy. Files are capped at ${ceilingMb("chat-with-pdf")} MB.`,
         ],
       },
       {
@@ -5552,7 +5552,7 @@ export const guides: Guide[] = [
         heading: "The free allowance and where your text goes",
         body: [
           `Questions are free, within a daily allowance. ${aiAllowanceFactFor("chat-with-pdf")} The charge is taken when the job is submitted, so a question our server refuses or that fails still uses it.`,
-          "Our server sends the PDF's extracted text, with your question and the recent exchanges, to a third-party AI provider; the PDF file itself is never sent to the provider. The settings in our provider account that would let it use this text to improve its models are switched off, though the provider may keep what it receives for a limited time to watch for abuse. Because the same text goes again with every follow-up, the provider also holds it in a short-lived cache, measured in minutes rather than days. Section 3 of our privacy policy covers the provider's side.",
+          "Our server sends the PDF's extracted text, with your question and the recent exchanges, to a third-party AI provider; the PDF file itself is never sent to the provider. The settings in our provider account that would let it use this text to improve its models are switched off, though the provider may keep what it receives for a limited time to watch for abuse. When the same text goes with a follow-up, the provider may also hold it in a short-lived cache, measured in minutes rather than days. Section 3 of our privacy policy covers the provider's side.",
         ],
       },
       {
@@ -5589,7 +5589,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-16",
   },
   {
     slug: "how-to-extract-tables-from-a-pdf",

@@ -2,7 +2,13 @@
 
 import { usePickRefusal } from "@/components/tools/use-pick";
 import dynamic from "next/dynamic";
-import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import {
   Download,
   MessageSquare,
@@ -14,6 +20,10 @@ import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import { MAX_QUESTION_CHARS } from "@/lib/jobs/chat-with-pdf";
 import { citedPageIndex } from "@/lib/jobs/chat-citations";
 import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
+import {
+  CHAT_RETRIEVAL_ANCHOR_SHARE,
+  chatRetrievalPanelLine,
+} from "@/lib/pdf/chat-retrieval-anchor";
 import {
   aiDailyAllowanceNote,
   aiToolUnavailableDetail,
@@ -87,8 +97,42 @@ const PageZoomDialog = dynamic(() =>
  * tallest state, Windows / Linux (CI's SLOT_NATURAL lines on
  * 28af68e1), is 439.5/439.5px at 360-390, 303/303px at 640,
  * 342/342px at 1024; the larger x1.035, to the half rem.
+ *
+ * NOT refitted for the page-selection line (audit #30, slice 3): that
+ * line is drawn only when the observed worker proves `chatRetrieval`, so
+ * while no image does, growing this reserve would grow every reader's
+ * slot for a line none of them sees. The line's own reserve is
+ * {@link RETRIEVAL_SLOT_STYLE}, applied only with the line.
  */
 const STATUS_SLOT = "min-h-[28.5rem] sm:min-h-[20rem] lg:min-h-[22.5rem]";
+
+/**
+ * The slot's reserve while the page-selection line is drawn (an OBSERVED
+ * `chatRetrieval: true`), and only then. Measured 2026-11-16 with the line
+ * on, the ready state is the tallest: 506px at 360, 350px at 640, 369.5px
+ * at 1024 (Windows; CI's SLOT_NATURAL "chat-with-pdf+chatRetrieval" lines
+ * are the Linux column to re-read); x1.035, to the half rem: 33rem below
+ * 640px, 23rem from 640px, 25rem from 1024px, the same breakpoints as
+ * {@link STATUS_SLOT}. The 1024 tier was 24rem until CI's Linux runner
+ * measured 389px there (run 43791629897: the line wraps once more under its
+ * fonts), which 384px could not hold; 25rem = 400px does, with the 1%
+ * headroom the check asks for.
+ *
+ * An inline style, not utility classes: the shared stylesheet is at its
+ * size ceiling, and a new arbitrary min-height per breakpoint would add
+ * rules every page downloads for a line no image yet draws. An inline
+ * style cannot hold a media query, so the breakpoints are a step function
+ * of the viewport width: `(640px - 100vw) * 9999` is hugely positive below
+ * 640px and zero or negative from it (likewise 1023px for 1024px), so each
+ * `min`/`max` pair selects one tier. Viewport units and media queries
+ * measure the same width (scrollbar included). Inline wins over the
+ * reserve's classes, so it replaces them while drawn. The check is the
+ * chatRetrieval case in `e2e/tool-layout.mobile.spec.ts`.
+ */
+const RETRIEVAL_SLOT_STYLE: CSSProperties = {
+  minHeight:
+    "max(min(25rem, max(23rem, (100vw - 1023px) * 9999)), min(33rem, (640px - 100vw) * 9999))",
+};
 
 /**
  * Shown under every answer. The only safeguard against a wrong answer is an
@@ -547,6 +591,9 @@ function ChatBuilder({
 
       <WorkerGate
         reserve={STATUS_SLOT}
+        {...(status?.chatRetrieval === true
+          ? { reserveStyle: RETRIEVAL_SLOT_STYLE }
+          : {})}
         job={job}
         bytes={file?.size}
         run={(ready) => (
@@ -578,6 +625,18 @@ function ChatBuilder({
             <p className="text-muted text-xs leading-relaxed">
               {aiDailyAllowanceNote(tool.slug)}
             </p>
+            {/* How a longer file's pages are chosen is a claim about ONE
+                image's algorithm, so it is said only when the observed
+                worker proves it (`chatRetrieval`, brief step 6): absent,
+                false or unobserved says nothing. Inside the reserved slot
+                for the same reason as the note above: the status answers
+                after first paint, and a line above the slot would push it
+                down when it did. */}
+            {status?.chatRetrieval === true && (
+              <p className="text-muted text-xs leading-relaxed">
+                {chatRetrievalPanelLine(CHAT_RETRIEVAL_ANCHOR_SHARE)}
+              </p>
+            )}
           </div>
         }
         off={

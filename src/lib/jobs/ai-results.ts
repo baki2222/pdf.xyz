@@ -1,7 +1,8 @@
 /**
  * Client-facing result metadata for the AI tools: **what the model actually saw**.
  *
- * Every AI tool caps the text it sends at `maxInputChars` and sends a prefix. The
+ * Every AI tool caps the text it sends at `maxInputChars` and sends a prefix, or,
+ * for chat, the pages chosen for the question (`selection: "relevance"`). The
  * cap is not exotic — a dense 81-page contract already hits it (measured
  * 2026-08-10; see `@/lib/workers/ai/truncation`). Until this block existed the
  * fact reached nobody: the model was not told, so it answered "the document does
@@ -22,7 +23,10 @@ import {
 
 /** Bounded, content-free description of the window of text a model was given. */
 export interface AiWindowMeta {
-  /** True when the source exceeded the cap and only a prefix was sent. */
+  /**
+   * True when the source exceeded the cap and only part of it was sent: a
+   * prefix, or for chat the pages chosen for the question.
+   */
   truncated: boolean;
   /**
    * Characters of the source the window covers, in the extractor's calibrated
@@ -46,9 +50,32 @@ export interface AiWindowMeta {
    * confident false claim replacing the old one.
    */
   lastCompletePage: number | null;
-  /** True when the cut landed inside a page rather than on a page boundary. */
+  /**
+   * True when the cut landed inside a page rather than on a page boundary.
+   * Under a selection, the page cut is the HIGHEST page in `pagesSent`.
+   */
   cutMidPage: boolean;
+  /**
+   * Present ONLY on a chat run that sent pages chosen for the question rather
+   * than a prefix (`page-retrieval.ts`). Absent on every whole or prefix
+   * window, so those stay the six fields above and deep-equal to what a
+   * worker without retrieval wrote. With it, `lastCompletePage` is `null`:
+   * there is no prefix to name the end of.
+   */
+  selection?: "relevance";
+  /**
+   * The pages sent, as inclusive ascending disjoint `[first, last]` spans of
+   * REAL page numbers. Present only with `selection`; dropped by the writer
+   * when invalid or more than 64, in which case the notice says only that
+   * some pages were read, never a range.
+   */
+  pagesSent?: readonly (readonly [number, number])[];
+  /** How many pages were sent. Present only with `selection`. */
+  pagesRead?: number;
 }
+
+/** The writer's bound on `pagesSent` (the selector's own is `CHAT_RETRIEVAL_MAX_SPANS`). */
+export const AI_WINDOW_MAX_SPANS = 64;
 
 /**
  * What the call cost, as the provider reported it.
@@ -284,7 +311,10 @@ function count(value: unknown): number {
  *  - `truncated:false` forces `cutMidPage:false` and `charactersSent ===
  *    charactersTotal`;
  *  - `lastCompletePage` is a positive integer no greater than `totalPages`, or
- *    `null`.
+ *    `null`;
+ *  - a relevance window (see {@link boundSelection}) keeps `selection` only
+ *    when truncated, forces `lastCompletePage` to `null`, and keeps a page
+ *    list only when every span is a real range inside the document.
  */
 export function buildAiResultMeta(raw: AiResultMeta): AiResultMeta {
   const w = raw.truncation;
@@ -298,6 +328,7 @@ export function buildAiResultMeta(raw: AiResultMeta): AiResultMeta {
       ? Math.min(Math.floor(rawLast), totalPages || Math.floor(rawLast))
       : null;
 
+  const selection = truncated ? boundSelection(w, totalPages) : null;
   const used = boundUsage(raw.usage);
   const pdf = boundPdf(raw.pdf);
   const readingOrder = boundReadingOrder(raw.readingOrder);
@@ -331,14 +362,84 @@ export function buildAiResultMeta(raw: AiResultMeta): AiResultMeta {
         : charactersTotal,
       charactersTotal,
       totalPages,
-      lastCompletePage: truncated ? last : totalPages || null,
+      lastCompletePage: selection
+        ? null
+        : truncated
+          ? last
+          : totalPages || null,
       cutMidPage: truncated && w.cutMidPage === true,
+      // Conditional spreads, so a whole or prefix window stays exactly the six
+      // fields above (deep-equal to a pre-retrieval worker's record).
+      ...(selection ? { selection: "relevance" as const } : {}),
+      ...(selection?.pagesSent ? { pagesSent: selection.pagesSent } : {}),
+      ...(selection && selection.pagesRead !== undefined
+        ? { pagesRead: selection.pagesRead }
+        : {}),
     },
     ...(used ? { usage: used } : {}),
     ...(delivery ? { delivery } : {}),
     ...(pdf ? { pdf } : {}),
     ...(readingOrder ? { readingOrder } : {}),
   };
+}
+
+/**
+ * Re-bound a relevance window's page fields, or `null` when it is not one.
+ *
+ * The SECOND bound on the page list (the selector never starts a 65th span;
+ * this does not trust that). Every span must be a pair of integers with
+ * `first ≤ last`; each is clamped to `1..totalPages`, and one that lies
+ * wholly outside the document voids the list. Spans are then sorted and
+ * merged (overlapping or adjacent), and more than {@link AI_WINDOW_MAX_SPANS}
+ * voids the list. A voided list keeps `selection`, so the reader gets "only
+ * some of its N pages were read" rather than a range nobody sent.
+ * `pagesRead` is clamped to the document and to the pages the list covers.
+ */
+function boundSelection(
+  w: AiWindowMeta,
+  totalPages: number,
+): {
+  pagesSent?: [number, number][];
+  pagesRead?: number;
+} | null {
+  if (w.selection !== "relevance") return null;
+  const spans = boundSpans(w.pagesSent, totalPages);
+  const covered = spans?.reduce((sum, [a, b]) => sum + b - a + 1, 0);
+  const pagesRead =
+    w.pagesRead !== undefined
+      ? Math.min(count(w.pagesRead), totalPages, covered ?? totalPages)
+      : undefined;
+  return {
+    ...(spans ? { pagesSent: spans } : {}),
+    ...(pagesRead !== undefined ? { pagesRead } : {}),
+  };
+}
+
+function boundSpans(
+  raw: unknown,
+  totalPages: number,
+): [number, number][] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0 || totalPages < 1)
+    return undefined;
+  const clamped: [number, number][] = [];
+  for (const span of raw as unknown[]) {
+    if (!Array.isArray(span) || span.length !== 2) return undefined;
+    const [first, last] = span as unknown[];
+    if (!Number.isInteger(first) || !Number.isInteger(last)) return undefined;
+    if ((first as number) > (last as number)) return undefined;
+    const a = Math.max(1, first as number);
+    const b = Math.min(totalPages, last as number);
+    if (a > b) return undefined;
+    clamped.push([a, b]);
+  }
+  clamped.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+  const merged: [number, number][] = [];
+  for (const [a, b] of clamped) {
+    const prev = merged[merged.length - 1];
+    if (prev && a <= prev[1] + 1) prev[1] = Math.max(prev[1], b);
+    else merged.push([a, b]);
+  }
+  return merged.length <= AI_WINDOW_MAX_SPANS ? merged : undefined;
 }
 
 /** Model ids are short; this bounds an untrusted string at the seam. */

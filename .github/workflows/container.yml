@@ -256,6 +256,21 @@ jobs:
       - name: Worker image Translate PDF reading-order proof (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:translate-reading-order-proof
 
+      # Chat with PDF's page selection (2026-11-16, competitor audit wave 2
+      # #30, slice 3): the start-up proof the heartbeat publishes as
+      # `chatRetrieval`, on the image's REAL pdftotext and ICU. A 70-page PDF
+      # with a token on page 60 only goes through the executor's order under
+      # an 8,000-character delivery cap: page 60 must reach the provider
+      # inside the document span, the manifest and the stored record must
+      # name it, the document plus its page list must stay within the charge,
+      # a question sharing no word with any page must get the opening pages,
+      # and a 3-page document must go whole. It prints Intl.Segmenter's own
+      # word segments, so the run shows full ICU rather than inferring it.
+      # Recording provider (no AI call, no spend); no user document, secret,
+      # queue or store.
+      - name: Worker image Chat with PDF page-selection proof (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:chat-retrieval-proof
+
       # Worker options (2026-10-24): compress-pdf's Grayscale through the
       # image's REAL Ghostscript, read back as 1-component images (with a
       # colour run as the control), and protect-pdf's permission restrictions

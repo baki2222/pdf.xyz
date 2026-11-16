@@ -7,6 +7,7 @@ import type {
   AiCompletionResult,
   AiProvider,
 } from "../ai/provider";
+import { bm25Scores, queryTermsFor } from "@/lib/pdf/page-retrieval";
 import { runChatWithPdf, CHAT_ENGINE, type PdfTextExtractor } from "./engine";
 
 const QUESTION: ChatOptions = { question: "What is the invoice total?" };
@@ -340,6 +341,19 @@ const LONG_PAGES = Array.from({ length: 6 }, (_, i) =>
   String.fromCharCode(97 + i).repeat(200),
 );
 
+/**
+ * HISTORY (slice 3, audit #30, 2026-11-16): the three tests below and the
+ * flat-text test above ("truncates over-long source text") were written for
+ * a worker that always sent a prefix. Page retrieval did NOT invert them,
+ * and their assertions are unchanged: they now pin the two branches where
+ * retrieval must leave the request as main sent it. "truncates over-long
+ * source text" is UNGROUNDED (no page metadata, so no page can be chosen);
+ * these three are the NO-MATCH branch (QUESTION shares no term with
+ * LONG_PAGES, so no page scores and the prefix goes byte-for-byte). The
+ * health check "QUESTION scores 0 against LONG_PAGES" at the end of this
+ * file keeps them that way: if QUESTION ever scored, they would silently
+ * become relevance tests and stop pinning anything.
+ */
 describe("a short window is disclosed — to the model and to the job record", () => {
   /**
    * Chat grounds each page as "[Page N]\n<text>", so a page's chunk is longer
@@ -486,4 +500,367 @@ describe("the download can audit the caching bet", () => {
     );
     expect("cacheWrite" in manifest.usage).toBe(false);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Page retrieval (slice 3, audit #30): pages chosen for THIS question
+// ---------------------------------------------------------------------------
+
+describe("the no-match pins stay no-match", () => {
+  it("QUESTION scores 0 against LONG_PAGES", () => {
+    const chunks = LONG_PAGES.map((text, i) => ({
+      pageNumber: i + 1,
+      text: `[Page ${i + 1}]\n${text}`,
+    }));
+    const scores = bm25Scores(chunks, queryTermsFor(QUESTION.question));
+    // Health: every page is scored, so an all-zero map is a measurement.
+    expect(scores.size).toBe(6);
+    expect([...scores.values()]).toEqual([0, 0, 0, 0, 0, 0]);
+    // Positive control: a term that IS on one page scores that page.
+    const planted = bm25Scores(chunks, ["c".repeat(200)]);
+    expect(planted.get(3)).toBeGreaterThan(0);
+  });
+});
+
+const FILLER_WORDS =
+  "alpha bravo cobalt delta ember fjord granite harbor island juniper kestrel lumen meadow nickel orchard pewter quarry russet saffron timber umber velvet willow xenon yarrow zinc".split(
+    " ",
+  );
+
+/** 40 pages of seeded filler (~400 characters each), plants added by page. */
+function contract(plants: Record<number, string> = {}): string[] {
+  let a = 11;
+  const next = () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  return Array.from({ length: 40 }, (_, i) => {
+    const body = Array.from(
+      { length: 60 },
+      () => FILLER_WORDS[Math.floor(next() * FILLER_WORDS.length)]!,
+    );
+    if (plants[i + 1]) body.splice(30, 0, plants[i + 1]!);
+    return body.join(" ");
+  });
+}
+
+const CAP_3000 = { maxInputChars: 3_000 };
+const PLANTED = contract({ 30: "Zephyrine" });
+const ZEPHYRINE: ChatOptions = {
+  question: "What does the Zephyrine clause say?",
+};
+
+/** The text between the DOCUMENT START and END lines of a system prompt. */
+function documentBlock(system: string): string {
+  const open = "--- DOCUMENT START ---\n";
+  const start = system.indexOf(open);
+  const end = system.indexOf("\n--- DOCUMENT END ---");
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  return system.slice(start + open.length, end);
+}
+
+/** "1–2, 4–6, 30" back to spans, so a printed list can be compared. */
+function listSpans(list: string): [number, number][] {
+  return list
+    .split(", ")
+    .filter((part) => part.length > 0)
+    .map((part) => {
+      const [a, b = a] = part.split("–").map(Number);
+      return [a!, b!];
+    });
+}
+
+async function manifestOf(output: Uint8Array) {
+  const zip = await JSZip.loadAsync(output);
+  return JSON.parse(await zip.file("manifest.json")!.async("string"));
+}
+
+describe("a question whose page lies past the prefix gets that page", () => {
+  it("sends [Page 30] inside the document, names non-contiguous spans, and never claims pages 1-N", async () => {
+    const provider = providerReturning(SUCCESS("It says [p.30]."));
+    const run = await runChatWithPdf(INPUT, ZEPHYRINE, {
+      extract: extractorForPages(PLANTED),
+      provider,
+      limits: CAP_3000,
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    const system = provider.calls[0]!.system ?? "";
+    const doc = documentBlock(system);
+    // INSIDE the [Page 30] chunk of the document block — the question also
+    // carries the word, so "somewhere in the request" proves nothing.
+    expect(doc).toMatch(/\[Page 30\]\n[^[]*Zephyrine/);
+    expect(system).not.toMatch(/pages 1-\d+ of/);
+    expect(system).toMatch(/of 40/);
+    expect(system).toMatch(/do NOT say the document does not contain it/);
+    // The relevance revocation, not main's: "may appear later" is false of a
+    // page set with gaps. And the anchor arm, since pages 1.. were sent.
+    expect(system).toContain("the answer may be on a page you were not given.");
+    expect(system).not.toContain("may appear later in the document");
+    expect(system).toMatch(
+      /of 40: the opening pages and pages chosen by the words they share with the question; other pages were not sent/,
+    );
+    // The read bound: the document block plus the notice's page list is
+    // within what the route charged.
+    const list = /covers pages ([\d–, ]+) of 40/.exec(system)?.[1] ?? "";
+    expect(list).toMatch(/\b30\b/);
+    expect(doc.length + list.length).toBeLessThanOrEqual(3_000);
+
+    expect(run.meta.selection).toBe("relevance");
+    expect(run.meta.truncated).toBe(true);
+    expect(run.meta.window.selection).toBe("relevance");
+    expect(run.meta.window.lastCompletePage).toBeNull();
+    expect(run.meta.window.charactersSent).toBe(doc.length);
+    const spans = run.meta.window.pagesSent ?? [];
+    expect(spans.some(([a, b]) => a <= 30 && 30 <= b)).toBe(true);
+    // Not one opening run: the anchor and the chosen page are apart.
+    expect(spans.length).toBeGreaterThanOrEqual(2);
+    expect(run.meta.truncationNotice).toMatch(/\b30\b/);
+    expect(run.meta.truncationNotice).not.toMatch(/pages 1–\d+ of/);
+
+    const manifest = await manifestOf(run.output);
+    expect(manifest.source.selection).toBe("relevance");
+    expect(
+      (manifest.source.pagesSent as [number, number][]).some(
+        ([a, b]) => a <= 30 && 30 <= b,
+      ),
+    ).toBe(true);
+    expect(manifest.source.truncatedToCharacters).toBe(doc.length);
+    expect(manifest.schema).toBe("pdfxyz.chat/v1");
+    const readme = await (
+      await JSZip.loadAsync(run.output)
+    )
+      .file("README.txt")!
+      .async("string");
+    expect(readme).toMatch(/Pages read: .*\b30\b/);
+  });
+
+  it("names REAL page numbers when blank pages come before the chosen one (meta, manifest, model notice, user notice)", async () => {
+    // Review finding (mutation m3b): every relevance test had no blank page,
+    // so chunk index + 1 equalled pageNumber and an engine that built its
+    // page list from the index stayed green everywhere. Pages 3 and 7 are
+    // blank here: index + 1 would name 28 for page 30, and 3 for page 4.
+    const texts = PLANTED.map((text, i) => (i === 2 || i === 6 ? "" : text));
+    const provider = providerReturning(SUCCESS("It says [p.30]."));
+    const run = await runChatWithPdf(INPUT, ZEPHYRINE, {
+      extract: extractorForPages(texts),
+      provider,
+      limits: CAP_3000,
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.meta.selection).toBe("relevance");
+    const system = provider.calls[0]!.system ?? "";
+    const sentMarkers = [
+      ...documentBlock(system).matchAll(/\[Page (\d+)\]\n/g),
+    ].map((m) => Number(m[1]));
+    // Health: the twin has teeth only if a blank page precedes page 30 AND
+    // the anchor reaches past one, so index + 1 differs from pageNumber.
+    expect(sentMarkers).toContain(30);
+    expect(sentMarkers).not.toContain(3);
+    expect(sentMarkers.some((page) => page > 3 && page < 30)).toBe(true);
+    const expand = (spans: readonly (readonly [number, number])[]) =>
+      spans.flatMap(([a, b]) =>
+        Array.from({ length: b - a + 1 }, (_, i) => a + i),
+      );
+    // The meta's spans ARE the pages whose markers were sent.
+    expect(expand(run.meta.window.pagesSent ?? [])).toEqual(sentMarkers);
+    // The model notice's list names the same pages.
+    const list = /covers pages ([\d–, ]+) of 40/.exec(system)?.[1] ?? "";
+    expect(expand(listSpans(list))).toEqual(sentMarkers);
+    // The user notice too.
+    const userList =
+      /pages were read: pages ([\d–, ]+)/.exec(
+        run.meta.truncationNotice ?? "",
+      )?.[1] ?? "";
+    expect(expand(listSpans(userList))).toEqual(sentMarkers);
+    // And the manifest a download carries.
+    const manifest = await manifestOf(run.output);
+    expect(expand(manifest.source.pagesSent as [number, number][])).toEqual(
+      sentMarkers,
+    );
+  });
+
+  it("does not cache a relevance request's system prompt; whole and prefix still do", async () => {
+    const relevance = providerReturning(SUCCESS("x"));
+    await runChatWithPdf(INPUT, ZEPHYRINE, {
+      extract: extractorForPages(PLANTED),
+      provider: relevance,
+      limits: CAP_3000,
+    });
+    const prefix = providerReturning(SUCCESS("x"));
+    const prefixRun = await runChatWithPdf(
+      INPUT,
+      { question: "What is the governing currency?" },
+      {
+        extract: extractorForPages(PLANTED),
+        provider: prefix,
+        limits: CAP_3000,
+      },
+    );
+    const whole = providerReturning(SUCCESS("x"));
+    const wholeRun = await runChatWithPdf(INPUT, ZEPHYRINE, {
+      extract: extractorForPages(PLANTED.slice(0, 3)),
+      provider: whole,
+    });
+    expect(relevance.calls[0]!.cacheSystem).toBe(false);
+    expect(prefix.calls[0]!.cacheSystem).toBe(true);
+    expect(whole.calls[0]!.cacheSystem).toBe(true);
+    // And each took the branch its name says.
+    expect(prefixRun.ok && prefixRun.meta.selection).toBe("prefix");
+    expect(wholeRun.ok && wholeRun.meta.selection).toBe("whole");
+    expect(prefix.calls[0]!.system).not.toContain("[Page 30]");
+    if (prefixRun.ok) expect(prefixRun.meta.window.selection).toBeUndefined();
+  });
+
+  it("sends a page the previous answer cited, outside the prefix, for a follow-up with no informative word", async () => {
+    const provider = providerReturning(SUCCESS("x"));
+    const run = await runChatWithPdf(
+      INPUT,
+      {
+        question: "And the one after?",
+        context: [
+          { role: "user", content: "What is the opening term?" },
+          { role: "assistant", content: "It is set out on [p.35]." },
+        ],
+      },
+      { extract: extractorForPages(contract()), provider, limits: CAP_3000 },
+    );
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    const system = provider.calls[0]!.system ?? "";
+    expect(documentBlock(system)).toContain("[Page 35]\n");
+    expect(run.meta.selection).toBe("relevance");
+    // Page 35 came from the previous answer's citations alone: "And the one
+    // after?" shares no informative word with it, so the model is never told
+    // it was "chosen by the words they share with the question".
+    expect(system).not.toMatch(/words they share/);
+    expect(system).toMatch(
+      /of 40: the opening pages and pages the previous answer cited; other pages were not sent/,
+    );
+  });
+
+  it("names neither source alone when a cited page and a scored page are both sent", async () => {
+    const provider = providerReturning(SUCCESS("x"));
+    const run = await runChatWithPdf(
+      INPUT,
+      {
+        question: "What does the Zephyrine clause say?",
+        context: [
+          { role: "user", content: "What is the opening term?" },
+          { role: "assistant", content: "It is set out on [p.35]." },
+        ],
+      },
+      { extract: extractorForPages(PLANTED), provider, limits: CAP_3000 },
+    );
+    expect(run.ok && run.meta.selection).toBe("relevance");
+    const system = provider.calls[0]!.system ?? "";
+    const doc = documentBlock(system);
+    // Health: both sources really were sent, or the neutral arm is untested.
+    expect(doc).toMatch(/\[Page 30\]\n[^[]*Zephyrine/);
+    expect(doc).toContain("[Page 35]\n");
+    expect(system).not.toMatch(/words they share|previous answer cited/);
+    expect(system).toMatch(
+      /of 40: the opening pages and pages chosen for this question; other pages were not sent/,
+    );
+  });
+
+  it("the selector seam forced to prefix sends main's prefix", async () => {
+    const seamed = providerReturning(SUCCESS("x"));
+    const run = await runChatWithPdf(INPUT, ZEPHYRINE, {
+      extract: extractorForPages(PLANTED),
+      provider: seamed,
+      limits: CAP_3000,
+      selectPages: () => ({ strategy: "prefix", reason: "no-signal" }),
+    });
+    expect(run.ok && run.meta.selection).toBe("prefix");
+    expect(seamed.calls[0]!.system).not.toContain("[Page 30]");
+    expect(seamed.calls[0]!.system).toMatch(/pages 1-\d+ of 40/);
+  });
+});
+
+describe("a billed call that fails afterwards still reports what it spent", () => {
+  // Rule 3: both branches returned after a billed provider call with neither
+  // usage nor window, so the spend hook saw 0 tokens for a call that was paid.
+  const SPENT = {
+    inputTokens: 100,
+    outputTokens: 20,
+    calls: 1,
+    model: "claude-sonnet-5",
+  };
+
+  it("the empty-answer branch carries usage and window", async () => {
+    const run = await runChatWithPdf(INPUT, ZEPHYRINE, {
+      extract: extractorForPages(PLANTED),
+      provider: providerReturning(SUCCESS("   ")),
+      limits: CAP_3000,
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.kind).toBe("failed");
+    expect(run.usage).toEqual(SPENT);
+    expect(run.window?.selection).toBe("relevance");
+  });
+
+  it("the package-too-large branch carries usage and window", async () => {
+    const run = await runChatWithPdf(INPUT, QUESTION, {
+      extract: extractorForPages(["Cover page.", "Invoice total $1,200."]),
+      provider: providerReturning(SUCCESS("The total is $1,200 [p.2].")),
+      limits: { maxOutputBytes: 1 },
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.message).toMatch(/exceeds the worker size limit/);
+    expect(run.usage).toEqual(SPENT);
+    expect(run.window).toMatchObject({ truncated: false, totalPages: 2 });
+  });
+});
+
+describe("the read bound holds on the request itself, at every cap", () => {
+  it("document block + the notice's page list ≤ the cap, over 1,200 runs", async () => {
+    // Measured from the REQUEST, not from the window: the window is the
+    // engine's account of what it sent. Whole pages leave slack, so only a
+    // sweep of caps finds the ones where the page list no longer fits in it.
+    // Two documents: ordinary pages (every chosen page fits whole), and one
+    // whose planted page is longer than half the cap (it is CUT to fill the
+    // budget exactly, so the cut page's number in "The text of page N ends
+    // mid-page." is a cost the budget must also have paid).
+    const longPlant = contract({ 30: "Zephyrine" });
+    longPlant[29] = `${longPlant[29]} ${longPlant[29]!.repeat(6)}`;
+    let relevance = 0;
+    let tight = 0;
+    let cuts = 0;
+    for (const pages of [PLANTED, longPlant])
+      for (let cap = 2_400; cap < 3_000; cap += 1) {
+        const provider = providerReturning(SUCCESS("x"));
+        const run = await runChatWithPdf(INPUT, ZEPHYRINE, {
+          extract: extractorForPages(pages),
+          provider,
+          limits: { maxInputChars: cap },
+        });
+        if (!run.ok || run.meta.selection !== "relevance") continue;
+        relevance += 1;
+        const system = provider.calls[0]!.system ?? "";
+        const doc = documentBlock(system);
+        const list = /covers pages ([\d–, ]+) of 40/.exec(system)?.[1] ?? "";
+        const cut = /The text of page (\d+) ends mid-page\./.exec(system)?.[1];
+        if (cut) cuts += 1;
+        const paid = list.length + (cut?.length ?? 0);
+        expect(list.length, `cap ${cap}`).toBeGreaterThan(0);
+        expect(doc.length + paid, `cap ${cap}`).toBeLessThanOrEqual(cap);
+        if (cap - doc.length < 2 * paid) tight += 1;
+      }
+    // Health: the sweep exercised relevance on both documents, reached caps
+    // where the slack whole pages leave is smaller than the list (otherwise
+    // the bound is vacuous for the list), and exercised the cut.
+    expect(relevance).toBeGreaterThanOrEqual(1_000);
+    expect(tight).toBeGreaterThan(0);
+    expect(cuts).toBeGreaterThanOrEqual(100);
+    // 1,200 real engine runs: past vitest's 5 s default on CI's Linux runner
+    // (run 43791629897), well inside it on the dev box.
+  }, 60_000);
 });

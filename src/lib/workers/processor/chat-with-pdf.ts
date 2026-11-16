@@ -118,6 +118,7 @@ function meta(m: ChatWithPdfMeta): ProcessorMeta {
     outputBytes: m.outputBytes,
     sourceCharacters: m.sourceCharacters,
     truncated: m.truncated,
+    selection: m.selection,
   };
 }
 

@@ -93,6 +93,11 @@ const ALLOWED = new Set(
     // only by the daemon's proved-capability table, the in-image proof
     // script and tests.
     "src/lib/workers/translate/reading-order-capability.ts",
+    // Chat with PDF's page-selection proof (2026-11-16, slice 3): it runs the
+    // daemon's chat deps (`chat-with-pdf/native`, the `pdftotext` runner).
+    // Reached only by the daemon's proved-capability table, the in-image
+    // proof script (`scripts/worker-chat-retrieval-proof.ts`) and tests.
+    "src/lib/workers/chat-with-pdf/retrieval-capability.ts",
     "src/lib/workers/local-dev.ts",
     "src/lib/workers/daemon/runtime.ts",
     // 2026-11-15: the daemon's proved-capability table (every proof, incl.

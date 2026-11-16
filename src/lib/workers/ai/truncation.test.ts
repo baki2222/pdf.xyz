@@ -10,6 +10,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  describeSelection,
   describeWindow,
   modelTruncationNotice,
   pageStartsFor,
@@ -175,5 +176,105 @@ describe("the offset table is checked against the string it indexes", () => {
     expect(w.truncated).toBe(true);
     expect(w.lastCompletePage).toBeNull();
     expect(userTruncationNotice(w)).toMatch(/first part of this 5-page/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A relevance window (chat page retrieval, slice 3): pages, not a prefix
+// ---------------------------------------------------------------------------
+
+describe("describeSelection", () => {
+  it("describes the pages sent, with no prefix claim", () => {
+    expect(describeSelection(40_000, 2_900, 70, [1, 2, 3, 60, 61], 61)).toEqual(
+      {
+        truncated: true,
+        charactersSent: 2_900,
+        charactersTotal: 40_000,
+        totalPages: 70,
+        lastCompletePage: null,
+        cutMidPage: true,
+        selection: "relevance",
+        pagesSent: [
+          [1, 3],
+          [60, 61],
+        ],
+        pagesRead: 5,
+      },
+    );
+  });
+
+  it("is not cut when no page was cut", () => {
+    const w = describeSelection(40_000, 2_900, 70, [1, 60], null);
+    expect(w.cutMidPage).toBe(false);
+    expect(w.pagesSent).toEqual([
+      [1, 1],
+      [60, 60],
+    ]);
+  });
+});
+
+describe("the relevance notices name the pages read and never a prefix", () => {
+  const relevance = describeSelection(40_000, 2_900, 70, [1, 2, 3, 60], null);
+  const cut = describeSelection(40_000, 2_900, 70, [1, 2, 3, 60], 60);
+
+  it("user notice: which pages, how many, of how many", () => {
+    expect(userTruncationNotice(relevance)).toBe(
+      "This document is longer than one question can read, so 4 of its 70 pages were read: pages 1–3, 60. Pages not listed were not sent.",
+    );
+    expect(userTruncationNotice(cut)).toBe(
+      "This document is longer than one question can read, so 4 of its 70 pages were read: pages 1–3, 60, the last of them cut mid-page. Pages not listed were not sent.",
+    );
+  });
+
+  it("user notice without spans says only some were read, never a range", () => {
+    const { pagesSent: _dropped, ...noSpans } = relevance;
+    const sentence = userTruncationNotice(noSpans);
+    expect(sentence).toBe(
+      "This document is longer than one question can read, so only some of its 70 pages were read.",
+    );
+    expect(sentence).not.toMatch(/pages 1–/);
+  });
+
+  it("user notice for one page uses the singular", () => {
+    const one = describeSelection(9_000, 900, 70, [60], null);
+    expect(userTruncationNotice(one)).toBe(
+      "This document is longer than one question can read, so 1 of its 70 pages was read: page 60. Pages not listed were not sent.",
+    );
+  });
+
+  it("model notice: the spans, the reason it was given, and the caller's relevance revocation", () => {
+    const notice = modelTruncationNotice(cut, () => "PREFIX REVOCATION", {
+      chosenBy:
+        "the opening pages and pages chosen by the words they share with the question",
+      revocation: "RELEVANCE REVOCATION",
+    });
+    expect(notice).toBe(
+      [
+        "",
+        "IMPORTANT — YOU ARE SEEING ONLY PART OF THIS DOCUMENT.",
+        "The text above covers pages 1–3, 60 of 70: the opening pages and pages chosen by the words they share with the question; other pages were not sent because of a length limit. The text of page 60 ends mid-page.",
+        "RELEVANCE REVOCATION",
+      ].join("\n"),
+    );
+    expect(notice).not.toMatch(/pages 1-\d+ of/);
+    expect(notice).not.toContain("PREFIX REVOCATION");
+  });
+
+  it("model notice without a relevance path still names the pages, never 1-N", () => {
+    const notice = modelTruncationNotice(relevance, (upTo) => `SEE ${upTo}`);
+    expect(notice).toContain("covers pages 1–3, 60 of 70;");
+    expect(notice).toContain("SEE pages 1–3, 60 of 70");
+    expect(notice).not.toMatch(/pages 1-\d+ of/);
+  });
+
+  it("the prefix path ignores the relevance argument byte for byte", () => {
+    const prefix = describeWindow("x".repeat(100), [], 9, 50);
+    const revocation = (upTo: string) => `R ${upTo}`;
+    expect(
+      modelTruncationNotice(prefix, revocation, {
+        chosenBy: "IGNORED",
+        revocation: "IGNORED",
+      }),
+    ).toBe(modelTruncationNotice(prefix, revocation));
   });
 });

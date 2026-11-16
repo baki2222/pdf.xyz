@@ -34,6 +34,7 @@
  * a gate an operator tuned is the gate the probe meets. Like the executor, a
  * DISABLED manifest gate (`skipped`) does not refuse.
  */
+import type { JobDeliveryCap } from "@/lib/jobs/delivery-cap";
 import { DEFAULT_RETENTION, type RetentionPolicy } from "@/lib/jobs/types";
 import {
   resolveWorkerArtifactManifest,
@@ -61,6 +62,13 @@ export interface ExecutorOrderJob {
   tool: string;
   input: ProbeInput;
   options?: Record<string, unknown>;
+  /**
+   * The delivery cap the route charged for, threaded to the processor exactly
+   * as the executor threads it (`executor.ts`, `...(delivery ? { delivery }
+   * : {})`). A probe of behaviour UNDER a cap (the chat retrieval proof)
+   * otherwise ran every job uncapped while claiming the capped path.
+   */
+  delivery?: JobDeliveryCap;
   /** The registry the probe's job is routed through: the daemon's own. */
   registry: ProcessorRegistry;
   /** Where the default gates read their policy: the daemon's environment. */
@@ -109,6 +117,7 @@ export async function runThroughExecutorOrder(
     tool: job.tool,
     options: job.options ?? {},
     inputs,
+    ...(job.delivery ? { delivery: job.delivery } : {}),
   });
   if (!result.ok) return { stage: "failed", result };
   const manifest = job.manifest ?? resolveWorkerArtifactManifest(job.env);

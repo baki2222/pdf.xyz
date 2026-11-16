@@ -341,6 +341,15 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "HTML to PDF prints a ZIP of a page and its files with its own stylesheets and pictures, instead of offering one file only, and refuses a ZIP it cannot print before it renders anything",
     proves: provenByFlag,
   },
+  chatRetrieval: {
+    label: "chat pages chosen by the question",
+    promise:
+      // Added 2026-11-16 (competitor audit wave 2 #30, slice 3). The Chat
+      // with PDF panel says how pages are chosen only while this reads true
+      // on a fresh heartbeat.
+      "Chat with PDF reads, for a longer file, the pages a question's words point to, not only the opening pages it read until 2026-11-16",
+    proves: provenByFlag,
+  },
   translatePdfLanguages: {
     label: "translated PDF languages",
     promise:

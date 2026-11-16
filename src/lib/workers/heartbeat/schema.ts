@@ -174,6 +174,7 @@ function capabilitiesOf(value: unknown): HeartbeatCapabilities {
     docxTypefaces: boolOf(src.docxTypefaces),
     translateOcr: boolOf(src.translateOcr),
     htmlZip: boolOf(src.htmlZip),
+    chatRetrieval: boolOf(src.chatRetrieval),
     translatePdfLanguages: translatePdfLanguagesOf(src.translatePdfLanguages),
     translateReadingOrder: boolOf(src.translateReadingOrder),
   };
@@ -235,6 +236,7 @@ export function serializeHeartbeat(hb: WorkerHeartbeat): string {
       docxTypefaces: hb.capabilities.docxTypefaces,
       translateOcr: hb.capabilities.translateOcr,
       htmlZip: hb.capabilities.htmlZip,
+      chatRetrieval: hb.capabilities.chatRetrieval,
       translatePdfLanguages: [...hb.capabilities.translatePdfLanguages],
       translateReadingOrder: hb.capabilities.translateReadingOrder,
     },

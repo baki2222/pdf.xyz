@@ -83,6 +83,7 @@ const SPEC = {
     translateOcr: true,
     htmlZip: true,
     translateReadingOrder: true,
+    chatRetrieval: true,
   },
   release: "7.9.3",
   fingerprint: "9a5db1338ee3",

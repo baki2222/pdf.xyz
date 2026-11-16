@@ -3,7 +3,8 @@
  * GUARD: reading order is TRANSLATE'S, and the shared extractor is untouched.
  *
  * `resolveNativePdfTextExtractor` (`../pdf-text/native`) serves summarize,
- * ai-extract, chat-with-pdf, OCR's read-back and the four OCR proof scripts.
+ * ai-extract, chat-with-pdf (and its page-selection proof), OCR's read-back
+ * and the four OCR proof scripts.
  * One more file calls it ON PURPOSE without consuming it: Translate's own
  * reading-order proof (`scripts/worker-translate-reading-order-proof.ts`)
  * wires the shared resolver into the probe as its CONTROL, which must come
@@ -19,9 +20,9 @@
  *    compiler, every call of `resolveNativePdfTextExtractor` collected however
  *    it is spelled (bare, through a local alias, or as a property/element
  *    call; a renamed re-export is reported separately) — and must be
- *    exactly the eight consumers plus the one control above (nine), NOT
+ *    exactly the nine consumers plus the one control above (ten), NOT
  *    `translate/native.ts`. A broken walk is FATAL (at least 4 engine call
- *    sites under `src/lib/workers` and 9 in all), never a vacuous pass.
+ *    sites under `src/lib/workers` and 10 in all), never a vacuous pass.
  *  - BEHAVIOURAL: the shared resolver, on a text PDF, issues exactly ONE
  *    `pdftotext` run, with `-layout`. A composite slipped inside it would add
  *    a `-bbox-layout` run for every AI engine and for OCR.
@@ -30,6 +31,12 @@
  * restored and diffed empty): putting the composite inside the shared
  * resolver turned the behavioural half red; putting the shared call back in
  * `translate/native.ts` turned the structural half red.
+ *
+ * HISTORY (merge of origin/main, 2026-11-16): #337 added Chat with PDF's
+ * page-selection proof (`chat-with-pdf/retrieval-capability.ts`), which
+ * reads the shared resolver as a real consumer — the image's `-layout` text,
+ * the same as chat's engine. The walk found it on the merge (red until
+ * listed); eight consumers became nine, nine call sites ten.
  *
  * HISTORY (S3 review, 2026-11-16): the walk matched only a bare-identifier
  * call in a `.ts` file, so `import { … as r }`, `pt.resolveNative…(…)` and
@@ -205,10 +212,10 @@ describe("the shared pdftotext extractor stays shared, and Translate is not on i
     ).toBeGreaterThan(50);
     const engines = files.filter((f) => f.startsWith("src/lib/workers/"));
     expect(engines.length, JSON.stringify(files)).toBeGreaterThanOrEqual(4);
-    expect(files.length, JSON.stringify(files)).toBeGreaterThanOrEqual(9);
+    expect(files.length, JSON.stringify(files)).toBeGreaterThanOrEqual(10);
   });
 
-  it("the call sites are exactly nine: the eight consumers and Translate's proof control, and not translate/native.ts", () => {
+  it("the call sites are exactly ten: the nine consumers and Translate's proof control, and not translate/native.ts", () => {
     expect(files).not.toContain("src/lib/workers/translate/native.ts");
     expect(files).toEqual(
       [
@@ -222,6 +229,8 @@ describe("the shared pdftotext extractor stays shared, and Translate is not on i
         "scripts/worker-ocr-rotate-proof.ts",
         "src/lib/workers/ai-extract/native.ts",
         "src/lib/workers/chat-with-pdf/native.ts",
+        // Chat's page-selection proof (#337): reads -layout like chat does.
+        "src/lib/workers/chat-with-pdf/retrieval-capability.ts",
         "src/lib/workers/ocr-native.ts",
         "src/lib/workers/summarize/native.ts",
       ].sort(),

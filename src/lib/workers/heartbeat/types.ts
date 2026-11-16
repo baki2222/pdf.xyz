@@ -307,6 +307,26 @@ export interface HeartbeatCapabilities {
    */
   readonly htmlZip: boolean;
   /**
+   * This image's Chat with PDF chooses, for a document whose page-labelled
+   * text does not fit one question's budget, the pages THAT question points
+   * to — an opening anchor, pages the previous answer cited, and pages ranked
+   * by the words they share with the question (BM25) — within the budget the
+   * route charged (2026-11-16, competitor audit wave 2 #30, slice 3).
+   *
+   * PROVEN AT START-UP (`chat-with-pdf/retrieval-capability.ts`,
+   * `provesChatRetrieval`): `chat-with-pdf` jobs through the executor's order
+   * with the image's REAL `pdftotext` and ICU, a recording provider and an
+   * 8,000-character delivery cap. A 70-page document with a token only on
+   * page 60 must reach the provider with that page inside the document span,
+   * the manifest and the stored record must name page 60, and the
+   * document plus its page list must stay within the charge; a question
+   * with no informative term must still get the opening pages, and a
+   * document that fits must go whole. An image built before the key sends
+   * only the opening pages; the absence parses as `false`, and only an
+   * observed `true` turns on the panel's sentence about how pages are chosen.
+   */
+  readonly chatRetrieval: boolean;
+  /**
    * The Translate PDF target languages this image prints as a reflowed PDF
    * beside the translation ZIP (2026-11-15, competitor audit #29 slice 1),
    * as codes from `TRANSLATE_LANGUAGES`, sorted.

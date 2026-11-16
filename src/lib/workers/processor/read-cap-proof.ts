@@ -60,13 +60,27 @@ const PROOF_CAP = 400;
  */
 export const PROOF_PAGE_COUNTS: readonly number[] = [1, 300];
 
-/** `PROOF_CHARACTERS` of document text, spread evenly over `pageCount` pages. */
-function proofExtraction(pageCount: number): ExtractedPdfText {
+/**
+ * The ASCII word a planted body's question names, added to the LAST page of
+ * the proof document. `MARK` is not word-like, so a MARK-only document gives
+ * the chat selector nothing to score and every run stays on the prefix: the
+ * plant is what makes chat's RELEVANCE branch reachable here, so the bound is
+ * checked on the request that branch builds too (2026-11-16, slice 3). It
+ * removes no `MARK`, so the uncapped positive control still counts 20,000.
+ */
+export const PROOF_PLANT = "zqprobe";
+
+/**
+ * `PROOF_CHARACTERS` of document text, spread evenly over `pageCount` pages,
+ * with `plant` (when given) appended to the last page after a space.
+ */
+function proofExtraction(pageCount: number, plant?: string): ExtractedPdfText {
   const pages = Array.from({ length: pageCount }, (_, i) => {
     const size =
       Math.floor(PROOF_CHARACTERS / pageCount) +
       (i < PROOF_CHARACTERS % pageCount ? 1 : 0);
-    const text = MARK.repeat(size);
+    const text =
+      MARK.repeat(size) + (plant && i === pageCount - 1 ? ` ${plant}` : "");
     return { pageNumber: i + 1, text, characterCount: text.length };
   });
   const text = pages.map((page) => page.text).join("\n\n");
@@ -180,6 +194,19 @@ export const PER_CALL_PROCESSORS: Readonly<
        * and a read cap on the document bounds none of them.
        */
       readonly heavyOptions: readonly Record<string, unknown>[];
+      /**
+       * Heavy bodies run on a document carrying {@link PROOF_PLANT}, so the
+       * engine's question-driven path (chat's relevance window) is the one
+       * measured. Held to exactly the bound the others are: `aiReadCap`
+       * does NOT depend on retrieval working, because a broken retriever
+       * must not make the route charge every question the whole-run clamp.
+       * That the branch really ran is the TEST's job
+       * (`read-cap-proof.test.ts`), not this proof's.
+       */
+      readonly plantedHeavyOptions?: readonly {
+        readonly options: Record<string, unknown>;
+        readonly plant: string;
+      }[];
     }
   >
 > = {
@@ -207,6 +234,22 @@ export const PER_CALL_PROCESSORS: Readonly<
           content: "x".repeat(n),
         })),
       })),
+    ],
+    plantedHeavyOptions: [
+      // The longest question, naming the plant, and every turn the contract
+      // allows: on the 300-page document the plant is on page 300, far past
+      // the prefix, so this body takes the relevance branch, and its notice,
+      // page list and `[Page N]` markers are what the bound is checked on.
+      {
+        plant: PROOF_PLANT,
+        options: largestWithinOptionsCap(MAX_TURN_CHARS, (n) => ({
+          question: `Where is ${PROOF_PLANT}? `.padEnd(MAX_QUESTION_CHARS, "x"),
+          context: Array.from({ length: MAX_CONTEXT_TURNS }, (_, i) => ({
+            role: i % 2 === 0 ? "user" : "assistant",
+            content: "x".repeat(n),
+          })),
+        })),
+      },
     ],
   },
   "ai-extract": {
@@ -240,24 +283,28 @@ export interface ProviderCharacters {
 }
 
 /**
- * What one per-call processor sent to the provider for the proof document (on
- * `pageCount` pages), under `delivery` and with `options` (the tool's minimal
- * body by default), or `null` when the run did not complete.
+ * The requests one per-call processor sent to the provider for the proof
+ * document (on `pageCount` pages, with `plant` on the last page when given),
+ * under `delivery` and with `options` (the tool's minimal body by default),
+ * or `null` when the run did not complete. Exported so a test can read WHAT
+ * was sent (e.g. that a planted body's request carries "[Page 300]"), not
+ * only how much.
  *
  * Driven through the PROCESSOR, the seam the executor calls, not through the
  * engine or `perCallReadLimit`: a processor that stopped passing the bound on
  * would pass a probe of either and fail this one.
  */
-export async function providerCharactersSent(
+export async function providerRequestsSent(
   tool: string,
   delivery?: { characters: number },
   options?: Record<string, unknown>,
   pageCount = 1,
-): Promise<ProviderCharacters | null> {
+  plant?: string,
+): Promise<AiCompletionRequest[] | null> {
   const entry = PER_CALL_PROCESSORS[tool];
   if (!entry) return null;
   const seen: AiCompletionRequest[] = [];
-  const extracted = proofExtraction(pageCount);
+  const extracted = proofExtraction(pageCount, plant);
   const processor = entry.create({
     extract: async () => extracted,
     provider: recordingProvider(seen),
@@ -277,6 +324,28 @@ export async function providerCharactersSent(
     ...(delivery ? { delivery } : {}),
   });
   if (!result.ok || seen.length === 0) return null;
+  return seen;
+}
+
+/**
+ * What one per-call processor sent to the provider, in characters; see
+ * {@link providerRequestsSent}.
+ */
+export async function providerCharactersSent(
+  tool: string,
+  delivery?: { characters: number },
+  options?: Record<string, unknown>,
+  pageCount = 1,
+  plant?: string,
+): Promise<ProviderCharacters | null> {
+  const seen = await providerRequestsSent(
+    tool,
+    delivery,
+    options,
+    pageCount,
+    plant,
+  );
+  if (!seen) return null;
   return {
     document: seen.reduce((sum, request) => sum + markedCharacters(request), 0),
     total: seen.reduce((sum, request) => sum + totalCharacters(request), 0),
@@ -289,6 +358,25 @@ export async function documentCharactersSent(
   delivery?: { characters: number },
 ): Promise<number | null> {
   return (await providerCharactersSent(tool, delivery))?.document ?? null;
+}
+
+/**
+ * Every body a tool is probed with: the minimal one, the heavy ones, then the
+ * planted heavy ones with the plant their document carries.
+ */
+export function probesOf(
+  tool: string,
+): { options: Record<string, unknown>; plant?: string }[] {
+  const entry = PER_CALL_PROCESSORS[tool];
+  if (!entry) return [];
+  return [
+    { options: entry.options },
+    ...entry.heavyOptions.map((options) => ({ options })),
+    ...(entry.plantedHeavyOptions ?? []).map(({ options, plant }) => ({
+      options,
+      plant,
+    })),
+  ];
 }
 
 /**
@@ -310,7 +398,7 @@ export function chargedCharacters(
  * uncapped run must send the whole proof document (the positive control — a
  * stub that sent nothing would otherwise "honour" every cap), and the capped
  * run must send no more of the document than the cap. Then, for the minimal
- * body and every heavy one, on every proof page count, the capped run must
+ * body and every heavy one (planted ones included), on every proof page count, the capped run must
  * send no more IN TOTAL than {@link chargedCharacters}. One tool failing fails
  * the capability, because the route prices all of them by the same answer.
  */
@@ -323,13 +411,14 @@ export async function provesAiReadCap(): Promise<boolean> {
       const uncapped = await documentCharactersSent(tool);
       if (uncapped === null || uncapped < PROOF_CHARACTERS) return false;
       if (entry.heavyOptions.length === 0) return false;
-      for (const options of [entry.options, ...entry.heavyOptions]) {
+      for (const { options, plant } of probesOf(tool)) {
         for (const pageCount of PROOF_PAGE_COUNTS) {
           const capped = await providerCharactersSent(
             tool,
             { characters: PROOF_CAP },
             options,
             pageCount,
+            plant,
           );
           if (capped === null || capped.document > PROOF_CAP) return false;
           if (capped.total > chargedCharacters(PROOF_CAP, options)) {
