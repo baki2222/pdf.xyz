@@ -30,7 +30,11 @@ const WORDS =
     " ",
   );
 
-function contract(plantPage: number, plant: string): ExtractedPdfText {
+function contract(
+  plantPage: number,
+  plant: string,
+  blank: readonly number[] = [],
+): ExtractedPdfText {
   let a = 5;
   const next = () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -45,9 +49,9 @@ function contract(plantPage: number, plant: string): ExtractedPdfText {
       () => WORDS[Math.floor(next() * WORDS.length)]!,
     );
     if (i + 1 === plantPage) body.splice(30, 0, plant);
-    return body.join(" ");
+    return blank.includes(i + 1) ? "" : body.join(" ");
   });
-  const joined = texts.join("\n\n");
+  const joined = texts.filter((text) => text.length > 0).join("\n\n");
   return {
     pageCount: texts.length,
     pages: texts.map((text, i) => ({
@@ -61,10 +65,13 @@ function contract(plantPage: number, plant: string): ExtractedPdfText {
   };
 }
 
+/** The system prompts the provider received, newest last. */
+const systems: string[] = [];
 const provider: AiProvider = {
   id: "openai",
   model: "gpt-fixture",
-  async complete() {
+  async complete(request) {
+    systems.push(request.system ?? "");
     return {
       ok: true,
       text: "It says so [p.30].",
@@ -91,8 +98,11 @@ function input(question: string): ProcessorInput {
 }
 
 /** Run the chain and return the sentence the reader sees. */
-async function readerSees(question: string): Promise<string> {
-  const extracted = contract(30, "Zephyrine");
+async function readerSees(
+  question: string,
+  blank: readonly number[] = [],
+): Promise<string> {
+  const extracted = contract(30, "Zephyrine", blank);
   const processor = createChatWithPdfProcessor({
     extract: async () => extracted,
     provider,
@@ -134,6 +144,33 @@ describe("the pages a question was sent reach the reader", () => {
     expect(text).not.toMatch(/pages 1–\d+ of/);
     expect(text).not.toMatch(/first part/);
     expect(text).toContain("CONSEQUENCE.");
+  });
+
+  it("names the REAL page numbers when blank pages come before page 30", async () => {
+    // Review finding (mutation m3b): with no blank page, chunk index + 1
+    // equals pageNumber, so an engine that numbered its list by index passed
+    // this chain. Pages 3 and 7 are blank: index + 1 would print 28 for 30.
+    const text = await readerSees(
+      "What does the Zephyrine clause say?",
+      [3, 7],
+    );
+    const sent = [...(systems.at(-1) ?? "").matchAll(/\[Page (\d+)\]\n/g)].map(
+      (m) => Number(m[1]),
+    );
+    // Health: a blank page precedes 30 and the anchor reaches past one.
+    expect(sent).toContain(30);
+    expect(sent).not.toContain(3);
+    expect(sent.some((page) => page > 3 && page < 30)).toBe(true);
+    const list = /pages were read: pages ([\d–, ]+)/.exec(text)?.[1] ?? "";
+    const named = list
+      .split(", ")
+      .filter((part) => part.length > 0)
+      .flatMap((part) => {
+        const [a, b = a] = part.split("–").map(Number);
+        return Array.from({ length: b! - a! + 1 }, (_, i) => a! + i);
+      });
+    // What the reader is told was read is exactly what the provider got.
+    expect(named).toEqual(sent);
   });
 
   it("CONTROL: a question nothing matches renders main's prefix sentence", async () => {

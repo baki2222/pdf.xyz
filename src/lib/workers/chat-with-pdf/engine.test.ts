@@ -563,6 +563,17 @@ function documentBlock(system: string): string {
   return system.slice(start + open.length, end);
 }
 
+/** "1–2, 4–6, 30" back to spans, so a printed list can be compared. */
+function listSpans(list: string): [number, number][] {
+  return list
+    .split(", ")
+    .filter((part) => part.length > 0)
+    .map((part) => {
+      const [a, b = a] = part.split("–").map(Number);
+      return [a!, b!];
+    });
+}
+
 async function manifestOf(output: Uint8Array) {
   const zip = await JSZip.loadAsync(output);
   return JSON.parse(await zip.file("manifest.json")!.async("string"));
@@ -626,6 +637,52 @@ describe("a question whose page lies past the prefix gets that page", () => {
       .file("README.txt")!
       .async("string");
     expect(readme).toMatch(/Pages read: .*\b30\b/);
+  });
+
+  it("names REAL page numbers when blank pages come before the chosen one (meta, manifest, model notice, user notice)", async () => {
+    // Review finding (mutation m3b): every relevance test had no blank page,
+    // so chunk index + 1 equalled pageNumber and an engine that built its
+    // page list from the index stayed green everywhere. Pages 3 and 7 are
+    // blank here: index + 1 would name 28 for page 30, and 3 for page 4.
+    const texts = PLANTED.map((text, i) => (i === 2 || i === 6 ? "" : text));
+    const provider = providerReturning(SUCCESS("It says [p.30]."));
+    const run = await runChatWithPdf(INPUT, ZEPHYRINE, {
+      extract: extractorForPages(texts),
+      provider,
+      limits: CAP_3000,
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.meta.selection).toBe("relevance");
+    const system = provider.calls[0]!.system ?? "";
+    const sentMarkers = [
+      ...documentBlock(system).matchAll(/\[Page (\d+)\]\n/g),
+    ].map((m) => Number(m[1]));
+    // Health: the twin has teeth only if a blank page precedes page 30 AND
+    // the anchor reaches past one, so index + 1 differs from pageNumber.
+    expect(sentMarkers).toContain(30);
+    expect(sentMarkers).not.toContain(3);
+    expect(sentMarkers.some((page) => page > 3 && page < 30)).toBe(true);
+    const expand = (spans: readonly (readonly [number, number])[]) =>
+      spans.flatMap(([a, b]) =>
+        Array.from({ length: b - a + 1 }, (_, i) => a + i),
+      );
+    // The meta's spans ARE the pages whose markers were sent.
+    expect(expand(run.meta.window.pagesSent ?? [])).toEqual(sentMarkers);
+    // The model notice's list names the same pages.
+    const list = /covers pages ([\d–, ]+) of 40/.exec(system)?.[1] ?? "";
+    expect(expand(listSpans(list))).toEqual(sentMarkers);
+    // The user notice too.
+    const userList =
+      /pages were read: pages ([\d–, ]+)/.exec(
+        run.meta.truncationNotice ?? "",
+      )?.[1] ?? "";
+    expect(expand(listSpans(userList))).toEqual(sentMarkers);
+    // And the manifest a download carries.
+    const manifest = await manifestOf(run.output);
+    expect(expand(manifest.source.pagesSent as [number, number][])).toEqual(
+      sentMarkers,
+    );
   });
 
   it("does not cache a relevance request's system prompt; whole and prefix still do", async () => {
