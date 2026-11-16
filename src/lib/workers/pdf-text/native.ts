@@ -320,10 +320,17 @@ export function resolveNativePdfTextReader(
  * consumer's `extract?` stay honestly absent, so the engine reports "this worker
  * cannot do it" instead of accepting a job it will always fail.
  *
- * Shared by the four AI engines (summarize, translate, ai-extract, chat-with-pdf),
- * which read a PDF's selectable text before prompting a model. They must not use
- * the pdfjs extractor in `@/lib/pdf/text`: it is written for the browser (its
- * main build throws on Node before reading a byte).
+ * Shared by three AI engines (summarize, ai-extract, chat-with-pdf), which read
+ * a PDF's selectable text before prompting a model, and by OCR's read-back
+ * (`../ocr-native`). They must not use the pdfjs extractor in `@/lib/pdf/text`:
+ * it is written for the browser (its main build throws on Node before reading a
+ * byte).
+ *
+ * NOT by Translate (2026-11-16, reading order): Translate adds a second
+ * `-bbox-layout` run that must reach it and nobody else, so it builds its own
+ * composite (`../translate/native`, `nativeTranslateExtractor`) and leaves
+ * this one untouched. `../translate/shared-extractor.test.ts` discovers every
+ * call site of this function and fails if Translate's engine is among them.
  */
 export function resolveNativePdfTextExtractor(
   env: Record<string, string | undefined> = process.env,

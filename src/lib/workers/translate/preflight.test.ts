@@ -44,7 +44,7 @@ vi.mock("pdfjs-dist", async () => ({
   // build's in-process fake worker needs none, so the assignment goes nowhere.
   GlobalWorkerOptions: { workerSrc: "" },
 }));
-const { extractPdfText } = await import("@/lib/pdf/text");
+const { extractPdfText, PAGE_JOIN } = await import("@/lib/pdf/text");
 
 const CEILING = TRANSLATE_MAX_INPUT_CHARS;
 const OLD_ZERO = /\b0 characters\b/;
@@ -287,6 +287,21 @@ describe("what may be submitted still is (positive controls)", () => {
     const { refusal, textPages } = translatePreflight(extracted, CEILING);
     expect(refusal).toBeNull();
     expect(textPages).toHaveLength(1);
+  });
+
+  it("sends exactly the pages' texts joined by PAGE_JOIN (a pdfjs extraction has no send)", async () => {
+    // Reading order (./reading-order) lets the WORKER send a page's flow text
+    // in place of its -layout text. The browser's pages carry no `send`, so
+    // the preflight's chunk text must stay byte-identical to the join.
+    const extracted = await read(textPdf([1_500, 2_000, 900]));
+    const { plan, textPages } = translatePreflight(extracted, CEILING);
+    expect(textPages.length).toBe(3);
+    expect(extracted.pages.some((p) => "send" in p)).toBe(false);
+    expect(plan.chunks).toHaveLength(1);
+    expect(plan.chunks[0]!.text).toBe(
+      textPages.map((p) => p.text).join(PAGE_JOIN),
+    );
+    expect(plan.chunks[0]!.characters).toBe(plan.chunks[0]!.text.length);
   });
 
   it("passes a document with one oversize page and one it can translate", async () => {

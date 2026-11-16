@@ -68,9 +68,17 @@ import {
  *    in-place markers for skipped, withheld or interrupted pages
  *    (translate/chunking.ts). An oversize page cannot be translated on its
  *    own either: the page itself is over the per-pass ceiling;
- *  - src/lib/workers/pdf-text/native.ts — the worker reads with
- *    `pdftotext -layout` (padding collapsed), which keeps side-by-side columns
- *    on one line, so a two-column page reaches the model line-interleaved;
+ *  - src/lib/workers/translate/native.ts + reading-order.ts — the worker
+ *    reads with `pdftotext -layout` (padding collapsed), which keeps
+ *    side-by-side columns on one line, then (since 2026-11-16, on images
+ *    with `translateReadingOrder`) `-bbox-layout`, and SENDS a page's flow
+ *    text, column by column, only where it carries the same ink, is no longer
+ *    and holds no right-to-left script. Every other page — and every page on
+ *    an older image, or when the flow run fails or its page count differs —
+ *    is sent as `-layout`, so its columns can still reach the model
+ *    line-interleaved. A comment, not a guard: the tests that carry it are
+ *    reading-order.test.ts, translate/native.test.ts and the useCases[1]
+ *    disclosure test in translate-reading-order-copy.test.ts;
  *  - src/app/api/jobs/route.ts + ratelimit/guard.ts — the allowance is debited
  *    when the job is created (after the upload), and a job whose declared text
  *    does not fit what is left today is refused whole (nothing spent), never
@@ -246,7 +254,16 @@ const content: ToolContent = {
     },
     {
       title: "Read a report or thesis in another language",
-      body: `A single-column document in ${either(["ja", "zh", "ko"])} becomes Markdown you can skim, quote and search. Our server reads each line straight across the page, so on a two-column paper the two columns' lines reach the model interleaved.`,
+      // The second sentence is true on BOTH worker images (2026-11-16,
+      // reading order): an image before `translateReadingOrder` always sends
+      // a two-column page line by line across it, and the new image still
+      // does for every page that falls back to `-layout` (a right-to-left
+      // script, ink that differs, a failed or mismatched flow run). It keeps
+      // the disclosure; the positive claim waits for slice 5.
+      // True of images before translateReadingOrder (2026-11): "Our server
+      // reads each line straight across the page, so on a two-column paper
+      // the two columns' lines reach the model interleaved."
+      body: `A single-column document in ${either(["ja", "zh", "ko"])} becomes Markdown you can skim, quote and search. On a two-column paper, our server can send the two columns' lines to the model interleaved, so compare the order of the translated paragraphs with the original before you rely on it.`,
     },
     {
       title: "Localise a manual without renaming the product",

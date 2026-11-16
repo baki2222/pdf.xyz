@@ -83,6 +83,7 @@ const SPEC = {
     docxTableWraps: true,
     translateOcr: true,
     htmlZip: true,
+    translateReadingOrder: true,
     chatRetrieval: true,
   },
   release: "7.9.3",

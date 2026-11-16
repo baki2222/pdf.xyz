@@ -760,10 +760,10 @@ describe("ChatWithPdfWorkerPanel — how a longer file's pages are chosen", () =
     const anchored = chatRetrievalPanelLine(1 / 2);
     const pure = chatRetrievalPanelLine(0);
     expect(anchored).toBe(
-      "For a longer file, each question is sent the opening pages and the pages that share the most of its less common words.",
+      "For a longer file, each question is sent the opening pages plus any pages that share enough of its less common words.",
     );
     expect(pure).toBe(
-      "For a longer file, each question is sent the pages that share the most of its less common words, or the opening pages when none do.",
+      "For a longer file, each question is sent the pages that share enough of its less common words, or the opening pages when none do.",
     );
     expect(chatRetrievalPanelLine(1 / 8)).toBe(anchored);
     expect(chatRetrievalPanelLine(CHAT_RETRIEVAL_ANCHOR_SHARE)).toBe(

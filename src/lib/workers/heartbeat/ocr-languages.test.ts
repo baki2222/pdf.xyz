@@ -46,6 +46,7 @@ const BEAT: WorkerHeartbeat = {
     htmlZip: true,
     chatRetrieval: true,
     translatePdfLanguages: [],
+    translateReadingOrder: true,
   },
   at: 1_700_000_000_000,
 };

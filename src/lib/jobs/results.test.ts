@@ -591,3 +591,75 @@ describe("sanitizeJobResults — Translate PDF's reflowed-PDF outcome (2026-11-1
     expect(clean?.ai?.truncation).toBeDefined();
   });
 });
+
+describe("sanitizeJobResults — Translate PDF's reading order (2026-11-16)", () => {
+  const window = {
+    truncated: false,
+    charactersSent: 900,
+    charactersTotal: 900,
+    totalPages: 3,
+    lastCompletePage: 3,
+    cutMidPage: false,
+  };
+  const readingOrder = {
+    source: "flow" as const,
+    flowPages: 2,
+    layoutPages: 1,
+    fellBack: { ink: 1, longer: 0, rtl: 0 },
+    sentCharacters: 870,
+  };
+
+  it("carries the reading order to the job record", () => {
+    const clean = sanitizeJobResults({
+      ai: { truncation: window, readingOrder },
+    });
+    expect(clean?.ai?.readingOrder).toEqual(readingOrder);
+  });
+
+  // DEPLOY SKEW: a new web tier reading a job an OLD worker ran. The field
+  // must stay ABSENT — a default like {source: "not_run"} would be a claim
+  // about work the old worker never reported.
+  it("an older worker's record has no reading order, and none is invented", () => {
+    const clean = sanitizeJobResults({ ai: { truncation: window } });
+    expect(clean?.ai).toBeDefined();
+    expect("readingOrder" in clean!.ai!).toBe(false);
+  });
+
+  it("drops a block with an unknown source or no fellBack, rather than repairing it", () => {
+    for (const bad of [
+      { ...readingOrder, source: "guessed" },
+      { ...readingOrder, source: undefined },
+      { ...readingOrder, fellBack: undefined },
+      "flow",
+      null,
+    ]) {
+      const clean = sanitizeJobResults({
+        ai: { truncation: window, readingOrder: bad },
+      } as unknown as JobResults);
+      expect("readingOrder" in clean!.ai!).toBe(false);
+    }
+  });
+
+  it("clamps every count to a bounded non-negative integer", () => {
+    const clean = sanitizeJobResults({
+      ai: {
+        truncation: window,
+        readingOrder: {
+          source: "bbox_failed",
+          flowPages: -3,
+          layoutPages: 2.7,
+          fellBack: { ink: Number.NaN, longer: "9", rtl: 1e300 },
+          sentCharacters: Number.POSITIVE_INFINITY,
+          extra: "<script>",
+        },
+      },
+    } as unknown as JobResults);
+    expect(clean?.ai?.readingOrder).toEqual({
+      source: "bbox_failed",
+      flowPages: 0,
+      layoutPages: 2,
+      fellBack: { ink: 0, longer: 0, rtl: Number.MAX_SAFE_INTEGER },
+      sentCharacters: 0,
+    });
+  });
+});

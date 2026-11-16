@@ -30,6 +30,7 @@ import {
   PDF_ARCHIVE_PASSWORD_PROBE_TIMEOUT_MS,
 } from "@/lib/workers/pdf-archive/contract";
 import { TRANSLATE_PDF_RENDER_TIMEOUT_MS } from "./translate-pdf-render";
+import { TRANSLATE_FLOW_TIMEOUT_MS } from "./translate-reading-order";
 
 export interface JobPollBudget {
   /** Pause between status reads. */
@@ -98,10 +99,28 @@ export const AI_JOB_POLL: JobPollBudget = budgetFor(
  * one-chunk job whose call timed out is retried, and the retried call is
  * followed by the render too — 2 × 120 s + 2 s + 60 s + 60 s = 362 s, where
  * the bare AI floor (303 s) would abandon a job whose calls were paid for.
+ *
+ * Plus Translate's second extraction (2026-11-16, reading order): the
+ * `-bbox-layout` run whose flow text is sent, bounded by
+ * `TRANSLATE_FLOW_TIMEOUT_MS` on the worker (`translateFlowConfig`). It runs
+ * BEFORE the calls, but after the job was charged, and `PIPELINE_MARGIN_MS`
+ * is already smaller than the first extraction's own timeout, so it gets its
+ * own term — in the floor AND per chunk.
+ *
+ * In the floor it appears TWICE (S3 review, 2026-11-16): the retried
+ * one-chunk worst case is two whole attempts, and each attempt extracts —
+ * `-bbox-layout` run, timed-out call; requeue; `-bbox-layout` run again,
+ * retried call, render:
+ *   2 × 120 s + 2 s + 2 × 30 s + 60 s + 60 s = 422 s.
+ * The first version added the term once (392 s), which covers one flow run,
+ * not the two the retried attempt makes. The floor wins for every one-chunk
+ * job (422 s against 270 s), so a term added per chunk alone would change
+ * nothing for a small document. `client-wait.test.ts` holds this arithmetic.
  */
 const TRANSLATE_JOB_FLOOR: JobPollBudget = budgetFor(
   2 * AI_CALL_TIMEOUT_MS +
     FIRST_REQUEUE_DELAY_MS +
+    2 * TRANSLATE_FLOW_TIMEOUT_MS +
     TRANSLATE_PDF_RENDER_TIMEOUT_MS +
     PIPELINE_MARGIN_MS,
   AI_JOB_POLL.intervalMs,
@@ -111,6 +130,7 @@ export function translateJobPoll(chunks: number): JobPollBudget {
   const calls = Math.max(1, Math.floor(chunks));
   const perChunk = budgetFor(
     calls * AI_CALL_TIMEOUT_MS +
+      TRANSLATE_FLOW_TIMEOUT_MS +
       TRANSLATE_PDF_RENDER_TIMEOUT_MS +
       PIPELINE_MARGIN_MS,
     AI_JOB_POLL.intervalMs,

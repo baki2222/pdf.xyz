@@ -1246,10 +1246,18 @@ export function flowText(
 }
 
 /**
- * A page's paragraphs as plain text, one per line — for counting, not output.
- * A table row reads as its cells joined by tab — the order docx-structure
- * reads a `w:tbl` row in (empty slots skipped). #28 slice 2. An absorbed
- * cell reads as its lines joined as a paragraph's are (#28 slice 3).
+ * A page's paragraphs as plain text, one per line. A table row reads as its
+ * cells joined by tab — the order docx-structure reads a `w:tbl` row in
+ * (empty slots skipped). #28 slice 2. An absorbed cell reads as its lines
+ * joined as a paragraph's are (#28 slice 3).
+ *
+ * Translate SENDS this text to the model (2026-11-16, reading order), in
+ * place of the page's `-layout` text, but only where
+ * `../translate/reading-order` (`translatePageBlocks`) lets it: the same ink,
+ * no longer than `-layout`, and no right-to-left script. It is the ONE
+ * per-page flow text; there is no Translate variant. The tests that hold the
+ * gate and the weighing are `reading-order.test.ts` and
+ * `reading-order.chain.test.ts` beside that module.
  */
 export function flowPageText(page: PdfFlowTextPage): string {
   return page.paragraphs.map((p) => p.join("\t")).join("\n");

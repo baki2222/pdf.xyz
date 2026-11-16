@@ -22,11 +22,11 @@ import {
   TRANSLATE_TOOL,
   hasTranslatableText,
   runTranslate,
-  type PdfTextExtractor,
   type TranslateDeps,
   type TranslateMeta,
   type TranslateRun,
 } from "../translate/engine";
+import type { TranslateExtractor } from "../translate/reading-order";
 import { describeByteCeiling } from "../engine-file-ceilings";
 import { runOcrFirst, type OcrFirstMessages } from "./ocr-first";
 import {
@@ -263,7 +263,7 @@ export function createTranslateProcessor(
       let ocrResults: JobResults | undefined;
       let ocrRefusal: ProcessorResult | undefined;
       const own = deps.extract;
-      const extract: PdfTextExtractor | undefined =
+      const extract: TranslateExtractor | undefined =
         own && request
           ? async (bytes, run) => {
               const found = await own(bytes, run);
@@ -351,6 +351,10 @@ export function createTranslateProcessor(
             // Always present on a success (an explicit field on the engine's
             // meta): the panel says "the PDF could not be drawn" from this.
             pdf: run.meta.pdf,
+            // An explicit field, like `pdf`: which text each page was SENT
+            // as, and how much. `buildAiResultMeta` whitelists it through
+            // to the job record (`reading-order.results.test.ts`).
+            readingOrder: run.meta.readingOrder,
           },
         },
       );

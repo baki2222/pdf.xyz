@@ -6,9 +6,12 @@
  *
  * Three properties, each with its positive control:
  *
- * 1. The served chat page and its guide state no page-choice mechanism
- *    (`CHAT_RETRIEVAL_SHAPES`), and DO carry this slice's static wording, so
- *    a scan of a stale or empty page cannot pass.
+ * 1. The served chat page and its guide make no overclaim
+ *    (`CHAT_RETRIEVAL_OVERCLAIMS`), and DO carry the static page-selection
+ *    claim and the notice wording, so a scan of a stale or empty page
+ *    cannot pass. INVERTED 2026-11-16 (slice 4): slice 3 banned every
+ *    page-choice shape here, until production's worker was observed
+ *    choosing pages by the question; the selection claim is now REQUIRED.
  * 2. The panel's gated line is not server-rendered: SSR has no observed
  *    status, so the line appearing in the HTML would mean it renders without
  *    one. The same text IS in a client chunk, so the search can see it.
@@ -29,7 +32,10 @@ import {
   CHAT_RETRIEVAL_ANCHOR_SHARE,
   chatRetrievalPanelLine,
 } from "@/lib/pdf/chat-retrieval-anchor";
-import { chatRetrievalShapesIn } from "@/lib/tools/chat-retrieval-claims";
+import {
+  CHAT_SELECTION_REQUIRED,
+  chatRetrievalOverclaimsIn,
+} from "@/lib/tools/chat-retrieval-claims";
 
 const ROOT = process.cwd();
 const NEXT_DIR = path.join(ROOT, ".next");
@@ -93,7 +99,7 @@ describe("chat page retrieval, as the build serves it", () => {
     expect(built, "no .next — run `pnpm build` first (CI does)").toBe(true);
   });
 
-  it("the served chat page and guide name no page-choice mechanism, and carry the new wording", () => {
+  it("the served chat page and guide overclaim nothing, and say how a longer file's pages are chosen", () => {
     if (!built) return;
     expect(SERVED.length, "the chat guide was not derived").toBeGreaterThan(1);
     for (const file of SERVED) {
@@ -102,13 +108,19 @@ describe("chat page retrieval, as the build serves it", () => {
       expect(text.length, `${rel(file)} is implausibly small`).toBeGreaterThan(
         5_000,
       );
-      const caught = text
-        .split(/(?<=[.!?])\s+/)
-        .flatMap((s) => chatRetrievalShapesIn(s).map((n) => `[${n}] ${s}`));
+      const sentences = text.split(/(?<=[.!?])\s+/);
+      const caught = sentences.flatMap((s) =>
+        chatRetrievalOverclaimsIn(s).map((n) => `[${n}] ${s}`),
+      );
       expect(caught, rel(file)).toEqual([]);
-      // Positive control: this slice's sentence is what the page serves, so
-      // the scan above read the current copy, not a stale or empty page.
+      // Positive controls: the current static copy is what the page serves,
+      // so the scan above read it, not a stale or empty page. Slice 4's
+      // REQUIRED row, read where the reader receives it.
       expect(text, rel(file)).toContain("naming the pages when it can");
+      expect(
+        sentences.some((s) => CHAT_SELECTION_REQUIRED.pattern.test(s)),
+        `${rel(file)} does not say how a longer file's pages are chosen`,
+      ).toBe(true);
     }
   });
 

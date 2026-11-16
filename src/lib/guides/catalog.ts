@@ -285,6 +285,10 @@ import {
 } from "@/lib/jobs/chat-with-pdf";
 import { MAX_CONTEXT_EXCHANGES } from "@/lib/workers/chat-with-pdf-conversation";
 import {
+  CHAT_PAGE_SELECTION,
+  CHAT_SELECTION_MISS,
+} from "@/lib/tools/chat-page-selection";
+import {
   PAGE_HEADINGS_HINT as MD_PAGE_HEADINGS_HINT,
   REPEATED_LINES_HINT as MD_REPEATED_HINT,
 } from "@/lib/tools/pdf-to-markdown-options";
@@ -5544,7 +5548,7 @@ export const guides: Guide[] = [
         body: [
           `The conversation lives in your browser tab, and every question is a job of its own: the page uploads the PDF again and sends the most recent exchanges with it, up to ${MAX_CONTEXT_EXCHANGES}. A note above the button says how many travel with the next question, and whether any were shortened or left out to stay within the request limits.`,
           "Our server does not link one question to the next. Reloading the page, choosing another file, or pressing Remove beside the file name starts a new conversation.",
-          `Each question reads a bounded amount of text, with your question and the conversation sent with it counted first, and the exact figure is stated on the ${nameOf("chat-with-pdf")} page. Past that point the model is told not to claim the document lacks something, and a notice above the answer says that only part of the document was read, naming the pages when it can. For a long file, pull the part you need into its own PDF with ${nameOf("extract-pages")} and ask that; its [p.N] citations then count the pages of the extracted copy. Files are capped at ${ceilingMb("chat-with-pdf")} MB.`,
+          `Each question reads a bounded amount of text, with your question and the conversation sent with it counted first, and the exact figure is stated on the ${nameOf("chat-with-pdf")} page. When a file is longer than that, each question is sent ${CHAT_PAGE_SELECTION}. ${CHAT_SELECTION_MISS} The model is told not to claim the document lacks something, and a notice above the answer says that only part of the document was read, naming the pages when it can. If the page you need was not read, pull that part into its own PDF with ${nameOf("extract-pages")} and ask that; its [p.N] citations then count the pages of the extracted copy. Files are capped at ${ceilingMb("chat-with-pdf")} MB.`,
         ],
       },
       {

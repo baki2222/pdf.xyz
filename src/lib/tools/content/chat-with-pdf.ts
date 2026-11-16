@@ -14,6 +14,10 @@ import {
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { getToolBySlug } from "@/lib/tools";
 import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
+import {
+  CHAT_PAGE_SELECTION,
+  CHAT_SELECTION_MISS,
+} from "@/lib/tools/chat-page-selection";
 
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27:
@@ -39,6 +43,12 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  *    answer ZIP (answer.md, answer.txt, manifest.json, README.txt), and the
  *    truncation instruction that forbids "the document does not state this"
  *    for text past the reading limit;
+ *  - since 2026-11-16 (audit #30 slice 4), how a longer file's pages are
+ *    chosen: `CHAT_PAGE_SELECTION` (src/lib/tools/chat-page-selection.ts),
+ *    said here only after production's worker was observed choosing them;
+ *    held by tools/chat-retrieval-copy.test.ts (REQUIRED beside every
+ *    mention of the notice) and tied to the `chatRetrieval` key by
+ *    tools/capability-hedges.test.ts;
  *  - src/lib/workers/chat-with-pdf-conversation.ts — follow-up context is the
  *    most recent exchanges, capped by MAX_CONTEXT_TURNS and a byte budget;
  *  - src/app/api/jobs/route.ts + src/lib/jobs/delivery-cap.ts — the chat panel
@@ -152,7 +162,7 @@ const content: ToolContent = {
 
   intro: [
     `Chat with PDF answers questions about one document at a time. Ask "What is the notice period?" and the model receives your PDF's text with every page that has text marked by its number, plus an instruction to answer from that text alone and to cite what it used as [p.4]. If the answer is not there, the instruction is to say so plainly instead of reaching for outside knowledge.`,
-    `Only the PDF's selectable text is read; no character recognition runs here. A scan or photographed document has no such text, so the page stops it before upload (our server refuses any the browser cannot check) and points you to ${OCR_TOOL}; run that first and ask the searchable copy. Uploads of up to ${CEILING_MB} MB are accepted, and the model is sent at most ${READ_CHARS} characters of the page-labelled text. For a longer file, a notice above the answer says that only part of it was read, naming the pages when it can.`,
+    `Only the PDF's selectable text is read; no character recognition runs here. A scan or photographed document has no such text, so the page stops it before upload (our server refuses any the browser cannot check) and points you to ${OCR_TOOL}; run that first and ask the searchable copy. Uploads of up to ${CEILING_MB} MB are accepted, and the model is sent at most ${READ_CHARS} characters of the page-labelled text. For a longer file, each question is sent ${CHAT_PAGE_SELECTION}, within that limit, and a notice above the answer says that only part of it was read, naming the pages when it can. ${CHAT_SELECTION_MISS}`,
     `There is no in-browser mode. Every question is its own job: the PDF goes over TLS to pdf.xyz's secure server, which pulls out the text and forwards it, with your question and the recent exchanges, to a third-party AI provider, while the PDF file itself is not passed on. That job's upload is removed as soon as it ends, our server's link to its answer ZIP lapses ${OUTPUT_TTL} minutes after the answer is ready, and a storage rule that runs once a day clears the leftover copy. Our server does not link one question to the next; this page holds the conversation and re-sends it each time.`,
   ],
 
@@ -205,7 +215,7 @@ const content: ToolContent = {
     },
     {
       q: "What if the answer is in a part of the document it did not read?",
-      a: `Each question reads at most ${READ_CHARS} characters, the question and the conversation sent with it included; the document gets what is left. Past that point, the model is told not to claim the document lacks something but to say which part it can see, and the notice above the answer says that only part was read, naming the pages when it can. For a very long file, pull the section you need into its own PDF with ${EXTRACT_TOOL} and ask that; its citations then count the pages of the extracted copy, not the original.`,
+      a: `Each question reads at most ${READ_CHARS} characters, the question and the conversation sent with it included; the document gets what is left. A longer file is sent ${CHAT_PAGE_SELECTION}. That match is by words, so a question that puts the point in other words than the document does can miss the page that answers it; the document's own terms work best. The model is told not to claim the document lacks something but to say which part it can see, and the notice above the answer says that only part was read, naming the pages when it can. If the page you need was not among them, pull that section into its own PDF with ${EXTRACT_TOOL} and ask that; its citations then count the pages of the extracted copy, not the original.`,
     },
     {
       q: "What happens to the conversation if I reload the page?",

@@ -1,7 +1,14 @@
 // @vitest-environment node
 /**
  * GUARD: every failure `runTranslate` returns AFTER its first provider call
- * carries the spend — a `...spentSoFar()` spread, or both `usage` and `window`.
+ * carries the spend — a `...spentSoFar()` spread, or `usage`, `window` AND
+ * `readingOrder` together.
+ *
+ * `readingOrder` (2026-11-16) is which text the paid calls sent, and how much.
+ * It rides on the SAME carrier rather than on a parallel list, so a new arm
+ * that carries the spend carries it too, and the predicate below is the one
+ * place that says so. The carrier's own definition is checked as well: a
+ * `spentSoFar` that lost `window` or `readingOrder` would pass every spread.
  *
  * WHY (2026-11-15). Four such returns shipped without either field: the
  * package size arm, a single empty translation, the all-empty fallback, and an
@@ -87,7 +94,44 @@ function literalCarries(literal: ts.ObjectLiteralExpression): boolean {
     )
       names.add(p.name.getText());
   }
-  return names.has("usage") && names.has("window");
+  return names.has("usage") && names.has("window") && names.has("readingOrder");
+}
+
+/**
+ * The property names of the object literal `spentSoFar` returns, or null when
+ * the definition is not found (a broken link, reported as a failure).
+ */
+function carrierFields(source: string): string[] | null {
+  const file = ts.createSourceFile(
+    "engine.ts",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  let fields: string[] | null = null;
+  const visit = (n: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(n) &&
+      n.name.getText() === "spentSoFar" &&
+      n.initializer &&
+      ts.isArrowFunction(n.initializer)
+    ) {
+      let body: ts.Node = n.initializer.body;
+      while (ts.isParenthesizedExpression(body)) body = body.expression;
+      if (ts.isObjectLiteralExpression(body)) {
+        fields = body.properties
+          .filter(
+            (p) =>
+              ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p),
+          )
+          .map((p) => p.name!.getText());
+      }
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(file);
+  return fields;
 }
 
 function okFalseLiterals(node: ts.Node): ts.ObjectLiteralExpression[] {
@@ -208,6 +252,31 @@ describe("every post-spend failure in runTranslate carries the spend", () => {
     expect(control.subjects).toHaveLength(2);
     expect(control.subjects.filter((s) => !s.carries)).toHaveLength(1);
     expect(control.subjects.find((s) => !s.carries)?.text).toContain("bare");
+  });
+
+  it("the carrier itself holds the window and the reading order on every call", () => {
+    const fields = carrierFields(source);
+    expect(fields, "spentSoFar's object literal was not found").not.toBeNull();
+    // `usage` is conditional by design (only when some call reported); the
+    // other two are explicit fields, never spread conditionally.
+    expect(fields).toEqual(expect.arrayContaining(["window", "readingOrder"]));
+  });
+
+  it("positive control: usage + window without readingOrder is reported", () => {
+    const control = scanPostSpendFailures(`
+      export async function runTranslate(provider: any) {
+        const c = await provider.complete({});
+        if (!c.ok) return { ok: false, kind: "failed", usage, window };
+        return { ok: false, usage, window, readingOrder, message: "fine" };
+      }
+    `);
+    expect(control.subjects).toHaveLength(2);
+    expect(control.subjects.filter((s) => !s.carries)).toHaveLength(1);
+    expect(
+      carrierFields(
+        `const spentSoFar = () => ({ window, ...(u ? { usage } : {}) });`,
+      ),
+    ).toEqual(["window"]);
   });
 
   it("positive control: a broken link is fatal, not a pass", () => {

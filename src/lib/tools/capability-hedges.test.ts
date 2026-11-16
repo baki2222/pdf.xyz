@@ -136,7 +136,10 @@ import {
   TRANSLATE_OCR_SCOPE,
   TRANSLATE_SCAN_ROUTE,
 } from "@/lib/jobs/translate-ocr";
+import { ADVERTISED_WORKER_CAPABILITIES } from "@/lib/workers/observability/snapshot";
 import { toolFacts } from "./tool-facts";
+import { CHAT_PAGE_SELECTION_CAPABILITY } from "./chat-page-selection";
+import { CHAT_SELECTION_REQUIRED } from "./chat-retrieval-claims";
 import {
   cardSummary,
   pageContent,
@@ -511,8 +514,15 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     // PDF read?". Measured
     // that day over the whole corpus: see "the chatRetrieval subject reaches
     // the chat reading sentences". catalogueCopy is true because those exist.
+    //
+    // Slice 4 (2026-11-16): the static copy now SAYS how pages are chosen
+    // ("share the most of the question's less common words"; since review,
+    // conditional: "when some pages share enough of …"), so that shape
+    // is in the subject: the claim is read as a claim about this key. See
+    // "the static page-selection claim is a member of its capability's
+    // subject".
     subject:
-      /\bhow far into the document\b|\bread up to that point\b|\bpages? that (?:were|was) read\b|\bwhich page it reached\b|\bHow much of my PDF does Chat with PDF read\b|\bpages? (?:are|is) chosen\b|\bonly part (?:of (?:it|the document) )?was read\b/i,
+      /\bhow far into the document\b|\bread up to that point\b|\bpages? that (?:were|was) read\b|\bwhich page it reached\b|\bHow much of my PDF does Chat with PDF read\b|\bpages? (?:are|is) chosen\b|\bonly part (?:of (?:it|the document) )?was read\b|\bshares? (?:the most|enough)\b[^.?!]*\bwords\b/i,
     catalogueCopy: true,
   },
   translatePdfLanguages: {
@@ -523,6 +533,19 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     // that day — see "the translatePdfLanguages subject reaches Translate's
     // PDF sentence".
     subject: /\breflowed PDF\b/i,
+    catalogueCopy: true,
+  },
+  translateReadingOrder: {
+    // Added 2026-11-16 with the key (competitor audit #29, slice 3: reading
+    // order). The sentence a hedge about it would sit in: Translate's
+    // column-order disclosure, the way its copy says it ("compare the order
+    // of the translated paragraphs with the original", "the two columns'
+    // lines ... to the model"). NOT bare "two-column": PDF to Word's copy
+    // says it, and that is not this capability. Measured that day — see "the
+    // translateReadingOrder subject reaches Translate's column-order
+    // sentence".
+    subject:
+      /translated paragraphs with the original|columns' lines (?:reach|to) the model/i,
     catalogueCopy: true,
   },
 };
@@ -887,6 +910,57 @@ describe("catalogue copy may not hedge a worker capability", () => {
       chat.length,
       "the subject reaches one chat sentence at most: it is a name, not a subject",
     ).toBeGreaterThanOrEqual(2);
+  });
+
+  it("the static page-selection claim is a member of its capability's subject", () => {
+    // Slice 4, the second bound (house rule 5). Static chat copy says how a
+    // longer file's pages are chosen because production's worker proved it;
+    // what makes that stale is a future image without the behaviour. The
+    // claim is tied to the heartbeat key that image would have to publish
+    // (`CHAT_PAGE_SELECTION_CAPABILITY`, `chatRetrieval`): the key is on the
+    // wire, and EVERY sentence carrying the claim, read alone, is in that
+    // key's subject, so the no-hedge rule and any later reader of the
+    // subject see it as a claim about the key. `WIRE_KEYS` is derived from
+    // this tree's source, NOT read from production: this ties the copy to
+    // the key's name only. CI makes images it BUILDS prove the key
+    // (`src/deploy/worker-chat-retrieval-proof.test.ts`); the live bound is
+    // the operator's deploy verification, which reads production
+    // `/api/worker/status` and fails unless `chatRetrieval` is true, and
+    // lives outside this repo (see `src/lib/tools/chat-page-selection.ts`).
+    const key = CHAT_PAGE_SELECTION_CAPABILITY;
+    expect(WIRE_KEYS).toContain(key);
+    const subject = SUBJECTS[key]?.subject;
+    expect(subject, `no subject for ${key}`).toBeDefined();
+    const claims = COPY.flatMap((entry) =>
+      entry.text
+        .split(/(?<=[.?!])\s+/)
+        .filter((s) => CHAT_SELECTION_REQUIRED.pattern.test(s))
+        .map((sentence) => ({ at: `${entry.slug} ${entry.where}`, sentence })),
+    );
+    // Health: the tool page's intro and reading FAQ, its read fact and the
+    // guide carry it (measured 2026-11-16); a shrunken set passes vacuously.
+    expect(claims.length).toBeGreaterThanOrEqual(4);
+    expect(new Set(claims.map((c) => c.at.split(" ")[0]))).toEqual(
+      new Set(["chat-with-pdf", "guide:how-to-chat-with-a-pdf"]),
+    );
+    const outside = claims
+      .filter(({ sentence }) => !subject!.test(sentence))
+      .map(({ at, sentence }) => `${at}: ${sentence}`);
+    expect(outside).toEqual([]);
+    // Positive control: a hedge planted in the claim is caught as a hedge
+    // on this key, through the same rule the catalogue runs.
+    const planted: CopyEntry = {
+      slug: "chat-with-pdf",
+      where: "intro[1]",
+      // The guide's claim, whose sentence reaches the subject ONLY through
+      // the selection branch (it says nothing about the notice).
+      text: `${claims.find((c) => c.at.startsWith("guide:"))!.sentence.replace(/\.$/, "")} (coming soon).`,
+    };
+    expect(
+      hedgeOffenders([planted], []).some((line) =>
+        line.includes(`hedges "${key}"`),
+      ),
+    ).toBe(true);
   });
 
   it("each subject matcher's declared catalogue coverage is the truth", () => {
@@ -1279,6 +1353,87 @@ describe("the translatePdfLanguages subject (competitor audit #29, 2026-11-15)",
         line.includes('hedges "translatePdfLanguages"'),
       ),
     ).toBe(true);
+  });
+});
+
+/**
+ * A POSITIVE column-order claim: "the columns are read in order", "one column
+ * after the other". None ships at merge (2026-11-16): the copy discloses
+ * interleaving instead, true on both images. Exercised in both directions
+ * below, so a shape nothing matches cannot pass for a clean catalogue.
+ */
+const POSITIVE_COLUMN_ORDER =
+  /\bcolumns?\b[^.]{0,40}\b(?:in order|one after the other)\b|\bone column after the other\b|\bcolumn by column\b/i;
+
+describe("the translateReadingOrder subject (competitor audit #29 slice 3, 2026-11-16)", () => {
+  /**
+   * BOTH DIRECTIONS (house rule 1). Measured when the key landed: exactly one
+   * member, Translate PDF's useCases[1] — the both-states disclosure slice 3
+   * wrote ("our server can send the two columns' lines to the model
+   * interleaved, so compare the order of the translated paragraphs with the
+   * original"). A member elsewhere is a sentence about this capability
+   * nobody paired.
+   */
+  it("reaches Translate's column-order sentence, and nothing else", () => {
+    const members = COPY.filter((entry) =>
+      SUBJECTS.translateReadingOrder!.subject.test(entry.text),
+    ).map((entry) => `${entry.slug} ${entry.where}`);
+    expect(members.sort()).toEqual(["translate-pdf useCases[1].body"]);
+  });
+
+  it("that sentence still DISCLOSES interleaving (true of every fallback page, on both images)", () => {
+    // Fallback pages (ink, longer, rtl, bbox_failed, page_count) are sent as
+    // -layout on the NEW image too, so dropping the disclosure would be a
+    // positive claim by omission. The flip that removes it must keep a
+    // fallback clause for as long as any fallback reason exists.
+    const member = COPY.find(
+      (entry) =>
+        entry.slug === "translate-pdf" && entry.where === "useCases[1].body",
+    );
+    expect(member, "Translate's useCases[1] left the corpus").toBeDefined();
+    expect(member!.text).toMatch(/interleav/i);
+  });
+
+  it("positive control: a deferral planted in that sentence is caught", () => {
+    const planted: CopyEntry = {
+      slug: "translate-pdf",
+      where: "useCases[1].body",
+      text: "Columns are read in order soon, so compare the order of the translated paragraphs with the original.",
+    };
+    expect(
+      hedgeOffenders([planted], []).some((line) =>
+        line.includes('hedges "translateReadingOrder"'),
+      ),
+    ).toBe(true);
+  });
+
+  it("no shipped sentence claims the columns are read in order, so the operations promise claims nothing either", () => {
+    // Positive control first: the shape bites on the claim S5 will write.
+    expect(POSITIVE_COLUMN_ORDER.test("The columns are read in order.")).toBe(
+      true,
+    );
+    expect(
+      POSITIVE_COLUMN_ORDER.test(
+        "Translate sends a two-column page one column after the other.",
+      ),
+    ).toBe(true);
+    // And it does not bite on the disclosure that ships.
+    const claims = COPY.filter((entry) =>
+      POSITIVE_COLUMN_ORDER.test(entry.text),
+    ).map((entry) => `${entry.slug} ${entry.where}`);
+    expect(
+      claims,
+      "a sentence now claims the columns are read in order. The operations " +
+        "row's promise for translateReadingOrder (observability/snapshot.ts) " +
+        "says no copy rests on the proof yet: edit it in the same commit.",
+    ).toEqual([]);
+    const promise = ADVERTISED_WORKER_CAPABILITIES.find(
+      (c) => c.key === "translateReadingOrder",
+    )?.promise;
+    expect(promise, "the operations row lost its promise").toBeDefined();
+    expect(POSITIVE_COLUMN_ORDER.test(promise!)).toBe(false);
+    expect(promise).toMatch(/nothing yet/);
+    expect(promise).toMatch(/interleav/);
   });
 });
 

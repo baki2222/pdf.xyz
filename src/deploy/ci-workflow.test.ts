@@ -83,6 +83,20 @@ describe("container CI builds both image targets and smokes the worker", () => {
     );
   });
 
+  it("runs Translate's reading-order proof inside the built worker image, beside the translate-pdf proof", () => {
+    // 2026-11-16 (audit #29 slice 3): the heartbeat's `translateReadingOrder`
+    // is proven on the image's own pdftotext, so CI runs the same probe on
+    // the BUILT image before merge. The call chain behind the step is walked
+    // by `worker-translate-reading-order-proof.test.ts`.
+    expect(container).toMatch(
+      /docker run[\s\S]*?worker:translate-reading-order-proof/,
+    );
+    expect(container.indexOf("worker:translate-pdf-proof")).toBeGreaterThan(-1);
+    expect(container.indexOf("worker:translate-pdf-proof")).toBeLessThan(
+      container.indexOf("worker:translate-reading-order-proof"),
+    );
+  });
+
   it("proves web ↔ worker separation at the image level (engines only in the worker)", () => {
     // The worker image must ship the native deep-compression AND OCR engines; the web
     // image must ship none of them.

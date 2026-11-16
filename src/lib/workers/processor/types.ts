@@ -15,7 +15,11 @@
  */
 
 import type { JobDeliveryCap, JobError, JobResults } from "@/lib/jobs";
-import type { AiUsageMeta, AiWindowMeta } from "@/lib/jobs/ai-results";
+import type {
+  AiReadingOrderMeta,
+  AiUsageMeta,
+  AiWindowMeta,
+} from "@/lib/jobs/ai-results";
 
 /**
  * One input file handed to a processor: the opaque id, the naming metadata the
@@ -197,18 +201,25 @@ export function processorFail(
  * which is the failure mode of *fabricating* rather than of losing.
  *
  * Structurally typed rather than taking a union of the four run types: the
- * mapping depends only on these two fields, and naming four types here would
+ * mapping depends only on these fields, and naming four types here would
  * make this file know about every AI engine.
+ *
+ * `readingOrder` is Translate's (2026-11-16): which text the calls that were
+ * paid for actually sent. It rides on the same carrier as `usage` and
+ * `window` (the engine's `spentSoFar`), so a failure after a call reports it
+ * and a failure before one cannot.
  */
 export function aiResultsFromFailure(run: {
   usage?: AiUsageMeta;
   window?: AiWindowMeta;
+  readingOrder?: AiReadingOrderMeta;
 }): JobResults | undefined {
   if (!run.window) return undefined;
   return {
     ai: {
       truncation: run.window,
       ...(run.usage ? { usage: run.usage } : {}),
+      ...(run.readingOrder ? { readingOrder: run.readingOrder } : {}),
     },
   };
 }
