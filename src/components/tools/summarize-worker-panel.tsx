@@ -2,7 +2,14 @@
 
 import { usePickRefusal } from "@/components/tools/use-pick";
 import { useCallback, useEffect, useState } from "react";
-import { Download, FileText, ShieldCheck, Sparkles, Timer } from "lucide-react";
+import {
+  AlertTriangle,
+  Download,
+  FileText,
+  ShieldCheck,
+  Sparkles,
+  Timer,
+} from "lucide-react";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
 import {
@@ -16,13 +23,19 @@ import {
   aiDailyAllowanceNote,
   aiToolUnavailableDetail,
 } from "@/lib/workers/ai-tool-availability";
-import { countDeclaredCharacters } from "@/lib/workers/ai-declared-characters";
 import {
   canRunSummarize,
-  preflightSummarize,
+  measureSummarizeRun,
   runWorkerSummarize,
+  type SummarizeChoice,
   type SummarizeWorkerResult,
 } from "@/lib/workers/summarize-client";
+import { SUMMARIZE_PAGES_UNCONFIRMED_MESSAGE } from "@/lib/jobs/summarize-pages";
+import { selectionConfirmed } from "@/lib/jobs/selection-echo";
+import type { PageSpan } from "@/lib/pdf/page-spans";
+import type { SummarySection } from "@/lib/pdf/summary-sections";
+import { userSelectionNotice } from "@/lib/workers/ai/truncation";
+import type { Job } from "@/lib/jobs/types";
 import { downloadBlob, downloadBytes } from "@/lib/pdf/browser";
 import {
   readSummaryFromPackage,
@@ -138,9 +151,43 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
 
 const RUN_LABEL = "Summarize PDF";
 
+/** A stable empty list, so the Run callback is not rebuilt every render. */
+const NO_SECTIONS: readonly SummarySection[] = [];
+
+/** The "Part to summarize" select's fixed values; a section is `s<index>`. */
+const WHOLE = "whole";
+const PAGES = "pages";
+
+/** The page-text field's longest entry. */
+const MAX_PAGES_TEXT = 200;
+
 function SummaryBuilder({ tool, refuse }: { tool: Tool; refuse: PickRefusal }) {
   const { available, status } = useWorkerPanel();
-  const [file, setFile] = useState<File | null>(null);
+  // Offered ONLY while the running worker proves it reads just the chosen
+  // pages (`summarizePages`, the predicate `POST /api/jobs` admits on). Off,
+  // nothing new renders and no outline is read.
+  const pagesOffered = status?.summarizePages === true;
+  const [file, setFileState] = useState<File | null>(null);
+  const [part, setPart] = useState<string>(WHOLE);
+  const [pagesText, setPagesText] = useState("");
+  // Keyed by the file they were read from: a swapped file's late outline
+  // result is never shown against the new file.
+  const [sections, setSections] = useState<{
+    from: File;
+    list: SummarySection[];
+  } | null>(null);
+  // What THIS run sent as pages (null: the whole document), for the
+  // rollback check on its result. A job resumed after a reload has none, so
+  // it gets no warning: the panel cannot know what was asked.
+  const [sentPages, setSentPages] = useState<{
+    job: string | null;
+    pages: PageSpan[] | null;
+  } | null>(null);
+  /** Every file change starts again from the whole document. */
+  const setFile = useCallback((next: File | null) => {
+    setFileState(next);
+    setPart(WHOLE);
+  }, []);
   const [length, setLength] = useState<SummaryLength>(DEFAULT_SUMMARY_LENGTH);
   const [format, setFormat] = useState<SummaryFormat>(DEFAULT_SUMMARY_FORMAT);
   const [focus, setFocus] = useState("");
@@ -157,17 +204,51 @@ function SummaryBuilder({ tool, refuse }: { tool: Tool; refuse: PickRefusal }) {
 
   const canRun = file != null && !busy;
 
+  useEffect(() => {
+    if (!file || !pagesOffered) return;
+    let live = true;
+    void (async () => {
+      let list: SummarySection[] = [];
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const { readSummarySections } =
+          await import("@/lib/pdf/summary-sections");
+        list = await readSummarySections(bytes);
+      } catch {
+        list = [];
+      }
+      if (live) setSections({ from: file, list });
+    })();
+    return () => {
+      live = false;
+    };
+  }, [file, pagesOffered]);
+  const sectionList =
+    pagesOffered && sections?.from === file ? sections.list : NO_SECTIONS;
+
   const start = useCallback(async () => {
     if (!file || !available) return;
     await run(async (controls) => {
       const trimmedFocus = focus.trim();
       const bytes = new Uint8Array(await file.arrayBuffer());
-      // CHECK HERE, BEFORE ANYTHING IS SPENT. The allowance is reserved when
-      // the job is created, and a scan or a locked PDF has no count to
-      // declare, so the worker's refusal would arrive after the undeclared
-      // price (a third of the day) was taken. See preflightSummarize.
-      const refusal = await preflightSummarize(bytes);
-      if (!refusal.ok) return refusal;
+      setSentPages(null);
+      const section = /^s(\d+)$/.exec(part);
+      const chosen = section ? sectionList[Number(section[1])] : undefined;
+      const choice: SummarizeChoice = !pagesOffered
+        ? { kind: "whole" }
+        : part === PAGES
+          ? { kind: "pages", text: pagesText }
+          : chosen
+            ? { kind: "span", span: chosen.span }
+            : { kind: "whole" };
+      // CHECK HERE, BEFORE ANYTHING IS SPENT, with ONE parse. The allowance
+      // is reserved when the job is created, and a scan or a locked PDF has
+      // no count to declare, so the worker's refusal would arrive after the
+      // undeclared price (a third of the day) was taken. The same parse
+      // checks the chosen pages against the page count and counts their
+      // text (see measureSummarizeRun).
+      const measured = await measureSummarizeRun(bytes, choice);
+      if (!measured.ok) return measured;
       const result = await runWorkerSummarize(
         {
           filename: file.name,
@@ -175,16 +256,32 @@ function SummaryBuilder({ tool, refuse }: { tool: Tool; refuse: PickRefusal }) {
           length,
           format,
           ...(trimmedFocus ? { focus: trimmedFocus } : {}),
-          // Counted before upload so the run is charged what this document
+          // Counted before upload so the run is charged what the chosen text
           // holds, not a third of the day. `null` (a file pdfjs cannot count)
           // sends it undeclared at the old price rather than refusing it.
-          declaredCharacters: await countDeclaredCharacters(bytes),
+          declaredCharacters: measured.declaredCharacters,
+          ...(measured.pages ? { pages: measured.pages } : {}),
         },
         controls,
       );
+      setSentPages({
+        job: result.ok ? result.job.jobId : null,
+        pages: measured.pages ?? null,
+      });
       return result;
     });
-  }, [file, length, format, focus, run, available]);
+  }, [
+    file,
+    length,
+    format,
+    focus,
+    run,
+    available,
+    pagesOffered,
+    part,
+    pagesText,
+    sectionList,
+  ]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -269,6 +366,40 @@ function SummaryBuilder({ tool, refuse }: { tool: Tool; refuse: PickRefusal }) {
             className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
           />
         </label>
+        {pagesOffered && (
+          <label className="text-muted flex flex-col gap-1 text-xs sm:col-span-2">
+            Part to summarize
+            <select
+              value={part}
+              onChange={(e) => setPart(e.target.value)}
+              className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
+            >
+              <option value={WHOLE}>Whole document</option>
+              {sectionList.map((section, i) => (
+                <option key={`${i}-${section.span[0]}`} value={`s${i}`}>
+                  {`${section.title} (${spanLabel(section.span)})`}
+                </option>
+              ))}
+              <option value={PAGES}>Pages…</option>
+            </select>
+          </label>
+        )}
+        {pagesOffered && part === PAGES && (
+          <label className="text-muted flex flex-col gap-1 text-xs sm:col-span-2">
+            Pages
+            <input
+              type="text"
+              inputMode="text"
+              value={pagesText}
+              onChange={(e) =>
+                setPagesText(e.target.value.slice(0, MAX_PAGES_TEXT))
+              }
+              maxLength={MAX_PAGES_TEXT}
+              placeholder="e.g. 1-3, 8"
+              className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
+            />
+          </label>
+        )}
       </div>
 
       <WorkerGate
@@ -339,6 +470,14 @@ function SummaryBuilder({ tool, refuse }: { tool: Tool; refuse: PickRefusal }) {
             job={outcome.job}
             consequence="This summarises those pages, not the whole document."
           />
+          <SelectionNotice
+            job={outcome.job}
+            sent={
+              sentPages && sentPages.job === outcome.job?.jobId
+                ? sentPages.pages
+                : null
+            }
+          />
           <SummaryResultBody
             output={outcome.output}
             filename={outcome.artifact.filename}
@@ -346,6 +485,49 @@ function SummaryBuilder({ tool, refuse }: { tool: Tool; refuse: PickRefusal }) {
         </ResultCard>
       )}
     </div>
+  );
+}
+
+/** "page 4" or "pages 3–7", for a section's option label. */
+function spanLabel([first, last]: PageSpan): string {
+  return first === last ? `page ${first}` : `pages ${first}–${last}`;
+}
+
+/**
+ * Which pages the summary covers, from the worker's own record
+ * (`userSelectionNotice`, the function the manifest uses) — or, when this
+ * run SENT pages and the result does not confirm exactly those
+ * (`selectionConfirmed`), the rollback warning INSTEAD: an image that
+ * predates page selection summarizes the opening pages and says nothing
+ * false, so silence is the defect this catches. A present-but-different
+ * list warns too, never renders as a confident sentence.
+ */
+export function SelectionNotice({
+  job,
+  sent,
+}: {
+  job: Job | undefined;
+  /** What this run sent as pages, or null (whole document, or resumed). */
+  sent: readonly PageSpan[] | null;
+}) {
+  const window = job?.results?.ai?.truncation;
+  if (sent && !selectionConfirmed(sent, window)) {
+    return (
+      <p
+        role="status"
+        className="border-warn/40 bg-warn/10 text-warn rounded-panel flex items-start gap-2 border px-4 py-3 text-sm"
+      >
+        <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+        <span>{SUMMARIZE_PAGES_UNCONFIRMED_MESSAGE}</span>
+      </p>
+    );
+  }
+  const sentence = window ? userSelectionNotice(window) : "";
+  if (!sentence) return null;
+  return (
+    <p role="status" className="text-muted text-sm">
+      {sentence}
+    </p>
   );
 }
 

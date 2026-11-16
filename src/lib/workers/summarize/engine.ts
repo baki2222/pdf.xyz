@@ -15,7 +15,7 @@ import {
   type ExtractedPdfText,
 } from "@/lib/pdf/text";
 import { firstSpanBeyond, selectExtraction } from "@/lib/pdf/page-selection";
-import { formatSpans } from "@/lib/pdf/page-spans";
+import { pagesOutOfRangeMessage } from "@/lib/jobs/summarize-pages";
 import {
   describeWindow,
   modelTruncationNotice,
@@ -454,13 +454,11 @@ export async function runSummarize(
   if (chosen) {
     const beyond = firstSpanBeyond(chosen, extracted.pageCount);
     if (beyond) {
-      const total = extracted.pageCount;
-      const named = formatSpans([beyond]);
       return {
         ok: false,
         kind: "pages_out_of_range",
         retryable: false,
-        message: `This PDF has ${total} ${total === 1 ? "page" : "pages"}, so ${beyond[0] === beyond[1] ? "page" : "pages"} ${named} cannot be summarized. Nothing was sent to the AI model.`,
+        message: pagesOutOfRangeMessage(extracted.pageCount, beyond),
       };
     }
   }

@@ -60,11 +60,12 @@ import { DEFAULT_OCR_OUTPUT_MODE, OCR_OUTPUT_MODES } from "@/lib/jobs/ocr";
  *    image). The route also peeks a service-wide AI spend ceiling first. What
  *    one run reads is aiReadLimitFor("summarize-pdf"), derived from that same
  *    pricing and the processor's read bound;
- *  - src/lib/workers/summarize-client.ts — preflightSummarize reads the file in
- *    the browser first and refuses a PDF with no text (or one it cannot open)
- *    before anything is uploaded, so such a PDF is never charged (re-read
- *    2026-10-06; the scan answer used to say the refusal came from the worker
- *    after the charge);
+ *  - src/lib/workers/summarize-client.ts — measureSummarizeRun reads the file
+ *    in the browser first and refuses a PDF with no text (or one it cannot
+ *    open) before anything is uploaded, so such a PDF is never charged
+ *    (re-read 2026-10-06; the scan answer used to say the refusal came from
+ *    the worker after the charge; the function was preflightSummarize until
+ *    2026-11-16, when one parse began to preflight and count together);
  *  - src/components/tools/summarize-worker-panel.tsx SummaryResultBody (read
  *    2026-11-07) — the summary read back from the package in the page
  *    (src/lib/workers/summarize-package.ts, the entry names the engine

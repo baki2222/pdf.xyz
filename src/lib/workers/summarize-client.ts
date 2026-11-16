@@ -6,10 +6,13 @@ import {
 } from "./pdf-security-client";
 import { canRunAiTool } from "./ai-tool-availability";
 import type { SummaryFormat, SummaryLength } from "@/lib/jobs/summarize-pdf";
-import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
-import type { ExtractedPdfText } from "@/lib/pdf/text";
-import { extractPdfTextOnDemand } from "@/lib/pdf/text-lazy";
-import { NO_SELECTABLE_TEXT_MESSAGE } from "@/lib/jobs/ai-no-text";
+import type { PageSpan } from "@/lib/pdf/page-spans";
+import { extractSelectionOnDemand } from "@/lib/pdf/text-lazy";
+import type {
+  SummarizeChoice,
+  SummarizeMeasure,
+  SummarizeReading,
+} from "./summarize-measure";
 
 /**
  * Browser-side driver for the secure-worker Summarize PDF flow (`summarize-pdf`).
@@ -33,7 +36,8 @@ export interface SummarizeWorkerInput {
   focus?: string;
   /**
    * Characters of selectable text the panel counted
-   * (`countDeclaredCharacters`), or `null` when it could not count.
+   * (`measureSummarizeRun`: the chosen pages' text, or the whole
+   * document's), or `null` when it could not count.
    *
    * REQUIRED, and nullable rather than optional, for the reason translate's
    * client gives: the route's fallback is correct and silent. An omitted count
@@ -41,6 +45,11 @@ export interface SummarizeWorkerInput {
    * and nothing fails — so a caller that stops counting must have to say so.
    */
   declaredCharacters: number | null;
+  /**
+   * The canonical spans the person chose (`measureSummarizeRun`), or absent
+   * for the whole document. Sent as `options.pages` only when given.
+   */
+  pages?: PageSpan[];
 }
 
 export function runWorkerSummarize(
@@ -52,6 +61,7 @@ export function runWorkerSummarize(
     format: input.format,
   };
   if (input.focus !== undefined) jobOptions.focus = input.focus;
+  if (input.pages !== undefined) jobOptions.pages = input.pages;
   return runSecurityJob(
     "summarize-pdf",
     input.filename,
@@ -73,75 +83,63 @@ export function canRunSummarize(
   return canRunAiTool(status);
 }
 
+export type { SummarizeChoice, SummarizeMeasure } from "./summarize-measure";
+
 /**
- * Ask the document, in the browser, whether it can be summarized at all —
- * BEFORE anything is uploaded or charged.
+ * The reader a Run measures with. An object rather than a bare import so a
+ * test can swap it and put it back: pdfjs needs `DOMMatrix`, which the test
+ * DOM lacks, and `vi.mock` of the text module would leave it cached with the
+ * stub for every later file in the same worker (see mock-isolation.test).
+ * It is THE seam the panel test counts: one call per Run.
+ */
+export const summarizeRunDeps: {
+  read: typeof extractSelectionOnDemand;
+} = {
+  // The text and selection chunks arrive when Run is pressed, not with the
+  // page (`@/lib/pdf/text-lazy`).
+  read: (bytes) => extractSelectionOnDemand(bytes),
+};
+
+/**
+ * Measure one Run, in the browser, BEFORE anything is uploaded or charged —
+ * with ONE parse of the PDF (competitor audit summarize-pdf#5).
  *
  * The route reserves the AI allowance when the job is CREATED, so the
  * worker's own "no selectable text" answer arrives after the cost. A scan or
- * a locked PDF has no character count to declare (`countDeclaredCharacters`
- * returns `null`), so it is priced at the undeclared fallback, a third of the
- * day. A scanned PDF was uploaded, charged, then refused, and a locked one
- * read "could not be read for text extraction". Translate had the same trap
- * and checks locally for the same reason.
+ * a locked PDF has no character count to declare, so it would be priced at
+ * the undeclared fallback, a third of the day. A scanned PDF was uploaded,
+ * charged, then refused, and a locked one read "could not be read for text
+ * extraction". Translate had the same trap and checks locally for the same
+ * reason.
  *
  * Refusals carry the shared document-failure codes, which the panel links to
  * the tool that fixes each one (OCR, Unlock, Repair) — never by message text.
  * Only a pdfjs `PasswordException` is called "password-protected"; any other
- * throw is "could not be read", which is true whatever caused it. This check
- * declares nothing: the count the route prices is `declaredCharacters` on
- * {@link SummarizeWorkerInput}, which the panel counts separately.
+ * throw is "could not be read", which is true whatever caused it.
+ *
+ * INVERTED 2026-11-16, history kept: this was `preflightSummarize`, which
+ * declared nothing, and the panel then counted with
+ * `countDeclaredCharacters` — a SECOND pdfjs parse per Run. Both now read
+ * one extraction, and the same verdict carries the declared count and the
+ * pages to send (`judgeSummarizeRun`, `./summarize-measure`). The judgement
+ * module is fetched IN PARALLEL with the extraction, so the page grammar
+ * never rides the page's first load and Run pays one round trip of chunks.
  */
-export type SummarizePreflight =
-  { ok: true } | { ok: false; message: string; code: string };
 
-/**
- * The extractor the preflight reads with. An object rather than a bare import
- * so a test can swap it and put it back: pdfjs needs `DOMMatrix`, which the
- * test DOM lacks, and `vi.mock` of the text module would leave it cached with
- * the stub for every later file in the same worker (see mock-isolation.test).
- */
-export const summarizePreflightDeps: {
-  extract: (bytes: Uint8Array) => Promise<ExtractedPdfText>;
-} = {
-  // The text module arrives when the preflight first runs (Run pressed), not
-  // with the page (`@/lib/pdf/text-lazy`).
-  extract: extractPdfTextOnDemand,
-};
-
-export async function preflightSummarize(
+export async function measureSummarizeRun(
   bytes: Uint8Array,
-  extract: (bytes: Uint8Array) => Promise<ExtractedPdfText> = (b) =>
-    summarizePreflightDeps.extract(b),
-): Promise<SummarizePreflight> {
-  let extracted: ExtractedPdfText;
+  choice: SummarizeChoice,
+  read: typeof extractSelectionOnDemand = (b) => summarizeRunDeps.read(b),
+): Promise<SummarizeMeasure> {
+  const judging = import("./summarize-measure");
+  // Handled here so a failed read does not leave it rejecting unseen.
+  judging.catch(() => undefined);
+  let reading: SummarizeReading;
   try {
-    extracted = await extract(bytes);
+    reading = { ok: true, ...(await read(bytes)) };
   } catch (error) {
-    const name = (error as { name?: unknown } | null)?.name;
-    if (name === "PasswordException")
-      return {
-        ok: false,
-        code: OFFICE_EXPORT_ERROR_CODES.passwordProtected,
-        message:
-          "This PDF is password-protected. Unlock it with Unlock PDF, then summarize it. Nothing was uploaded.",
-      };
-    return {
-      ok: false,
-      code: OFFICE_EXPORT_ERROR_CODES.unreadable,
-      message:
-        name === "InvalidPDFException"
-          ? "This file could not be read as a PDF. If it is one, it may be damaged; Repair PDF can often fix that. Nothing was uploaded."
-          : "This PDF could not be read. It may be damaged; Repair PDF can often fix that. Nothing was uploaded.",
-    };
+    reading = { ok: false, error };
   }
-  if (!extracted.hasText || extracted.text.trim().length === 0)
-    return {
-      ok: false,
-      code: OFFICE_EXPORT_ERROR_CODES.noText,
-      // The worker's own sentence (one owner for both sides of the upload,
-      // `@/lib/jobs/ai-no-text`), plus what this refusal before upload adds.
-      message: `${NO_SELECTABLE_TEXT_MESSAGE["summarize-pdf"]} Nothing was uploaded.`,
-    };
-  return { ok: true };
+  const { judgeSummarizeRun } = await judging;
+  return judgeSummarizeRun(reading, choice);
 }

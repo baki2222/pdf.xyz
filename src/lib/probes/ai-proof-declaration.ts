@@ -20,7 +20,10 @@
  *
  * Per tool, the counter that tool's panel calls, called the way it calls it:
  *
- *  - summarize-pdf, ai-extract — `countDeclaredCharacters(bytes)`;
+ *  - summarize-pdf — `measureSummarizeRun(bytes, { kind: "whole" })`, the
+ *    one parse that preflights and counts (a refusal is what the panel shows
+ *    instead of sending anything; the proof never chooses pages);
+ *  - ai-extract — `countDeclaredCharacters(bytes)`;
  *  - chat-with-pdf — `measureChatDocument(bytes, extract)`: the DOCUMENT's
  *    characters only (the route measures the question and the carried turns
  *    off the options and charges them itself), the same for every turn;
@@ -38,6 +41,8 @@
  */
 import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
 import { countDeclaredCharacters } from "@/lib/workers/ai-declared-characters";
+import { selectExtraction } from "@/lib/pdf/page-selection";
+import { measureSummarizeRun } from "@/lib/workers/summarize-client";
 import { measureChatDocument } from "@/lib/workers/chat-with-pdf-client";
 import { translatePreflight } from "@/lib/workers/translate/preflight";
 import {
@@ -76,9 +81,17 @@ const COUNTERS: Readonly<
     (bytes: Uint8Array, extract: Extract) => Promise<BrowserDeclaration>
   >
 > = {
-  // summarize-worker-panel.tsx: `declaredCharacters: await countDeclaredCharacters(bytes)`
-  "summarize-pdf": async (bytes, extract) =>
-    characters(await countDeclaredCharacters(bytes, extract)),
+  // summarize-worker-panel.tsx: `measureSummarizeRun(bytes, choice)` with the
+  // default choice, `{ kind: "whole" }`; `declaredCharacters: measured.declaredCharacters`.
+  "summarize-pdf": async (bytes, extract) => {
+    const measured = await measureSummarizeRun(
+      bytes,
+      { kind: "whole" },
+      async (b) => ({ extracted: await extract(b), select: selectExtraction }),
+    );
+    if (!measured.ok) return { kind: "refused", reason: measured.message };
+    return characters(measured.declaredCharacters);
+  },
   // ai-extract-worker-panel.tsx: `const declaredCharacters = await countDeclaredCharacters(bytes)`
   "ai-extract": async (bytes, extract) =>
     characters(await countDeclaredCharacters(bytes, extract)),

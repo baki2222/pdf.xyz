@@ -2,9 +2,12 @@
  * What Summarize PDF's page choice says when it cannot be honoured — said
  * once, for the route and the panel (competitor audit summarize-pdf#5).
  *
- * Dependency-free strings: the panel imports this module statically, so it
- * is on Summarize PDF's first load and must stay small.
+ * The panel imports this module statically, so it is on Summarize PDF's
+ * first load and must stay small: its one import is the page-spans leaf,
+ * which the truncation notice already ships to that page.
  */
+
+import { formatSpans } from "@/lib/pdf/page-spans";
 
 /**
  * `POST /api/jobs`'s refusal of a summarize job carrying `pages` when the
@@ -28,3 +31,18 @@ export const SUMMARIZE_PAGES_NOT_RUNNING_MESSAGE =
  */
 export const SUMMARIZE_PAGES_UNCONFIRMED_MESSAGE =
   "Our server did not confirm that it read only the pages you chose, so this summary may cover other pages. Check it against your PDF before relying on it.";
+
+/**
+ * The worker's refusal of a span past the end of the document
+ * (`pages_out_of_range`, before any provider call). The route reserved the
+ * allowance before the worker refused, and that is not refunded (the
+ * allowance FAQ's cross-tool ruling), so this must never say or imply that
+ * nothing was charged — only that nothing was sent. The panel's copy test
+ * renders this sentence and holds it to that.
+ */
+export function pagesOutOfRangeMessage(
+  total: number,
+  beyond: readonly [number, number],
+): string {
+  return `This PDF has ${total} ${total === 1 ? "page" : "pages"}, so ${beyond[0] === beyond[1] ? "page" : "pages"} ${formatSpans([beyond])} cannot be summarized. Nothing was sent to the AI model.`;
+}
