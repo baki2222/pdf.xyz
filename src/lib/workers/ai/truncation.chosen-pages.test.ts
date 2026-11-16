@@ -22,11 +22,11 @@ import {
   describeWindow,
   modelTruncationNotice,
   pageStartsFor,
-  userSelectionNotice,
   userTruncationNotice,
   type SelectionNoticeParts,
   type TruncationWindow,
 } from "./truncation";
+import { userSelectionNotice } from "./selection-notice";
 
 /** Built from code points (house rule): en dash, em dash. */
 const EN = String.fromCharCode(0x2013);

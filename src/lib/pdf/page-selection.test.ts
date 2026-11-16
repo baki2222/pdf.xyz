@@ -20,7 +20,7 @@ import {
   selectExtraction,
 } from "./page-selection";
 import { extractPdfText, pageTextChunks } from "./text";
-import { extractSelectionOnDemand } from "./text-lazy";
+import { extractSelectionOnDemand } from "./selection-lazy";
 
 /** pdf.js's legacy build, the one Node runs. */
 const legacy = async () =>

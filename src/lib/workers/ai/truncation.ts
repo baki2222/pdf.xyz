@@ -41,6 +41,7 @@
  */
 import type { AiWindowMeta } from "@/lib/jobs/ai-results";
 import {
+  chosenSpans,
   formatPageSpans,
   formatSpans,
   pagesIn,
@@ -389,16 +390,6 @@ export function userTruncationNotice(window: TruncationWindow): string {
 // ---------------------------------------------------------------------------
 
 /**
- * The chosen pages a window names: `pagesSent` on a window WITHOUT
- * `selection` (a relevance window is chat's and has its own path), or null.
- */
-function chosenSpans(window: TruncationWindow): readonly PageSpan[] | null {
-  if (window.selection !== undefined) return null;
-  const spans = window.pagesSent;
-  return spans && spans.length > 0 ? spans : null;
-}
-
-/**
  * The model notice for a window over pages a person chose. Unlike a prefix
  * window it is given EVEN WHEN NOT TRUNCATED: the model holds part of the
  * document either way, and a summarizer that is not told so calls its
@@ -422,19 +413,4 @@ function chosenPagesModelNotice(
     `The text above covers ${covers}, ${chose} the user chose; no other page was sent.${truncation}`,
     revocation(covers),
   ].join("\n");
-}
-
-/**
- * The sentence the panel and summary.md show beside a summary of chosen
- * pages, from the window alone: "This summary covers page 4 of 40, the page
- * you chose." Empty when the window names no chosen pages (a whole-document
- * or prefix run, or any other tool). Truncated, it names the pages READ
- * (`pagesSent` is already the clipped list) and `userTruncationNotice` says
- * why the rest was not.
- */
-export function userSelectionNotice(window: TruncationWindow): string {
-  const spans = chosenSpans(window);
-  if (!spans) return "";
-  const single = pagesIn(spans) === 1;
-  return `This summary covers ${pagesPhrase(spans)} of ${window.totalPages}, ${single ? "the page" : "the pages"} you chose.`;
 }

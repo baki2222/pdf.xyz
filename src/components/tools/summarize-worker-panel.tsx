@@ -34,7 +34,7 @@ import { SUMMARIZE_PAGES_UNCONFIRMED_MESSAGE } from "@/lib/jobs/summarize-pages"
 import { selectionConfirmed } from "@/lib/jobs/selection-echo";
 import { pagesPhrase, type PageSpan } from "@/lib/pdf/page-spans";
 import type { SummarySection } from "@/lib/pdf/summary-sections";
-import { userSelectionNotice } from "@/lib/workers/ai/truncation";
+import { userSelectionNotice } from "@/lib/workers/ai/selection-notice";
 import type { Job } from "@/lib/jobs/types";
 import { downloadBlob, downloadBytes } from "@/lib/pdf/browser";
 import {

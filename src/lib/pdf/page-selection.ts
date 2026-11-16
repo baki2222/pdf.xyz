@@ -15,7 +15,7 @@
  * document whose page 2 is blank.
  *
  * Pure. Browser callers reach it only through `extractSelectionOnDemand`
- * (`./text-lazy`), so it never rides a page's first load.
+ * (`./selection-lazy`), so it never rides a page's first load.
  */
 
 import type { PageSpan } from "./page-spans";

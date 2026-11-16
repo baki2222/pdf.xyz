@@ -7,7 +7,7 @@ import {
 import { canRunAiTool } from "./ai-tool-availability";
 import type { SummaryFormat, SummaryLength } from "@/lib/jobs/summarize-pdf";
 import type { PageSpan } from "@/lib/pdf/page-spans";
-import { extractSelectionOnDemand } from "@/lib/pdf/text-lazy";
+import { extractSelectionOnDemand } from "@/lib/pdf/selection-lazy";
 import type {
   SummarizeChoice,
   SummarizeMeasure,
@@ -96,7 +96,7 @@ export const summarizeRunDeps: {
   read: typeof extractSelectionOnDemand;
 } = {
   // The text and selection chunks arrive when Run is pressed, not with the
-  // page (`@/lib/pdf/text-lazy`).
+  // page (`@/lib/pdf/selection-lazy`).
   read: (bytes) => extractSelectionOnDemand(bytes),
 };
 

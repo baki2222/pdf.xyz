@@ -66,6 +66,22 @@ export function pagesPhrase(spans: readonly PageSpan[]): string {
   return `${pagesIn(spans) === 1 ? "page" : "pages"} ${list}`;
 }
 
+/**
+ * The pages a PERSON chose, as an AI window names them: `pagesSent` on a
+ * window WITHOUT `selection` (a relevance window is chat's and has its own
+ * path), or null. Structural, so this leaf imports no type: the truncation
+ * notices and Summarize's selection sentence
+ * (`@/lib/workers/ai/selection-notice`) both read it.
+ */
+export function chosenSpans(window: {
+  readonly selection?: unknown;
+  readonly pagesSent?: readonly PageSpan[];
+}): readonly PageSpan[] | null {
+  if (window.selection !== undefined) return null;
+  const spans = window.pagesSent;
+  return spans && spans.length > 0 ? spans : null;
+}
+
 /** The spans of `pages` and the text that names them. */
 export function formatPageSpans(pages: readonly number[]): {
   spans: [number, number][];

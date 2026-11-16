@@ -34,7 +34,7 @@ import { selectionConfirmed } from "@/lib/jobs/selection-echo";
 import { parseSummarizeOptions } from "@/lib/jobs/summarize-pdf";
 import { selectExtraction } from "@/lib/pdf/page-selection";
 import { extractPdfText } from "@/lib/pdf/text";
-import { extractSelectionOnDemand } from "@/lib/pdf/text-lazy";
+import { extractSelectionOnDemand } from "@/lib/pdf/selection-lazy";
 import type { AiCompletionRequest, AiProvider } from "./ai/provider";
 import { runSummarize } from "./summarize/engine";
 import { measureSummarizeRun } from "./summarize-client";

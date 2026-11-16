@@ -5,25 +5,25 @@ import {
   type RunControl,
 } from "../attempt-abort";
 import { pdfTextOpenFailure } from "@/lib/workers/pdf-text/errors";
-import {
-  NO_SELECTABLE_TEXT_MESSAGE,
-  NO_TEXT_IN_CHOSEN_PAGES_MESSAGE,
-} from "@/lib/jobs/ai-no-text";
+import { NO_SELECTABLE_TEXT_MESSAGE } from "@/lib/jobs/ai-no-text";
 import {
   PAGE_JOIN,
   pageTextChunks,
   type ExtractedPdfText,
 } from "@/lib/pdf/text";
 import { firstSpanBeyond, selectExtraction } from "@/lib/pdf/page-selection";
-import { pagesOutOfRangeMessage } from "@/lib/jobs/summarize-pages";
+import {
+  NO_TEXT_IN_CHOSEN_PAGES_MESSAGE,
+  pagesOutOfRangeMessage,
+} from "@/lib/jobs/summarize-pages";
 import {
   describeWindow,
   modelTruncationNotice,
   pageStartsFor,
-  userSelectionNotice,
   userTruncationNotice,
   type TruncationWindow,
 } from "../ai/truncation";
+import { userSelectionNotice } from "../ai/selection-notice";
 import {
   SUMMARY_LENGTHS,
   type SummarizeOptions,

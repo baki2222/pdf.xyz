@@ -20,17 +20,17 @@
  * covers.
  */
 
-import {
-  NO_SELECTABLE_TEXT_MESSAGE,
-  NO_TEXT_IN_CHOSEN_PAGES_MESSAGE,
-} from "@/lib/jobs/ai-no-text";
+import { NO_SELECTABLE_TEXT_MESSAGE } from "@/lib/jobs/ai-no-text";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import {
   MAX_PAGE_SPANS,
   pageSpansFromIndices,
 } from "@/lib/jobs/page-spans-option";
 import type { selectExtraction } from "@/lib/pdf/page-selection";
-import { pagesOutOfRangeSentence } from "@/lib/jobs/summarize-pages";
+import {
+  NO_TEXT_IN_CHOSEN_PAGES_MESSAGE,
+  pagesOutOfRangeSentence,
+} from "@/lib/jobs/summarize-pages";
 import type { PageSpan } from "@/lib/pdf/page-spans";
 import { PageRangeError, parsePageList } from "@/lib/pdf/ranges";
 import type { ExtractedPdfText } from "@/lib/pdf/text";

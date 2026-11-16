@@ -1524,31 +1524,53 @@ const TOOL_PAGES_TO_COME = {
   // main's file, byte for byte (3906e9b6, 15,323 gz).
   // 2026-11-16, Summarize's chosen pages (audit summarize-pdf#5, slice 5,
   // PR-5a: route admission, heartbeat key, worker read, panel). Main
-  // 85812cd3 and the merged branch, each built from an empty .next in ONE
-  // tree (E:/wsum5), gzip -9 over each tool page's first-load chunks, all 60
-  // tool pages:
-  //  - tools/summarize-pdf 235,530 -> 236,727 (+1,197): the panel's chunk
-  //    (the "Part to summarize" select, the Pages field, SelectionNotice and
-  //    its two strings) plus the +413 every AI panel took (below).
-  //  - chat-with-pdf +413, translate-pdf +414, ai-extract +461: shared by
-  //    all four AI panels and none of this PR's panel code, so by elimination
-  //    truncation.ts's chosen-pages notices (first-load through
-  //    truncation-notice.tsx); not attributed byte by byte.
-  //  - 16 worker-panel pages (protect, unlock, office conversions...)
-  //    +77..82: worker-panel code shared from the earlier PR-5a commits,
-  //    NOT attributed module by module here (ai-results.ts's chosen-pages
-  //    bound, which delivery-notice.tsx ships, is the likely one), plus the
-  //    runtime's map.
-  //  - pdf-to-text, pdf-to-markdown, compare-pdf, split-pdf +45, the other
-  //    36 tool pages +35: the runtime's chunk map (three new lazy chunks).
+  // a52f07e6 and the merged branch, each built from an empty .next in ONE
+  // tree (E:/wsum5, real installs, same lockfile), gzip -9 over each tool
+  // page's first-load chunks; attributed chunk by chunk and then module by
+  // module (each chunk parsed, modules matched by webpack id):
+  //  - tools/summarize-pdf 235,530 -> 236,720 (+1,190): the panel's chunk
+  //    5,049 -> 5,947 (+898) = the panel module 3,673 -> 4,411 (the "Part to
+  //    summarize" select, the Pages field, SelectionNotice, with
+  //    selection-lazy.ts concatenated in), summarize-pages.ts 319 (its own
+  //    module: the lazy judgement imports it too), page-spans-option.ts 155
+  //    (kept on first load by the options contract summarize-pdf.ts, which
+  //    the panel imports for its defaults; webpack keeps it for the lazy
+  //    judgement's exports), less countDeclaredCharacters (157) and
+  //    text-lazy (145), which Summarize no longer imports; plus the AI
+  //    panels' shared chunk (+261) and the runtime (+31), below.
+  //  - chat-with-pdf +303, translate-pdf +302: the AI panels' shared chunk
+  //    1,440 -> 1,701 (+261): truncation.ts's chosen-pages notices
+  //    (truncation-notice's module 761 -> 805), and page-spans.ts as a
+  //    module of its own (361): the Summarize panel now imports it too (one
+  //    span formatter), so webpack can no longer concatenate it into
+  //    truncation-notice. Plus text.ts's joinPageTexts, an export the lazy
+  //    selection now calls (+10 on the six pages loading text.ts: also
+  //    compare, pdf-to-text, pdf-to-markdown, split +41), and the runtime.
+  //  - ai-extract +239: the shared chunk (+261) and the runtime, less its
+  //    panel chunk -53 (text-lazy and countDeclaredCharacters, now imported
+  //    only by AI Extract, concatenate into its panel module).
+  //  - the other 61 tool and category pages +30..31: the runtime's chunk
+  //    map (four new lazy chunks) and, on the 60 [slug] pages, +1 for the
+  //    renamed chunk ids in the page chunk.
   //  - on demand, never first load (lazy-chunks.test.ts green): Run's
-  //    judgement (summarize-measure, 1,700 raw / 895 gz), the sections
-  //    (summary-sections, 737 / 535) and the pdf.js outline reader
-  //    (pdf-outline, read only when the key is observed and a file chosen).
-  //  The first cut read the outline with Split's pdf-lib reader: one more
-  //  first-load chunk and +278 B on ~40 pdf-engine pages (a re-split of
-  //  every runner's chunks); in ./text, +272 B on the four pages importing it
-  //  statically. Both measured, both abandoned.
+  //    judgement (summarize-measure, 1,620 raw / 865 gz), the selection
+  //    (page-selection, 3,124 / 1,628), the sections (summary-sections,
+  //    737 / 535) and the pdf.js outline reader (pdf-outline, 2,757 /
+  //    1,337; read only when the key is observed and a file chosen).
+  //  AVOIDED, each measured on the merged build and fixed in this PR:
+  //  NO_TEXT_IN_CHOSEN_PAGES_MESSAGE in ai-no-text.ts (on every worker
+  //  panel's first load through pdf-security-client; the lazy judgement's
+  //  use kept it there) cost 20 pages +42..47, moved to summarize-pages.ts;
+  //  userSelectionNotice in truncation.ts (a second importer, the Summarize
+  //  panel, split truncation out of truncation-notice) cost the four AI
+  //  pages +71, moved to ai/selection-notice.ts; extractSelectionOnDemand in
+  //  text-lazy.ts rode AI Extract (+110 on its page), moved to
+  //  selection-lazy.ts. Before those: summarize +1,269, AI pages +422..470,
+  //  16 worker pages +77..82. The first cut also read the outline with
+  //  Split's pdf-lib reader: one more first-load chunk and +278 B on ~40
+  //  pdf-engine pages (a re-split of every runner's chunks); in ./text,
+  //  +272 B on the four pages importing it statically. Both measured, both
+  //  abandoned.
   // Nothing allocated: every row has the headroom (test:bundle green).
   unallocated:
     UNALLOCATED -

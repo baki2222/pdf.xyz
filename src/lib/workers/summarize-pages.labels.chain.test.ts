@@ -28,7 +28,7 @@ import { selectExtraction } from "@/lib/pdf/page-selection";
 import type { PageSpan } from "@/lib/pdf/page-spans";
 import { readSummarySections } from "@/lib/pdf/summary-sections";
 import { extractPdfText } from "@/lib/pdf/text";
-import { extractSelectionOnDemand } from "@/lib/pdf/text-lazy";
+import { extractSelectionOnDemand } from "@/lib/pdf/selection-lazy";
 import { addOutline, fitDest } from "@/tests/bookmark-fixtures";
 import type { AiCompletionRequest, AiProvider } from "./ai/provider";
 import { runSummarize } from "./summarize/engine";
