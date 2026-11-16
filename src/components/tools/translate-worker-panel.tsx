@@ -71,7 +71,10 @@ import {
   scriptOnlyLanguage,
   translateAutoSameLanguageWarning,
 } from "@/lib/jobs/translate-script";
-import { translatePreflight } from "@/lib/workers/translate/preflight";
+import {
+  declareTranslateRun,
+  translatePreflight,
+} from "@/lib/workers/translate/preflight";
 import {
   TRANSLATE_MAX_INPUT_CHARS,
   TRANSLATE_NO_TEXT_MESSAGE,
@@ -565,14 +568,16 @@ function TranslateBuilder({
       // THE CHOSEN PAGES, from the SAME extraction (D14): the page check reads
       // its page count, and everything below (the refusal, the declaration,
       // the wait) reads the selection, so the charge and the worker's walk
-      // describe one set of pages. `pages` null: the whole document.
-      let pages: PageSpan[] | null = null;
+      // describe one set of pages. `judged` null: the whole document.
+      let judged: {
+        pages: PageSpan[] | null;
+        selected: ExtractedPdfText;
+      } | null = null;
       if (measure) {
         const { judgeTranslatePages } = await measure;
-        const judged = judgeTranslatePages(extracted, pagesText);
-        if (!judged.ok) return { ok: false, message: judged.message };
-        pages = judged.pages;
-        extracted = judged.selected;
+        const answer = judgeTranslatePages(extracted, pagesText);
+        if (!answer.ok) return { ok: false, message: answer.message };
+        judged = answer;
       }
       // THE SAME BLOCKS THE WORKER WILL CHUNK, computed once and used for both
       // the refusal below and the page count declared with the job. Counting
@@ -586,11 +591,14 @@ function TranslateBuilder({
       // the worker's order and with the worker's sentences.
       // The every-page-oversize sentence names its object: "chosen" only
       // for a real selection, so an empty or every-page field keeps today's
-      // sentence byte for byte.
-      const { textPages, plan, refusal } = translatePreflight(
+      // sentence byte for byte. THE DECLARATION IS ONE FUNCTION, shared with
+      // the composed chain that proves "the charge equals the chosen pages"
+      // (`declareTranslateRun`): typed here, it was a copy the chain could
+      // not see.
+      const { plan, refusal, pages, declared } = declareTranslateRun(
         extracted,
+        judged,
         TRANSLATE_MAX_INPUT_CHARS,
-        pages ? "chosen" : "document",
       );
       // A SCAN, AND THE RUNNING WORKER CAN RECOGNISE IT: send it with an OCR
       // request instead of refusing. It declares no count — the browser found
@@ -629,18 +637,13 @@ function TranslateBuilder({
           targetLanguage,
           sourceLanguage,
           ...(trimmed ? { instructions: trimmed } : {}),
-          // The count this panel already extracted, declared so the job reserves
-          // what it will use instead of a whole per-call ceiling. Required by the
-          // client's type rather than optional: the route's fallback is correct
-          // and silent, so the one caller that can count must not be able to stop
-          // quietly.
-          declaredCharacters: extracted.characterCount,
-          // PAGES WITH TEXT, not `extracted.pageCount`. Blank, whitespace-only
-          // and image-only pages are dropped before chunking, so the page count
-          // would over-declare a document with any of them — and the bound this
-          // feeds is the one that is supposed to be exact.
-          declaredTextPages: textPages.length,
-          ...(pages ? { pages } : {}),
+          // The counts this panel already extracted (and `pages`, for a
+          // selection), declared so the job reserves what it will use instead
+          // of a whole per-call ceiling. Required by the client's type rather
+          // than optional: the route's fallback is correct and silent, so the
+          // one caller that can count must not be able to stop quietly. PAGES
+          // WITH TEXT, not the page count: see `declareTranslateRun`.
+          ...declared,
         },
         {
           ...controls,

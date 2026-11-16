@@ -5,7 +5,9 @@
  * `translate-page-range.property.test.ts` both drive.
  *
  *   1. the panel's lazy measure (`judgeTranslatePages`) over the panel's one
- *      extraction, then the panel's preflight of the selection;
+ *      extraction, then the panel's declaration step `declareTranslateRun`
+ *      (preflight of the counted pages, the declared counts and `pages`),
+ *      the SAME function the panel's Run calls;
  *   2. the browser client (`runWorkerTranslate`) through a capturing
  *      transport: the body as sent;
  *   3. the route's REAL `parseCreateJobRequest`, then
@@ -24,6 +26,17 @@
  * a same-extractor claim here. The ×4 headroom absorbs the difference in
  * production, as for whole-document jobs; a real job's decoded ZIP is the
  * only production check.
+ *
+ * WHAT THIS HARNESS DOES NOT DO: write any hop itself. Until review
+ * (2026-11-16) step 1 typed the panel's declaration —
+ * `declaredCharacters = selected.characterCount`, `declaredTextPages =
+ * preflight.textPages.length` — so a panel declaring the whole document's
+ * characters (M6) or text pages (M11) turned only the panel test red, and
+ * this header's "each hop the shipped function" was false for that hop. The
+ * step is now `declareTranslateRun`, imported from the module the panel
+ * imports it from; the one override left (`ChainOptions.declare`) exists
+ * only for the property test's mis-declared POSITIVE CONTROL and is applied
+ * on top of the shipped declaration, never instead of computing it.
  *
  * A test helper (`src/tests/`), imported by those two tests only, so its
  * hops are written once.
@@ -50,7 +63,7 @@ import { createTranslateProcessor } from "@/lib/workers/processor/translate";
 import { judgeTranslatePages } from "@/lib/workers/translate-measure";
 import { runWorkerTranslate } from "@/lib/workers/translate-client";
 import { separatorFor } from "@/lib/workers/translate/page-markers";
-import { translatePreflight } from "@/lib/workers/translate/preflight";
+import { declareTranslateRun } from "@/lib/workers/translate/preflight";
 import { delimitedSegment } from "@/lib/workers/translate/reading-order-capability";
 import {
   typesetText,
@@ -116,7 +129,11 @@ export interface ChainRun {
   readonly extracted: ExtractedPdfText;
   /** The panel's spans, or null for the whole document. */
   readonly pages: PageSpan[] | null;
-  /** What the panel counted: the selection, or the whole document. */
+  /**
+   * The judged selection, or the whole document: what the panel's
+   * declaration step was given to count (the tests compare the declared
+   * counts against it).
+   */
   readonly selected: ExtractedPdfText;
   readonly declaredCharacters: number;
   readonly declaredTextPages: number;
@@ -174,27 +191,34 @@ export async function runChain(
   text: string,
   opts: ChainOptions = {},
 ): Promise<ChainRun> {
-  // 1. The panel: one extraction, the lazy judgement, the preflight.
+  // 1. The panel: one extraction, the lazy judgement, the panel's own
+  //    declaration step (the function its Run calls, not a copy of it).
   const extracted = await pdfjsExtract(bytes);
-  let pages: PageSpan[] | null = null;
-  let selected = extracted;
+  let judged: { pages: PageSpan[] | null; selected: ExtractedPdfText } | null =
+    null;
   if (text.trim() !== "") {
-    const judged = judgeTranslatePages(extracted, text);
-    if (!judged.ok) throw new Error(`panel refused: ${judged.message}`);
-    pages = judged.pages;
-    selected = judged.selected;
+    const answer = judgeTranslatePages(extracted, text);
+    if (!answer.ok) throw new Error(`panel refused: ${answer.message}`);
+    judged = answer;
   }
-  const preflight = translatePreflight(
-    selected,
+  const declaration = declareTranslateRun(
+    extracted,
+    judged,
     TRANSLATE_MAX_INPUT_CHARS,
-    pages ? "chosen" : "document",
   );
-  if (preflight.refusal !== null)
-    throw new Error(`panel preflight refused: ${preflight.refusal}`);
-  const declaredCharacters = opts.declare
-    ? opts.declare({ extracted, selected })
-    : selected.characterCount;
-  const declaredTextPages = preflight.textPages.length;
+  if (declaration.refusal !== null)
+    throw new Error(`panel preflight refused: ${declaration.refusal}`);
+  const pages = declaration.pages;
+  const selected = judged ? judged.selected : extracted;
+  // The positive control's override, applied ON TOP of the shipped
+  // declaration (it replaces one number; it never computes the others).
+  const declared = opts.declare
+    ? {
+        ...declaration.declared,
+        declaredCharacters: opts.declare({ extracted, selected }),
+      }
+    : declaration.declared;
+  const { declaredCharacters, declaredTextPages } = declared;
 
   // 2. The client, through a capturing transport.
   const { fetchImpl, bodies } = captureTransport();
@@ -204,9 +228,7 @@ export async function runChain(
       bytes,
       targetLanguage: "fr",
       sourceLanguage: "en",
-      declaredCharacters,
-      declaredTextPages,
-      ...(pages ? { pages } : {}),
+      ...declared,
     },
     { fetchImpl, pollIntervalMs: 0, maxPollAttempts: 1 },
   );
