@@ -160,7 +160,7 @@ async function choose(page: Page, bytes: Uint8Array) {
     mimeType: "application/pdf",
     buffer: Buffer.from(bytes),
   });
-  await expect(page.getByText("report.pdf")).toBeVisible();
+  await expect(page.getByText("report.pdf", { exact: true })).toBeVisible();
   const run = page.getByRole("button", { name: "Summarize PDF" });
   await expect(run).not.toHaveAttribute("aria-disabled", "true");
   return run;
