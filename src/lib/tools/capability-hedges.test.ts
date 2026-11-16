@@ -137,6 +137,8 @@ import {
   TRANSLATE_SCAN_ROUTE,
 } from "@/lib/jobs/translate-ocr";
 import { toolFacts } from "./tool-facts";
+import { CHAT_PAGE_SELECTION_CAPABILITY } from "./chat-page-selection";
+import { CHAT_SELECTION_REQUIRED } from "./chat-retrieval-claims";
 import {
   cardSummary,
   pageContent,
@@ -511,8 +513,15 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     // PDF read?". Measured
     // that day over the whole corpus: see "the chatRetrieval subject reaches
     // the chat reading sentences". catalogueCopy is true because those exist.
+    //
+    // Slice 4 (2026-11-16): the static copy now SAYS how pages are chosen
+    // ("share the most of the question's less common words"; since review,
+    // conditional: "when some pages share enough of …"), so that shape
+    // is in the subject: the claim is read as a claim about this key. See
+    // "the static page-selection claim is a member of its capability's
+    // subject".
     subject:
-      /\bhow far into the document\b|\bread up to that point\b|\bpages? that (?:were|was) read\b|\bwhich page it reached\b|\bHow much of my PDF does Chat with PDF read\b|\bpages? (?:are|is) chosen\b|\bonly part (?:of (?:it|the document) )?was read\b/i,
+      /\bhow far into the document\b|\bread up to that point\b|\bpages? that (?:were|was) read\b|\bwhich page it reached\b|\bHow much of my PDF does Chat with PDF read\b|\bpages? (?:are|is) chosen\b|\bonly part (?:of (?:it|the document) )?was read\b|\bshares? (?:the most|enough)\b[^.?!]*\bwords\b/i,
     catalogueCopy: true,
   },
   translatePdfLanguages: {
@@ -887,6 +896,57 @@ describe("catalogue copy may not hedge a worker capability", () => {
       chat.length,
       "the subject reaches one chat sentence at most: it is a name, not a subject",
     ).toBeGreaterThanOrEqual(2);
+  });
+
+  it("the static page-selection claim is a member of its capability's subject", () => {
+    // Slice 4, the second bound (house rule 5). Static chat copy says how a
+    // longer file's pages are chosen because production's worker proved it;
+    // what makes that stale is a future image without the behaviour. The
+    // claim is tied to the heartbeat key that image would have to publish
+    // (`CHAT_PAGE_SELECTION_CAPABILITY`, `chatRetrieval`): the key is on the
+    // wire, and EVERY sentence carrying the claim, read alone, is in that
+    // key's subject, so the no-hedge rule and any later reader of the
+    // subject see it as a claim about the key. `WIRE_KEYS` is derived from
+    // this tree's source, NOT read from production: this ties the copy to
+    // the key's name only. CI makes images it BUILDS prove the key
+    // (`src/deploy/worker-chat-retrieval-proof.test.ts`); the live bound is
+    // the operator's deploy verification, which reads production
+    // `/api/worker/status` and fails unless `chatRetrieval` is true, and
+    // lives outside this repo (see `src/lib/tools/chat-page-selection.ts`).
+    const key = CHAT_PAGE_SELECTION_CAPABILITY;
+    expect(WIRE_KEYS).toContain(key);
+    const subject = SUBJECTS[key]?.subject;
+    expect(subject, `no subject for ${key}`).toBeDefined();
+    const claims = COPY.flatMap((entry) =>
+      entry.text
+        .split(/(?<=[.?!])\s+/)
+        .filter((s) => CHAT_SELECTION_REQUIRED.pattern.test(s))
+        .map((sentence) => ({ at: `${entry.slug} ${entry.where}`, sentence })),
+    );
+    // Health: the tool page's intro and reading FAQ, its read fact and the
+    // guide carry it (measured 2026-11-16); a shrunken set passes vacuously.
+    expect(claims.length).toBeGreaterThanOrEqual(4);
+    expect(new Set(claims.map((c) => c.at.split(" ")[0]))).toEqual(
+      new Set(["chat-with-pdf", "guide:how-to-chat-with-a-pdf"]),
+    );
+    const outside = claims
+      .filter(({ sentence }) => !subject!.test(sentence))
+      .map(({ at, sentence }) => `${at}: ${sentence}`);
+    expect(outside).toEqual([]);
+    // Positive control: a hedge planted in the claim is caught as a hedge
+    // on this key, through the same rule the catalogue runs.
+    const planted: CopyEntry = {
+      slug: "chat-with-pdf",
+      where: "intro[1]",
+      // The guide's claim, whose sentence reaches the subject ONLY through
+      // the selection branch (it says nothing about the notice).
+      text: `${claims.find((c) => c.at.startsWith("guide:"))!.sentence.replace(/\.$/, "")} (coming soon).`,
+    };
+    expect(
+      hedgeOffenders([planted], []).some((line) =>
+        line.includes(`hedges "${key}"`),
+      ),
+    ).toBe(true);
   });
 
   it("each subject matcher's declared catalogue coverage is the truth", () => {

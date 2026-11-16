@@ -50,9 +50,16 @@ export const CHAT_RETRIEVAL_ANCHOR_SHARES: readonly number[] = [
  * "less common" is the algorithm, not a flourish: a word on more than half
  * the pages weighs 0 (Robertson IDF clamped at 0, brief D4), so "the most
  * words" would be false for "what", "is" and "the".
+ *
+ * "plus any pages that share enough" (2026-11-16, chat S4 review): the line
+ * first said "the pages that share the most of its less common words", but
+ * the selector sends only the opening pages when no page clears the coverage
+ * gate (CHAT_RETRIEVAL_MIN_COVERAGE) or nothing scores, so that was false in
+ * those states. "any" admits none; the length is unchanged, so the slot
+ * reserve measured on CI still holds it.
  */
 export function chatRetrievalPanelLine(anchorShare: number): string {
   return anchorShare > 0
-    ? "For a longer file, each question is sent the opening pages and the pages that share the most of its less common words."
-    : "For a longer file, each question is sent the pages that share the most of its less common words, or the opening pages when none do.";
+    ? "For a longer file, each question is sent the opening pages plus any pages that share enough of its less common words."
+    : "For a longer file, each question is sent the pages that share enough of its less common words, or the opening pages when none do.";
 }
