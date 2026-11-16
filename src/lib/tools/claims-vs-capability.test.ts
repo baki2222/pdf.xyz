@@ -175,7 +175,9 @@ import {
   typefaceFor,
 } from "@/lib/workers/pdf-office-export/typeface";
 import {
+  DOCX_TABLE_WRAPS_PROBE,
   DOCX_TYPEFACES_PROBE,
+  docxTableWrapsProbePdf,
   docxTypefacesProbePdf,
 } from "@/lib/workers/pdf-office-export/capability";
 import {
@@ -3499,7 +3501,12 @@ describe("PDF to Word: the table sentences hold of the engine", () => {
     // comes through in Word's default style." — no longer the page's.
     "Drawings made of lines and shapes are not carried across.",
     "The extractor follows the page's reading order: a page set in two columns is read one column at a time.",
-    "A table whose cells each fit on one line, with at least three rows and a column of figures such as amounts, quantities or dates, comes through as a Word table, each value in the column it sits under and an empty cell left empty; other tables come through one row per paragraph, their cells separated by tabs, and a table whose cells wrap onto a second line is not laid out as one Word table: the rows around a wrapped cell may come through as a smaller table, and the rest as lines of text.",
+    // Until 2026-11-16 (#28 slice 3, wraps) this ended "and a table whose
+    // cells wrap onto a second line is not laid out as one Word table: the
+    // rows around a wrapped cell may come through as a smaller table, and
+    // the rest as lines of text." — now a DENIAL, in the wrapped-cell
+    // describe's SHIPPED below.
+    "A table whose cells each fit on one line, with at least three rows and a column of figures such as amounts, quantities or dates, comes through as a Word table, each value in the column it sits under and an empty cell left empty; other tables come through one row per paragraph, their cells separated by tabs, and a table whose cells wrap onto further lines may come through as one Word table, each wrapped cell kept in its row, or as a smaller table and lines of text, or as lines of text alone.",
     // Until 2026-11-15 (#28 slice 4) this said "the typeface, link targets
     // and drawings …" — no longer the page's: each word is set in an Office
     // font of its kind now.
@@ -3510,11 +3517,20 @@ describe("PDF to Word: the table sentences hold of the engine", () => {
     "A table we are less sure of comes through one row per paragraph with its cells separated by tabs instead: one with no column of figures, one with a column of sentences beside it, one whose heading does not sit over its values, one of more than 63 columns (Word's limit) or more than 10,000 cells, the tables of a page past its first 20,000 cells (empty ones counted), and every table of a document that would otherwise be too large to deliver, which the note beside the download then says.",
     "A table that continues onto the next page is not joined into one: each page's part is judged on its own, so a part of one or two rows comes through as lines of text.",
     "The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line, with a column of figures such as amounts or dates, comes through as a Word table, each value in the column it sits under.",
-    "Other tables come through as lines of text, their cells separated by tabs, and a table whose cells wrap onto a second line may come through partly as a smaller table.",
-    "Headings keep their bold and size but not a Word heading style, lists arrive as lines of text, and a table comes through as a Word table only when each of its cells fits on one line and one of its columns holds figures, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
+    // Until 2026-11-16 (#28 slice 3, wraps) also "Other tables come through
+    // as lines of text, their cells separated by tabs, and a table whose
+    // cells wrap onto a second line may come through partly as a smaller
+    // table.", "… a table comes through as a Word table only when each of
+    // its cells fits on one line and one of its columns holds figures, …"
+    // and "… only a table whose cells each fit on one line, with a column of
+    // figures, comes through as a Word table, …" — each now a DENIAL, in the
+    // wrapped-cell describe's SHIPPED below.
+    "Other tables come through as lines of text, their cells separated by tabs, and a table whose cells wrap onto further lines may come through as one Word table, each wrapped cell kept in its row, or as a smaller table and lines of text, or as lines of text alone.",
+    "Headings keep their bold and size but not a Word heading style, lists arrive as lines of text, and a table comes through as a Word table only when it has at least three rows and one of its columns holds figures, and one whose cells wrap onto further lines may come through whole, in part or as lines of text, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
     // Until 2026-11-15 (#28 slice 4) this began "The typeface and page
     // layout are not recreated" — no longer the guide's.
-    "The page layout is not recreated, words are set in standard Office fonts, and only a table whose cells each fit on one line, with a column of figures, comes through as a Word table, so it suits documents where the words matter more than the look.",
+    "The page layout is not recreated, words are set in standard Office fonts, and only a table with at least three rows and a column of figures comes through as a Word table (one whose cells wrap onto further lines may come through whole, in part or as lines of text), so it suits documents where the words matter more than the look.",
+    "A table whose cells wrap onto further lines may come through as one Word table, each wrapped cell kept in its row, or as a smaller table and lines of text, or as lines of text alone.",
     "Each scanned page comes through as its picture, followed by the text read from it, as plain paragraphs you can edit, search and copy; a table read from a scan may come through as a Word table or as lines of text.",
   ];
   const OVERCLAIMS: Record<string, RegExp> = {
@@ -3714,6 +3730,247 @@ describe("PDF to Word: the table sentences hold of the engine", () => {
   }, 120_000);
 });
 
+/**
+ * #28 slice 3 (wraps), added 2026-11-16, modelled on the table rule above.
+ * Until that date every PDF to Word surface said a table whose cells wrap
+ * is not laid out as one Word table, or that a Word table needs cells that
+ * each fit on one line — true of every download then. flow.ts rule 7 now
+ * keeps a wrapped cell in its row, in a column of text other than the
+ * first, so those sentences are DENIALS of the engine; and the sentence a
+ * rewrite reaches for next — "every wrapped cell stays in its row" — is an
+ * OVERCLAIM, since a first-column wrap still ends its table (S6).
+ *
+ * PR-1 ships an INTERIM sentence (content/pdf-to-word.ts, CHANGED
+ * 2026-11-16) because the web tier can be served beside the worker image
+ * before slice 3: it names every measured outcome and so is neither. PR-2
+ * swaps in the definite sentence once `docxTableWraps` reads true at the
+ * wire, and moves the interim sentence into SHIPPED.
+ *
+ * The engine side is the consumer's artifact on the IMAGE's poppler: the
+ * probe page (S1) and the first-column wrap (S6) exported through the whole
+ * engine from their captures (`@/tests/poppler-samples-image`, poppler
+ * 22.12.0), read back structurally. Not the stand-in: in slice 2 the
+ * stand-in predicted one table of three rows where the image printed none
+ * and one. A stand-in run is kept beside it as a labelled stand-in pin.
+ */
+describe("PDF to Word: the wrapped-cell sentences hold of the engine", () => {
+  const DENIES_WRAPS: Record<string, RegExp> = {
+    "is not laid out as one Word table":
+      /\b(?:is|are) not laid out as (?:one|a single) Word table\b/i,
+    // A denial only when the sentence does not also offer the whole table:
+    // the interim sentence says "as a smaller table" beside "may come
+    // through as one Word table", and is honest.
+    "the rows around a wrapped cell as a smaller table":
+      /^(?!.*\bmay come through as one Word table\b).*\brows around a wrapped cell\b[^.;]{0,60}?\bas a smaller table\b/i,
+    "a wrapped table only partly as a smaller table":
+      /^(?!.*\bmay come through as one Word table\b).*\bwrap\w*\b[^.;:]{0,80}?\b(?:partly|only) as a smaller table\b/i,
+    "only when each of its cells fits on one line":
+      /\bonly when each of its cells fits? on one line\b/i,
+    "only a table whose cells each fit on one line":
+      /\bonly (?:a )?tables? whose cells (?:each )?fits? on one line\b/i,
+  };
+  /** Each one shipped on the PDF to Word surfaces at 0985432a. */
+  const SHIPPED = [
+    // pdf-to-word.ts intro[1]
+    "A table whose cells each fit on one line, with at least three rows and a column of figures such as amounts, quantities or dates, comes through as a Word table, each value in the column it sits under and an empty cell left empty; other tables come through one row per paragraph, their cells separated by tabs, and a table whose cells wrap onto a second line is not laid out as one Word table: the rows around a wrapped cell may come through as a smaller table, and the rest as lines of text.",
+    // pdf-to-word.ts, the tables FAQ answer
+    "A table whose cells wrap onto a second line is not laid out as one Word table: the rows around a wrapped cell may come through as a smaller table, and the rest as lines of text.",
+    // tool-facts.ts PDF_TO_WORD_KEEPS, its last-but-one sentence
+    "Other tables come through as lines of text, their cells separated by tabs, and a table whose cells wrap onto a second line may come through partly as a smaller table.",
+    // guides/catalog.ts, the convert guide
+    "Headings keep their bold and size but not a Word heading style, lists arrive as lines of text, and a table comes through as a Word table only when each of its cells fits on one line and one of its columns holds figures, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
+    // guides/catalog.ts, the add-text guide's pointer to PDF to Word
+    "The page layout is not recreated, words are set in standard Office fonts, and only a table whose cells each fit on one line, with a column of figures, comes through as a Word table, so it suits documents where the words matter more than the look.",
+  ];
+  /** One per shape, each walking past the shipped wording. */
+  const SYNONYMS = [
+    "A wrapped table is not laid out as a single Word table.",
+    "The rows around a wrapped cell come through as a smaller table.",
+    "A table with wrapped cells comes through only as a smaller table.",
+    "It becomes a Word table only when each of its cells fits on one line.",
+    "Only tables whose cells fit on one line come through as Word tables.",
+  ];
+  /** PR-1's interim sentences, which neither side may catch. */
+  const HONEST = [
+    "A table whose cells each fit on one line, with at least three rows and a column of figures such as amounts, quantities or dates, comes through as a Word table, each value in the column it sits under and an empty cell left empty; other tables come through one row per paragraph, their cells separated by tabs, and a table whose cells wrap onto further lines may come through as one Word table, each wrapped cell kept in its row, or as a smaller table and lines of text, or as lines of text alone.",
+    "A table whose cells wrap onto further lines may come through as one Word table, each wrapped cell kept in its row, or as a smaller table and lines of text, or as lines of text alone.",
+    "Other tables come through as lines of text, their cells separated by tabs, and a table whose cells wrap onto further lines may come through as one Word table, each wrapped cell kept in its row, or as a smaller table and lines of text, or as lines of text alone.",
+    "Headings keep their bold and size but not a Word heading style, lists arrive as lines of text, and a table comes through as a Word table only when it has at least three rows and one of its columns holds figures, and one whose cells wrap onto further lines may come through whole, in part or as lines of text, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
+    "The page layout is not recreated, words are set in standard Office fonts, and only a table with at least three rows and a column of figures comes through as a Word table (one whose cells wrap onto further lines may come through whole, in part or as lines of text), so it suits documents where the words matter more than the look.",
+  ];
+  const OVERCLAIMS_WRAPS: Record<string, RegExp> = {
+    "every wrapped cell stays in its row":
+      /\b(?:every|any|all|each) wrapped cells? (?:stays?|is kept|are kept|remains?) in (?:its|their) rows?\b/i,
+    "wrapped cells in any column":
+      /\bwrap\w*\b[^.;]{0,80}?\bin (?:any|every|all) columns?\b/i,
+    "always one Word table":
+      /\bwrap\w*\b[^.;]{0,60}?\balways comes? through as (?:one|a single|a) Word table\b/i,
+    // Definite (no "may") and silent about the first column, which a wrap
+    // still ends (S6).
+    "a definite 'stays in its row'":
+      /^(?!.*\bfirst column\b)(?!.*\bmay\b).*\b(?:stays?|is kept|are kept|remains?) in (?:its|their) rows?\b/i,
+  };
+  /** The sentence a rewrite would ship, one per shape, and a synonym each. */
+  const OVERCLAIM_WRAPS_SHIPPED = [
+    "Every wrapped cell stays in its row, as one paragraph.",
+    "A table whose cells wrap, in any column, comes through as one Word table.",
+    "A table with wrapped cells always comes through as one Word table.",
+    "A cell whose text continues onto the lines below it stays in its row, as one paragraph.",
+  ];
+  const OVERCLAIM_WRAPS_SYNONYMS = [
+    "All wrapped cells are kept in their rows.",
+    "Cells that wrap in every column are kept whole.",
+    "Tables whose cells wrap always come through as a single Word table.",
+    "A wrapped cell remains in its row.",
+  ];
+  const denies = (t: string) =>
+    Object.values(DENIES_WRAPS).some((re) => re.test(t));
+  const overclaims = (t: string) =>
+    Object.values(OVERCLAIMS_WRAPS).some((re) => re.test(t));
+
+  it("both corpora, both ways: every shape catches a sentence, every sentence is caught, and the interim ones pass", () => {
+    for (const [name, re] of Object.entries(DENIES_WRAPS))
+      expect(
+        [...SHIPPED, ...SYNONYMS].some((c) => re.test(c)),
+        `${name} catches nothing shipped`,
+      ).toBe(true);
+    expect([...SHIPPED, ...SYNONYMS].filter((c) => !denies(c))).toEqual([]);
+    expect(HONEST.filter(denies)).toEqual([]);
+    for (const [name, re] of Object.entries(OVERCLAIMS_WRAPS))
+      expect(
+        [...OVERCLAIM_WRAPS_SHIPPED, ...OVERCLAIM_WRAPS_SYNONYMS].some((c) =>
+          re.test(c),
+        ),
+        `${name} catches nothing`,
+      ).toBe(true);
+    expect(
+      [...OVERCLAIM_WRAPS_SHIPPED, ...OVERCLAIM_WRAPS_SYNONYMS].filter(
+        (c) => !overclaims(c),
+      ),
+    ).toEqual([]);
+    expect(HONEST.filter(overclaims)).toEqual([]);
+    // Each shipped denial is a denial and nothing else: not an overclaim.
+    expect(SHIPPED.filter(overclaims)).toEqual([]);
+  });
+
+  async function offenders(test: (t: string) => boolean): Promise<string[]> {
+    const out: string[] = [];
+    for (const container of await containersFor(PDF_TO_WORD_TOOL))
+      for (const { sentence, masked } of attributedTo(
+        container,
+        PDF_TO_WORD_TOOL,
+      ))
+        if (test(masked)) out.push(`${container.where}: ${sentence}`);
+    return out;
+  }
+
+  type Tbl = Extract<
+    Awaited<ReturnType<typeof readDocxStructure>>["blocks"][number],
+    { kind: "tbl" }
+  >;
+  const cell = (t: Tbl, r: number, c: number) =>
+    (t.rows[r]?.cells[c]?.blocks ?? [])
+      .flatMap((b) => (b.kind === "p" ? b.runs : []))
+      .map((x) => x.text)
+      .join("");
+  const paragraphsIn = (t: Tbl, r: number, c: number) =>
+    (t.rows[r]?.cells[c]?.blocks ?? []).filter((b) => b.kind === "p").length;
+  /** The engine's tables for `pdf`, read through `extractFlow`. */
+  async function tablesThrough(
+    pdf: Uint8Array,
+    extractFlow: Parameters<typeof runPdfOfficeExport>[2]["extractFlow"],
+  ): Promise<Tbl[]> {
+    const run = await runPdfOfficeExport(PDF_TO_WORD_TOOL, pdf, {
+      extractFlow,
+      scanPages: noPictures,
+    });
+    if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
+    return (await readDocxStructure(run.output)).blocks.filter(
+      (b): b is Tbl => b.kind === "tbl",
+    );
+  }
+  const PDF_HEADER = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+
+  it("the page denies wrapped cells only while the probe's export is not whole, and never overclaims while a first-column wrap is not", async () => {
+    const {
+      IMAGE_DOCX_TABLE_WRAPS_PROBE_BBOX,
+      IMAGE_ACADEMIC_LABEL_WRAP_BBOX,
+    } = await import("@/tests/poppler-samples-image");
+    const p = DOCX_TABLE_WRAPS_PROBE;
+
+    // S1, the probe page, on the IMAGE's poppler.
+    const s1 = await tablesThrough(PDF_HEADER, async () =>
+      flowText(parseBboxFlow(IMAGE_DOCX_TABLE_WRAPS_PROBE_BBOX)),
+    );
+    // Health: measured 2026-11-16, one table of 5 rows x 3 columns.
+    expect(s1.map((t) => t.rows.length)).toEqual([5]);
+    const whole =
+      s1.length === 1 &&
+      s1[0]!.gridCols.length === 3 &&
+      cell(s1[0]!, 2, 1) === `${p.rows[2][1]} ${p.wraps[2].join(" ")}` &&
+      cell(s1[0]!, 3, 1) === `${p.rows[3][1]} ${p.wraps[3].join(" ")}` &&
+      paragraphsIn(s1[0]!, 2, 1) === 1 &&
+      paragraphsIn(s1[0]!, 3, 1) === 1 &&
+      cell(s1[0]!, 4, 2) === p.rows[4][2];
+    expect(whole).toBe(true);
+    const deniers = await offenders(denies);
+    expect(
+      deniers,
+      whole
+        ? "the probe's .docx keeps each wrapped cell in its row — no sentence may deny it"
+        : "the probe's .docx is not whole — the page must say so",
+    ).toEqual(whole ? [] : deniers.length ? deniers : ["(none)"]);
+
+    // A labelled STAND-IN pin, beside the image's: the same page through
+    // the stand-in extractor (`flowStandIn`) gives the same table.
+    const standIn = await tablesThrough(
+      await docxTableWrapsProbePdf(),
+      flowStandIn,
+    );
+    expect(standIn.map((t) => t.rows.length)).toEqual([5]);
+
+    // S6, a wrap in the FIRST column, on the image's poppler: the rows
+    // above it are a table, the continuation and the rows below are not.
+    const s6 = await tablesThrough(PDF_HEADER, async () =>
+      flowText(parseBboxFlow(IMAGE_ACADEMIC_LABEL_WRAP_BBOX)),
+    );
+    // Health: measured 2026-11-16, one table of the 3 rows above the wrap.
+    expect(s6.map((t) => t.rows.length)).toEqual([3]);
+    const s6Whole = s6.length === 1 && s6[0]!.rows.length >= 5;
+    expect(s6Whole).toBe(false);
+    if (!s6Whole) expect(await offenders(overclaims)).toEqual([]);
+
+    // Positive controls, through the same attribution the live check uses.
+    const caught = attributedTo(
+      { where: "control", home: PDF_TO_WORD_TOOL, texts: SHIPPED },
+      PDF_TO_WORD_TOOL,
+    ).filter(({ masked }) => denies(masked));
+    expect(caught).toHaveLength(SHIPPED.length);
+    const over = attributedTo(
+      {
+        where: "control",
+        home: PDF_TO_WORD_TOOL,
+        texts: OVERCLAIM_WRAPS_SHIPPED,
+      },
+      PDF_TO_WORD_TOOL,
+    ).filter(({ masked }) => overclaims(masked));
+    expect(over).toHaveLength(OVERCLAIM_WRAPS_SHIPPED.length);
+    // And the interim sentences ARE on the page: the attribution reaches
+    // each one (a rule over a set that lost them would pass vacuously).
+    const served = (
+      await Promise.all(
+        (await containersFor(PDF_TO_WORD_TOOL)).map(async (c) =>
+          attributedTo(c, PDF_TO_WORD_TOOL).map((a) => a.sentence),
+        ),
+      )
+    ).flat();
+    for (const sentence of HONEST)
+      expect(served, `not served: ${sentence.slice(0, 60)}`).toContain(
+        sentence,
+      );
+  }, 120_000);
+});
+
 /* ------------------------------------------------------------------ *
  *  Compare PDF marks the changes on the pages — a capability that EXISTS.
  * ------------------------------------------------------------------ */
@@ -3870,7 +4127,10 @@ describe("PDF to Word: the typeface sentences hold of the engine", () => {
     "The conversion carries the PDF's selectable text into Word as paragraphs in reading order, each word keeping its bold, italics, size and colour where they can be matched and set in a font that comes with Windows or Office, a substitute of the same kind as the PDF's where its kind can be told, so you edit the words instead of retyping them — the page layout is not rebuilt.",
     "Open the downloaded DOCX in Word and finish the formatting — the words arrive as paragraphs in reading order, with their bold, italics, sizes and colours where they could be matched, each set in a font that comes with Windows or Office, a substitute of the same kind as the PDF's where its kind can be told.",
     "Partly. It holds the PDF's words and pictures and each word's bold, italics, size and colour where they can be matched, in standard Office fonts, not its layout.",
-    "The page layout is not recreated, words are set in standard Office fonts, and only a table whose cells each fit on one line, with a column of figures, comes through as a Word table, so it suits documents where the words matter more than the look.",
+    // Until 2026-11-16 (#28 slice 3, wraps) this said "only a table whose
+    // cells each fit on one line, with a column of figures, comes through
+    // as a Word table" — now a denial (the wrapped-cell describe above).
+    "The page layout is not recreated, words are set in standard Office fonts, and only a table with at least three rows and a column of figures comes through as a Word table (one whose cells wrap onto further lines may come through whole, in part or as lines of text), so it suits documents where the words matter more than the look.",
     "Turn PDF text and pictures into editable Word (DOCX) in reading order and Office fonts.",
   ];
   /**
