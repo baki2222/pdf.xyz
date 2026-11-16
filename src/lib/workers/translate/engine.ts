@@ -13,6 +13,7 @@ import {
 import {
   hasTranslatableText,
   translatePageBlocks,
+  tallySentPages,
   type TranslateExtracted,
   type TranslateExtractor,
 } from "./reading-order";
@@ -611,7 +612,7 @@ export async function runTranslate(
   // goes to the model in place of its `text`: the reading-order gate runs
   // HERE, once, at the point of consumption (`./reading-order`). Every bound
   // below still weighs `text`.
-  const { blocks: pageBlocks, tally: readingTally } = translatePageBlocks(
+  const { blocks: pageBlocks, outcomes: readingOutcomes } = translatePageBlocks(
     extracted.pages,
   );
 
@@ -714,6 +715,27 @@ export async function runTranslate(
    * counts the call that failed and not the segments after it.
    */
   let sentCharacters = 0;
+  /**
+   * Pages literally put on the wire, by the same rule as `sentCharacters`:
+   * added BEFORE the call. `readingOrder`'s page counts are taken over THESE
+   * — never over every text page, which would count withheld, oversize and
+   * post-interruption pages as sent (the S3 review finding, 2026-11-16).
+   */
+  const sentPages: number[] = [];
+
+  /** Which text the calls made so far sent: page counts over `sentPages`. */
+  const readingOrderSoFar = (): AiReadingOrderMeta => {
+    const sent = tallySentPages(readingOutcomes, sentPages);
+    return {
+      // An extractor with no flow reader (any plain `PdfTextExtractor`)
+      // made no second run.
+      source: extracted.readingOrder?.source ?? "not_run",
+      flowPages: sent.flowPages,
+      layoutPages: sent.layoutPages,
+      fellBack: { ...sent.fellBack },
+      sentCharacters,
+    };
+  };
 
   /**
    * What every return below this point carries: the window, and the usage of
@@ -739,20 +761,13 @@ export async function runTranslate(
       : {}),
     // Explicit, never spread conditionally: a dropped optional field is
     // invisible at every hop (the heartbeat fingerprint lesson).
-    readingOrder: {
-      // An extractor with no flow reader (any plain `PdfTextExtractor`)
-      // made no second run.
-      source: extracted.readingOrder?.source ?? "not_run",
-      flowPages: readingTally.flowPages,
-      layoutPages: readingTally.layoutPages,
-      fellBack: { ...readingTally.fellBack },
-      sentCharacters,
-    },
+    readingOrder: readingOrderSoFar(),
   });
 
   for (const [i, segment] of segments.entries()) {
     const many = segments.length > 1;
     sentCharacters += segment.text.length;
+    sentPages.push(...segment.pages);
     const completion = await provider.complete({
       system: buildSystemPrompt(options, window),
       messages: [

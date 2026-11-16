@@ -178,19 +178,66 @@ export interface TranslatePageBlock {
   send?: string;
 }
 
-/** How the document's text pages were sent, by reason. Bounded integers. */
+/**
+ * How text pages go (or went) out, by reason. Bounded integers. Over every
+ * text page from {@link translatePageBlocks}; over the pages actually sent
+ * from {@link tallySentPages}.
+ */
 export interface ReadingOrderTally {
-  /** Text pages sent as flow. */
+  /** Text pages as flow. */
   flowPages: number;
-  /** Text pages sent as `-layout`: no flow text, or a gate failed. */
+  /** Text pages as `-layout`: no flow text, or a gate failed. */
   layoutPages: number;
   /** Pages that HAD flow text and fell back, by the first gate that failed. */
   fellBack: { ink: number; longer: number; rtl: number };
 }
 
+/**
+ * How ONE text page would be sent: as flow, as `-layout` with no flow text
+ * to offer, or as `-layout` because the named gate failed.
+ */
+export type ReadingOrderOutcome = "flow" | "layout" | "ink" | "longer" | "rtl";
+
 export interface TranslatePageBlocks {
   blocks: TranslatePageBlock[];
+  /**
+   * Over EVERY text page of the document, before the delivery cap and before
+   * any call is made — what the gate decided, not what was sent. The engine
+   * records {@link tallySentPages} instead: a withheld page, an oversize page
+   * and a page after an interruption are in here and were never sent.
+   */
   tally: ReadingOrderTally;
+  /** Each text page's outcome, by page number: the input to {@link tallySentPages}. */
+  outcomes: ReadonlyMap<number, ReadingOrderOutcome>;
+}
+
+/**
+ * The tally over the pages ACTUALLY SENT — `results.ai.readingOrder`'s
+ * `flowPages`/`layoutPages`/`fellBack`. A page counts once its segment is
+ * put on the wire (the failing call of an interruption included, exactly as
+ * `sentCharacters` counts it); a page with no outcome (not a text page) is
+ * not counted.
+ */
+export function tallySentPages(
+  outcomes: ReadonlyMap<number, ReadingOrderOutcome>,
+  sentPages: Iterable<number>,
+): ReadingOrderTally {
+  const tally: ReadingOrderTally = {
+    flowPages: 0,
+    layoutPages: 0,
+    fellBack: { ink: 0, longer: 0, rtl: 0 },
+  };
+  for (const page of new Set(sentPages)) {
+    const outcome = outcomes.get(page);
+    if (outcome === undefined) continue;
+    if (outcome === "flow") {
+      tally.flowPages += 1;
+      continue;
+    }
+    tally.layoutPages += 1;
+    if (outcome !== "layout") tally.fellBack[outcome] += 1;
+  }
+  return tally;
 }
 
 /**
@@ -207,6 +254,7 @@ export function translatePageBlocks(
     fellBack: { ink: 0, longer: 0, rtl: 0 },
   };
   const blocks: TranslatePageBlock[] = [];
+  const outcomes = new Map<number, ReadingOrderOutcome>();
   for (const page of pages) {
     // pageTextChunks' own rule, applied to the same text: normalise, then
     // keep only pages with text. `send` can never add a page.
@@ -214,6 +262,7 @@ export function translatePageBlocks(
     if (text.length === 0) continue;
     if (page.send === undefined) {
       tally.layoutPages += 1;
+      outcomes.set(page.pageNumber, "layout");
       blocks.push({ pageNumber: page.pageNumber, text });
       continue;
     }
@@ -228,14 +277,16 @@ export function translatePageBlocks(
             : null;
     if (reason === null) {
       tally.flowPages += 1;
+      outcomes.set(page.pageNumber, "flow");
       blocks.push({ pageNumber: page.pageNumber, text, send });
     } else {
       tally.fellBack[reason] += 1;
       tally.layoutPages += 1;
+      outcomes.set(page.pageNumber, reason);
       blocks.push({ pageNumber: page.pageNumber, text });
     }
   }
-  return { blocks, tally };
+  return { blocks, tally, outcomes };
 }
 
 /**

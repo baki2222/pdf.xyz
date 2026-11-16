@@ -184,11 +184,15 @@ export interface AiReadingOrderMeta {
    * page carried flow; `not_run`: no flow run was made.
    */
   source: "flow" | "bbox_failed" | "page_count" | "not_run";
-  /** Text pages sent as flow. */
+  /**
+   * Text pages SENT as flow: pages whose segment was put on the wire (the
+   * failing call of an interruption included, as `sentCharacters` counts
+   * it). Withheld, oversize and post-interruption pages are not counted.
+   */
   flowPages: number;
-  /** Text pages sent as `-layout`. */
+  /** Text pages SENT as `-layout`, by the same rule. */
   layoutPages: number;
-  /** Pages that had flow text and fell back to `-layout`, by first failing gate. */
+  /** Of the sent `-layout` pages, those that had flow text and fell back, by first failing gate. */
   fellBack: { ink: number; longer: number; rtl: number };
   /** Characters literally sent between the prompt's delimiters, over the calls made. */
   sentCharacters: number;
