@@ -230,12 +230,12 @@ import {
   portalSafeKb,
   sizeSpelling,
 } from "@/lib/pdf/size-targets";
+import { SPLIT_SIZE_LABEL } from "@/lib/pdf/split-size";
 import {
-  SPLIT_SIZE_LABEL,
   splitPortalSafeMb,
   splitTypedMb,
   typeableInSplit,
-} from "@/lib/pdf/split-size";
+} from "@/lib/pdf/split-size-guide";
 import { SPLIT_MODE_LABEL } from "@/lib/pdf/offered-kinds";
 import { modeUploadsFiles } from "@/lib/tools/processing-split";
 import type { GuideSizeTable } from "./types";
