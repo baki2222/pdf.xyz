@@ -2379,7 +2379,7 @@ export const guides: Guide[] = [
     slug: "how-to-convert-markdown-to-pdf",
     title: "How to convert Markdown to PDF",
     description:
-      "Paste Markdown or pick a .md file and get a typeset PDF — headings, lists, quotes and code — made in your browser, so nothing leaves your device.",
+      "Paste Markdown or pick a .md file and get a typeset PDF — headings, lists, quotes, code and tables — made in your browser, so nothing leaves your device.",
     tools: ["markdown-to-pdf", "text-to-pdf", "pdf-to-markdown"],
     keywords: [
       "markdown to pdf",
@@ -2389,7 +2389,7 @@ export const guides: Guide[] = [
       "markdown pdf converter",
     ],
     intro: [
-      "To turn Markdown into a PDF, open the Markdown to PDF tool, paste your Markdown or pick a .md file, and create the PDF. Headings, lists, quotes and code blocks are typeset into pages right in your browser.",
+      "To turn Markdown into a PDF, open the Markdown to PDF tool, paste your Markdown or pick a .md file, and create the PDF. Headings, lists, quotes, code blocks and tables are typeset into pages right in your browser.",
       "Nothing is sent to a server: the text stays on your device from start to finish, and there is no account to create.",
       "This guide lists the Markdown the tool supports, what the finished page looks like, and when Text to PDF is the simpler choice.",
     ],
@@ -2438,7 +2438,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-11-08",
+    updated: "2026-11-16",
   },
   {
     slug: "how-to-redact-a-pdf",

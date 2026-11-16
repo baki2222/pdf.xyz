@@ -1506,8 +1506,12 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
     case "overlay":
       return [
         {
+          // CHANGED 2026-11-17: said "its first page is drawn over every page
+          // of your document", false of three paging modes and of Selected
+          // pages. Not served while the page has authored content (pageFaq
+          // keeps only factFaq beside it), so this is the fallback answer.
           question: "Can I add a letterhead or logo to every page?",
-          answer: `Yes. Save it as a PDF and add it as the overlay: its first page is drawn over every page of your document. With a multi-page overlay you choose how its pages map to yours: ${overlayPagingLabels}.`,
+          answer: `Yes. Save it as a PDF and add it as the overlay. A one-page overlay is drawn over every page of your document, or only the pages you list. With a multi-page overlay you choose how its pages map to yours: ${overlayPagingLabels}.`,
         },
         {
           question: "How is the overlay sized on each page?",

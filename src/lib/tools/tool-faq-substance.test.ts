@@ -1740,8 +1740,14 @@ describe("the remaining in-browser tools answer what their engines do", () => {
       const sized = answer(tool.slug, /sized/);
       for (const f of OVERLAY_FITS)
         expect(sized).toContain(`${f.label}: ${f.hint}`);
-      expect(answer(tool.slug, /letterhead/)).toMatch(
-        /first page is drawn over every page/,
+      // INVERTED 2026-11-17 (stale page claims): this pinned "its first page
+      // is drawn over every page", which the paging modes made false of three
+      // modes of four and the page choice of every page. The answer now says
+      // what a ONE-page overlay does, and the old claim must not come back.
+      const letterhead = answer(tool.slug, /letterhead/);
+      expect(letterhead).not.toMatch(/first page is drawn over every page/);
+      expect(letterhead).toMatch(
+        /one-page overlay is drawn over every page[^.]*only the pages you list/,
       );
     }
   });

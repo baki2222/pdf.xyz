@@ -143,7 +143,7 @@ const content: ToolContent = {
   seoTitle: "Markdown to PDF — Convert .md Files, No Upload",
 
   metaDescription:
-    "Turn a .md file or pasted Markdown into a clean PDF with headings, lists, quotes and code blocks — typeset in your browser, never uploaded.",
+    "Turn a .md file or pasted Markdown into a clean PDF with headings, lists, quotes, code, tables and web links — typeset in your browser, never uploaded.",
 
   intro: [
     "Paste Markdown into the editor or drop in a .md, .markdown or .mdown file, and pdf.xyz typesets it as a US Letter PDF with real, selectable text. For Western European text, # headings are bold and step down in size from level 1 to level 6; list items are indented, nested ones further; > quotes are italic with an accent bar running down their left side; and fenced code is set in a monospaced face, under its language tag when it has one. The foot of each page shows its number and the total page count, and the file name without its extension appears small at the top of page one and becomes the PDF's document title.",
