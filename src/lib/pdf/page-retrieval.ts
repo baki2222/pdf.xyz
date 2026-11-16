@@ -14,8 +14,10 @@
  * NEVER WORSE THAN THE PREFIX, by construction (brief D3): the result is
  * `"prefix"` (the caller sends exactly main's `slice(0, maxChars)`) whenever
  * the Segmenter is missing, no page scores and no cited page lies outside the
- * prefix window, or every page the selection would send is a page the prefix
- * window already touches. Retrieval runs only when it adds a page main would
+ * prefix window, no page carries more than {@link CHAT_RETRIEVAL_MIN_COVERAGE}
+ * of the question's informative terms (and no cited page lies outside), or
+ * every page the selection would send is a page the prefix window already
+ * touches. Retrieval runs only when it adds a page main would
  * not have sent. `page-retrieval.eval.test.ts` holds that per case.
  */
 import { CHAT_RETRIEVAL_ANCHOR_SHARE } from "./chat-retrieval-anchor";
@@ -46,6 +48,22 @@ export const BM25_K1 = 1.2;
 export const BM25_B = 0.75;
 
 /**
+ * The share of the question's informative terms a page must carry, MORE than
+ * which, before it may be chosen by relevance (a page the previous answer
+ * cited needs none). Below it a page is a lexical false positive: one word of
+ * a paraphrased question that happens to recur somewhere else. Such a page
+ * would displace an opening page main's prefix sends, so it is never chosen,
+ * and a question whose every match is that weak stays on main's prefix
+ * (`reason: "low-coverage"`).
+ *
+ * Strictly more than half: with two informative terms a page needs both,
+ * with three it needs two, with four it needs three. Not a taste either:
+ * `page-retrieval.eval.test.ts` holds class C (early fact, asked in other
+ * words) never below main, and sweeps this value beside the anchor share.
+ */
+export const CHAT_RETRIEVAL_MIN_COVERAGE = 1 / 2;
+
+/**
  * A Latin and a Bengali word. Two jobs: the full-ICU health check in
  * {@link wordSegmenterAvailable} (a small-ICU build does not segment the
  * Bengali run as a word), and the marker the bundle check greps for, because
@@ -62,6 +80,7 @@ export type PrefixReason =
   | "no-segmenter"
   | "no-budget"
   | "no-signal"
+  | "low-coverage"
   | "contained"
   | "over-budget";
 
@@ -92,8 +111,12 @@ export type SelectPagesInput = {
   separator: string;
   /** Defaults to {@link CHAT_RETRIEVAL_ANCHOR_SHARE}; the sweep varies it. */
   anchorShare?: number;
+  /** Defaults to {@link CHAT_RETRIEVAL_MIN_COVERAGE}; the sweep varies it. */
+  minCoverage?: number;
   /** Precomputed {@link bm25Scores} for the same chunks and query. */
   scores?: ReadonlyMap<number, number>;
+  /** Precomputed {@link queryCoverage} for the same chunks and query. */
+  coverage?: ReadonlyMap<number, number>;
 };
 
 /**
@@ -149,6 +172,64 @@ function pageBody(text: string): string {
 }
 
 /**
+ * BM25 and coverage from one pass over the page bodies: the score of every
+ * page, and the share of the query's INFORMATIVE terms (distinct terms with
+ * an IDF above 0) that occur on it. A term absent from the document, or on
+ * more than half its pages, is not informative and counts on neither side.
+ */
+function scoreIndex(
+  chunks: readonly PageChunk[],
+  queryTerms: readonly string[],
+): { scores: Map<number, number>; coverage: Map<number, number> } {
+  const scores = new Map<number, number>();
+  const matched = new Map<number, number>();
+  for (const chunk of chunks) {
+    scores.set(chunk.pageNumber, 0);
+    matched.set(chunk.pageNumber, 0);
+  }
+  const coverageOf = (informative: number) =>
+    new Map(
+      [...matched].map(([page, hits]) => [
+        page,
+        informative === 0 ? 0 : hits / informative,
+      ]),
+    );
+  const docs = chunks.map((chunk) => tokenize(pageBody(chunk.text)));
+  const total = docs.reduce((sum, doc) => sum + doc.length, 0);
+  if (chunks.length === 0 || total === 0)
+    return { scores, coverage: coverageOf(0) };
+  const average = total / docs.length;
+  const frequencies = docs.map((doc) => {
+    const counts = new Map<string, number>();
+    for (const term of doc) counts.set(term, (counts.get(term) ?? 0) + 1);
+    return counts;
+  });
+  const n = chunks.length;
+  let informative = 0;
+  for (const term of new Set(queryTerms)) {
+    let df = 0;
+    for (const counts of frequencies) if (counts.has(term)) df += 1;
+    if (df === 0) continue;
+    const idf = Math.max(0, Math.log((n - df + 0.5) / (df + 0.5)));
+    if (idf === 0) continue;
+    informative += 1;
+    chunks.forEach((chunk, i) => {
+      const tf = frequencies[i]!.get(term) ?? 0;
+      if (tf === 0) return;
+      const norm =
+        BM25_K1 * (1 - BM25_B + (BM25_B * docs[i]!.length) / average);
+      scores.set(
+        chunk.pageNumber,
+        scores.get(chunk.pageNumber)! +
+          (idf * tf * (BM25_K1 + 1)) / (tf + norm),
+      );
+      matched.set(chunk.pageNumber, matched.get(chunk.pageNumber)! + 1);
+    });
+  }
+  return { scores, coverage: coverageOf(informative) };
+}
+
+/**
  * BM25 over the page bodies, every page present in the result (0 when no
  * query term occurs on it). IDF is Robertson's, clamped at 0:
  * `max(0, ln((N − n + 0.5) / (n + 0.5)))`, so a term on more than half the
@@ -160,37 +241,18 @@ export function bm25Scores(
   chunks: readonly PageChunk[],
   queryTerms: readonly string[],
 ): Map<number, number> {
-  const scores = new Map<number, number>();
-  for (const chunk of chunks) scores.set(chunk.pageNumber, 0);
-  const docs = chunks.map((chunk) => tokenize(pageBody(chunk.text)));
-  const total = docs.reduce((sum, doc) => sum + doc.length, 0);
-  if (chunks.length === 0 || total === 0) return scores;
-  const average = total / docs.length;
-  const frequencies = docs.map((doc) => {
-    const counts = new Map<string, number>();
-    for (const term of doc) counts.set(term, (counts.get(term) ?? 0) + 1);
-    return counts;
-  });
-  const n = chunks.length;
-  for (const term of new Set(queryTerms)) {
-    let df = 0;
-    for (const counts of frequencies) if (counts.has(term)) df += 1;
-    if (df === 0) continue;
-    const idf = Math.max(0, Math.log((n - df + 0.5) / (df + 0.5)));
-    if (idf === 0) continue;
-    chunks.forEach((chunk, i) => {
-      const tf = frequencies[i]!.get(term) ?? 0;
-      if (tf === 0) return;
-      const norm =
-        BM25_K1 * (1 - BM25_B + (BM25_B * docs[i]!.length) / average);
-      scores.set(
-        chunk.pageNumber,
-        scores.get(chunk.pageNumber)! +
-          (idf * tf * (BM25_K1 + 1)) / (tf + norm),
-      );
-    });
-  }
-  return scores;
+  return scoreIndex(chunks, queryTerms).scores;
+}
+
+/**
+ * The share (0..1) of the query's informative terms that occur on each page.
+ * See {@link CHAT_RETRIEVAL_MIN_COVERAGE} for what it decides.
+ */
+export function queryCoverage(
+  chunks: readonly PageChunk[],
+  queryTerms: readonly string[],
+): Map<number, number> {
+  return scoreIndex(chunks, queryTerms).coverage;
 }
 
 /** The query: the question plus the last user turn. */
@@ -207,7 +269,8 @@ export function queryTermsFor(
  * The pages to send for this question, or `"prefix"` when retrieval would
  * not add a page main's prefix lacks. Greedy and whole-page: the anchor
  * (opening chunks within `anchorShare × budget`), then the cited pages
- * ascending, then pages by score (ties to the lower page), then the opening
+ * ascending, then pages by score (ties to the lower page) among those that
+ * carry more than `minCoverage` of the informative terms, then the opening
  * run continued with whatever budget is left. One page may be cut: the first
  * candidate, when no candidate fits whole and it would be the highest page
  * sent.
@@ -219,9 +282,12 @@ export function selectPages(input: SelectPagesInput): PageSelection {
     return { strategy: "prefix", reason: "no-segmenter" };
   if (!(budget > 0)) return { strategy: "prefix", reason: "no-budget" };
 
-  const scores =
-    input.scores ??
-    bm25Scores(chunks, queryTermsFor(input.question, input.lastUserTurn));
+  const index =
+    input.scores && input.coverage
+      ? { scores: input.scores, coverage: input.coverage }
+      : scoreIndex(chunks, queryTermsFor(input.question, input.lastUserTurn));
+  const { scores, coverage } = index;
+  const minCoverage = input.minCoverage ?? CHAT_RETRIEVAL_MIN_COVERAGE;
   const byPage = new Map(chunks.map((chunk) => [chunk.pageNumber, chunk]));
   const seeds = [...new Set(input.seedPages)]
     .filter((page) => byPage.has(page))
@@ -236,6 +302,13 @@ export function selectPages(input: SelectPagesInput): PageSelection {
     .map((chunk) => chunk.pageNumber);
   if (scored.length === 0 && seeds.every((page) => prefixPages.has(page)))
     return { strategy: "prefix", reason: "no-signal" };
+  // Only a page carrying more than `minCoverage` of the question's
+  // informative terms may displace an opening page.
+  const confident = scored.filter(
+    (page) => (coverage.get(page) ?? 0) > minCoverage,
+  );
+  if (confident.length === 0 && seeds.every((page) => prefixPages.has(page)))
+    return { strategy: "prefix", reason: "low-coverage" };
 
   const selected = new Map<number, string>();
   let used = 0;
@@ -266,7 +339,7 @@ export function selectPages(input: SelectPagesInput): PageSelection {
     if (!tryAdd(chunk.pageNumber, anchorBudget)) break;
 
   // 2. The candidates: cited pages, then pages by score.
-  const candidates = [...new Set([...seeds, ...scored])];
+  const candidates = [...new Set([...seeds, ...confident])];
   let candidateAdded = false;
   for (const page of candidates)
     if (tryAdd(page, budget)) candidateAdded = true;
@@ -346,7 +419,7 @@ export type RetrievedGrounding =
 
 export type RetrieveGroundingInput = Omit<
   SelectPagesInput,
-  "prefixPages" | "budget" | "scores"
+  "prefixPages" | "budget" | "scores" | "coverage"
 > & {
   maxChars: number;
   /**
@@ -387,8 +460,8 @@ export function retrieveGrounding(
   const listLength =
     input.listLength ?? ((pages) => formatPageSpans(pages).text.length);
   const prefixPages = prefixPagesFor(chunks, separator, maxChars);
-  const scores = wordSegmenterAvailable()
-    ? bm25Scores(chunks, queryTermsFor(input.question, input.lastUserTurn))
+  const index = wordSegmenterAvailable()
+    ? scoreIndex(chunks, queryTermsFor(input.question, input.lastUserTurn))
     : undefined;
 
   let listChars = 0;
@@ -408,7 +481,10 @@ export function retrieveGrounding(
       ...(input.anchorShare !== undefined
         ? { anchorShare: input.anchorShare }
         : {}),
-      ...(scores ? { scores } : {}),
+      ...(input.minCoverage !== undefined
+        ? { minCoverage: input.minCoverage }
+        : {}),
+      ...(index ? { scores: index.scores, coverage: index.coverage } : {}),
     });
     if (selection.strategy === "prefix") return prefix(selection.reason);
     measured = listLength(selection.pages, selection.cutPage);

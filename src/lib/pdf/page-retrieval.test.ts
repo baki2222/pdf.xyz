@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import { formatPageSpans, pageSpans } from "./page-spans";
 import {
   CHAT_RETRIEVAL_MAX_SPANS,
+  CHAT_RETRIEVAL_MIN_COVERAGE,
   bm25Scores,
   prefixPagesFor,
+  queryCoverage,
   retrieveGrounding,
   selectPages,
   tokenize,
@@ -193,6 +195,80 @@ describe("selectPages", () => {
     });
     expect(result.strategy).toBe("prefix");
     expect(result.strategy === "prefix" && result.reason).toBe("contained");
+  });
+
+  it("counts coverage over INFORMATIVE terms only (absent or over-half terms count on neither side)", () => {
+    const chunks = document(100, { 60: "zqone zqtwo", 70: "zqone" });
+    // "alpha" is filler on most pages (IDF 0); "zqabsent" is on none. Two
+    // informative terms remain: zqone and zqtwo.
+    const coverage = queryCoverage(
+      chunks,
+      tokenize("alpha zqabsent zqone zqtwo"),
+    );
+    expect(coverage.get(60)).toBe(1);
+    expect(coverage.get(70)).toBe(1 / 2);
+    expect(coverage.get(5)).toBe(0);
+  });
+
+  it("stays on the prefix when every match carries too few of the question's words (a paraphrase's false positive)", () => {
+    // Review finding: the answer is on page 2 in other words; three of the
+    // question's words each recur on ONE later page. Without the gate the
+    // selector left the prefix for those pages and could drop the opening
+    // page main sends. Each carries 1 of 3 informative terms, ≤ 1/2.
+    const chunks = document(100, {
+      40: "termination",
+      55: "fee",
+      70: "cancellation",
+    });
+    const result = retrieveGrounding({
+      chunks,
+      separator: SEP,
+      question: "What is the termination fee for cancellation?",
+      seedPages: [],
+      maxChars,
+    });
+    expect(result).toEqual({
+      strategy: "prefix",
+      reason: "low-coverage",
+      grounding: chunks
+        .map((c) => c.text)
+        .join(SEP)
+        .slice(0, maxChars),
+    });
+    expect(CHAT_RETRIEVAL_MIN_COVERAGE).toBe(1 / 2);
+    // POSITIVE CONTROL, same document: a page carrying two of the three
+    // words is past the gate and is sent.
+    const twoOfThree = document(100, {
+      40: "termination",
+      55: "fee",
+      70: "cancellation termination",
+    });
+    const sent = retrieveGrounding({
+      chunks: twoOfThree,
+      separator: SEP,
+      question: "What is the termination fee for cancellation?",
+      seedPages: [],
+      maxChars,
+    });
+    expect(sent.strategy === "relevance" && sent.pages).toContain(70);
+    expect(sent.strategy === "relevance" && sent.pages).not.toContain(40);
+  });
+
+  it("a cited page needs no coverage: the follow-up seed is still sent", () => {
+    const chunks = document(100, {
+      40: "termination",
+      55: "fee",
+      70: "cancellation",
+    });
+    const result = retrieveGrounding({
+      chunks,
+      separator: SEP,
+      question: "What is the termination fee for cancellation?",
+      seedPages: [80],
+      maxChars,
+    });
+    expect(result.strategy === "relevance" && result.pages).toContain(80);
+    expect(result.strategy === "relevance" && result.pages).not.toContain(40);
   });
 
   it("breaks score ties by the lower page number", () => {

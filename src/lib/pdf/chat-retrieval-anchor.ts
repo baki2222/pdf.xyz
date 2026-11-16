@@ -19,13 +19,18 @@
  * provider's automatic prefix cache). Change the corpus or the selector and
  * that test says what this must become.
  *
- * Measured 2026-11-16 (overall recall, 56 cases): 0 → 0.75, 1/8 → 0.75,
- * 1/4 → 0.79, 1/3 → 0.80, 1/2 → 0.82. The anchor buys early paraphrased
- * facts (class C: 0.00 at 0, 0.71 at 1/2) and costs late lexical facts
- * whose defined term recurs on other pages (class B: 1.00 at 0, 0.88 at
- * 1/2). The margin is one case; the test, not this paragraph, is the bound.
+ * History. First measured 2026-11-16 WITHOUT a coverage gate (overall
+ * recall, 56 cases): 0 → 0.75, 1/8 → 0.75, 1/4 → 0.79, 1/3 → 0.80,
+ * 1/2 → 0.82, so this was 1/2. The anchor was doing a second job then:
+ * shielding early paraphrased facts (class C: 0.00 at 0, 0.71 at 1/2,
+ * against main's 1.00) from pages that share one word of the question.
+ * Review found C below main; the coverage gate
+ * (`CHAT_RETRIEVAL_MIN_COVERAGE`) now does that job. Re-measured WITH it:
+ * 0, 1/8, 1/4 and 1/3 → 0.88 (every class but the honest-miss D at 1.00),
+ * 1/2 → 0.86 (B 0.88). The tie goes to the larger share, so 1/3. The
+ * margin is one B case; the test, not this paragraph, is the bound.
  */
-export const CHAT_RETRIEVAL_ANCHOR_SHARE = 1 / 2;
+export const CHAT_RETRIEVAL_ANCHOR_SHARE = 1 / 3;
 
 /** The shares the anchor sweep measures (brief D1). */
 export const CHAT_RETRIEVAL_ANCHOR_SHARES: readonly number[] = [

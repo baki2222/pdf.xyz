@@ -8,6 +8,13 @@
  * It does three jobs:
  *  - never worse than main, per case on early lexical facts (class A) and in
  *    aggregate everywhere, strictly better on late facts (B) and follow-ups (F);
+ *  - class C (an early fact asked in other words) by name: main's prefix
+ *    recalls all of it, and retrieval once recalled 5 of 7 (0.71), because a
+ *    page sharing ONE word of the paraphrase displaced the opening page that
+ *    held the answer. The coverage gate (`CHAT_RETRIEVAL_MIN_COVERAGE`)
+ *    closed that. C is held at or above main with its regressions listed by
+ *    name, and a second sweep re-derives the gate and shows C falling without
+ *    it;
  *  - the D1 sweep, which RE-DERIVES `CHAT_RETRIEVAL_ANCHOR_SHARE` from the
  *    corpus (argmax of overall recall, ties to the larger share) and refuses a
  *    sweep that cannot discriminate between shares;
@@ -22,6 +29,7 @@ import { describe, expect, it } from "vitest";
 import {
   CHAT_RETRIEVAL_ANCHOR_SHARE,
   CHAT_RETRIEVAL_ANCHOR_SHARES,
+  CHAT_RETRIEVAL_MIN_COVERAGE,
   bm25Scores,
   prefixPagesFor,
   queryTermsFor,
@@ -472,7 +480,11 @@ function mainGrounding(c: EvalCase): string {
 
 function run(
   c: EvalCase,
-  options: { anchorShare?: number; select?: typeof prefixOnly } = {},
+  options: {
+    anchorShare?: number;
+    minCoverage?: number;
+    select?: typeof prefixOnly;
+  } = {},
 ): RetrievedGrounding {
   return retrieveGrounding({
     chunks: c.chunks,
@@ -483,6 +495,9 @@ function run(
     maxChars: c.maxChars,
     ...(options.anchorShare !== undefined
       ? { anchorShare: options.anchorShare }
+      : {}),
+    ...(options.minCoverage !== undefined
+      ? { minCoverage: options.minCoverage }
       : {}),
     ...(options.select ? { select: options.select } : {}),
   });
@@ -582,23 +597,29 @@ describe("retrieval eval corpus", () => {
     expect(identical.length, identical.join(", ")).toBeGreaterThanOrEqual(3);
   });
 
-  it("recalls at least as much as main on A, E, F, G and overall, and strictly more on B and F", () => {
-    const regressions = CORPUS.filter(
-      (c) =>
-        c.klass === "E" &&
-        recalled(c, mainGrounding(c)) &&
-        !recalled(c, run(c).grounding),
-    ).map((c) => c.name);
+  it("recalls at least as much as main on A, C, E, F, G and overall, and strictly more on B and F", () => {
+    const regressionsIn = (k: Klass) =>
+      CORPUS.filter(
+        (c) =>
+          c.klass === k &&
+          recalled(c, mainGrounding(c)) &&
+          !recalled(c, run(c).grounding),
+      ).map((c) => c.name);
+    const regressions = { C: regressionsIn("C"), E: regressionsIn("E") };
     const report = `\n${table([
       ["main", MAIN],
       ["ret", RETRIEVAL],
-    ])}\nE-class regressions: ${regressions.join(", ") || "none"}`;
+    ])}\nC-class regressions: ${regressions.C.join(", ") || "none"}\nE-class regressions: ${regressions.E.join(", ") || "none"}`;
     console.log(report);
-    for (const k of ["A", "E", "F", "G", "all"] as const)
+    for (const k of ["A", "C", "E", "F", "G", "all"] as const)
       expect(RETRIEVAL[k], `${k}${report}`).toBeGreaterThanOrEqual(MAIN[k]);
     expect(RETRIEVAL.B, `B${report}`).toBeGreaterThan(MAIN.B);
     expect(RETRIEVAL.F, `F${report}`).toBeGreaterThan(MAIN.F);
-    expect(regressions, report).toEqual([]);
+    expect(regressions, report).toEqual({ C: [], E: [] });
+    // HEALTH: main recalls every C case (early facts; the prefix health check
+    // above holds it), so "C ≥ main" is the strongest bound there is, and a
+    // single C case dropped is red here.
+    expect(MAIN.C, report).toBe(1);
   });
 
   it("POSITIVE CONTROL: a prefix-only selector scores strictly lower on B", () => {
@@ -638,5 +659,41 @@ describe("retrieval eval corpus", () => {
     let best = rows[0]!;
     for (const row of rows) if (row[1].all >= best[1].all) best = row;
     expect(CHAT_RETRIEVAL_ANCHOR_SHARE, printed).toBe(best[0]);
-  });
+  }, 30_000);
+
+  it("COVERAGE SWEEP re-derives CHAT_RETRIEVAL_MIN_COVERAGE (the loosest gate with no class below main and the best overall recall)", () => {
+    const grid = [0, 1 / 4, 1 / 3, 1 / 2, 2 / 3, 1];
+    expect(grid).toContain(CHAT_RETRIEVAL_MIN_COVERAGE);
+    const rows = grid.map(
+      (minCoverage) =>
+        [
+          minCoverage,
+          recallOf((c) => recalled(c, run(c, { minCoverage }).grounding)),
+        ] as const,
+    );
+    const printed = `\nmin coverage → recall per class\n${table([
+      ...rows.map(([value, r]) => [value.toFixed(3), r] as [string, Recall]),
+      ["main", MAIN],
+    ])}`;
+    // Printed on every run so the PR can paste it.
+    console.log(printed);
+    const neverWorse = (r: Recall) =>
+      (["A", "C", "E", "F", "G", "all"] as const).every((k) => r[k] >= MAIN[k]);
+    const eligible = rows.filter(([, r]) => neverWorse(r));
+    expect(
+      eligible.length,
+      `no gate keeps every class at or above main${printed}`,
+    ).toBeGreaterThan(0);
+    const best = Math.max(...eligible.map(([, r]) => r.all));
+    const loosest = eligible.find(([, r]) => r.all === best)![0];
+    expect(CHAT_RETRIEVAL_MIN_COVERAGE, printed).toBe(loosest);
+    // POSITIVE CONTROL: with the gate off (0: any matching page qualifies),
+    // class C falls below main. The corpus can see the defect the gate closes.
+    const off = rows.find(([value]) => value === 0)![1];
+    expect(off.C, printed).toBeLessThan(MAIN.C);
+    // And the gate is not "always send the prefix": fully shut (1), late
+    // lexical facts are lost again.
+    const shut = rows.find(([value]) => value === 1)![1];
+    expect(shut.B, printed).toBeLessThan(RETRIEVAL.B);
+  }, 30_000);
 });
