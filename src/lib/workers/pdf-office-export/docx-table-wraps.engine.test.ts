@@ -12,12 +12,13 @@
  * paragraph per line changes the page's text and the engine's own check
  * refuses the job (the D1 health check, mutation M9's red).
  */
+import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import * as image from "@/tests/poppler-samples-image";
 import { noPictures } from "@/tests/page-scan-stubs";
 import { flowPageText, flowText, type PdfFlowText } from "../pdf-text/flow";
 import { parseBboxFlow } from "../pdf-text/parse";
-import type { DocxDocument, DocxTableBlock } from "./docx-layout";
+import type { DocxDocument } from "./docx-layout";
 import { docxPackage } from "./docx-package";
 import {
   asXmlCarries,
@@ -156,35 +157,45 @@ describe("PDF to Word keeps a wrapped cell in its row (#28 slice 3), on the imag
   });
 
   it("D1 health (M9): an absorbed cell written as one paragraph per line is REFUSED by the engine as incomplete_output", async () => {
+    // CHANGED 2026-11-16 (the copy part's mutation pass). Until then the
+    // split was made in the DocxDocument: the cell became two run lists in
+    // one slot, which the writer joins with a TAB inside ONE w:p — so the
+    // job was refused for a tab, and nothing here wrote two paragraphs
+    // (found by the probe part; its negative (e) edits the XML the same
+    // way). Now the writer's own bytes are edited before the engine's check,
+    // and the file is read back to show the cell really holds two w:p.
     const flow = flowOf(image.IMAGE_DOCX_TABLE_WRAPS_PROBE_BBOX);
-    const splitCell = (doc: DocxDocument): DocxDocument => ({
-      ...doc,
-      pages: doc.pages.map((blocks) =>
-        blocks.map((b) => {
-          if (b.kind !== "table") return b;
-          const t = b as DocxTableBlock;
-          return {
-            ...t,
-            rows: t.rows.map((row) => ({
-              slots: row.slots.map((slot) => {
-                const text = slot?.[0]?.map((r) => r.text).join("") ?? "";
-                if (!text.startsWith("Service visit ")) return slot;
-                return [
-                  [{ text: "Service visit", style: null }],
-                  [{ text: text.slice("Service visit ".length), style: null }],
-                ];
-              }),
-            })),
-          };
-        }),
-      ),
-    });
+    const twoParagraphs = (xml: string) =>
+      xml.replace(
+        ">Service visit Labour and parts Callout fee included</w:t></w:r></w:p>",
+        '>Service visit</w:t></w:r></w:p><w:p><w:r><w:t xml:space="preserve">Labour and parts Callout fee included</w:t></w:r></w:p>',
+      );
+    let written: Uint8Array | null = null;
     const run = await runPdfOfficeExport(PDF_TO_WORD_TOOL, PDF, {
       ...deps(flow),
-      writeDocx: (doc) => docxPackage(splitCell(doc)),
+      writeDocx: async (doc: DocxDocument) => {
+        const out = await docxPackage(doc);
+        const zip = await JSZip.loadAsync(out.bytes);
+        const xml = await zip.file("word/document.xml")!.async("string");
+        const changed = twoParagraphs(xml);
+        if (changed === xml) throw new Error("the edit did not land");
+        zip.file("word/document.xml", changed);
+        written = new Uint8Array(
+          await zip.generateAsync({ type: "uint8array" }),
+        );
+        return { ...out, bytes: written };
+      },
     });
     expect(run.ok).toBe(false);
     if (!run.ok) expect(run.kind).toBe("incomplete_output");
+    // Health of the edit: the refused file's C-300 Description is TWO w:p.
+    expect(written).not.toBeNull();
+    const refused = (await readDocxStructure(written!)).blocks.filter(
+      (b): b is Tbl => b.kind === "tbl",
+    );
+    expect(
+      refused[0]!.rows[3]!.cells[1]!.blocks.filter((b) => b.kind === "p"),
+    ).toHaveLength(2);
     // Health: the same seam without the split delivers.
     const fine = await runPdfOfficeExport(PDF_TO_WORD_TOOL, PDF, {
       ...deps(flow),
