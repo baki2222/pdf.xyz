@@ -41,7 +41,45 @@
  *
  * `honest` holds the static sentences this slice wrote to replace the
  * prefix-only wording; none of them may be caught.
+ *
+ * The model notice is a shipped sentence too, and review found no shape
+ * caught it: "the opening pages and pages chosen by the words they share
+ * with the question" appended to the chat intro passed every test. Its
+ * exemplars are now COMPOSED from the engine's own words
+ * (`chatRelevanceNotice` through `modelTruncationNotice`), so a reworded
+ * notice moves the corpus with it rather than slipping out of it.
+ *
+ * Two shapes ("every page is read / sent", "reads every page") are held by
+ * sentences other tools shipped (an Extract Tables guide answer, the
+ * watermark page), not chat's. Review asked whether that makes them
+ * decoration. They are kept: rule 1 asks that every pattern catch a sentence
+ * the PRODUCT shipped, and these did, in the same files the chat corpus is
+ * drawn from. Said of chat by an image that reads only the opening pages,
+ * either sentence would be false, which is the claim this module bans.
  */
+import {
+  describeSelection,
+  modelTruncationNotice,
+} from "@/lib/workers/ai/truncation";
+import { chatRelevanceNotice } from "@/lib/workers/chat-with-pdf/relevance-notice";
+
+/**
+ * The sentence of chat's relevance model notice that says how the pages were
+ * chosen, exactly as the engine composes it (a 70-page document, pages 1–3
+ * and 60 sent), for one arm of `chatRelevanceNotice`.
+ */
+export function chatModelNoticeSentence(anchored: boolean): string {
+  const notice = modelTruncationNotice(
+    describeSelection(100_000, 8_000, 70, [1, 2, 3, 60], null),
+    () => "",
+    chatRelevanceNotice(anchored),
+  );
+  const line = notice
+    .split("\n")
+    .find((l) => l.startsWith("The text above covers "));
+  if (!line) throw new Error("chat's relevance notice has no covers line");
+  return line;
+}
 
 export interface ChatRetrievalShape {
   readonly name: string;
@@ -69,6 +107,23 @@ export const CHAT_RETRIEVAL_SHAPES: readonly ChatRetrievalShape[] = [
         text: "For a longer file, each question is sent the pages that share the most of its less common words, or the opening pages when none do.",
         source:
           "this slice: chatRetrievalPanelLine(0), src/lib/pdf/chat-retrieval-anchor.ts, the gated panel line's other arm",
+      },
+    ],
+  },
+  {
+    name: "pages chosen by … words / question",
+    pattern:
+      /\bpages? (?:are |were |is |was )?chosen by\b[^.]*\b(?:words?|question)\b/i,
+    shipped: [
+      {
+        text: chatModelNoticeSentence(true),
+        source:
+          "this slice: chatRelevanceNotice(true) via modelTruncationNotice, src/lib/workers/chat-with-pdf/relevance-notice.ts, the model notice's anchor arm",
+      },
+      {
+        text: chatModelNoticeSentence(false),
+        source:
+          "this slice: chatRelevanceNotice(false) via modelTruncationNotice, the model notice's other arm",
       },
     ],
   },

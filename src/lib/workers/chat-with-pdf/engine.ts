@@ -19,6 +19,7 @@ import {
   type TruncationWindow,
 } from "../ai/truncation";
 import { formatPageSpans, formatSpans } from "@/lib/pdf/page-spans";
+import { chatRelevanceNotice } from "./relevance-notice";
 import {
   CHAT_RETRIEVAL_ANCHOR_SHARE,
   retrieveGrounding,
@@ -250,23 +251,6 @@ const DEFAULT_MAX_INPUT_CHARS = CHAT_MAX_CHARACTERS_PER_QUESTION;
 
 /** What joins two page chunks in the grounding. */
 const CHUNK_SEPARATOR = "\n\n";
-
-/**
- * How chat's model notice says a relevance window's pages were chosen. Two
- * arms because "the opening pages and" is true only when the selector
- * reserves an anchor (`CHAT_RETRIEVAL_ANCHOR_SHARE > 0`) and the window
- * actually starts with one.
- */
-function relevanceNotice(anchored: boolean): SelectionNoticeParts {
-  return {
-    chosenBy: anchored
-      ? "the opening pages and pages chosen by the words they share with the question"
-      : "pages chosen by the words they share with the question",
-    revocation:
-      "If the answer is not in these pages, do NOT say the document does not contain it — " +
-      "say which pages you can see and that the answer may be on a page you were not given.",
-  };
-}
 
 /**
  * The characters a relevance notice spends naming its pages: the span list,
@@ -598,7 +582,7 @@ export async function runChatWithPdf(
         retrieved.pages,
         retrieved.cutPage,
       );
-      noticeParts = relevanceNotice(
+      noticeParts = chatRelevanceNotice(
         CHAT_RETRIEVAL_ANCHOR_SHARE > 0 && retrieved.anchorThrough !== null,
       );
     }

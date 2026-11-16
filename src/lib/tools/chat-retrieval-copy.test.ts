@@ -18,8 +18,11 @@
  * `.next` body is held by `src/deploy/chat-retrieval-served.test.ts`, which
  * runs after the build.
  */
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { getToolBySlug } from "@/lib/tools";
+import { chatRelevanceNotice } from "@/lib/workers/chat-with-pdf/relevance-notice";
 import { guides } from "@/lib/guides";
 import { CHAT_TOOL_SLUG } from "@/lib/jobs/chat-with-pdf";
 import {
@@ -41,6 +44,7 @@ import {
 import {
   CHAT_RETRIEVAL_HONEST,
   CHAT_RETRIEVAL_SHAPES,
+  chatModelNoticeSentence,
   chatRetrievalShapesIn,
 } from "./chat-retrieval-claims";
 
@@ -168,5 +172,36 @@ describe("Chat with PDF static copy names the pages read, never how they were ch
     }
     const line = chatRetrievalPanelLine(CHAT_RETRIEVAL_ANCHOR_SHARE);
     expect(SENTENCES.some(({ sentence }) => sentence === line)).toBe(false);
+  });
+
+  it("positive control through the detector: the model notice's sentence, both arms, as the engine composes it", () => {
+    // Review finding (mutation c3): "For a longer file, the model sees the
+    // opening pages and pages chosen by the words they share with the
+    // question." appended to the intro passed every test, because no shape
+    // caught the model notice. Its exemplars are composed from the leaf the
+    // engine sends (`chatRelevanceNotice`), so a reworded notice moves them.
+    for (const anchored of [true, false]) {
+      const sentence = chatModelNoticeSentence(anchored);
+      expect(sentence).toContain(chatRelevanceNotice(anchored).chosenBy);
+      expect(chatRetrievalShapesIn(sentence)).toEqual([
+        "pages chosen by … words / question",
+      ]);
+      // The chosen-by clause alone, as static copy would paraphrase it.
+      expect(
+        chatRetrievalShapesIn(
+          `For a longer file, the model sees ${chatRelevanceNotice(anchored).chosenBy}.`,
+        ),
+      ).toEqual(["pages chosen by … words / question"]);
+    }
+    // The relationship that makes the exemplar the engine's words, not a
+    // copy of them: the engine sends the notice from that leaf.
+    const engine = readFileSync(
+      path.join(process.cwd(), "src/lib/workers/chat-with-pdf/engine.ts"),
+      "utf8",
+    );
+    expect(engine).toMatch(
+      /import \{ chatRelevanceNotice \} from "\.\/relevance-notice";/,
+    );
+    expect(engine).toMatch(/noticeParts = chatRelevanceNotice\(/);
   });
 });
