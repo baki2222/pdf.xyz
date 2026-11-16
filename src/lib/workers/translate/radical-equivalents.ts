@@ -50,9 +50,28 @@
  * on main (pdf.js reads ⽂ both for ⽂ and for a 文 drawn with the same
  * glyph). Every job whose text holds no radical gets the rewrite.
  *
- * ── WHY NOT THE CJK RADICALS SUPPLEMENT (measured 2026-11-16) ───────────────
+ * ── THE CJK RADICALS SUPPLEMENT, ONCE EXCLUDED, NOW MEASURED (2026-11-16) ──
  *
- * The first version also mapped U+2E80–U+2EF3 by the same UCD file. In the
+ * HISTORY. #335 left U+2E80–U+2EF3 alone, for the reason below. The reason
+ * belonged to the MECHANISM (a flat Unicode table), not to the property:
+ * once the target came from per-face measured glyph sharing, SC's ⺕ U+2E95
+ * measures as sharing its glyph with exactly one ideograph, 彐 U+5F50 — the
+ * very character the flat table got wrong. Meanwhile a real zh job in
+ * production read 门 U+95E8 as ⻔ U+2ED4 in pdf.js: #335's corpus (the first
+ * 3000 code points from U+4E00) held none of the C-SIMPLIFIED components.
+ * Measured with GB2312 level 1 (3,755 hanzi, `cjk-common-corpus.ts`) on
+ * #335's renderer in the live image: pdf.js 3727/3755 — 27 read as
+ * Supplement radicals (贝 长 车 齿 飞 风 骨 龟 鬼 黄 见 角 龙 卤 马 麦 门 民
+ * 母 鸟 齐 青 食 巳 韦 页 鱼) and 胶 as 㬵 U+3B35; JIS X 0208 level 1 + kana
+ * 3122/3134 (黄 亀 歯 西 青 斉 長 麦 母 巳 民 竜); KS X 1001 Hangul
+ * 2350/2350. So the Supplement is now measured and rewritten by the same
+ * per-face rule, and so is Extension A where its glyph is shared with
+ * exactly one URO ideograph (胶 above: Skia names the LOWEST code point on a
+ * glyph, which for 胶 is the Extension A 㬵 its glyph also serves). The flat
+ * UCD table for the Supplement is vendored below only as a second bound.
+ *
+ * What #335 measured (kept): the first version also mapped U+2E80–U+2EF3 by
+ * the same UCD file. In the
  * live image, Noto Sans CJK SC draws 彐 (U+5F50) with the glyph Skia maps to
  * U+2E95 (CJK RADICAL SNOUT TWO), whose UCD equivalent is U+2B739 𫜹 — so
  * pdf.js read 彐 as 𫜹, a DIFFERENT real ideograph, where before it read the
@@ -85,11 +104,41 @@ import FACTS_JSON from "./radical-glyph-facts.json";
 
 export const KANGXI_FIRST = 0x2f00;
 export const KANGXI_LAST = 0x2fd5;
+export const SUPPLEMENT_FIRST = 0x2e80;
+export const SUPPLEMENT_LAST = 0x2ef3;
+/** The one unassigned code point inside the Supplement's range. */
+const SUPPLEMENT_HOLE = 0x2e9a;
+export const EXT_A_FIRST = 0x3400;
+export const EXT_A_LAST = 0x4dbf;
+
+/** An assigned Kangxi or CJK Radicals Supplement code point. */
+export function isRadical(cp: number): boolean {
+  return (
+    (cp >= KANGXI_FIRST && cp <= KANGXI_LAST) ||
+    (cp >= SUPPLEMENT_FIRST && cp <= SUPPLEMENT_LAST && cp !== SUPPLEMENT_HOLE)
+  );
+}
+
+export const isExtensionA = (cp: number): boolean =>
+  cp >= EXT_A_FIRST && cp <= EXT_A_LAST;
+
+const isUro = (cp: number) => cp >= 0x4e00 && cp <= 0x9fff;
 
 /**
- * Measured glyph sharing: face PostScript name → radical (hex) → the OTHER
+ * A code point the facts measure and the rewrite may replace: every assigned
+ * radical (Kangxi and Supplement), and Extension A.
+ */
+export function isRewriteSource(cp: number): boolean {
+  return isRadical(cp) || isExtensionA(cp);
+}
+
+/**
+ * Measured glyph sharing: face PostScript name → source (hex) → the OTHER
  * code points (hex, space-separated, ascending) the face's cmap sends to that
- * radical's glyph. A radical the face does not map is absent.
+ * source's glyph. Sources are every radical the face maps (Kangxi and
+ * Supplement, shared or not) and every Extension A code point whose glyph
+ * the face shares with another code point. A source the face does not map
+ * is absent.
  */
 export interface RadicalGlyphFacts {
   readonly faces: Readonly<Record<string, Readonly<Record<string, string>>>>;
@@ -117,7 +166,13 @@ export function expandFacts(
   return { faces };
 }
 
-export const RADICAL_GLYPH_FACTS: RadicalGlyphFacts = expandFacts(FACTS_JSON);
+// The JSON's tables hold different key sets (Extension A entries exist only
+// where a face shares the glyph), so TypeScript infers a union with optional
+// keys; the shape is held by `radical-equivalents.test.ts` and, against the
+// image, by the proof's facts diff.
+export const RADICAL_GLYPH_FACTS: RadicalGlyphFacts = expandFacts(
+  FACTS_JSON as unknown as CompactRadicalGlyphFacts,
+);
 
 /** URO, Extension A, and Extensions B onward — not compatibility ideographs. */
 export function isUnifiedIdeograph(cp: number): boolean {
@@ -131,11 +186,15 @@ export function isUnifiedIdeograph(cp: number): boolean {
 export type RewriteTable = ReadonlyMap<number, number>;
 
 /**
- * For one face (PostScript name, subset tag stripped): radical → the ONE
+ * For one face (PostScript name, subset tag stripped): source → the ONE
  * unified ideograph that shares its glyph there. A radical whose glyph no
- * unified ideograph shares, or more than one, is left out; a face the facts
- * do not name gives an empty table. `keep` removes radicals the job's own
- * text contains.
+ * unified ideograph shares, or more than one, is left out; an Extension A
+ * source is rewritten only when that one sharer is a URO ideograph (two
+ * Extension A characters on one glyph give no way to know which was meant);
+ * a face the facts do not name gives an empty table. `keep` removes sources
+ * the job's own text contains, AND every source whose glyph a kept code point
+ * shares (other than the target): the rewrite acts on the glyph, not on the
+ * code point.
  */
 export function radicalRewritesFor(
   face: string,
@@ -145,25 +204,39 @@ export function radicalRewritesFor(
   const out = new Map<number, number>();
   const table = facts.faces[face];
   if (!table) return out;
-  for (const [r, sharers] of Object.entries(table)) {
-    const radical = parseInt(r, 16);
-    if (keep.has(radical)) continue;
-    const unified = sharers
+  for (const [r, sharerHex] of Object.entries(table)) {
+    const source = parseInt(r, 16);
+    if (keep.has(source) || !isRewriteSource(source)) continue;
+    const sharers = sharerHex
       .split(" ")
       .filter(Boolean)
-      .map((h) => parseInt(h, 16))
-      .filter(isUnifiedIdeograph);
-    if (unified.length === 1) out.set(radical, unified[0]!);
+      .map((h) => parseInt(h, 16));
+    const unified = sharers.filter(isUnifiedIdeograph);
+    if (unified.length !== 1) continue;
+    const target = unified[0]!;
+    if (isExtensionA(source) && !isUro(target)) continue;
+    // The keep set is per CODE POINT, the rewrite per GLYPH (review
+    // 2026-11-16): SC draws ⾷ U+2FB7, ⻝ U+2EDD and 食 with one glyph, and
+    // Skia names it ⻝, the lowest. A job that writes ⾷ keeps U+2FB7, but
+    // rewriting U+2EDD would still make pdf.js read that drawn ⾷ as 食. So a
+    // source is kept when ANY code point on its glyph is one the job wrote —
+    // except the target itself, which pdf.js then reads correctly.
+    if (sharers.some((cp) => cp !== target && keep.has(cp))) continue;
+    out.set(source, target);
   }
   return out;
 }
 
-/** The Kangxi radicals a text literally contains. */
-export function kangxiRadicalsIn(text: string): Set<number> {
+/**
+ * The rewrite sources a text literally contains — Kangxi AND Supplement
+ * radicals, and Extension A — the keep set `printAndCheck` passes, so a
+ * source the job wrote keeps its entry (it has no ActualText to fall back on).
+ */
+export function rewriteSourcesIn(text: string): Set<number> {
   const out = new Set<number>();
   for (const ch of text) {
     const cp = ch.codePointAt(0)!;
-    if (cp >= KANGXI_FIRST && cp <= KANGXI_LAST) out.add(cp);
+    if (isRewriteSource(cp)) out.add(cp);
   }
   return out;
 }
@@ -392,6 +465,139 @@ const PAIRS: readonly number[] = [
   0x2FD5, 0x9FA0,
   // END GENERATED
 ];
+
+// prettier-ignore
+const SUPPLEMENT_PAIRS: readonly number[] = [
+  // BEGIN GENERATED SUPPLEMENT (scripts/generate-radical-equivalents.ts)
+  // EquivalentUnifiedIdeograph-18.0.0.txt, 2026-02-03: 114 rows
+  0x2E81, 0x5382,
+  0x2E82, 0x4E5B,
+  0x2E83, 0x4E5A,
+  0x2E84, 0x4E59,
+  0x2E85, 0x4EBB,
+  0x2E86, 0x5182,
+  0x2E87, 0x20628,
+  0x2E88, 0x5200,
+  0x2E89, 0x5202,
+  0x2E8A, 0x535C,
+  0x2E8B, 0x353E,
+  0x2E8C, 0x5C0F,
+  0x2E8D, 0x5C0F,
+  0x2E8E, 0x5140,
+  0x2E8F, 0x5C23,
+  0x2E90, 0x5C22,
+  0x2E91, 0x21BC2,
+  0x2E92, 0x5DF3,
+  0x2E93, 0x5E7A,
+  0x2E94, 0x5F51,
+  0x2E95, 0x2B739,
+  0x2E96, 0x5FC4,
+  0x2E97, 0x5FC3,
+  0x2E98, 0x624C,
+  0x2E99, 0x6535,
+  0x2E9B, 0x65E1,
+  0x2E9C, 0x65E5,
+  0x2E9D, 0x6708,
+  0x2E9E, 0x6B7A,
+  0x2E9F, 0x6BCD,
+  0x2EA0, 0x6C11,
+  0x2EA1, 0x6C35,
+  0x2EA2, 0x6C3A,
+  0x2EA3, 0x706C,
+  0x2EA4, 0x722B,
+  0x2EA5, 0x722B,
+  0x2EA6, 0x4E2C,
+  0x2EA7, 0x725B,
+  0x2EA8, 0x72AD,
+  0x2EA9, 0x738B,
+  0x2EAA, 0x24D14,
+  0x2EAB, 0x76EE,
+  0x2EAC, 0x793A,
+  0x2EAD, 0x793B,
+  0x2EAE, 0x25AD7,
+  0x2EAF, 0x7CF9,
+  0x2EB0, 0x7E9F,
+  0x2EB1, 0x7F53,
+  0x2EB2, 0x7F52,
+  0x2EB3, 0x34C1,
+  0x2EB4, 0x5197,
+  0x2EB5, 0x2626B,
+  0x2EB6, 0x7F8A,
+  0x2EB7, 0x2634C,
+  0x2EB8, 0x2634B,
+  0x2EB9, 0x8002,
+  0x2EBA, 0x8080,
+  0x2EBB, 0x807F,
+  0x2EBC, 0x8089,
+  0x2EBD, 0x26951,
+  0x2EBE, 0x8279,
+  0x2EBF, 0x8279,
+  0x2EC0, 0x8279,
+  0x2EC1, 0x864E,
+  0x2EC2, 0x8864,
+  0x2EC3, 0x8980,
+  0x2EC4, 0x897F,
+  0x2EC5, 0x89C1,
+  0x2EC6, 0x89D2,
+  0x2EC7, 0x278B2,
+  0x2EC8, 0x8BA0,
+  0x2EC9, 0x8D1D,
+  0x2ECA, 0x27FB7,
+  0x2ECB, 0x8F66,
+  0x2ECC, 0x8FB6,
+  0x2ECD, 0x8FB6,
+  0x2ECE, 0x8FB6,
+  0x2ECF, 0x9091,
+  0x2ED0, 0x9485,
+  0x2ED1, 0x9577,
+  0x2ED2, 0x9578,
+  0x2ED3, 0x957F,
+  0x2ED4, 0x95E8,
+  0x2ED5, 0x28E0F,
+  0x2ED6, 0x961D,
+  0x2ED7, 0x96E8,
+  0x2ED8, 0x9752,
+  0x2ED9, 0x97E6,
+  0x2EDA, 0x9875,
+  0x2EDB, 0x98CE,
+  0x2EDC, 0x98DE,
+  0x2EDD, 0x98DF,
+  0x2EDE, 0x2967F,
+  0x2EDF, 0x98E0,
+  0x2EE0, 0x9963,
+  0x2EE1, 0x29810,
+  0x2EE2, 0x9A6C,
+  0x2EE3, 0x9AA8,
+  0x2EE4, 0x9B3C,
+  0x2EE5, 0x9C7C,
+  0x2EE6, 0x9E1F,
+  0x2EE7, 0x5364,
+  0x2EE8, 0x9EA6,
+  0x2EE9, 0x9EC4,
+  0x2EEA, 0x9EFE,
+  0x2EEB, 0x6589,
+  0x2EEC, 0x9F50,
+  0x2EED, 0x6B6F,
+  0x2EEE, 0x9F7F,
+  0x2EEF, 0x7ADC,
+  0x2EF0, 0x9F99,
+  0x2EF1, 0x9F9C,
+  0x2EF2, 0x4E80,
+  0x2EF3, 0x9F9F,
+  // END GENERATED SUPPLEMENT
+];
+
+/**
+ * The CJK Radicals Supplement's flat UCD equivalents — NEVER used to rewrite
+ * (the facts decide); the tests hold the derived targets to it as a second
+ * bound, and name every face where the two differ.
+ */
+export const SUPPLEMENT_EQUIVALENTS: ReadonlyMap<number, number> = (() => {
+  const map = new Map<number, number>();
+  for (let i = 0; i + 1 < SUPPLEMENT_PAIRS.length; i += 2)
+    map.set(SUPPLEMENT_PAIRS[i]!, SUPPLEMENT_PAIRS[i + 1]!);
+  return map;
+})();
 
 /** Radical code point → its equivalent unified ideograph. */
 export const RADICAL_EQUIVALENTS: ReadonlyMap<number, number> = (() => {

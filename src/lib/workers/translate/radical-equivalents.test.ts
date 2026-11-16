@@ -16,12 +16,15 @@ import {
 import { describe, expect, it } from "vitest";
 import { parseToUnicode } from "./pdf-readers";
 import {
+  isExtensionA,
+  isRadical,
   isUnifiedIdeograph,
-  kangxiRadicalsIn,
   normaliseRadicalToUnicode,
   RADICAL_EQUIVALENTS,
   RADICAL_GLYPH_FACTS,
   radicalRewritesFor,
+  rewriteSourcesIn,
+  SUPPLEMENT_EQUIVALENTS,
   type RadicalGlyphFacts,
 } from "./radical-equivalents";
 
@@ -77,23 +80,33 @@ describe("the table", () => {
     expect(RADICAL_EQUIVALENTS.size).toBe(214);
   });
 
-  it("the CJK Radicals Supplement is NOT rewritten (measured 2026-11-16: SC draws 彐 with ⺕'s glyph)", () => {
-    for (let k = 0x2e80; k <= 0x2ef3; k++)
-      expect(RADICAL_EQUIVALENTS.has(k)).toBe(false);
-    // The real case from the live image: SC's 彐 glyph is mapped to U+2E95,
-    // whose UCD equivalent U+2B739 is a different ideograph. Left alone.
-    const cmap = "1 beginbfchar\n<CD> <2E95>\nendbfchar";
-    expect(
-      normaliseRadicalToUnicode(
-        cmap,
-        radicalRewritesFor("NotoSansCJKsc-Regular"),
-      ),
-    ).toBe(cmap);
-    for (const table of Object.values(RADICAL_GLYPH_FACTS.faces))
-      for (const r of Object.keys(table))
-        expect(parseInt(r, 16) >= 0x2f00 && parseInt(r, 16) <= 0x2fd5, r).toBe(
-          true,
-        );
+  /**
+   * INVERTED 2026-11-16, not deleted. #335 pinned "the CJK Radicals
+   * Supplement is NOT rewritten (measured 2026-11-16: SC draws 彐 with ⺕'s
+   * glyph)": the flat UCD table sent U+2E95 to U+2B739 𫜹, a different real
+   * ideograph, so the whole block was left alone — and a real zh job then
+   * read 门 as ⻔ U+2ED4 in pdf.js. The exclusion belonged to the flat table,
+   * not to the property: by per-face measured glyph sharing, SC's ⺕ glyph
+   * is 彐's, so ⺕ now rewrites to 彐 U+5F50 — and NOT to the flat U+2B739.
+   */
+  it("the CJK Radicals Supplement IS rewritten, by measurement: in SC ⺕ U+2E95 → 彐 U+5F50, not the flat table's U+2B739; ⻔ U+2ED4 → 门", () => {
+    // The flat table still says 𫜹 — the second bound, never the rewrite.
+    expect(SUPPLEMENT_EQUIVALENTS.get(0x2e95)).toBe(0x2b739);
+    const sc = radicalRewritesFor("NotoSansCJKsc-Regular");
+    expect(sc.get(0x2e95)).toBe(0x5f50);
+    expect(sc.get(0x2ed4)).toBe(0x95e8);
+    const cmap = "2 beginbfchar\n<CD> <2E95>\n<CE> <2ED4>\nendbfchar";
+    expect(normaliseRadicalToUnicode(cmap, sc)).toBe(
+      "2 beginbfchar\n<CD> <5F50>\n<CE> <95E8>\nendbfchar",
+    );
+    // JP draws ⺕ with a glyph no ideograph shares: left alone there.
+    expect(radicalRewritesFor("NotoSansCJKjp-Regular").has(0x2e95)).toBe(false);
+  });
+
+  it("health: the Supplement's flat table has 114 rows inside U+2E80–U+2EF3, and none outside", () => {
+    expect(SUPPLEMENT_EQUIVALENTS.size).toBe(114);
+    for (const k of SUPPLEMENT_EQUIVALENTS.keys())
+      expect(isRadical(k) && k < 0x2f00, k.toString(16)).toBe(true);
   });
 });
 
@@ -224,12 +237,26 @@ describe("the per-face rewrite table, against measured cmap facts", () => {
       .filter(Boolean)
       .map((h) => parseInt(h, 16));
 
-  it("health: 30 faces, every one mapping all 214 radicals; the faces the fixtures were drawn with are among them", async () => {
+  it("health: 30 faces, every one mapping all 214 Kangxi and all 115 assigned Supplement radicals; the faces the fixtures were drawn with are among them", async () => {
     expect(faces.length).toBe(30);
-    for (const face of faces)
-      expect(Object.keys(RADICAL_GLYPH_FACTS.faces[face]!).length, face).toBe(
-        214,
+    // The bound is the Unicode blocks (`isRadical`), not the facts.
+    const kangxi = (cp: number) => cp >= 0x2f00;
+    let assigned = 0;
+    for (let cp = 0x2e80; cp <= 0x2fff; cp++) if (isRadical(cp)) assigned += 1;
+    expect(assigned).toBe(214 + 115);
+    for (const face of faces) {
+      const keys = Object.keys(RADICAL_GLYPH_FACTS.faces[face]!).map((k) =>
+        parseInt(k, 16),
       );
+      const radicals = keys.filter(isRadical);
+      expect(radicals.filter(kangxi).length, face).toBe(214);
+      expect(radicals.filter((cp) => !kangxi(cp)).length, face).toBe(115);
+      // Everything else measured is Extension A, and only where shared.
+      expect(
+        keys.filter((cp) => !isRadical(cp) && !isExtensionA(cp)),
+        face,
+      ).toEqual([]);
+    }
     // Derived, not typed: every Type 3 face in the real fixtures.
     const drawn = new Set<string>();
     for (const f of [
@@ -255,15 +282,15 @@ describe("the per-face rewrite table, against measured cmap facts", () => {
           `${face} ${radical.toString(16)}`,
         ).toEqual([target]);
       }
-    // Health: 30 faces × (203..214) entries.
-    expect(entries).toBeGreaterThan(30 * 200);
+    // Health: 30 faces × (203..214 Kangxi + 60..80 Supplement) entries.
+    expect(entries).toBeGreaterThan(30 * 260);
   });
 
   it("SECOND BOUND: every derived target equals the UCD equivalent, except exactly U+2F3E in SC (户) and JP (戸)", () => {
     const disagree: string[] = [];
     for (const face of faces)
       for (const [radical, target] of radicalRewritesFor(face))
-        if (UCD.get(radical) !== target)
+        if (UCD.has(radical) && UCD.get(radical) !== target)
           disagree.push(
             `${face} ${radical.toString(16)}->${target.toString(16)}`,
           );
@@ -283,7 +310,7 @@ describe("the per-face rewrite table, against measured cmap facts", () => {
     );
     expect(unshared.length).toBe(9);
     for (const r of unshared) expect(kr.has(r), r.toString(16)).toBe(false);
-    expect(kr.size).toBe(214 - 9);
+    expect([...kr.keys()].filter((r) => UCD.has(r)).length).toBe(214 - 9);
   });
 
   it("a face the facts do not name gets no rewrite", () => {
@@ -301,17 +328,138 @@ describe("the per-face rewrite table, against measured cmap facts", () => {
     expect(t.get(0x2f42)).toBe(0x6587);
   });
 
-  it("the radicals the job's text contains are kept out of the table", () => {
-    const keep = kangxiRadicalsIn("Mixed: \u2f42 and \u6587, \u2f08.");
-    expect([...keep].sort()).toEqual([0x2f08, 0x2f42]);
+  it("the sources the job's text contains are kept out of the table — Kangxi, Supplement and Extension A alike", () => {
+    const keep = rewriteSourcesIn(
+      "Mixed: \u2f42 and \u6587, \u2f08, \u2ed4 \u95e8, \u3b35.",
+    );
+    expect([...keep].sort()).toEqual([0x2ed4, 0x2f08, 0x2f42, 0x3b35]);
     const t = radicalRewritesFor("NotoSansCJKsc-Regular", keep);
-    expect(t.has(0x2f42)).toBe(false);
-    expect(t.has(0x2f08)).toBe(false);
+    for (const k of keep) expect(t.has(k), k.toString(16)).toBe(false);
     expect(t.get(0x2f00)).toBe(0x4e00);
-    // Health: without the keep set both are rewritten.
+    // Health: without the keep set every one is rewritten.
     const all = radicalRewritesFor("NotoSansCJKsc-Regular");
     expect(all.get(0x2f42)).toBe(0x6587);
     expect(all.get(0x2f08)).toBe(0x4eba);
+    expect(all.get(0x2ed4)).toBe(0x95e8);
+    expect(all.get(0x3b35)).toBe(0x80f6);
+  });
+
+  /**
+   * The keep set is per code point; the rewrite is per glyph (review
+   * 2026-11-16). SC draws ⾷ U+2FB7, ⻝ U+2EDD and 食 with one glyph and Skia
+   * names it ⻝ (the lowest): a job writing ⾷ kept U+2FB7, U+2EDD was still
+   * rewritten, and pdf.js read the drawn ⾷ as 食. DISCOVERED over every
+   * face: every source whose measured sharers include another rewrite source.
+   */
+  it("a source is kept when ANY rewrite source on its glyph is kept — every face, every source whose sharers include a radical or Extension A", () => {
+    const seen = new Map<string, number>();
+    let kept = 0;
+    let targetKept = 0;
+    for (const face of faces)
+      for (const r of Object.keys(RADICAL_GLYPH_FACTS.faces[face]!)) {
+        const source = parseInt(r, 16);
+        const others = sharers(face, source).filter(
+          (cp) => isRadical(cp) || isExtensionA(cp),
+        );
+        const target = radicalRewritesFor(face).get(source);
+        for (const k of others) {
+          const key = `${r}~${k.toString(16)}`;
+          seen.set(key, (seen.get(key) ?? 0) + 1);
+          const t = radicalRewritesFor(face, new Set([k]));
+          if (k === target) {
+            // A kept TARGET (an Extension A sharer) is what pdf.js should read.
+            targetKept += 1;
+            expect(t.get(source), `${face} ${key}`).toBe(target);
+          } else {
+            kept += 1;
+            expect(t.has(source), `${face} ${key}`).toBe(false);
+          }
+        }
+      }
+    // Health and positive control: the review's named members are among them.
+    for (const key of [
+      "2edd~2fb7", // SC ⻝ when the job wrote ⾷
+      "2ee4~2fc1", // SC ⻤ / ⿁
+      "2ed1~2fa7", // ⻑ / ⾧
+      "2e90~2f2a", // ⺐ / ⼪
+      "2e93~2f33", // ⺓ / ⼳
+      "2eab~2eb2", // JP/KR ⺫ / ⺲
+    ])
+      expect(seen.has(key), key).toBe(true);
+    expect(seen.size).toBeGreaterThanOrEqual(12);
+    expect(kept).toBeGreaterThan(200);
+    expect(targetKept).toBeGreaterThan(0);
+    // The literal SC case through keep derived from text, from code points.
+    const sc = radicalRewritesFor(
+      "NotoSansCJKsc-Regular",
+      rewriteSourcesIn(String.fromCodePoint(0x2fb7, 0x20, 0x98df)),
+    );
+    expect(sc.has(0x2edd)).toBe(false);
+    expect(sc.has(0x2fb7)).toBe(false);
+    expect(radicalRewritesFor("NotoSansCJKsc-Regular").get(0x2edd)).toBe(
+      0x98df,
+    );
+  });
+
+  /**
+   * The Supplement's second bound, as MEMBERS (rule 1: a list nothing
+   * exercises is decoration). Every face where a Supplement radical's flat
+   * UCD equivalent differs from the one ideograph the face measures on its
+   * glyph — the flat table would have rewritten these to a different glyph.
+   */
+  it("SECOND BOUND (Supplement): every face where the flat equivalent differs from the measured sharer, by member", () => {
+    const disagree = new Map<string, string[]>();
+    let agree = 0;
+    for (const face of faces)
+      for (const [radical, target] of radicalRewritesFor(face)) {
+        if (radical >= 0x2f00 || !isRadical(radical)) continue;
+        const flat = SUPPLEMENT_EQUIVALENTS.get(radical);
+        if (flat === target) {
+          agree += 1;
+          continue;
+        }
+        const key = `${radical.toString(16)}->${target.toString(16)} (flat ${flat?.toString(16) ?? "none"})`;
+        disagree.set(key, [...(disagree.get(key) ?? []), face]);
+      }
+    const counted = Object.fromEntries(
+      [...disagree].map(([k, v]) => [k, v.length]),
+    );
+    expect(counted).toEqual({
+      "2e8d->2d544 (flat 5c0f)": 30,
+      "2ea9->248e9 (flat 738b)": 30,
+      "2eab->7f52 (flat 76ee)": 18,
+      "2e95->5f50 (flat 2b739)": 6,
+    });
+    // ⺕ → 彐 is exactly the six SC faces.
+    expect(disagree.get("2e95->5f50 (flat 2b739)")!.sort()).toEqual(
+      faces.filter((f) => /CJKsc-/.test(f)).sort(),
+    );
+    // Health: the flat table and the facts agree far more often than not.
+    expect(agree).toBeGreaterThan(30 * 55);
+  });
+
+  it("Extension A is rewritten only to a single URO sharer: 㬵 → 胶 in SC; two Extension A characters on one glyph, or a radical sharer, are left alone", () => {
+    const sc = radicalRewritesFor("NotoSansCJKsc-Regular");
+    expect(sc.get(0x3b35)).toBe(0x80f6);
+    // 㖈 U+3588 and 䎛 U+439B share one glyph: no way to know which was meant.
+    expect(sharers("NotoSansCJKsc-Regular", 0x3588)).toEqual([0x439b]);
+    expect(sc.has(0x3588)).toBe(false);
+    expect(sc.has(0x439b)).toBe(false);
+    // 㓁 U+34C1 shares only with a radical (⺳): not a unified ideograph.
+    expect(sharers("NotoSansCJKsc-Regular", 0x34c1)).toEqual([0x2eb3]);
+    expect(sc.has(0x34c1)).toBe(false);
+    // Every Extension A entry in every face: a URO target, by the facts.
+    let n = 0;
+    for (const face of faces)
+      for (const [source, target] of radicalRewritesFor(face))
+        if (isExtensionA(source)) {
+          n += 1;
+          expect(target >= 0x4e00 && target <= 0x9fff, face).toBe(true);
+          expect(sharers(face, source).filter(isUnifiedIdeograph)).toEqual([
+            target,
+          ]);
+        }
+    expect(n).toBe(12 + 6 + 16 + 12 + 4);
   });
 });
 
