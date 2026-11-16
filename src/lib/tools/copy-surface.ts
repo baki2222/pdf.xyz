@@ -178,6 +178,18 @@ export function copyFiles(): string[] {
     // observed worker proves `chatRetrieval`; chat-retrieval-copy.test.ts
     // holds the static copy away from it.
     path.join(ROOT, "src", "lib", "pdf", "chat-retrieval-anchor.ts"),
+    // How chat's model notice says a relevance window's pages were chosen
+    // (2026-11-16, audit #30 slice 3, moved out of the engine on review so
+    // chat-retrieval-claims.ts can compose it into its shipped corpus).
+    // Walked from its first file, as a new phrase module must be.
+    path.join(
+      ROOT,
+      "src",
+      "lib",
+      "workers",
+      "chat-with-pdf",
+      "relevance-notice.ts",
+    ),
     // The chat page-selection proof's questions and fake answer
     // (2026-11-16), walked for the reason translate-ocr-proof.ts is.
     path.join(
