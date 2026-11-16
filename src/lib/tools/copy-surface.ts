@@ -245,6 +245,9 @@ export function copyFiles(): string[] {
     // Which languages get Translate PDF's reflowed PDF (2026-11-15, audit
     // #29 slice 2): the coverage sentence the page and guide render.
     path.join(ROOT, "src", "lib", "jobs", "translate-pdf-coverage.ts"),
+    // How Translate PDF reads columns and heads the PDF's pages (2026-11-16,
+    // audit #29 slice 5): the two sentences the page and guide render.
+    path.join(ROOT, "src", "lib", "jobs", "translate-reading-copy.ts"),
     // The Translate OCR proof's German page and verdict lines (2026-11-09),
     // walked for the reason options-proof.ts is.
     path.join(ROOT, "src", "lib", "probes", "translate-ocr-proof.ts"),

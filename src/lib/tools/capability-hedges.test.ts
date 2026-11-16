@@ -569,24 +569,35 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     // says it, and that is not this capability. Measured that day — see "the
     // translateReadingOrder subject reaches Translate's column-order
     // sentence".
+    //
+    // Slice 5 (2026-11-16): the copy now CLAIMS the order
+    // (`TRANSLATE_COLUMN_ORDER`: "A two-column page is usually read column
+    // by column. Some pages are read line by line across the columns
+    // instead"), so those shapes joined ("usually" optional since the
+    // 2026-11-16 review). The old shapes stay, so a hedge written in the
+    // retired wording is still read as about this key.
     subject:
-      /translated paragraphs with the original|columns' lines (?:reach|to) the model/i,
+      /translated paragraphs with the original|columns' lines (?:reach|to) the model|\btwo-column pages? (?:is|are) (?:usually )?read column by column\b|\bline by line across the columns\b/i,
     catalogueCopy: true,
   },
   translatePageMap: {
     // Added 2026-11-16 with the key (competitor audit #29, slice 4: page
     // markers). The sentence a hedge about it would sit in: Translate's PDF
-    // heading each page of the original. FALSE: no shipped sentence
-    // describes page headings yet, so "each subject matcher's declared
-    // catalogue coverage is the truth" REQUIRES this to match nothing, and
-    // goes red on the first sentence ever written about it (S5 flips it on
-    // purpose). Kept off compare-pdf's "headed with its page", the page-label
-    // prose in extract/merge/organize, and pdf-to-markdown's page headings:
-    // "translat…" must come first, or "page heading(s)" must be followed by
-    // "translat…". See "the translatePageMap subject".
+    // heading each page of the original. Kept off compare-pdf's "headed with
+    // its page", the page-label prose in extract/merge/organize, and
+    // pdf-to-markdown's page headings: "translat…" must come first, or "page
+    // heading(s)" must be followed by "translat…". See "the translatePageMap
+    // subject".
+    //
+    // FLIPPED 2026-11-16 (slice 5): was `catalogueCopy: false` — no shipped
+    // sentence described page headings, so the coverage check REQUIRED this
+    // to match nothing. Slice 5 wrote the first one
+    // (`TRANSLATE_PAGE_HEADINGS`: "In the PDF, each page's translation
+    // usually comes under its own heading, …"), after the key was observed
+    // live.
     subject:
       /\btranslat[^.]{0,80}\b(?:heads?|headed|headings?)\b[^.]{0,40}\bpages?\b|\bpage headings?\b[^.]{0,60}\btranslat/i,
-    catalogueCopy: false,
+    catalogueCopy: true,
   },
   translatePageRange: {
     // Added 2026-11-16 with the key (competitor audit #29, slice 6: page
@@ -1479,9 +1490,12 @@ describe("the translatePdfLanguages subject (competitor audit #29, 2026-11-15)",
 
 /**
  * A POSITIVE column-order claim: "the columns are read in order", "one column
- * after the other". None ships at merge (2026-11-16): the copy discloses
- * interleaving instead, true on both images. Exercised in both directions
- * below, so a shape nothing matches cannot pass for a clean catalogue.
+ * after the other", "column by column". None shipped at slice 3's merge
+ * (2026-11-16): the copy disclosed interleaving instead, true on both images.
+ * Slice 5 (the same day, after `translateReadingOrder` was observed in
+ * production and a real two-column job came back in column order) SHIPPED
+ * one: `TRANSLATE_COLUMN_ORDER`. Exercised in both directions below, so a
+ * shape nothing matches cannot pass for a clean catalogue.
  */
 const POSITIVE_COLUMN_ORDER =
   /\bcolumns?\b[^.]{0,40}\b(?:in order|one after the other)\b|\bone column after the other\b|\bcolumn by column\b/i;
@@ -1490,46 +1504,84 @@ describe("the translateReadingOrder subject (competitor audit #29 slice 3, 2026-
   /**
    * BOTH DIRECTIONS (house rule 1). Measured when the key landed: exactly one
    * member, Translate PDF's useCases[1] — the both-states disclosure slice 3
-   * wrote ("our server can send the two columns' lines to the model
-   * interleaved, so compare the order of the translated paragraphs with the
-   * original"). A member elsewhere is a sentence about this capability
-   * nobody paired.
+   * wrote. Measured again at slice 5: the same member, now carrying
+   * `TRANSLATE_COLUMN_ORDER`, plus the guide FAQ slice 5 added with the same
+   * sentence. A member elsewhere is a sentence about this capability nobody
+   * paired.
    */
-  it("reaches Translate's column-order sentence, and nothing else", () => {
+  it("reaches Translate's column-order sentences, and nothing else", () => {
     const members = COPY.filter((entry) =>
       SUBJECTS.translateReadingOrder!.subject.test(entry.text),
     ).map((entry) => `${entry.slug} ${entry.where}`);
-    expect(members.sort()).toEqual(["translate-pdf useCases[1].body"]);
+    expect(members.sort()).toEqual([
+      "guide:how-to-translate-a-pdf faq[6].answer",
+      "translate-pdf useCases[1].body",
+    ]);
   });
 
-  it("that sentence still DISCLOSES interleaving (true of every fallback page, on both images)", () => {
-    // Fallback pages (ink, longer, rtl, bbox_failed, page_count) are sent as
-    // -layout on the NEW image too, so dropping the disclosure would be a
-    // positive claim by omission. The flip that removes it must keep a
-    // fallback clause for as long as any fallback reason exists.
-    const member = COPY.find(
-      (entry) =>
-        entry.slug === "translate-pdf" && entry.where === "useCases[1].body",
+  it("every member keeps the FALLBACK clause while any fallback reason exists", () => {
+    // Slice 3 required "interleav" here: "that sentence still DISCLOSES
+    // interleaving (true of every fallback page, on both images)". INVERTED
+    // at slice 5, not deleted: the interleave ADMISSION is now banned
+    // (translate-reading-order-copy.test.ts), and what the disclosure was
+    // for — fallback pages (ink, longer, rtl, bbox_failed, page_count) are
+    // still sent line by line — is required as a clause in every member.
+    // The clause was `cannot confirm … line by line` until the 2026-11-16
+    // review: it named a column-order check that does not exist, so the
+    // clause now states the outcome only.
+    const members = COPY.filter((entry) =>
+      SUBJECTS.translateReadingOrder!.subject.test(entry.text),
     );
-    expect(member, "Translate's useCases[1] left the corpus").toBeDefined();
-    expect(member!.text).toMatch(/interleav/i);
+    expect(members.length).toBeGreaterThan(0);
+    for (const member of members) {
+      expect(member.text, `${member.slug} ${member.where}`).toMatch(
+        /\bsome pages are read line by line\b/i,
+      );
+      expect(member.text, `${member.slug} ${member.where}`).not.toMatch(
+        /interleav/i,
+      );
+    }
+    // Positive control: the claim alone, its clause dropped, is a member that
+    // fails the clause check.
+    const dropped = "A two-column page is usually read column by column.";
+    expect(SUBJECTS.translateReadingOrder!.subject.test(dropped)).toBe(true);
+    expect(dropped).not.toMatch(/\bsome pages are read line by line\b/i);
   });
 
   it("positive control: a deferral planted in that sentence is caught", () => {
     const planted: CopyEntry = {
       slug: "translate-pdf",
       where: "useCases[1].body",
-      text: "Columns are read in order soon, so compare the order of the translated paragraphs with the original.",
+      text: "A two-column page is read column by column soon.",
     };
     expect(
       hedgeOffenders([planted], []).some((line) =>
         line.includes('hedges "translateReadingOrder"'),
       ),
     ).toBe(true);
+    // The retired wording is still read as about this key.
+    const retired: CopyEntry = {
+      slug: "translate-pdf",
+      where: "useCases[1].body",
+      text: "Columns are read in order soon, so compare the order of the translated paragraphs with the original.",
+    };
+    expect(
+      hedgeOffenders([retired], []).some((line) =>
+        line.includes('hedges "translateReadingOrder"'),
+      ),
+    ).toBe(true);
   });
 
-  it("no shipped sentence claims the columns are read in order, so the operations promise claims nothing either", () => {
-    // Positive control first: the shape bites on the claim S5 will write.
+  it("Translate's copy CLAIMS the columns are read in order, and the operations promise names that claim", () => {
+    // HISTORY. Slice 3 (#340) wrote this as "no shipped sentence claims the
+    // columns are read in order, so the operations promise claims nothing
+    // either": `claims` had to be [], and the promise had to read "nothing
+    // yet" and mention interleaving. Since #341 it was scoped to Translate's
+    // copy: PDF to Word's tables FAQ said a share-capped table's cells come
+    // through "read column by column", which describes PDF to Word's own
+    // extraction, not this capability. INVERTED at slice 5 into a REQUIRED
+    // claim: the claim now ships, tied to the key, so the rows that carry it
+    // are pinned and the promise must say the same thing.
     expect(POSITIVE_COLUMN_ORDER.test("The columns are read in order.")).toBe(
       true,
     );
@@ -1538,11 +1590,6 @@ describe("the translateReadingOrder subject (competitor audit #29 slice 3, 2026-
         "Translate sends a two-column page one column after the other.",
       ),
     ).toBe(true);
-    // And it does not bite on the disclosure that ships. Scoped to
-    // TRANSLATE's copy (2026-11-16, #28 slice 3 PR-2): PDF to Word's tables
-    // FAQ says a share-capped table's cells come through "read column by
-    // column", which describes PDF to Word's own extraction, not this
-    // capability. Unscoped, the check fired on that sentence.
     const isTranslateCopy = (entry: CopyEntry) => /translate/i.test(entry.slug);
     expect(
       COPY.filter(isTranslateCopy).length,
@@ -1552,48 +1599,54 @@ describe("the translateReadingOrder subject (competitor audit #29 slice 3, 2026-
       (entry) =>
         isTranslateCopy(entry) && POSITIVE_COLUMN_ORDER.test(entry.text),
     ).map((entry) => `${entry.slug} ${entry.where}`);
-    // Scope control: a column-order claim in Translate's copy is caught; the
-    // same words in another tool's copy are not this capability.
-    const plantedTranslate: CopyEntry = {
-      slug: "translate-pdf",
-      where: "planted",
-      text: "Translate sends a two-column page column by column.",
-    };
-    expect(
-      isTranslateCopy(plantedTranslate) &&
-        POSITIVE_COLUMN_ORDER.test(plantedTranslate.text),
-    ).toBe(true);
+    // Scope control: the same words in another tool's copy are not this
+    // capability.
     expect(isTranslateCopy({ slug: "pdf-to-word", where: "x", text: "" })).toBe(
       false,
     );
     expect(
-      claims,
-      "a sentence now claims the columns are read in order. The operations " +
-        "row's promise for translateReadingOrder (observability/snapshot.ts) " +
-        "says no copy rests on the proof yet: edit it in the same commit.",
-    ).toEqual([]);
+      claims.sort(),
+      "the column-order claim moved: re-pair it with the translateReadingOrder " +
+        "promise (observability/snapshot.ts) in the same commit.",
+    ).toEqual([
+      "guide:how-to-translate-a-pdf faq[6].answer",
+      "translate-pdf useCases[1].body",
+    ]);
+    // Every claim is a member of the key's subject: a claim the hedge rule
+    // cannot see would be a claim about the key nobody paired.
+    for (const where of claims) {
+      const entry = COPY.find((e) => `${e.slug} ${e.where}` === where)!;
+      expect(SUBJECTS.translateReadingOrder!.subject.test(entry.text)).toBe(
+        true,
+      );
+    }
     const promise = ADVERTISED_WORKER_CAPABILITIES.find(
       (c) => c.key === "translateReadingOrder",
     )?.promise;
     expect(promise, "the operations row lost its promise").toBeDefined();
-    expect(POSITIVE_COLUMN_ORDER.test(promise!)).toBe(false);
-    expect(promise).toMatch(/nothing yet/);
-    expect(promise).toMatch(/interleav/);
+    expect(POSITIVE_COLUMN_ORDER.test(promise!)).toBe(true);
+    expect(promise).not.toMatch(/nothing yet/);
+    expect(promise).not.toMatch(/interleav/);
+    // RTL honesty: the promise keeps right-to-left pages on the fallback.
+    expect(promise).toMatch(/right-to-left/);
   });
 });
 
 describe("the translatePageMap subject (competitor audit #29 slice 4, 2026-11-16)", () => {
   /**
-   * `catalogueCopy: false`: the planted sentence below is the ONLY thing that
-   * exercises the subject (house rule 1), so it is mandatory, and so is the
-   * negative control — the shipped sentences nearest to it in words, which
-   * are about other tools, must not be members.
+   * Slice 4 shipped `catalogueCopy: false`, and this test was "reaches
+   * nothing shipped today (measured: no member)". FLIPPED at slice 5, which
+   * wrote `TRANSLATE_PAGE_HEADINGS` after the key was observed live:
+   * measured that day, exactly the two sentences that carry it.
    */
-  it("reaches nothing shipped today (measured: no member)", () => {
+  it("reaches Translate's page-heading sentences, and nothing else", () => {
     const members = COPY.filter((entry) =>
       SUBJECTS.translatePageMap!.subject.test(entry.text),
     ).map((entry) => `${entry.slug} ${entry.where}`);
-    expect(members).toEqual([]);
+    expect(members.sort()).toEqual([
+      "guide:how-to-translate-a-pdf sections[0].body[1]",
+      "translate-pdf faq[0].answer",
+    ]);
   });
 
   it("positive control: a deferral planted about page headings is caught as hedging translatePageMap", () => {
@@ -1631,12 +1684,16 @@ describe("the translatePageMap subject (competitor audit #29 slice 4, 2026-11-16
     ).toBe(false);
   });
 
-  it("the operations promise claims no page heading either", () => {
+  it("the operations promise names the page-heading claim the copy now makes", () => {
+    // Slice 4: "the operations promise claims no page heading either"
+    // (`/nothing yet/` required). INVERTED at slice 5.
     const promise = ADVERTISED_WORKER_CAPABILITIES.find(
       (c) => c.key === "translatePageMap",
     )?.promise;
     expect(promise, "the operations row lost its promise").toBeDefined();
-    expect(promise).toMatch(/nothing yet/);
+    expect(promise).not.toMatch(/nothing yet/);
+    expect(promise).toMatch(/own page heading/);
+    expect(promise).toMatch(/page-range heading otherwise/);
   });
 });
 

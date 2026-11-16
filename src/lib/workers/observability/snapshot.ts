@@ -382,28 +382,31 @@ const WORKER_CAPABILITY_PROMISES: Record<
   translateReadingOrder: {
     label: "reading order in Translate",
     promise:
-      // Added 2026-11-16 (competitor audit #29, slice 3). Written to be TRUE
-      // AT MERGE: the copy makes no column-order claim yet (its sentence
-      // still discloses interleaving, true of both images), so this row may
-      // go blocked between the web deploy and the worker redeploy without
-      // publishing a false sentence about our own copy. The slice that flips
-      // the copy to "columns are read in order" must edit this promise in the
-      // same commit — `capability-hedges.test.ts` goes red until it does.
-      "nothing yet about Translate PDF's column order: its page says a two-column paper's lines can reach the model interleaved, and no sentence rests on this proof until that changes",
+      // Added 2026-11-16 (competitor audit #29, slice 3). Was, until slice 5
+      // flipped the copy the same day: "nothing yet about Translate PDF's
+      // column order: its page says a two-column paper's lines can reach the
+      // model interleaved, and no sentence rests on this proof until that
+      // changes". Since slice 5 the page and the guide say a two-column page
+      // is read column by column (`TRANSLATE_COLUMN_ORDER`), so a blocked row
+      // now means that sentence is false of the running worker.
+      "Translate PDF sends a two-column page column by column wherever its flow text carries the same ink, is no longer and holds no right-to-left script, and line by line otherwise, as its page and guide say",
     proves: provenByFlag,
   },
   translatePageMap: {
     label: "page headings in Translate",
     promise:
-      // Added 2026-11-16 (competitor audit #29, slice 4). Written to be TRUE
-      // AT MERGE: no shipped sentence says the translated PDF heads each page
-      // of the original (the copy names no headings at all), so this row may
-      // go blocked between the web deploy and the worker redeploy without
-      // publishing a false sentence about our own copy. The slice that writes
-      // the first page-heading sentence (S5, per job from results.ai.pageMap)
-      // must edit this promise in the same commit — `capability-hedges.test.ts`
-      // goes red until it does.
-      "nothing yet about Translate PDF's page headings: no page says the translated PDF heads each page of the original, and no sentence rests on this proof until that changes",
+      // Added 2026-11-16 (competitor audit #29, slice 4). Was, until slice 5
+      // wrote the first page-heading sentence the same day: "nothing yet
+      // about Translate PDF's page headings: no page says the translated PDF
+      // heads each page of the original, and no sentence rests on this proof
+      // until that changes". Since slice 5 the page and the guide say each
+      // page's translation usually comes under its own heading, and several
+      // pages share one when the server cannot tell where each starts
+      // (`TRANSLATE_PAGE_HEADINGS`). Until the 2026-11-16 review this read
+      // "when the model returns the page breaks in order": false where the
+      // server sends no marker at all (`markerFallback` "collision" or
+      // "budget", translate/chunking.ts).
+      "Translate PDF's reflowed PDF puts each page's translation under its own page heading when the server marks the page breaks and the model returns every marker in order, and one page-range heading otherwise, as its page and guide say",
     proves: provenByFlag,
   },
   translatePageRange: {

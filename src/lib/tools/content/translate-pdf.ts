@@ -23,6 +23,10 @@ import {
   TRANSLATE_OCR_SCOPE,
   TRANSLATE_SCAN_ROUTE,
 } from "@/lib/jobs/translate-ocr";
+import {
+  TRANSLATE_COLUMN_ORDER,
+  TRANSLATE_PAGE_HEADINGS,
+} from "@/lib/jobs/translate-reading-copy";
 import { tools } from "@/lib/tools/catalog";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import {
@@ -73,12 +77,14 @@ import {
  *    side-by-side columns on one line, then (since 2026-11-16, on images
  *    with `translateReadingOrder`) `-bbox-layout`, and SENDS a page's flow
  *    text, column by column, only where it carries the same ink, is no longer
- *    and holds no right-to-left script. Every other page — and every page on
- *    an older image, or when the flow run fails or its page count differs —
- *    is sent as `-layout`, so its columns can still reach the model
- *    line-interleaved. A comment, not a guard: the tests that carry it are
- *    reading-order.test.ts, translate/native.test.ts and the useCases[1]
- *    disclosure test in translate-reading-order-copy.test.ts;
+ *    and holds no right-to-left script. Every other page — and every page
+ *    when the flow run fails or its page count differs — is sent as
+ *    `-layout`, line by line. Since slice 5 (2026-11-16) the page SAYS so
+ *    (`TRANSLATE_COLUMN_ORDER`), and says how the PDF heads pages
+ *    (`TRANSLATE_PAGE_HEADINGS`, per job from `results.ai.pageMap`); both
+ *    sentences, and the live bound behind them, are documented where they
+ *    are defined (`@/lib/jobs/translate-reading-copy`) and guarded by
+ *    translate-reading-order-copy.test.ts and capability-hedges.test.ts;
  *  - src/app/api/jobs/route.ts + ratelimit/guard.ts — the allowance is debited
  *    when the job is created (after the upload), and a job whose declared text
  *    does not fit what is left today is refused whole (nothing spent), never
@@ -258,16 +264,17 @@ const content: ToolContent = {
     },
     {
       title: "Read a report or thesis in another language",
-      // The second sentence is true on BOTH worker images (2026-11-16,
-      // reading order): an image before `translateReadingOrder` always sends
-      // a two-column page line by line across it, and the new image still
-      // does for every page that falls back to `-layout` (a right-to-left
-      // script, ink that differs, a failed or mismatched flow run). It keeps
-      // the disclosure; the positive claim waits for slice 5.
-      // True of images before translateReadingOrder (2026-11): "Our server
-      // reads each line straight across the page, so on a two-column paper
-      // the two columns' lines reach the model interleaved."
-      body: `A single-column document in ${either(["ja", "zh", "ko"])} becomes Markdown you can skim, quote and search. On a two-column paper, our server can send the two columns' lines to the model interleaved, so compare the order of the translated paragraphs with the original before you rely on it.`,
+      // CHANGED 2026-11-16 (audit #29 slice 5, after `translateReadingOrder`
+      // was observed in production and a real two-column job came back in
+      // column order). Was, from slice 3: "On a two-column paper, our server
+      // can send the two columns' lines to the model interleaved, so compare
+      // the order of the translated paragraphs with the original before you
+      // rely on it." — true on both images while the old one could still be
+      // running. Before that, true of images before translateReadingOrder
+      // (2026-11): "Our server reads each line straight across the page, so
+      // on a two-column paper the two columns' lines reach the model
+      // interleaved." The new sentence keeps the fallback clause.
+      body: `A single-column document in ${either(["ja", "zh", "ko"])} becomes Markdown you can skim, quote and search. ${TRANSLATE_COLUMN_ORDER}`,
     },
     {
       title: "Localise a manual without renaming the product",
@@ -321,7 +328,10 @@ const content: ToolContent = {
       // worker's to say (the heartbeat's `translatePdfLanguages`, which the
       // panel reads), so the answer states both cases rather than either.
       // The Markdown to PDF caveats stay scoped to re-typesetting the .md.
-      a: `No. You always get the translation as Markdown and plain text in a ZIP; where this server can draw your target language, a reflowed PDF of the same text comes with it — the panel shows which before you start. Fonts, columns, images and positions of the original are not reproduced. To typeset the Markdown yourself, paste it into your own document or run translation.md through ${MARKDOWN_TOOL}.${markdownCaveats.length > 0 ? ` ${markdownCaveats.join(" ")}` : ""}`,
+      // CHANGED 2026-11-16 (audit #29 slice 5): the page-heading sentence
+      // joined, after `translatePageMap` was observed in production and a
+      // real three-page job printed "Page 1", "Page 2", "Page 3".
+      a: `No. You always get the translation as Markdown and plain text in a ZIP; where this server can draw your target language, a reflowed PDF of the same text comes with it — the panel shows which before you start. ${TRANSLATE_PAGE_HEADINGS} Fonts, columns, images and positions of the original are not reproduced. To typeset the Markdown yourself, paste it into your own document or run translation.md through ${MARKDOWN_TOOL}.${markdownCaveats.length > 0 ? ` ${markdownCaveats.join(" ")}` : ""}`,
     },
     {
       q: "Can I translate a scanned PDF?",
