@@ -1,9 +1,18 @@
 // @vitest-environment node
 /**
- * Chat with PDF's STATIC copy may not describe how a longer file's pages are
- * chosen (audit #30, chat-with-pdf#2, slice 3). The property, the exit
- * condition and the corpus rule live with the shapes in
+ * Chat with PDF's STATIC copy says how a longer file's pages are chosen, and
+ * never overclaims (audit #30, chat-with-pdf#2, slice 4). The property, the
+ * exit condition and the corpus rule live with the shapes in
  * `./chat-retrieval-claims`; this file holds them to the catalogue.
+ *
+ * HISTORY, inverted not deleted. Slice 3 wrote this file as a BAN: "Chat
+ * with PDF's STATIC copy may not describe how a longer file's pages are
+ * chosen", because a static page could be served beside a worker image
+ * that reads only the opening pages. Its exit condition (the production
+ * image chooses pages by the question, observed on the wire) held on
+ * 2026-11-16, so "no shape catches a sentence of the static corpus" became
+ * "no OVERCLAIM catches …", and the panel line's shape became a REQUIRED
+ * row beside every static mention of the notice.
  *
  * Why not a `claims-vs-capability` rule: its probe asks the tool AS SHIPPED
  * in this tree, and "has the capability" would be true here the moment the
@@ -50,9 +59,15 @@ import {
   stepText,
 } from "./page-copy";
 import {
+  CHAT_NOTICE_CLAIM,
   CHAT_RETRIEVAL_HONEST,
+  CHAT_RETRIEVAL_OVERCLAIMS,
   CHAT_RETRIEVAL_SHAPES,
+  CHAT_RETRIEVAL_SLICE3_HEDGES,
+  CHAT_SELECTION_LIMIT,
+  CHAT_SELECTION_REQUIRED,
   chatModelNoticeSentence,
+  chatRetrievalOverclaimsIn,
   chatRetrievalShapesIn,
 } from "./chat-retrieval-claims";
 
@@ -110,17 +125,42 @@ function staticCorpus(): Entry[] {
   return out;
 }
 
+const sentencesOf = (text: string) =>
+  text.split(/(?<=[.!?])\s+/).filter((s) => s.trim().length > 0);
+
 const CORPUS = staticCorpus();
 const SENTENCES = CORPUS.flatMap(({ where, text }) =>
-  text
-    .split(/(?<=[.!?])\s+/)
-    .filter((s) => s.trim().length > 0)
-    .map((sentence) => ({ where, sentence })),
+  sentencesOf(text).map((sentence) => ({ where, sentence })),
 );
 
-describe("Chat with PDF static copy names the pages read, never how they were chosen", () => {
+/** The tool the static copy sends a reader to for a page that was not read. */
+const EXTRACT_TOOL = getToolBySlug("extract-pages")?.name;
+if (!EXTRACT_TOOL) throw new Error("no extract-pages tool in the catalogue");
+
+/**
+ * The REQUIRED row: every entry that mentions the notice
+ * ({@link CHAT_NOTICE_CLAIM}) without a sentence the selection shape
+ * catches. Exported through the tests below so a planted entry can run
+ * through the same function the corpus does.
+ */
+function selectionHoles(corpus: readonly Entry[]): string[] {
+  return corpus
+    .filter(
+      ({ text }) =>
+        CHAT_NOTICE_CLAIM.test(text) &&
+        !sentencesOf(text).some((s) => CHAT_SELECTION_REQUIRED.pattern.test(s)),
+    )
+    .map(({ where, text }) => `${where}: ${text}`);
+}
+
+/** Which served page an entry is on: the tool page, or one guide. */
+const pageOf = (where: string) =>
+  where.startsWith("guide:") ? where.split(".")[0]! : "tool";
+
+describe("Chat with PDF static copy says how a longer file's pages are chosen, and never overclaims", () => {
   it("health: the derived corpus is the size it was when written, and reaches every source", () => {
-    // Measured 2026-11-16: 88 entries, 189 sentences. A corpus that
+    // Measured 2026-11-16 (slice 3): 88 entries, 189 sentences; slice 4,
+    // the same day: 88 entries, 193 sentences. A corpus that
     // quietly shrinks reports the strongest possible pass (rule 4).
     expect(CORPUS.length).toBeGreaterThanOrEqual(80);
     expect(SENTENCES.length).toBeGreaterThanOrEqual(170);
@@ -133,7 +173,7 @@ describe("Chat with PDF static copy names the pages read, never how they were ch
     ).toBe(true);
   });
 
-  it("health: every sentence this slice rewrote is in the corpus, verbatim", () => {
+  it("health: every honest sentence is in the corpus, verbatim", () => {
     // The relationship that keeps `honest` from being a list of sentences
     // nobody serves: each one must be found in the derived copy.
     const text = CORPUS.map((e) => e.text).join("\n");
@@ -141,18 +181,103 @@ describe("Chat with PDF static copy names the pages read, never how they were ch
     expect(missing).toEqual([]);
   });
 
-  it("no shape catches a sentence of the static corpus", () => {
+  it("no OVERCLAIM catches a sentence of the static corpus (slice 3: no shape at all)", () => {
+    // INVERTED 2026-11-16. Slice 3 ran every shape here, so describing the
+    // page choice at all was red; since the production proof only the
+    // overclaims are banned. The describing shapes are held the other way,
+    // by the required row below.
+    expect(CHAT_RETRIEVAL_OVERCLAIMS.length).toBeGreaterThanOrEqual(2);
     const caught = SENTENCES.flatMap(({ where, sentence }) =>
-      chatRetrievalShapesIn(sentence).map(
+      chatRetrievalOverclaimsIn(sentence).map(
         (name) => `${where} [${name}]: ${sentence}`,
       ),
     );
     expect(caught).toEqual([]);
   });
 
+  it("REQUIRED: every entry that mentions the notice says how the pages are chosen", () => {
+    // Health first: the set the row is asked of is derived from the copy,
+    // and an empty set would pass vacuously (rule 4).
+    const carriers = CORPUS.filter(({ text }) => CHAT_NOTICE_CLAIM.test(text));
+    expect(carriers.length).toBeGreaterThanOrEqual(4);
+    const sources = new Set(
+      carriers.map(({ where }) =>
+        where.startsWith("guide:") ? "guide" : where.split(/[.[]/)[0],
+      ),
+    );
+    for (const source of ["intro", "faq", "factFaq", "guide"])
+      expect(sources, `no ${source} entry mentions the notice`).toContain(
+        source,
+      );
+    expect(selectionHoles(CORPUS)).toEqual([]);
+  });
+
+  it("positive control through the detector: slice 3's intro sentence, restored, is a hole", () => {
+    const intro = CORPUS.find(({ where }) => where === "intro[1]");
+    expect(intro, "intro[1] is not in the corpus").toBeDefined();
+    const old = CHAT_RETRIEVAL_SLICE3_HEDGES[0]!.text;
+    const selection = sentencesOf(intro!.text).find((s) =>
+      CHAT_SELECTION_REQUIRED.pattern.test(s),
+    );
+    expect(selection, "intro[1] has no selection sentence").toBeDefined();
+    const planted = {
+      where: "intro[1]",
+      text: intro!.text.replace(selection!, old),
+    };
+    expect(planted.text).not.toBe(intro!.text);
+    expect(selectionHoles([planted])).toEqual([`intro[1]: ${planted.text}`]);
+  });
+
+  it("history: no sentence slice 3 wrote is served verbatim any more", () => {
+    // Slice 3's hedged sentences said only that part was read. Each was
+    // rewritten with the selection clause beside it; serving one again is
+    // the regression this pins.
+    expect(CHAT_RETRIEVAL_SLICE3_HEDGES.length).toBe(4);
+    const served = CORPUS.map((e) => e.text).join("\n");
+    const back = CHAT_RETRIEVAL_SLICE3_HEDGES.filter(({ text }) =>
+      served.includes(text),
+    ).map(({ source }) => source);
+    expect(back).toEqual([]);
+  });
+
+  it("every page that claims selection says matching is by words and names the fallback", () => {
+    // The honest limits that keep the claim from becoming "always finds":
+    // the match can miss a page asked about in other words, and Extract
+    // pages is the way to ask about a page that was not read.
+    const claiming = new Set(
+      SENTENCES.filter(({ sentence }) =>
+        CHAT_SELECTION_REQUIRED.pattern.test(sentence),
+      ).map(({ where }) => pageOf(where)),
+    );
+    expect([...claiming].sort()).toEqual(
+      [
+        "tool",
+        ...guides
+          .filter((g) => g.tools[0] === CHAT_TOOL_SLUG)
+          .map((g) => `guide:${g.slug}`),
+      ].sort(),
+    );
+    const missing: string[] = [];
+    for (const page of claiming) {
+      const own = SENTENCES.filter(({ where }) => pageOf(where) === page);
+      if (
+        !own.some(({ sentence }) => CHAT_SELECTION_LIMIT.pattern.test(sentence))
+      )
+        missing.push(
+          `${page}: no sentence says matching is by words and can miss`,
+        );
+      if (!own.some(({ sentence }) => sentence.includes(EXTRACT_TOOL)))
+        missing.push(`${page}: never names ${EXTRACT_TOOL}`);
+    }
+    expect(missing).toEqual([]);
+  });
+
   it("rule 1, direction A: every shipped exemplar is caught by its own shape", () => {
     const holes: string[] = [];
-    for (const { name, pattern, shipped } of CHAT_RETRIEVAL_SHAPES) {
+    for (const { name, pattern, shipped } of [
+      ...CHAT_RETRIEVAL_SHAPES,
+      CHAT_SELECTION_LIMIT,
+    ]) {
       expect(shipped.length, `${name} has no shipped exemplar`).toBeGreaterThan(
         0,
       );
@@ -162,10 +287,12 @@ describe("Chat with PDF static copy names the pages read, never how they were ch
     expect(holes).toEqual([]);
   });
 
-  it("rule 1, direction B: no honest sentence is caught", () => {
-    expect(CHAT_RETRIEVAL_HONEST.length).toBeGreaterThanOrEqual(7);
+  it("rule 1, direction B: no honest sentence is caught by an overclaim", () => {
+    // Slice 3 asked this of every shape; slice 4's honest sentences include
+    // the selection claim, which the required shape is MEANT to catch.
+    expect(CHAT_RETRIEVAL_HONEST.length).toBeGreaterThanOrEqual(11);
     const caught = CHAT_RETRIEVAL_HONEST.flatMap((s) =>
-      chatRetrievalShapesIn(s).map((name) => `[${name}] ${s}`),
+      chatRetrievalOverclaimsIn(s).map((name) => `[${name}] ${s}`),
     );
     expect(caught).toEqual([]);
   });
@@ -231,6 +358,9 @@ describe("Chat with PDF static copy names the pages read, never how they were ch
         "shares the most … words",
       ]);
     }
+    // Still distinct from every static sentence: the served-HTML check
+    // (`src/deploy/chat-retrieval-served.test.ts`) finds the panel line's
+    // exact text to prove it is not server-rendered.
     const line = chatRetrievalPanelLine(CHAT_RETRIEVAL_ANCHOR_SHARE);
     expect(SENTENCES.some(({ sentence }) => sentence === line)).toBe(false);
   });
