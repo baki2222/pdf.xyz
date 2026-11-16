@@ -1662,8 +1662,12 @@ export const PDF_TO_WORD_TABLES_QUESTION =
  * all nine limits (kept verbatim in claims-vs-capability.test.ts as
  * `WRAPS_DEFINITE_ONE_SENTENCE`). The limits now live in the tables FAQ
  * alone, as four plain sentences, and this points there.
+ *
+ * It names the SAME PAGE itself: a wrap onto the next page comes through as
+ * its own paragraph (S13), and that limit is checked on this sentence alone,
+ * never through the pointer ("the same page is not deferrable").
  */
-export const PDF_TO_WORD_WRAPS = `A cell whose text wraps onto further lines stays in its row as one paragraph, except in the layouts listed in the answer to “${PDF_TO_WORD_TABLES_QUESTION}” in the PDF to Word FAQ.`;
+export const PDF_TO_WORD_WRAPS = `A cell whose text wraps onto further lines on the same page stays in its row as one paragraph, except in the layouts listed in the answer to “${PDF_TO_WORD_TABLES_QUESTION}” in the PDF to Word FAQ.`;
 
 /**
  * What PDF to Word's DOCX holds. The catalogue and the guide said "preserving

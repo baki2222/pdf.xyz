@@ -3468,7 +3468,7 @@ const WRAPS_DEFINITE_ONE_SENTENCE =
 const OPEN_QUOTE = String.fromCodePoint(0x201c);
 const CLOSE_QUOTE = String.fromCodePoint(0x201d);
 const WRAPS_TABLES_QUESTION = "How are tables and multi-column pages handled?";
-const WRAPS_SHORT = `A cell whose text wraps onto further lines stays in its row as one paragraph, except in the layouts listed in the answer to ${OPEN_QUOTE}${WRAPS_TABLES_QUESTION}${CLOSE_QUOTE} in the PDF to Word FAQ.`;
+const WRAPS_SHORT = `A cell whose text wraps onto further lines on the same page stays in its row as one paragraph, except in the layouts listed in the answer to ${OPEN_QUOTE}${WRAPS_TABLES_QUESTION}${CLOSE_QUOTE} in the PDF to Word FAQ.`;
 const WRAPS_LIST_SENTENCES = [
   "A cell whose text wraps onto further lines on the same page stays in its row as one paragraph, except in the layouts below.",
   "A wrap in a table's first column ends the table; under a column of figures, only a heading's wrap is kept; a heading whose first line sits above the rest of its row has that line come through outside the table; and two cells that wrap onto the same line become a row of their own.",
@@ -4075,7 +4075,8 @@ describe("PDF to Word: the wrapped-cell sentences hold of the engine", () => {
    * entry with no lead, a "below" outside a PDF to Word FAQ answer) is
    * DANGLING: an offender in its own right, and its scope is the sentence
    * alone, which every limit shape catches. The shapes are unchanged: a
-   * deferral widens what they READ, never what they accept.
+   * deferral widens what they READ, never what they accept, and it widens
+   * nothing for a NOT_DEFERRABLE shape (the same page; below).
    */
   const WORD_NAME = getToolBySlug(PDF_TO_WORD_TOOL)!.name;
   const WORD_NAME_RE = WORD_NAME.replace(/[.*+?^$|()[\]{}\\]/g, "\\$&");
@@ -4122,9 +4123,36 @@ describe("PDF to Word: the wrapped-cell sentences hold of the engine", () => {
     }
     return { scope: sentence, dangling: false };
   }
+  /**
+   * NOT DEFERRABLE (verifier, 2026-11-16). The same page is read on each
+   * sentence ALONE: a pointer never widens its scope. Until then every shape
+   * read the scope, and the list's lead names the same page, so the short
+   * sentence shipped without it ("wraps onto further lines stays in its
+   * row") and the deferral cleared it while S13 (IMAGE_WRAP_ACROSS_PAGES)
+   * prints a wrap onto page 2 as its own paragraph: the guard licensed the
+   * defect (house rule 2). The other limits keep the deferral.
+   */
+  const NOT_DEFERRABLE: ReadonlySet<string> = new Set([
+    "kept in its row, silent about the same page",
+  ]);
+  /** The text a shape reads: the sentence alone, or its whole scope. */
+  const readBy = (name: string, sentence: string, scope: string) =>
+    NOT_DEFERRABLE.has(name) ? sentence : scope;
   const overclaimsIn = (sentence: string, ownText: string, faq: Faq) => {
     const { scope, dangling } = scopeOf(sentence, ownText, faq);
-    return dangling || overclaims(scope);
+    return (
+      dangling ||
+      Object.entries(OVERCLAIMS_WRAPS).some(([name, re]) =>
+        re.test(readBy(name, sentence, scope)),
+      )
+    );
+  };
+  /** The limit shapes that fire on a sentence, each reading its own text. */
+  const limitHitsIn = (sentence: string, ownText: string, faq: Faq) => {
+    const { scope } = scopeOf(sentence, ownText, faq);
+    return limitShapes
+      .filter(([name, re]) => re.test(readBy(name, sentence, scope)))
+      .map(([name]) => name);
   };
   /** The served FAQ answer a sentence sits in, else the sentence itself. */
   const ownTextOf = (sentence: string, faq: Faq) =>
@@ -4227,19 +4255,37 @@ describe("PDF to Word: the wrapped-cell sentences hold of the engine", () => {
       scope: WRAPS_LIST,
       dangling: false,
     });
-    // Positive control: read ALONE, every limit shape catches the short
-    // sentence, and every one but the page's catches the lead (which names
-    // the same page itself); the deferral is the only thing that clears them.
-    expect(limitShapes.filter(([, re]) => !re.test(WRAPS_SHORT))).toEqual([]);
+    // Health: the non-deferrable set names real limit shapes (a typo would
+    // leave it empty and every shape deferrable again).
     expect(
-      limitShapes
-        .filter(([, re]) => !re.test(WRAPS_LIST_SENTENCES[0]))
-        .map(([n]) => n),
-    ).toEqual(["kept in its row, silent about the same page"]);
+      limitShapes.filter(([n]) => NOT_DEFERRABLE.has(n)).map(([n]) => n),
+    ).toEqual([...NOT_DEFERRABLE]);
+    // Positive control: read ALONE, every limit shape but the page's catches
+    // the short sentence and the lead (each names the same page itself); the
+    // deferral is the only thing that clears them. Until the verifier's
+    // finding (2026-11-16) the short sentence was caught by the page's shape
+    // too, and the deferral cleared that as well.
+    for (const sentence of [WRAPS_SHORT, WRAPS_LIST_SENTENCES[0]])
+      expect(
+        limitShapes.filter(([, re]) => !re.test(sentence)).map(([n]) => n),
+        sentence,
+      ).toEqual([...NOT_DEFERRABLE]);
     expect(overclaimsIn(WRAPS_SHORT, WRAPS_SHORT, faq)).toBe(false);
     expect(overclaimsIn(WRAPS_LIST_SENTENCES[0], tables!.answer, faq)).toBe(
       false,
     );
+
+    // Planted 0 (verifier, 2026-11-16): the short sentence as it shipped at
+    // cc018a98, without "on the same page", behind a VALID pointer. The
+    // pointer resolves and its list names the same page, yet it is red, and
+    // red for the page alone.
+    const SAME_PAGE = " on the same page";
+    expect(WRAPS_SHORT.split(SAME_PAGE)).toHaveLength(2);
+    const pageless = WRAPS_SHORT.replace(SAME_PAGE, "");
+    expect(scopeOf(pageless, pageless, faq).dangling).toBe(false);
+    expect(scopeOf(pageless, pageless, faq).scope).toContain(SAME_PAGE);
+    expect(limitHitsIn(pageless, pageless, faq)).toEqual([...NOT_DEFERRABLE]);
+    expect(overclaimsIn(pageless, pageless, faq)).toBe(true);
 
     // Planted 1: a deferral to a question that is not on the page.
     const missing = WRAPS_SHORT.replace(
@@ -4271,27 +4317,29 @@ describe("PDF to Word: the wrapped-cell sentences hold of the engine", () => {
     }
 
     // Planted 3: the named entry exists and has a list that lost ONE limit.
-    // Each cut, one at a time, through the short sentence AND through the
-    // list's own lead, is caught by its own limit shape and no other.
+    // Each cut, one at a time, through the list's own lead, is caught by its
+    // own limit shape and no other; through the short sentence too, except
+    // the same page's cut: the short sentence names the same page itself,
+    // and the lead that lost it is the offender, read alone.
     CUT_LIMITS.forEach((cut, i) => {
       const answer = tables!.answer.replace(WRAPS_LIST, cut);
       expect(answer, `cut ${i} did not land`).not.toBe(tables!.answer);
       const doctored: Faq = faq.map((e) =>
         e.question === WRAPS_TABLES_QUESTION ? { ...e, answer } : e,
       );
-      const viaShort = scopeOf(WRAPS_SHORT, WRAPS_SHORT, doctored);
-      const viaLead = scopeOf(sentencesOf(cut)[0]!, answer, doctored);
-      for (const [via, read] of [
-        ["short", viaShort],
-        ["lead", viaLead],
-      ] as const) {
-        expect(read.dangling, `${via} ${i}`).toBe(false);
-        expect(
-          limitShapes.filter(([, re]) => re.test(read.scope)).map(([n]) => n),
-          `${via}, cut ${i}`,
-        ).toEqual([limitShapes[i]![0]]);
-      }
-      expect(overclaimsIn(WRAPS_SHORT, WRAPS_SHORT, doctored)).toBe(true);
+      const name = limitShapes[i]![0];
+      const lead = sentencesOf(cut)[0]!;
+      expect(scopeOf(WRAPS_SHORT, WRAPS_SHORT, doctored).dangling).toBe(false);
+      expect(scopeOf(lead, answer, doctored).dangling).toBe(false);
+      expect(limitHitsIn(lead, answer, doctored), `lead, cut ${i}`).toEqual([
+        name,
+      ]);
+      expect(overclaimsIn(lead, answer, doctored), `lead, cut ${i}`).toBe(true);
+      const short = NOT_DEFERRABLE.has(name) ? [] : [name];
+      expect(
+        limitHitsIn(WRAPS_SHORT, WRAPS_SHORT, doctored),
+        `short, cut ${i}`,
+      ).toEqual(short);
     });
 
     // Planted 4: "below" outside a PDF to Word FAQ answer resolves to nothing.
