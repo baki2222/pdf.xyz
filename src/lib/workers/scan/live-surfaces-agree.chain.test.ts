@@ -248,6 +248,7 @@ function heartbeat(malwareScan: boolean): WorkerHeartbeat {
       summarizePages: true,
       translatePdfLanguages: [],
       translateReadingOrder: true,
+      translatePageMap: true,
     },
     at: Date.now(),
   });

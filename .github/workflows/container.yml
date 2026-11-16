@@ -262,6 +262,24 @@ jobs:
       - name: Worker image Translate PDF reading-order proof (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:translate-reading-order-proof
 
+      # Translate PDF's page headings (2026-11-16, competitor audit #29 slice
+      # 4): the start-up proof the heartbeat publishes as `translatePageMap`
+      # — a generated three-page PDF as two translate-pdf jobs through the
+      # executor's order, on the image's REAL pdftotext (extraction and
+      # read-back) and REAL Chromium, the target derived from the PDF
+      # languages this image proves. A stub model that keeps the page markers
+      # must get a PDF headed "Page 1".."Page 3", each over its own page's
+      # tokens; one that drops them must get one "Pages 1–3" heading over all
+      # three; both ZIPs must be identical and carry every token in order; no
+      # text a reader gets may hold the marker's brand; each job record's
+      # results.ai.pageMap must be exact. The control (arm A's model drops
+      # the markers too) must fail EXACTLY [control, pdf_a, wire_a], and
+      # "pdf_unavailable" is itself a failure here. Prints the target, both
+      # arms' headings and pageMap, both failed lists and `pdftotext -v`.
+      # Stub model, generated text; no user document, secret, queue or store.
+      - name: Worker image Translate PDF page-map proof (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:translate-page-map-proof
+
       # Chat with PDF's page selection (2026-11-16, competitor audit wave 2
       # #30, slice 3): the start-up proof the heartbeat publishes as
       # `chatRetrieval`, on the image's REAL pdftotext and ICU. A 70-page PDF

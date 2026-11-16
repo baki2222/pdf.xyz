@@ -34,9 +34,14 @@ export interface AiWindowMeta {
    * model received: Translate never sends withheld or oversize pages, and
    * since reading order (2026-11-16) may send a page's flow text in place of
    * its `-layout` text. Translate's literal count is
-   * {@link AiReadingOrderMeta.sentCharacters}, which is never larger than
-   * this while the window is not truncated
-   * (`reading-order.results.test.ts`).
+   * {@link AiReadingOrderMeta.sentCharacters}. While the window is not
+   * truncated, that count LESS the page markers it carries
+   * ({@link AiPageMapMeta.markerCharacters}) is never larger than this
+   * (`reading-order.results.test.ts`, `page-map.results.test.ts`). The
+   * markers are literal characters in the `-layout` unit's place, so the
+   * count itself may exceed this whenever flow and `-layout` are about the
+   * same length. (True before translatePageMap (2026-11): the count itself
+   * was never larger than this.)
    */
   charactersSent: number;
   /** Characters the extracted document text holds in total. */
@@ -267,6 +272,107 @@ function boundReadingOrder(raw: unknown): AiReadingOrderMeta | undefined {
   };
 }
 
+/**
+ * How Translate's multi-page calls were labelled page by page (2026-11, page
+ * markers, `@/lib/workers/translate/page-map`). Bounded integers over the
+ * calls ACTUALLY MADE (the same rule as {@link AiReadingOrderMeta}'s page
+ * counts) — never document text. Two invariants hold on every record:
+ *
+ *  - `marked + fellBack.collision + fellBack.budget === multiPageChunks`;
+ *  - `verified + fellBack.missing + fellBack.order + fellBack.empty +
+ *    unanswered === marked`.
+ *
+ * ABSENT on every job a worker older than page markers ran, and on every
+ * other tool's job. Never defaulted (the reading-order deploy-skew rule).
+ */
+export interface AiPageMapMeta {
+  /** Calls sent with at least two pages. */
+  multiPageChunks: number;
+  /** Of those, the ones sent with page markers between their pages. */
+  marked: number;
+  /** Marked calls whose reply carried every marker back, in order, with no empty page. */
+  verified: number;
+  /**
+   * Marked calls that failed, or whose reply was empty once the markers were
+   * removed (a reply of nothing but markers is unanswered, not `empty`).
+   */
+  unanswered: number;
+  /**
+   * Why a multi-page call carried no page labels. `collision`, `budget`: it
+   * was sent unmarked (the document or the instructions held the marker's
+   * brand; the reservation's slack could not pay for the markers). `missing`,
+   * `order`, `empty`: it was marked and the reply did not verify (markers
+   * dropped or glued into a sentence; out of order, duplicated or extra;
+   * pages merged across a marker). Each such call is headed by its range.
+   */
+  fellBack: {
+    collision: number;
+    budget: number;
+    missing: number;
+    order: number;
+    empty: number;
+  };
+  /** Σ `separatorOverhead` over the marked boundaries literally sent. */
+  markerCharacters: number;
+}
+
+const PAGE_MAP_COUNTS = [
+  "multiPageChunks",
+  "marked",
+  "verified",
+  "unanswered",
+  "markerCharacters",
+] as const;
+const PAGE_MAP_FELL_BACK = [
+  "collision",
+  "budget",
+  "missing",
+  "order",
+  "empty",
+] as const;
+
+/**
+ * Re-bound an untrusted `pageMap` block, STRICTLY: every count must be a
+ * finite number (a missing or non-numeric field drops the block whole, never
+ * repaired into a 0), negatives and fractions are clamped, and a block whose
+ * counts then break either invariant is dropped whole — a page map that does
+ * not add up is not a claim about anything.
+ */
+function boundPageMap(raw: unknown): AiPageMapMeta | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const r = raw as Record<string, unknown>;
+  const fell = r.fellBack;
+  if (typeof fell !== "object" || fell === null) return undefined;
+  const f = fell as Record<string, unknown>;
+  const finite = (v: unknown): boolean =>
+    typeof v === "number" && Number.isFinite(v);
+  if (!PAGE_MAP_COUNTS.every((k) => finite(r[k]))) return undefined;
+  if (!PAGE_MAP_FELL_BACK.every((k) => finite(f[k]))) return undefined;
+  const map: AiPageMapMeta = {
+    multiPageChunks: count(r.multiPageChunks),
+    marked: count(r.marked),
+    verified: count(r.verified),
+    unanswered: count(r.unanswered),
+    fellBack: {
+      collision: count(f.collision),
+      budget: count(f.budget),
+      missing: count(f.missing),
+      order: count(f.order),
+      empty: count(f.empty),
+    },
+    markerCharacters: count(r.markerCharacters),
+  };
+  const b = map.fellBack;
+  if (map.marked + b.collision + b.budget !== map.multiPageChunks)
+    return undefined;
+  if (
+    map.verified + b.missing + b.order + b.empty + map.unanswered !==
+    map.marked
+  )
+    return undefined;
+  return map;
+}
+
 /** Re-bound an untrusted `pdf` block; anything that is not one is dropped. */
 function boundPdf(raw: unknown): AiPdfMeta | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
@@ -293,6 +399,8 @@ export interface AiResultMeta {
   pdf?: AiPdfMeta;
   /** Translate PDF only: which text was sent. See {@link AiReadingOrderMeta}. */
   readingOrder?: AiReadingOrderMeta;
+  /** Translate PDF only: how multi-page calls were labelled. See {@link AiPageMapMeta}. */
+  pageMap?: AiPageMapMeta;
   /**
    * Present ONLY when pages were withheld. See {@link AiDeliveryMeta}: absent
    * is "delivered in full", and there is no third state.
@@ -352,6 +460,7 @@ export function buildAiResultMeta(raw: AiResultMeta): AiResultMeta {
   const used = boundUsage(raw.usage);
   const pdf = boundPdf(raw.pdf);
   const readingOrder = boundReadingOrder(raw.readingOrder);
+  const pageMap = boundPageMap(raw.pageMap);
   /**
    * Re-bound, and DROPPED unless it reports a real withholding.
    *
@@ -401,6 +510,7 @@ export function buildAiResultMeta(raw: AiResultMeta): AiResultMeta {
     ...(delivery ? { delivery } : {}),
     ...(pdf ? { pdf } : {}),
     ...(readingOrder ? { readingOrder } : {}),
+    ...(pageMap ? { pageMap } : {}),
   };
 }
 

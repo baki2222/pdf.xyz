@@ -392,6 +392,20 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "nothing yet about Translate PDF's column order: its page says a two-column paper's lines can reach the model interleaved, and no sentence rests on this proof until that changes",
     proves: provenByFlag,
   },
+  translatePageMap: {
+    label: "page headings in Translate",
+    promise:
+      // Added 2026-11-16 (competitor audit #29, slice 4). Written to be TRUE
+      // AT MERGE: no shipped sentence says the translated PDF heads each page
+      // of the original (the copy names no headings at all), so this row may
+      // go blocked between the web deploy and the worker redeploy without
+      // publishing a false sentence about our own copy. The slice that writes
+      // the first page-heading sentence (S5, per job from results.ai.pageMap)
+      // must edit this promise in the same commit — `capability-hedges.test.ts`
+      // goes red until it does.
+      "nothing yet about Translate PDF's page headings: no page says the translated PDF heads each page of the original, and no sentence rests on this proof until that changes",
+    proves: provenByFlag,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */

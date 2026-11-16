@@ -168,23 +168,26 @@ describe("the advertised set and the wire contract agree", () => {
     const advertised = ADVERTISED_WORKER_CAPABILITIES.map((c) => c.key);
 
     // BOUND THE CORPUS: two empty lists are equal, and `[] ⊆ []` is the
-    // strongest possible pass. The wire has had twenty-one capabilities since
-    // `summarizePages`, `translateReadingOrder` and `docxTableWraps` landed
-    // on 2026-11-16 in three branches merged the same day (each said
-    // "nineteen" or "twenty" alone); eighteen since `chatRetrieval`, the same
-    // day; seventeen since `translatePdfLanguages` and `docxTypefaces` on
-    // 2026-11-15; fifteen since `docxTables`, the same day; fourteen since
+    // strongest possible pass. The wire has had twenty-two capabilities since
+    // `translatePageMap` (slice 4 of audit #29) merged with main's
+    // `summarizePages` on 2026-11-16 (each branch said "twenty-one" alone);
+    // twenty-one since `summarizePages`, `translateReadingOrder` and
+    // `docxTableWraps` landed on 2026-11-16 in three branches merged the same
+    // day (each said "nineteen" or "twenty" alone); eighteen since
+    // `chatRetrieval`, the same day; seventeen since `translatePdfLanguages`
+    // and `docxTypefaces` on 2026-11-15; fifteen since `docxTables`, the same
+    // day; fourteen since
     // `docxRunStyles`,
     // the same day; thirteen since `htmlZip`,
     // twelve since `translateOcr`, eleven since
     // `docxPictures`, ten since
     // `pptxPictures`, nine since `pptxPresentationChain`, eight since
-    // `aiReadCap`); a number below that is the fixture failing, not the code.
+    // `aiReadCap`)); a number below that is the fixture failing, not the code.
     expect(
       wire.length,
       "the heartbeat's capability set is implausibly small — the corpus, not " +
         "the code, is what failed",
-    ).toBeGreaterThanOrEqual(21);
+    ).toBeGreaterThanOrEqual(22);
 
     expect(
       [...advertised].sort(),
@@ -270,6 +273,7 @@ describe("the advertised set and the wire contract agree", () => {
       summarizePages: true,
       translatePdfLanguages: true,
       translateReadingOrder: true,
+      translatePageMap: true,
     };
     expect(Object.keys(proven).sort()).toEqual(
       ADVERTISED_WORKER_CAPABILITIES.map((c) => c.key).sort(),

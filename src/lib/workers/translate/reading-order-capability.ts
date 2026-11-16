@@ -17,7 +17,7 @@
  *
  * ── WHAT IT RUNS ─────────────────────────────────────────────────────────────
  *
- * A two-column Letter page generated here with pdf-lib (a title, then a left
+ * A two-column Letter page generated with pdf-lib (`./probe-pdf`) (a title, then a left
  * column and a right column on the SAME baselines, each column one sentence
  * with its own tokens), as one `translate-pdf` job through
  * `runThroughExecutorOrder` — the registry resolves the processor, the
@@ -62,66 +62,30 @@
  */
 
 import JSZip from "jszip";
-import { PDFDocument } from "pdf-lib";
-import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import type { AiCompletionRequest, AiProvider } from "../ai/provider";
 import { runThroughExecutorOrder } from "../capability-chain";
 import { ProcessorRegistry } from "../processor/registry";
 import { createTranslateProcessor } from "../processor/translate";
 import type { TranslateDeps } from "./engine";
 import { translateDeps } from "./native";
+import {
+  READING_ORDER_PROBE_COLUMNS,
+  readingOrderProbePdf,
+  type ProbeColumns,
+} from "./probe-pdf";
 import type { TranslateExtracted, TranslateExtractor } from "./reading-order";
 
 type EnvSource = Record<string, string | undefined>;
 
-/** The two columns a reader must find one after the other. */
-export interface ProbeColumns {
-  readonly left: readonly string[];
-  readonly right: readonly string[];
-}
-
-/** The probe page's title, printed above both columns. */
-export const READING_ORDER_PROBE_TITLE = "Reading Order Probe";
-
-/**
- * The probe page's columns: each ONE sentence over three printed lines, with
- * tokens no other line carries (A101 and Oslo on the left, B202 and Lima on
- * the right), drawn on the same baselines so `-layout` puts each left line
- * beside its right-hand neighbour. No hyphens: flow keeps a line-end hyphen,
- * and the predicate compares lines joined by a space.
- */
-export const READING_ORDER_PROBE_COLUMNS: ProbeColumns = {
-  left: [
-    "Harbour note A101 says the morning",
-    "ferry from the northern quay sails",
-    "at nine every weekday towards Oslo.",
-  ],
-  right: [
-    "Market note B202 says the river",
-    "stalls beside the old station open",
-    "at noon each Sunday for guests from Lima.",
-  ],
-};
-
-/** The probe's PDF: one Letter page, generated here (no file ships for it). */
-export async function readingOrderProbePdf(): Promise<Uint8Array> {
-  const doc = await PDFDocument.create();
-  const { left, right } = READING_ORDER_PROBE_COLUMNS;
-  const font = await embedDrawingFont(doc, [
-    READING_ORDER_PROBE_TITLE,
-    ...left,
-    ...right,
-  ]);
-  const page = doc.addPage([612, 792]);
-  page.drawText(READING_ORDER_PROBE_TITLE, { x: 50, y: 740, size: 18, font });
-  left.forEach((line, i) =>
-    page.drawText(line, { x: 50, y: 690 - i * 14, size: 11, font }),
-  );
-  right.forEach((line, i) =>
-    page.drawText(line, { x: 320, y: 690 - i * 14, size: 11, font }),
-  );
-  return doc.save();
-}
+// The probe page and its generator live in `./probe-pdf` (moved 2026-11-16,
+// slice 4, so the page-map probe adds no drawing module); these names stay
+// exported from here, where every existing caller imports them.
+export {
+  READING_ORDER_PROBE_COLUMNS,
+  READING_ORDER_PROBE_TITLE,
+  readingOrderProbePdf,
+  type ProbeColumns,
+} from "./probe-pdf";
 
 /**
  * The two-column property, over text as the model or a reader gets it (one
@@ -198,7 +162,7 @@ const OPEN = `${NL}---${NL}`;
 const CLOSE = `${NL}---`;
 
 /** The text between the prompt's `---` delimiters, or null. */
-function delimitedSegment(request: AiCompletionRequest): string | null {
+export function delimitedSegment(request: AiCompletionRequest): string | null {
   const content = request.messages.map((m) => m.content).join(NL);
   const open = content.indexOf(OPEN);
   const close = content.lastIndexOf(CLOSE);

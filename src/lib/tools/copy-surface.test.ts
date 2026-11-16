@@ -89,8 +89,10 @@ describe("the copy surface reaches what the guards must read", () => {
       "src/lib/workers/options-proof.ts",
       // Added 2026-11-16: the reading-order probe page's two printed column
       // sentences (a generated fixture no visitor sees), walked because the
-      // record outside the walk may not grow.
-      "src/lib/workers/translate/reading-order-capability.ts",
+      // record outside the walk may not grow. Was reading-order-capability.ts
+      // until slice 4 moved the probe pages (and added the page-map probe's
+      // three paragraphs) into probe-pdf.ts.
+      "src/lib/workers/translate/probe-pdf.ts",
       "src/lib/pdf/crop-disclosure.ts",
       // Added 2026-10-24: Compress PDF's Grayscale sentence, in its own leaf.
       "src/lib/pdf/compress-grayscale.ts",

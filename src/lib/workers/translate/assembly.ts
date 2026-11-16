@@ -23,7 +23,11 @@ import {
   type TranslatePlan,
 } from "./chunking";
 
-/** One translated run of pages, exactly as the model returned it (trimmed). */
+/**
+ * One translated run of pages: the model's reply with this product's page
+ * markers removed (`./page-map`), trimmed. In the PDF, a chunk whose markers
+ * verified arrives as one body per page; the ZIP always gets one per call.
+ */
 export interface TranslationBody {
   readonly kind: "body";
   /** Real page numbers, ascending; empty for an unchunked (single) document. */

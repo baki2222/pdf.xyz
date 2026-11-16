@@ -43,6 +43,7 @@
     "worker:epub-proof": "tsx scripts/worker-epub-proof.ts",
     "worker:translate-pdf-proof": "tsx scripts/worker-translate-pdf-proof.ts",
     "worker:translate-reading-order-proof": "tsx scripts/worker-translate-reading-order-proof.ts",
+    "worker:translate-page-map-proof": "tsx scripts/worker-translate-page-map-proof.ts",
     "worker:chat-retrieval-proof": "tsx scripts/worker-chat-retrieval-proof.ts",
     "worker:summarize-pages-proof": "tsx scripts/worker-summarize-pages-proof.ts",
     "worker:options-proof": "tsx scripts/worker-options-proof.ts",

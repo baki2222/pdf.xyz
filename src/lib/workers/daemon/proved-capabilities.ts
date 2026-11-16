@@ -53,6 +53,7 @@ import {
 } from "@/lib/workers/translate/capability";
 import { provesTranslateOcr } from "@/lib/workers/translate/ocr-capability";
 import { provesTranslateReadingOrder } from "@/lib/workers/translate/reading-order-capability";
+import { provesTranslatePageMap } from "@/lib/workers/translate/page-map-capability";
 import { provesHtmlZip } from "@/lib/workers/html-render/zip-capability";
 import { provesChatRetrieval } from "@/lib/workers/chat-with-pdf/retrieval-capability";
 import { provesSummarizePages } from "@/lib/workers/summarize/pages-capability";
@@ -159,6 +160,14 @@ export const PROVED_CAPABILITIES = defineProvers({
   // model and the delivered text must get the columns one after the other.
   translateReadingOrder: {
     prove: (env) => provesTranslateReadingOrder(env),
+    parse: bool,
+  },
+  // Two jobs on a generated three-page PDF through the executor's order,
+  // with the image's REAL extractor, Chromium and pdftotext read-back (after
+  // the PDF-language memo above settles): a model that keeps the page
+  // markers gets "Page N" headings, one that drops them gets the range.
+  translatePageMap: {
+    prove: (env) => provesTranslatePageMap(env),
     parse: bool,
   },
 });

@@ -12,6 +12,7 @@
 import { describe, expect, it } from "vitest";
 import { PAGE_JOIN } from "@/lib/pdf/text";
 import { planTranslateChunks, missingPageMarker } from "./chunking";
+import { separatorFor } from "./page-markers";
 
 /** A deterministic pseudo-random generator, so a failure is reproducible. */
 function lcg(seed: number): () => number {
@@ -88,31 +89,69 @@ describe("planTranslateChunks — conservation", () => {
           chunk.characters,
           `chunk ${chunk.index} is ${chunk.characters} over a ceiling of ${ceiling}`,
         ).toBeLessThanOrEqual(ceiling);
-        expect(chunk.text.length).toBe(chunk.characters);
-        // Whole pages only: the chunk text is exactly its pages, joined.
-        expect(chunk.text).toBe(
-          chunk.pages.map((n) => byNumber.get(n)!).join(PAGE_JOIN),
+        // Until translatePageMap (2026-11) a chunk weighed exactly what it
+        // sent: `expect(chunk.text.length).toBe(chunk.characters);`. Every
+        // boundary is now SIZED as a page-marker separator, whether or not it
+        // is sent as one, so the weight is the pages plus those separators and
+        // the sent text never exceeds it.
+        expect(chunk.characters).toBe(
+          chunk.pages.reduce((n, page) => n + byNumber.get(page)!.length, 0) +
+            chunk.pages
+              .slice(1)
+              .reduce((n, page) => n + separatorFor(page).length, 0),
         );
+        expect(chunk.text.length).toBeLessThanOrEqual(chunk.characters);
+        // Whole pages only: the chunk text is exactly its pages, joined.
+        // INVERTED, NOT DELETED. True before translatePageMap (2026-11):
+        //   expect(chunk.text).toBe(
+        //     chunk.pages.map((n) => byNumber.get(n)!).join(PAGE_JOIN),
+        //   );
+        // A marked chunk now joins with the page-marker separator before
+        // every page after the first; an unmarked one still with PAGE_JOIN.
+        expect(chunk.text).toBe(
+          chunk.marked
+            ? chunk.pages
+                .map((n, i) =>
+                  i === 0
+                    ? byNumber.get(n)!
+                    : separatorFor(n) + byNumber.get(n)!,
+                )
+                .join("")
+            : chunk.pages.map((n) => byNumber.get(n)!).join(PAGE_JOIN),
+        );
+        // With no `send` and the default (unbounded) budget, every multi-page
+        // chunk is marked and sends exactly what it weighs.
+        expect(chunk.marked).toBe(chunk.pages.length > 1);
+        expect(chunk.text.length).toBe(chunk.characters);
       }
     }
   });
 
   it("keeps document order across chunks and gaps", () => {
-    // 5 fits, 5 fits, 40 is oversize, 5 fits. The oversize page must END the
+    // 5 fits, 5 fits, 60 is oversize, 5 fits. The oversize page must END the
     // first chunk, not be skipped over, or the gap lands in the wrong place.
-    const plan = planTranslateChunks(pagesOf([5, 5, 40, 5]), 20);
+    // Until translatePageMap (2026-11) this was `pagesOf([5, 5, 40, 5])` under
+    // a ceiling of 20; a boundary now weighs a separator (23 characters before
+    // page 3), so the ceiling is 40 and the oversize page 60.
+    const plan = planTranslateChunks(pagesOf([5, 5, 60, 5]), 40);
     expect(plan.chunks.map((c) => c.pages)).toEqual([[1, 3], [7]]);
     expect(plan.oversize.map((o) => o.pageNumber)).toEqual([5]);
     expect(plan.chunks.map((c) => c.index)).toEqual([0, 1]);
   });
 
   it("packs to the ceiling but not past it, joins included", () => {
-    // Two 9-char pages plus the 2-char join is exactly 20.
-    expect(planTranslateChunks(pagesOf([9, 9]), 20).chunks).toHaveLength(1);
-    // One more character and the join no longer fits — the separator is part
-    // of what is sent, and a planner that forgot it would overrun by exactly
-    // PAGE_JOIN per page.
-    expect(planTranslateChunks(pagesOf([9, 10]), 20).chunks).toHaveLength(2);
+    // Until translatePageMap (2026-11): two 9-char pages plus the 2-char
+    // PAGE_JOIN was exactly 20, and `pagesOf([9, 10])` under 20 split. The
+    // boundary before page 3 now weighs separatorFor(3), 23 characters.
+    const exact = 9 + separatorFor(3).length + 9;
+    expect(exact).toBe(41);
+    expect(planTranslateChunks(pagesOf([9, 9]), exact).chunks).toHaveLength(1);
+    // One more character and the separator no longer fits: it is part of what
+    // a marked chunk sends, and a planner that forgot it would overrun by
+    // exactly the separator per page.
+    expect(planTranslateChunks(pagesOf([9, 10]), exact).chunks).toHaveLength(2);
+    // And the PAGE_JOIN-only weight no longer decides it: 9 + 2 + 10 fits 21.
+    expect(planTranslateChunks(pagesOf([9, 10]), 21).chunks).toHaveLength(2);
   });
 
   it("returns an empty plan for an empty document, without inventing a chunk", () => {

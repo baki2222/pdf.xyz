@@ -407,6 +407,16 @@ describe("a short window is disclosed — to the model and to the job record", (
 // ---------------------------------------------------------------------------
 
 describe("translate refuses more text than the model may write back", () => {
+  /** The document text one call carried: between the prompt's `---` lines. */
+  function delimitedSegment(call: AiCompletionRequest): string {
+    const content = call.messages[0]!.content;
+    const open = "\n---\n";
+    const from = content.indexOf(open);
+    const to = content.lastIndexOf("\n---");
+    expect(from, "the request has no delimited segment").toBeGreaterThan(0);
+    return content.slice(from + open.length, to);
+  }
+
   /** Text just over the ceiling, spread across pages so the extractor is realistic. */
   async function oversizedExtractor(): Promise<PdfTextExtractor> {
     const perPage = "a".repeat(2000);
@@ -456,7 +466,16 @@ describe("translate refuses more text than the model may write back", () => {
     // billed for a call that must fail. Every call is inside the ceiling.
     expect(provider.calls.length).toBeGreaterThan(1);
     for (const call of provider.calls) {
-      const sent = call.messages.map((m) => m.content).join("\n").length;
+      // INVERTED, NOT DELETED (translatePageMap, 2026-11). This measured the
+      // WHOLE user message, prompt furniture included:
+      //   const sent = call.messages.map((m) => m.content).join("\n").length;
+      //   expect(sent).toBeLessThanOrEqual(TRANSLATE_MAX_INPUT_CHARS);
+      // (true before translatePageMap (2026-11)). It held only because the
+      // furniture fitted in the last chunk's slack; the page-marker clause
+      // (~190 characters) does not. The ceiling is the model's OUTPUT, and the
+      // model writes back the document segment, not the instruction — so the
+      // property is the delimited segment, markers included, within it.
+      const sent = delimitedSegment(call).length;
       expect(sent).toBeLessThanOrEqual(TRANSLATE_MAX_INPUT_CHARS);
     }
   });
@@ -565,7 +584,9 @@ describe("translate refuses more text than the model may write back", () => {
     expect(provider.calls.length).toBeGreaterThan(1);
     for (const call of provider.calls) {
       expect(call.maxOutputTokens).toBe(TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS);
-      const sent = call.messages.map((m) => m.content).join("\n").length;
+      // INVERTED like the case above (translatePageMap, 2026-11): the whole
+      // message's length was measured; the delimited segment is the property.
+      const sent = delimitedSegment(call).length;
       expect(sent).toBeLessThanOrEqual(TRANSLATE_MAX_INPUT_CHARS);
     }
   });

@@ -1,14 +1,16 @@
 // @vitest-environment node
 /**
  * GUARD: every failure `runTranslate` returns AFTER its first provider call
- * carries the spend — a `...spentSoFar()` spread, or `usage`, `window` AND
- * `readingOrder` together.
+ * carries the spend — a `...spentSoFar()` spread, or `usage`, `window`,
+ * `readingOrder` AND `pageMap` together.
  *
  * `readingOrder` (2026-11-16) is which text the paid calls sent, and how much.
  * It rides on the SAME carrier rather than on a parallel list, so a new arm
  * that carries the spend carries it too, and the predicate below is the one
  * place that says so. The carrier's own definition is checked as well: a
  * `spentSoFar` that lost `window` or `readingOrder` would pass every spread.
+ * `pageMap` (translatePageMap, 2026-11) joined the same predicate and the
+ * same carrier check, not a parallel list.
  *
  * WHY (2026-11-15). Four such returns shipped without either field: the
  * package size arm, a single empty translation, the all-empty fallback, and an
@@ -94,7 +96,12 @@ function literalCarries(literal: ts.ObjectLiteralExpression): boolean {
     )
       names.add(p.name.getText());
   }
-  return names.has("usage") && names.has("window") && names.has("readingOrder");
+  return (
+    names.has("usage") &&
+    names.has("window") &&
+    names.has("readingOrder") &&
+    names.has("pageMap")
+  );
 }
 
 /**
@@ -254,12 +261,14 @@ describe("every post-spend failure in runTranslate carries the spend", () => {
     expect(control.subjects.find((s) => !s.carries)?.text).toContain("bare");
   });
 
-  it("the carrier itself holds the window and the reading order on every call", () => {
+  it("the carrier itself holds the window, the reading order and the page map on every call", () => {
     const fields = carrierFields(source);
     expect(fields, "spentSoFar's object literal was not found").not.toBeNull();
     // `usage` is conditional by design (only when some call reported); the
     // other two are explicit fields, never spread conditionally.
-    expect(fields).toEqual(expect.arrayContaining(["window", "readingOrder"]));
+    expect(fields).toEqual(
+      expect.arrayContaining(["window", "readingOrder", "pageMap"]),
+    );
   });
 
   it("positive control: usage + window without readingOrder is reported", () => {
@@ -267,11 +276,20 @@ describe("every post-spend failure in runTranslate carries the spend", () => {
       export async function runTranslate(provider: any) {
         const c = await provider.complete({});
         if (!c.ok) return { ok: false, kind: "failed", usage, window };
-        return { ok: false, usage, window, readingOrder, message: "fine" };
+        return { ok: false, usage, window, readingOrder, pageMap, message: "fine" };
       }
     `);
     expect(control.subjects).toHaveLength(2);
     expect(control.subjects.filter((s) => !s.carries)).toHaveLength(1);
+    // And without pageMap (translatePageMap, 2026-11): reported too.
+    const noMap = scanPostSpendFailures(`
+      export async function runTranslate(provider: any) {
+        const c = await provider.complete({});
+        if (!c.ok) return { ok: false, usage, window, readingOrder };
+        return { ok: false, usage, window, readingOrder, pageMap, message: "fine" };
+      }
+    `);
+    expect(noMap.subjects.filter((s) => !s.carries)).toHaveLength(1);
     expect(
       carrierFields(
         `const spentSoFar = () => ({ window, ...(u ? { usage } : {}) });`,

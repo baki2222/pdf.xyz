@@ -93,6 +93,11 @@ const ALLOWED = new Set(
     // only by the daemon's proved-capability table, the in-image proof
     // script and tests.
     "src/lib/workers/translate/reading-order-capability.ts",
+    // Translate's page-map proof (2026-11-16, audit #29 slice 4): it runs
+    // `translateDeps(env)` (the image's pdftotext and Chromium) and
+    // `resolveNativePdfTextReader`. Reached only by the daemon's
+    // proved-capability table, the in-image proof script and tests.
+    "src/lib/workers/translate/page-map-capability.ts",
     // Chat with PDF's page-selection proof (2026-11-16, slice 3): it runs the
     // daemon's chat deps (`chat-with-pdf/native`, the `pdftotext` runner).
     // Reached only by the daemon's proved-capability table, the in-image
