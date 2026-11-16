@@ -79,6 +79,7 @@ import {
   limitOutcome,
   type SizeLimitChoice,
 } from "@/lib/pdf/image-size-limit";
+import { LIMIT_TABLE_SIZES, parseSizeParam } from "@/lib/pdf/size-targets";
 import type { FittedPdf } from "@/lib/pdf/image-size-fit";
 import type { NamedBytes } from "@/lib/pdf/types";
 import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
@@ -219,6 +220,31 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
     };
   }, []);
 
+  // Max file size. "none" runs exactly the PDF this tool always made.
+  const [limit, setLimit] = useState<SizeLimitChoice>("none");
+  const [customKb, setCustomKb] = useState("");
+  // A guide's `?size=` link (audit #2) sets the limit when the first images
+  // arrive, once, and only if the reader has not pressed a size chip: the
+  // chips are drawn only after an image is added, and a choice the reader
+  // made always wins. Read in the handler, so the server render and the
+  // first client render never depend on it.
+  const limitTouched = useRef(false);
+  const linkApplied = useRef(false);
+  const applyLinkedLimit = useCallback(() => {
+    if (linkApplied.current || limitTouched.current) return;
+    linkApplied.current = true;
+    const bytes = parseSizeParam(window.location.search, LIMIT_TABLE_SIZES);
+    if (bytes === null) return;
+    if (MAX_SIZE_PRESETS.some((p) => p.bytes === bytes)) {
+      setLimit(bytes);
+      return;
+    }
+    const kb = String(bytes / KB);
+    if (chosenLimitBytes("custom", kb) === "invalid") return;
+    setLimit("custom");
+    setCustomKb(kb);
+  }, []);
+
   const addFiles = useCallback(
     async (files: File[]) => {
       const accepted: File[] = [];
@@ -337,9 +363,11 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
       if (itemsRef.current.length === 0)
         setOrdered(natural ? orderNote(natural.numbers) : null);
       const arrived = natural ? natural.order.map((i) => loaded[i]!) : loaded;
+      if (itemsRef.current.length === 0 && arrived.length > 0)
+        applyLinkedLimit();
       setItems((prev) => [...prev, ...arrived]);
     },
-    [kind],
+    [kind, applyLinkedLimit],
   );
 
   useEffect(() => {
@@ -488,9 +516,6 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
   const [outputMode, setOutputMode] =
     useState<ImageOutputId>(DEFAULT_IMAGE_OUTPUT);
   const { zipping, zipError, downloadZip } = useZipDownload();
-  // Max file size. "none" runs exactly the PDF this tool always made.
-  const [limit, setLimit] = useState<SizeLimitChoice>("none");
-  const [customKb, setCustomKb] = useState("");
   const limitBytes = chosenLimitBytes(limit, customKb);
   const customId = useId();
   const fitToImage = page.pageSize === "fit";
@@ -1050,6 +1075,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
             >
               <ChipButton
                 onClick={() => {
+                  limitTouched.current = true;
                   if (!busy) setLimit("none");
                 }}
                 disabled={busy}
@@ -1061,6 +1087,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                 <ChipButton
                   key={p.bytes}
                   onClick={() => {
+                    limitTouched.current = true;
                     if (!busy) setLimit(p.bytes);
                   }}
                   disabled={busy}
@@ -1071,6 +1098,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
               ))}
               <ChipButton
                 onClick={() => {
+                  limitTouched.current = true;
                   if (!busy) setLimit("custom");
                 }}
                 disabled={busy}

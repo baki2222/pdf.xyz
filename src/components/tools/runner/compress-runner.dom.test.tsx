@@ -81,6 +81,11 @@ import {
 } from "@/lib/pdf/offered-kinds";
 import { nativeArgs } from "@/lib/workers/compression/native";
 import { ToolRunProvider } from "./tool-context";
+import {
+  PRESET_ALREADY_SMALLER_TITLE,
+  TARGET_SIZE_PRESETS,
+} from "@/lib/pdf/compress-target";
+import { getGuideBySlug } from "@/lib/guides";
 
 const router = {
   back: () => {},
@@ -1422,5 +1427,128 @@ describe("Quality chip titles say what the engine is sent", () => {
     const lowest = Math.min(...DEEP_COMPRESSION_PRESETS.map((p) => p.dpi));
     expect(qualityChipTitle(lowest)).toContain(`${DEEP_MONO_MIN_DPI} DPI`);
     expect(lowest).toBeLessThan(DEEP_MONO_MIN_DPI);
+  });
+});
+
+/**
+ * A size guide's `?size=` link (audit #2, 2026-11-17). The Compress size
+ * guide's table links here with a size set "once you add a file, unless your
+ * file is already under it". The panel mounts only after a file is added, so
+ * that is when the link is read; it never sets a size the reader could not
+ * have chosen, and never one the Custom box would warn about.
+ */
+describe("Compress: a size guide's ?size= link", { timeout: 30_000 }, () => {
+  const KB = 1024;
+  const at = (search: string) =>
+    window.history.replaceState({}, "", `/tools/compress-pdf${search}`);
+  afterEach(() => at(""));
+
+  /** A PDF of about `kb` KB, without object streams so the pad stays its size. */
+  async function pdfOfAbout(kb: number): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    doc.addPage([200, 200]);
+    doc.setSubject("x".repeat((kb * KB) / 4));
+    return doc.save({ useObjectStreams: false });
+  }
+
+  async function open(search: string, kb: number) {
+    at(search);
+    answerWorkerStatus();
+    const { container } = render(withRouter(<CompressRunner />));
+    const bytes = kb > 0 ? await pdfOfAbout(kb) : await plainPdf();
+    await drop(container, [asFile(bytes, "scan.pdf")]);
+    await screen.findByRole(
+      "button",
+      { name: /compress images on our server/i },
+      { timeout: 10_000 },
+    );
+    const group = within(screen.getByRole("group", { name: "Target size" }));
+    return {
+      bytes,
+      chip: (name: string) => group.getByRole("button", { name }),
+      box: () => screen.queryByRole("textbox", { name: /custom target size/i }),
+    };
+  }
+  const hint = () => screen.queryByText(/^Enter a whole number of KB/);
+
+  it("?size=200kb with a bigger file: the 200 KB chip is pressed", async () => {
+    const { chip } = await open("?size=200kb", 2200);
+    expect(chip("200 KB")).toHaveAttribute("aria-pressed", "true");
+    expect(chip("No target")).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("?size=2mb with a bigger file: Custom, the box shows 2048, no warning", async () => {
+    const { chip, box } = await open("?size=2mb", 2200);
+    expect(chip("Custom")).toHaveAttribute("aria-pressed", "true");
+    expect(box()).toHaveValue("2048");
+    expect(hint()).toBeNull();
+  });
+
+  it("?size=200kb with a file already under it: nothing set, no hint", async () => {
+    const { chip, bytes } = await open("?size=200kb", 0);
+    expect(bytes.byteLength).toBeLessThan(200 * KB);
+    expect(chip("No target")).toHaveAttribute("aria-pressed", "true");
+    expect(chip("200 KB")).toHaveAttribute("aria-pressed", "false");
+    expect(hint()).toBeNull();
+  });
+
+  it("?size=2mb with a file already under it: nothing set, no box, no hint", async () => {
+    const { chip, box } = await open("?size=2mb", 0);
+    expect(chip("No target")).toHaveAttribute("aria-pressed", "true");
+    expect(box()).toBeNull();
+    expect(hint()).toBeNull();
+  });
+
+  it.each(["?size=150kb", "?size=300kb", "?size=junk", ""])(
+    "%s: No target, as without a link (control)",
+    async (search) => {
+      const { chip } = await open(search, 2200);
+      expect(chip("No target")).toHaveAttribute("aria-pressed", "true");
+    },
+  );
+
+  it("the reader's click wins over the link", async () => {
+    const { chip } = await open("?size=200kb", 2200);
+    fireEvent.click(chip("500 KB"));
+    expect(chip("500 KB")).toHaveAttribute("aria-pressed", "true");
+    expect(chip("200 KB")).toHaveAttribute("aria-pressed", "false");
+  });
+
+  // The size guide says "A size your file is already under cannot be
+  // chosen." This is what makes it true: every preset at or above the
+  // file is disabled and titled so, and a Custom value at or above it is
+  // refused with the warning, so the run waits.
+  it("a size the file is already under cannot be chosen, as the guide says", async () => {
+    const guide = getGuideBySlug("how-to-compress-a-pdf-to-100-kb")!;
+    const sentence = "A size your file is already under cannot be chosen.";
+    const text = [
+      ...guide.steps,
+      ...guide.sections.flatMap((s) => s.body),
+    ].join(" ");
+    expect(text).toContain(sentence);
+    const { chip, box, bytes } = await open("", 300);
+    const under = TARGET_SIZE_PRESETS.filter(
+      (p) => p.bytes >= bytes.byteLength,
+    );
+    const over = TARGET_SIZE_PRESETS.filter((p) => p.bytes < bytes.byteLength);
+    // Health check: the file sits between presets, so both sides are tested.
+    expect(under.length).toBeGreaterThan(0);
+    expect(over.length).toBeGreaterThan(0);
+    for (const p of under) {
+      expect(chip(p.label)).toHaveAttribute("aria-disabled", "true");
+      expect(chip(p.label)).toHaveAttribute(
+        "title",
+        PRESET_ALREADY_SMALLER_TITLE,
+      );
+      fireEvent.click(chip(p.label));
+      expect(chip(p.label)).toHaveAttribute("aria-pressed", "false");
+    }
+    for (const p of over)
+      expect(chip(p.label)).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(chip("Custom"));
+    fireEvent.change(box()!, {
+      target: { value: String(Math.ceil(bytes.byteLength / KB)) },
+    });
+    expect(hint()).not.toBeNull();
   });
 });
