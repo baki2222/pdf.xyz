@@ -116,7 +116,17 @@ async function bestOfTwo(
 ): Promise<{ attempts: TimedRefusal[]; judged: TimedRefusal }> {
   if (withinTimeBounds(first)) return { attempts: [first], judged: first };
   const second = await again();
-  const judged = second.reads < first.reads ? second : first;
+  // Prefer an attempt inside BOTH bounds (review, 2026-11-16): judging by
+  // ratio alone threw away a clean re-run whenever the first attempt broke
+  // only the absolute ceiling (a stalled child, yardstick included) and the
+  // re-run's ratio was a hair higher. Neither attempt clean: the lower ratio.
+  const judged = withinTimeBounds(second)
+    ? second
+    : withinTimeBounds(first)
+      ? first
+      : second.reads < first.reads
+        ? second
+        : first;
   return { attempts: [first, second], judged };
 }
 
@@ -181,13 +191,23 @@ describe("the res1 time bound's best of two", () => {
     expect(r.judged.reads).toBe(4.49);
     expect(withinTimeBounds(r.judged)).toBe(false);
   });
-  test("a first attempt over the absolute ceiling alone also re-runs", async () => {
+  test("a first attempt over the absolute ceiling alone also re-runs, and a clean re-run is the one judged", async () => {
     let reruns = 0;
-    await bestOfTwo(t(1.0, REFUSAL_CEILING_MS + 1), async () => {
+    const r = await bestOfTwo(t(1.0, REFUSAL_CEILING_MS + 1), async () => {
       reruns++;
-      return t(1.0);
+      // A hair HIGHER ratio than the stalled first attempt, but inside both
+      // bounds: ratio-only selection would have judged the first and failed.
+      return t(1.1);
     });
     expect(reruns).toBe(1);
+    expect(withinTimeBounds(r.judged)).toBe(true);
+  });
+
+  test("negative control: both attempts over the ceiling still fail", async () => {
+    const r = await bestOfTwo(t(1.0, REFUSAL_CEILING_MS + 1), async () =>
+      t(1.0, REFUSAL_CEILING_MS + 2),
+    );
+    expect(withinTimeBounds(r.judged)).toBe(false);
   });
 });
 
