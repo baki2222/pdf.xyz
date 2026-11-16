@@ -43,7 +43,16 @@
  *       proves the recorder records: (1)'s "did not see ALPHA" is an absence
  *       and is vacuously true of a recorder that captures nothing;
  *   (3) `pages: [[5,5]]` fails as `unprocessable_entity`, not retryable,
- *       with ZERO provider calls.
+ *       with ZERO provider calls, AND as the OUT-OF-RANGE refusal: its
+ *       message is `pagesOutOfRangeMessage(4, [5,5])`. The code, the retry
+ *       flag and the zero calls are shared with the chosen-pages no-text
+ *       refusal, which an engine with its range check removed reaches
+ *       instead ([[5,5]] selects nothing, and nothing has no text), so
+ *       without the message this step passed on that image (found building
+ *       Translate's page range, #347). The job error carries only code,
+ *       message and retry flag, so the message IS the refusal's kind at the
+ *       wire; a health check in the same step asserts the two refusals'
+ *       messages differ, or the step would be blind again.
  *
  * WHAT A PASS DOES NOT MEAN. The model is a fake: whether a real model's
  * summary stays on page 3 is the production proof's question, asked of a
@@ -52,6 +61,10 @@
 import JSZip from "jszip";
 import { PDFDocument } from "pdf-lib";
 import { sanitizeJobResults } from "@/lib/jobs/results";
+import {
+  NO_TEXT_IN_CHOSEN_PAGES_MESSAGE,
+  pagesOutOfRangeMessage,
+} from "@/lib/jobs/summarize-pages";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import type { AiCompletionRequest, AiProvider } from "../ai/provider";
@@ -88,6 +101,10 @@ const PROBE_NAME = "summarize-pages-proof.pdf";
 /** What the probe asks for, and the sentence the reader must be told. */
 const CHOSEN: [number, number][] = [[3, 3]];
 const BEYOND: [number, number][] = [[5, 5]];
+/** The out-of-range refusal of {@link BEYOND} on the four-page probe. */
+const BEYOND_MESSAGE = pagesOutOfRangeMessage(4, [5, 5]);
+/** The refusal an engine WITHOUT its range check gives {@link BEYOND}. */
+const CHOSEN_NO_TEXT_MESSAGE = NO_TEXT_IN_CHOSEN_PAGES_MESSAGE["summarize-pdf"];
 const NAMES_PAGE_3 = "page 3 of 4";
 const PROOF_SUMMARY = "Probe summary.";
 
@@ -324,6 +341,21 @@ export async function runSummarizePagesProof(
       error.retryable === false &&
       beyond.requests.length === 0,
     `pages [[5,5]] fails as ${error?.code ?? beyond.outcome.stage} (retryable ${String(error?.retryable)}) with ${beyond.requests.length} provider calls (need 0)`,
+  );
+  // Which refusal: everything above is shared with the chosen-pages no-text
+  // refusal, so only the message tells them apart (see the header).
+  const kind =
+    error === null
+      ? beyond.outcome.stage
+      : error.message === BEYOND_MESSAGE
+        ? "pages_out_of_range"
+        : error.message === CHOSEN_NO_TEXT_MESSAGE
+          ? "chosen-pages no_text"
+          : "another refusal";
+  check(
+    "3",
+    BEYOND_MESSAGE !== CHOSEN_NO_TEXT_MESSAGE && kind === "pages_out_of_range",
+    `pages [[5,5]] is the out-of-range refusal, told apart from the chosen-pages no-text refusal (${kind})`,
   );
 
   return { ok, lines };
