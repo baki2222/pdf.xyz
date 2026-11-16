@@ -92,7 +92,10 @@ export const LANGUAGE_NAMES: Record<TranslateLanguage, string> = {
  * local `REQUIRED` (en, es, bn) and was widened to the 17 languages production
  * proved that day (heartbeat + CI run 43730819643). Arabic joined the same
  * day, carried over from main's `REQUIRED` when PR #331 fixed the direction
- * check (live heartbeat: 18 languages, ar among them). The static copy that says
+ * check (live heartbeat: 18 languages, ar among them). Chinese, Japanese and
+ * Korean joined with the CJK slice (2026-11-16: Type 3 glyphs judged by their
+ * property, Kangxi ToUnicode destinations rewritten per face), which made the
+ * gate every target language. The static copy that says
  * which languages get a PDF (`translatePdfCoverage`) reads THIS list, so a
  * language joins the copy only by joining the gate that keeps it true — the
  * Arabic and CJK slices add theirs here, and the "no PDF" list shrinks with
@@ -114,6 +117,9 @@ export const TRANSLATE_PDF_CI_REQUIRED: readonly TranslateLanguage[] = [
   "tr",
   "ar",
   "hi",
+  "zh",
+  "ja",
+  "ko",
   "vi",
   "id",
   "th",

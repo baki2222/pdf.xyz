@@ -346,9 +346,12 @@ export interface HeartbeatCapabilities {
    * PROVEN AT START-UP (`translate/pdf-capability.ts`,
    * `translatePdfLanguages`): one `translate-pdf` job per language through
    * the executor's order with the image's REAL Chromium and `pdftotext`
-   * read-back, and each PDF judged by an independent reader — every font
-   * embedded with a Noto face for the script, the sample read back, ink on
-   * the page, Arabic laid out right to left. The engine reads the SAME memo
+   * read-back, and each PDF judged by independent readers — every font
+   * embedded with ToUnicode; a Noto face for the script, or (Chinese,
+   * Japanese, Korean, since 2026-11-16) Type 3 glyphs that are vector
+   * outlines of the regional Noto CJK face and never .notdef boxes; the
+   * sample read back by poppler, and for CJK by pdf.js too; ink on the page;
+   * Arabic laid out right to left. The engine reads the SAME memo
    * before every render, so a language absent here gets the ZIP alone. An
    * image built before the key publishes nothing, which parses as `[]`: the
    * panel then describes the ZIP alone, as it did before.
