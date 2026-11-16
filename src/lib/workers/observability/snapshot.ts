@@ -324,6 +324,13 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "PDF to Word sets each word whose font's kind it can tell in a font that comes with Windows or Office, a substitute of the same kind (serif, sans-serif, monospaced), as its page says, not Word's default font that it delivered until 2026-11-15",
     proves: provenByFlag,
   },
+  docxTableWraps: {
+    label: "Word table wraps",
+    promise:
+      // Added 2026-11-16 (backlog #28, slice 3: wraps).
+      "PDF to Word keeps a table cell whose text continues onto the lines below it in its row, as one paragraph, in a column of text other than the first, as its page says, not the rows of their own or lines of text it delivered until 2026-11-16",
+    proves: provenByFlag,
+  },
   translateOcr: {
     label: "OCR inside Translate",
     promise:
@@ -346,7 +353,10 @@ const WORKER_CAPABILITY_PROMISES: Record<
     promise:
       // Added 2026-11-16 (competitor audit wave 2 #30, slice 3). The Chat
       // with PDF panel says how pages are chosen only while this reads true
-      // on a fresh heartbeat.
+      // on a fresh heartbeat. Since slice 4 the STATIC chat copy (tool page,
+      // tool facts, chat guide: `CHAT_PAGE_SELECTION`) says it too, with no
+      // gate, and relies on production publishing this key as true; the
+      // operator's deploy verification checks that at the wire.
       "Chat with PDF reads, for a longer file, the pages a question's words point to, not only the opening pages it read until 2026-11-16",
     proves: provenByFlag,
   },

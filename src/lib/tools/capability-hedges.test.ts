@@ -137,6 +137,8 @@ import {
   TRANSLATE_SCAN_ROUTE,
 } from "@/lib/jobs/translate-ocr";
 import { toolFacts } from "./tool-facts";
+import { CHAT_PAGE_SELECTION_CAPABILITY } from "./chat-page-selection";
+import { CHAT_SELECTION_REQUIRED } from "./chat-retrieval-claims";
 import {
   cardSummary,
   pageContent,
@@ -467,6 +469,18 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /\b(?:[Tt]ypefaces?|[Ff]onts?)\b(?:[^.?!]|\.(?=\w)){0,120}\b(?:Word|DOCX)\b|\b(?:Word|DOCX)\b(?:[^.?!]|\.(?=\w)){0,120}\b(?:[Tt]ypefaces?|fonts?)\b|\bstandard Office fonts?\b|\band Office fonts\b|\bset in (?:a font that comes|fonts that come) with Windows or Office\b/,
     catalogueCopy: true,
   },
+  docxTableWraps: {
+    // Added 2026-11-16 with the key (backlog #28, slice 3: wraps). The
+    // sentences a hedge about it would sit in: a wrap and a table and Word
+    // (or DOCX) in one sentence, either order, and the shape "stays in its
+    // row". CASE-SENSITIVE, like docxTables: "word" in lower case is any
+    // word. Measured that day over the whole corpus: see "the
+    // docxTableWraps subject reaches the Word wrapped-cell sentences".
+    // catalogueCopy is true because those exist.
+    subject:
+      /\bwrap\w*\b(?:[^.?!]|\.(?=\w)){0,160}\b(?:Word|DOCX)\b(?:[^.?!]|\.(?=\w)){0,40}\btables?\b|\b(?:Word|DOCX)\b(?:[^.?!]|\.(?=\w)){0,40}\btables?\b(?:[^.?!]|\.(?=\w)){0,160}\bwrap\w*\b|\bstays? in (?:its|their) row\b/,
+    catalogueCopy: true,
+  },
   translateOcr: {
     // Added 2026-11-09 with the key (audit translate-pdf#3). The sentences a
     // hedge about it would sit in: a scan recognised ON OUR SERVER, the way
@@ -499,8 +513,15 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     // PDF read?". Measured
     // that day over the whole corpus: see "the chatRetrieval subject reaches
     // the chat reading sentences". catalogueCopy is true because those exist.
+    //
+    // Slice 4 (2026-11-16): the static copy now SAYS how pages are chosen
+    // ("share the most of the question's less common words"; since review,
+    // conditional: "when some pages share enough of …"), so that shape
+    // is in the subject: the claim is read as a claim about this key. See
+    // "the static page-selection claim is a member of its capability's
+    // subject".
     subject:
-      /\bhow far into the document\b|\bread up to that point\b|\bpages? that (?:were|was) read\b|\bwhich page it reached\b|\bHow much of my PDF does Chat with PDF read\b|\bpages? (?:are|is) chosen\b|\bonly part (?:of (?:it|the document) )?was read\b/i,
+      /\bhow far into the document\b|\bread up to that point\b|\bpages? that (?:were|was) read\b|\bwhich page it reached\b|\bHow much of my PDF does Chat with PDF read\b|\bpages? (?:are|is) chosen\b|\bonly part (?:of (?:it|the document) )?was read\b|\bshares? (?:the most|enough)\b[^.?!]*\bwords\b/i,
     catalogueCopy: true,
   },
   summarizePages: {
@@ -886,6 +907,57 @@ describe("catalogue copy may not hedge a worker capability", () => {
       chat.length,
       "the subject reaches one chat sentence at most: it is a name, not a subject",
     ).toBeGreaterThanOrEqual(2);
+  });
+
+  it("the static page-selection claim is a member of its capability's subject", () => {
+    // Slice 4, the second bound (house rule 5). Static chat copy says how a
+    // longer file's pages are chosen because production's worker proved it;
+    // what makes that stale is a future image without the behaviour. The
+    // claim is tied to the heartbeat key that image would have to publish
+    // (`CHAT_PAGE_SELECTION_CAPABILITY`, `chatRetrieval`): the key is on the
+    // wire, and EVERY sentence carrying the claim, read alone, is in that
+    // key's subject, so the no-hedge rule and any later reader of the
+    // subject see it as a claim about the key. `WIRE_KEYS` is derived from
+    // this tree's source, NOT read from production: this ties the copy to
+    // the key's name only. CI makes images it BUILDS prove the key
+    // (`src/deploy/worker-chat-retrieval-proof.test.ts`); the live bound is
+    // the operator's deploy verification, which reads production
+    // `/api/worker/status` and fails unless `chatRetrieval` is true, and
+    // lives outside this repo (see `src/lib/tools/chat-page-selection.ts`).
+    const key = CHAT_PAGE_SELECTION_CAPABILITY;
+    expect(WIRE_KEYS).toContain(key);
+    const subject = SUBJECTS[key]?.subject;
+    expect(subject, `no subject for ${key}`).toBeDefined();
+    const claims = COPY.flatMap((entry) =>
+      entry.text
+        .split(/(?<=[.?!])\s+/)
+        .filter((s) => CHAT_SELECTION_REQUIRED.pattern.test(s))
+        .map((sentence) => ({ at: `${entry.slug} ${entry.where}`, sentence })),
+    );
+    // Health: the tool page's intro and reading FAQ, its read fact and the
+    // guide carry it (measured 2026-11-16); a shrunken set passes vacuously.
+    expect(claims.length).toBeGreaterThanOrEqual(4);
+    expect(new Set(claims.map((c) => c.at.split(" ")[0]))).toEqual(
+      new Set(["chat-with-pdf", "guide:how-to-chat-with-a-pdf"]),
+    );
+    const outside = claims
+      .filter(({ sentence }) => !subject!.test(sentence))
+      .map(({ at, sentence }) => `${at}: ${sentence}`);
+    expect(outside).toEqual([]);
+    // Positive control: a hedge planted in the claim is caught as a hedge
+    // on this key, through the same rule the catalogue runs.
+    const planted: CopyEntry = {
+      slug: "chat-with-pdf",
+      where: "intro[1]",
+      // The guide's claim, whose sentence reaches the subject ONLY through
+      // the selection branch (it says nothing about the notice).
+      text: `${claims.find((c) => c.at.startsWith("guide:"))!.sentence.replace(/\.$/, "")} (coming soon).`,
+    };
+    expect(
+      hedgeOffenders([planted], []).some((line) =>
+        line.includes(`hedges "${key}"`),
+      ),
+    ).toBe(true);
   });
 
   it("each subject matcher's declared catalogue coverage is the truth", () => {
@@ -1506,6 +1578,68 @@ describe("the docxTables subject (backlog #28 slice 2, 2026-11-15)", () => {
     expect(
       hedgeOffenders([planted], []).some((line) =>
         line.includes('hedges "docxTables"'),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("the docxTableWraps subject (backlog #28 slice 3, 2026-11-16)", () => {
+  /**
+   * BOTH DIRECTIONS (house rule 1). Measured 2026-11-16 with PR-1's
+   * INTERIM copy, over the whole corpus: exactly these seven, every one a
+   * sentence about what PDF to Word does with a wrapped cell — PDF to
+   * Word's intro[1] and its tables FAQ answer; PDF_TO_WORD_KEEPS, wherever
+   * it is served (PDF to Word's keep FAQ answer, the convert guide's first
+   * section paragraph and its look FAQ answer); the convert guide's second
+   * section paragraph ("only when it has at least three rows …"); and the
+   * add-text guide's pointer to PDF to Word. The rest of this file stays
+   * green over all seven, so the interim sentence ("may come through as one
+   * Word table, each wrapped cell kept in its row, or as a smaller table and
+   * lines of text, or as lines of text alone") describes outcomes and does
+   * not read as a deferral of the capability.
+   *
+   * Decided, not found: NO PDF to Excel or Extract Tables sentence is a
+   * member. The PDF to Excel guide's "gives you two rows" (a wrapped cell in
+   * a spreadsheet) and Extract Tables' "a cell that wraps in the first
+   * column ends its table" and its centred-note sentence are about a
+   * detector slice 3 does not change, and they name no Word, so a heartbeat
+   * that denies docxTableWraps has nothing to hedge there. They are kept
+   * out by the shape (wrap AND Word/DOCX AND table), not by an exclusion.
+   */
+  it("reaches the Word wrapped-cell sentences, and nothing else", () => {
+    const members = COPY.filter((entry) =>
+      SUBJECTS.docxTableWraps!.subject.test(entry.text),
+    ).map((entry) => `${entry.slug} ${entry.where}`);
+    expect(members.sort()).toEqual(
+      [
+        "pdf-to-word intro[1]",
+        "pdf-to-word faq[3].answer",
+        "pdf-to-word faq[7].answer",
+        "guide:how-to-convert-pdf-to-word sections[0].body[0]",
+        "guide:how-to-convert-pdf-to-word sections[0].body[1]",
+        "guide:how-to-convert-pdf-to-word faq[4].answer",
+        "guide:how-to-add-text-to-a-pdf sections[2].body[0]",
+      ].sort(),
+    );
+  });
+
+  it("positive control: a deferral planted in the wrapped-cell sentence is caught", () => {
+    const planted: CopyEntry = {
+      slug: "pdf-to-word",
+      where: "faq[3].answer",
+      text: "A table whose cells wrap onto further lines comes through as one Word table, each wrapped cell kept in its row (coming soon).",
+    };
+    expect(
+      hedgeOffenders([planted], []).some((line) =>
+        line.includes('hedges "docxTableWraps"'),
+      ),
+    ).toBe(true);
+  });
+
+  it("positive control: the definite shape alone (no table, no Word) is reached", () => {
+    expect(
+      SUBJECTS.docxTableWraps!.subject.test(
+        "A cell whose text continues onto the lines below it stays in its row.",
       ),
     ).toBe(true);
   });

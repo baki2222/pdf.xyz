@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_TABLE_CELLS,
   MAX_TABLE_SLOTS_PER_PAGE,
+  MAX_WRAP_LINES_PER_CELL,
 } from "../pdf-text/table-grid";
 
 const ROOT = process.cwd();
@@ -92,4 +93,60 @@ describe("Word tables are bounded", () => {
     // One run of 400,000 cells: over every cap, so kept as tabbed rows.
     expect(got.tablesAsTabs).toBe(1);
   }, 300_000);
+
+  /**
+   * #28 slice 3 (wraps), 2026-11-16. Each run against the same page read
+   * with absorption OFF (`wrap-off`, slice 2's delivery) with #318's exit
+   * bound. Medians of 3 on the dev host (Windows 11, Node 24), alternating:
+   * wrap-off 189 ms / +125 MB, wrap 259 ms / +141 MB, wrap-cut 327 ms /
+   * +150 MB, wrap-cell 29 ms / +3 MB. In the worker image (sha256:7400…,
+   * node 22, throwaway container): wrap-off 582 ms / +43 MB, wrap 802 ms /
+   * +55 MB, wrap-cut 1,266 ms / +54 MB, wrap-cell 79 ms / +4 MB.
+   */
+  const withinBound = (got: Measured, control: Measured) => {
+    const slower = got.ms > 2 * control.ms && got.ms - control.ms > 5_000;
+    const heavier =
+      got.rssDeltaMb > 2 * control.rssDeltaMb &&
+      got.rssDeltaMb - control.rssDeltaMb > 300;
+    expect(
+      { slower, heavier },
+      `${JSON.stringify(got)} vs ${JSON.stringify(control)}`,
+    ).toEqual({ slower: false, heavier: false });
+  };
+  /** The most 3-cell rows one table may hold: the wrap pages' size. */
+  const WRAP_ROWS = Math.floor(MAX_TABLE_CELLS / 3);
+
+  it("a table AT the cell cap, every body row wrapped, through the whole job: every continuation absorbed, within the bound of absorption off", () => {
+    const control = measure("wrap-off", WRAP_ROWS * 10);
+    const got = measure("wrap", WRAP_ROWS * 10);
+    // Health: one table, every slot a w:tc, every body row's line absorbed;
+    // the control read the same page as no Word table at all.
+    expect(got.tables, JSON.stringify(got)).toBe(1);
+    expect(got.cells).toBe(WRAP_ROWS * 3);
+    expect(got.wrapLines).toBe(WRAP_ROWS - 1);
+    expect(control.tables, JSON.stringify(control)).toBe(0);
+    expect(control.wrapLines).toBe(0);
+    withinBound(got, control);
+  }, 300_000);
+
+  it("the same table cut at every other continuation (the cut-and-rejudge worst case): within the bound of absorption off", () => {
+    const control = measure("wrap-off", WRAP_ROWS * 10);
+    const got = measure("wrap-cut", WRAP_ROWS * 10);
+    // Health, as measured: the header and the first two rows stay one
+    // table (row 1's line absorbed, row 2's number cuts the run); every
+    // later run is one row and its line, under the three rows a Word table
+    // needs.
+    expect(got.tables, JSON.stringify(got)).toBe(1);
+    expect(got.cells).toBe(9);
+    expect(got.wrapLines).toBe(1);
+    withinBound(got, control);
+  }, 300_000);
+
+  it("a cell of MAX_WRAP_LINES_PER_CELL + 1 lines: the run is cut at the cap, and the rows above keep exactly the cap", () => {
+    const got = measure("wrap-cell", 0);
+    expect(got.tables, JSON.stringify(got)).toBe(1);
+    expect(got.cells).toBe(60 * 3);
+    expect(got.wrapLines).toBe(MAX_WRAP_LINES_PER_CELL);
+    expect(got.ms, JSON.stringify(got)).toBeLessThan(10_000);
+  }, 120_000);
 });

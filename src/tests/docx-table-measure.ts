@@ -22,7 +22,19 @@
  *  - `spread <n>`: a page of `n` aligned two-cell bands in ONE block — the
  *    shape whose `Math.max(...)`/`Math.min(...)` spreads (isTable's
  *    heights, sharesAnEdge's edges, measureBlock's widths) overflowed the
- *    argument list above about 10^5 BEFORE any table cap ran.
+ *    argument list above about 10^5 BEFORE any table cap ran;
+ *  - `wrap <n>` (#28 slice 3, 2026-11-16): the whole job on ONE table of
+ *    `n / 10` rows (Item / Description / Amount, a header and rows under
+ *    it), every body row's Description wrapping onto a second line — every
+ *    continuation absorbed (`wrapLines` = rows - 1);
+ *  - `wrap-off <n>`: as `wrap`, read with absorption off
+ *    (`{ absorbWraps: false }`): what slice 2 delivered for the same page,
+ *    the control the exit bound is measured against;
+ *  - `wrap-cut <n>`: as `wrap`, every other continuation a number, which
+ *    rule 7 refuses: the run is cut at every other continuation, the worst
+ *    case of the cut-and-rejudge loop;
+ *  - `wrap-cell`: a table of 60 rows whose LAST row's Description carries
+ *    51 continuation lines — `MAX_WRAP_LINES_PER_CELL` plus one.
  */
 import { flowText, type PdfFlowText } from "@/lib/workers/pdf-text/flow";
 import { parseBboxFlow } from "@/lib/workers/pdf-text/parse";
@@ -60,6 +72,30 @@ function tablePage(rows: number, perRow: number, splitAt = -1): string {
   return `<doc><page width="${perRow * 40 + 40}" height="${y + 10}"><flow><block>${lines.join("")}</block></flow></page></doc>`;
 }
 
+/**
+ * #28 slice 3: a page of one Item / Description / Amount table of `rows`
+ * rows (a header, then body rows), each row and its continuations one
+ * poppler block; `wraps(r)` gives row r's continuation lines.
+ */
+function wrapPage(rows: number, wraps: (r: number) => string[]): string {
+  const word = (t: string, x: number, y: number) =>
+    `<word xMin="${x}" yMin="${y}" xMax="${x + 6 * t.length}" yMax="${y + 10}">${t}</word>`;
+  const blocks: string[] = [];
+  let y = 50;
+  for (let r = 0; r < rows; r++) {
+    const lines = [
+      `<line>${word(r ? `A-${r}` : "Item", 50, y)}${word(r ? "item" : "Description", 150, y)}${word(r ? "1.00" : "Amount", 400, y)}</line>`,
+    ];
+    for (const text of r ? wraps(r) : []) {
+      y += 12;
+      lines.push(`<line>${word(text, 150, y)}</line>`);
+    }
+    blocks.push(`<block>${lines.join("")}</block>`);
+    y += 18;
+  }
+  return `<doc><page width="612" height="${y + 50}"><flow>${blocks.join("")}</flow></page></doc>`;
+}
+
 async function main(): Promise<void> {
   const [mode, nArg] = process.argv.slice(2);
   const n = Number(nArg ?? "0");
@@ -88,11 +124,40 @@ async function main(): Promise<void> {
       tableRows: page.tables?.filter(Boolean).length ?? 0,
       tablesAsTabs: page.tablesAsTabs ?? 0,
     };
-  } else if (mode === "engine" || mode === "engine-tabbed" || mode === "over") {
+  } else if (
+    mode === "engine" ||
+    mode === "engine-tabbed" ||
+    mode === "over" ||
+    mode?.startsWith("wrap")
+  ) {
     const rows = Math.ceil(n / 10);
-    const flow: PdfFlowText = flowText(
-      parseBboxFlow(tablePage(rows, 10, mode === "over" ? -1 : rows / 2)),
-    );
+    const flow: PdfFlowText =
+      mode === "wrap" || mode === "wrap-off"
+        ? flowText(parseBboxFlow(wrapPage(rows, () => ["part"])), {
+            absorbWraps: mode === "wrap",
+          })
+        : mode === "wrap-cut"
+          ? flowText(
+              parseBboxFlow(wrapPage(rows, (r) => [r % 2 ? "part" : "12"])),
+            )
+          : mode === "wrap-cell"
+            ? flowText(
+                parseBboxFlow(
+                  wrapPage(60, (r) =>
+                    r === 59 ? Array.from({ length: 51 }, () => "part") : [],
+                  ),
+                ),
+              )
+            : flowText(
+                parseBboxFlow(
+                  tablePage(rows, 10, mode === "over" ? -1 : rows / 2),
+                ),
+              );
+    if (
+      mode?.startsWith("wrap") &&
+      !["wrap", "wrap-off", "wrap-cut", "wrap-cell"].includes(mode)
+    )
+      throw new Error(`unknown mode ${mode}`);
     const doc = docxDocumentOf(flow, NO_SCAN);
     const run = await runPdfOfficeExport(
       PDF_TO_WORD_TOOL,
@@ -138,6 +203,7 @@ async function main(): Promise<void> {
       cells: (xml.match(/<w:tc>/g) ?? []).length,
       asTabs: doc.tables?.asTabs ?? 0,
       bytes: run.output.byteLength,
+      wrapLines: flow.pages.reduce((k, p) => k + (p.wrapLines ?? 0), 0),
     };
   } else {
     throw new Error(`unknown mode ${mode}`);

@@ -692,6 +692,78 @@ export async function docxTablesProbePdf(): Promise<Uint8Array> {
   return doc.save();
 }
 
+/**
+ * #28 slice 3 (wraps): the wrapped-cells probe's table — Item / Description
+ * / Amount, a bold header and four rows, two of whose descriptions continue
+ * onto the lines below them, then a total alone under Amount one row pitch
+ * below the last row. Row 2's continuation starts in lower case after a
+ * four-word line (flow.ts rule 4 reads that as wrapped TEXT unless the line
+ * is absorbed); row 3's two continuations are capitalised (no rule sees
+ * them). No cell ends a sentence, so `wordTableDoubt` does not call the
+ * table prose; Item and Amount are columns of figures.
+ *
+ * Geometry (size 10, Helvetica): a continuation sits one LINE pitch (12)
+ * under the line above it; a row's first line sits one ROW pitch (18) under
+ * the last line of the row above. Top-to-top gaps are then 18, 18, 30, 42
+ * (median 18), so a segment rule measured from each row's first line splits
+ * the table before C-300 (30 > 1.3 x 18). Confirmed against the worker
+ * image's poppler by the capture `IMAGE_DOCX_TABLE_WRAPS_PROBE_BBOX`
+ * (`src/tests/poppler-samples-image.ts`).
+ */
+export const DOCX_TABLE_WRAPS_PROBE = {
+  rows: [
+    ["Item", "Description", "Amount"],
+    ["A-100", "Filter cartridge", "12.50"],
+    ["B-200", "Replacement pump and housing", "48.00"],
+    ["C-300", "Service visit", "95.00"],
+    ["D-400", "Gasket", "3.25"],
+  ],
+  wraps: {
+    2: ["assembly for model X"],
+    3: ["Labour and parts", "Callout fee included"],
+  },
+  total: "158.75",
+  columns: [72, 160, 460],
+  size: 10,
+  linePitch: 12,
+  rowPitch: 18,
+  top: 660,
+} as const;
+
+/**
+ * The wrapped-cells probe's PDF: {@link DOCX_TABLE_WRAPS_PROBE} on a US
+ * Letter page, every cell flush left at its column, the header in
+ * Helvetica-Bold and everything else in Helvetica, each row's continuations
+ * under its Description.
+ */
+export async function docxTableWrapsProbePdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const p = DOCX_TABLE_WRAPS_PROBE;
+  const wraps: Readonly<Record<number, readonly string[]>> = p.wraps;
+  const texts = [...p.rows.flat(), ...Object.values(wraps).flat(), p.total];
+  const regular = await embedDrawingFont(doc, texts, "sans");
+  const bold = await embedDrawingFont(doc, texts, "sans-bold");
+  const page = doc.addPage([612, 792]);
+  let y: number = p.top;
+  p.rows.forEach((row, r) => {
+    const font = r === 0 ? bold : regular;
+    row.forEach((cell, c) =>
+      page.drawText(cell, { x: p.columns[c]!, y, size: p.size, font }),
+    );
+    (wraps[r] ?? []).forEach((line, k) =>
+      page.drawText(line, {
+        x: p.columns[1],
+        y: y - (k + 1) * p.linePitch,
+        size: p.size,
+        font,
+      }),
+    );
+    y -= (wraps[r]?.length ?? 0) * p.linePitch + p.rowPitch;
+  });
+  page.drawText(p.total, { x: p.columns[2], y, size: p.size, font: regular });
+  return doc.save();
+}
+
 type ReadTable = Extract<
   Awaited<ReturnType<typeof readDocxStructure>>["blocks"][number],
   { kind: "tbl" }
@@ -718,8 +790,10 @@ type ReadTable = Extract<
  * There is no check 6 on the wide-gapped line's FORM. Whether poppler keeps
  * its two halves on one `<line>` (one tabbed paragraph) or splits them into
  * two flows (two paragraphs) is poppler's to decide, the stand-in always
- * joins them, and no capture from the worker image's poppler exists yet; a
- * check on either form could certify a grouping the image never makes. That
+ * joins them, and no capture of THIS probe from the worker image's poppler
+ * exists (the 2026-11-16 captures in `@/tests/poppler-samples-image` are of
+ * slice 3's probe and its fixtures, not of this page); a check on either
+ * form could certify a grouping the image never makes. That
  * the line stays OUT of the table is not a separate check either: with the
  * text conserved (3) and the one table exactly the probe's twelve cells
  * (4, 5), every other word is outside it — a check that cannot fail alone
@@ -794,8 +868,9 @@ export async function docxTablesProblem(
  * column, or puts the wide-gapped line in the table as a row answers
  * `false`; so
  * does an image without the extractor or the page reader, and one whose
- * real jobs a gate refuses. Wrapped-cell tables are NOT covered (a future
- * `docxTableWraps`). An image built before this key publishes nothing, and
+ * real jobs a gate refuses. Wrapped-cell tables are NOT covered here: they
+ * are covered by `docxTableWraps` ({@link provesDocxTableWraps}) since
+ * 2026-11-16 (#28 slice 3). An image built before this key publishes nothing, and
  * the reader parses the absence as `false`.
  */
 export async function provesDocxTables(
@@ -811,6 +886,167 @@ export async function provesDocxTables(
     const flow = await deps.extractFlow(pdf);
     return (
       (await docxTablesProblem(docx, flow.pages.map(flowPageText))) === null
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * #28 slice 3 (wraps): the probe's own words, split on whitespace — the
+ * rows, the continuations and the total, as drawn. Check 6 ("source") of
+ * {@link docxTableWrapsProblem} compares the .docx with THESE, not with
+ * the flow: the second, independent bound (CLAUDE.md rule 3).
+ */
+export function docxTableWrapsSourceWords(): string[] {
+  const p = DOCX_TABLE_WRAPS_PROBE;
+  const wraps: Readonly<Record<number, readonly string[]>> = p.wraps;
+  return [...p.rows.flat(), ...Object.values(wraps).flat(), p.total]
+    .join(" ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+/** The probe's cell (r, c) as the .docx must hold it: a Description followed by its continuations, joined as a paragraph's lines are. */
+export function docxTableWrapsCell(r: number, c: number): string {
+  const p = DOCX_TABLE_WRAPS_PROBE;
+  const wraps: Readonly<Record<number, readonly string[]>> = p.wraps;
+  const cell = p.rows[r]![c]!;
+  return c === 1 ? [cell, ...(wraps[r] ?? [])].join(" ") : cell;
+}
+
+const multisetKey = (words: readonly string[]) =>
+  [...words].sort().join("\u0000");
+
+/**
+ * Why `docx` is NOT what the wrapped-cells probe expects (#28 slice 3), or
+ * null when it is — one reason per check, so every negative control fails
+ * on its OWN check:
+ *   1. "structure": something Word could refuse (`docxStructureProblems`);
+ *   2. "text": the text read back is not the flow's, page by page (both
+ *      through `asXmlCarries`) — the engine's own conservation, re-read;
+ *   3. "shape": not exactly one top-level table of 3 grid columns and FIVE
+ *      rows (not 8: continuations written as rows of their own fail here),
+ *      each of 3 cells spanning 1;
+ *   4. "cells": a cell's text is not the probe's — (2,1) must read
+ *      "Replacement pump and housing assembly for model X" and (3,1)
+ *      "Service visit Labour and parts Callout fee included", each as
+ *      EXACTLY ONE `w:p` (decision D1), and (4,2) "3.25", not the total;
+ *   5. "bold": a header run without `w:b` and `w:bCs`, or a body run with
+ *      `w:b` (absorbed words included);
+ *   6. "source": the multiset of whitespace-separated words across all
+ *      `docxPageTexts` is not the probe's OWN words
+ *      ({@link docxTableWrapsSourceWords}). Check 2 compares the .docx with
+ *      `flowPageText`, and both come from one `flowText` result, so a word
+ *      flow doubled (an absorbed line also emitted as prose) or lost (the
+ *      total dropped) moves both sides together and passes checks 1-5.
+ *      Only a comparison with the PDF's source words sees it (audit
+ *      2026-11-16; the struck-out argument that "text conserved" put the
+ *      total outside the table was wrong for exactly this reason).
+ */
+export async function docxTableWrapsProblem(
+  docx: Uint8Array,
+  flowText: string[],
+): Promise<string | null> {
+  if ((await docxStructureProblems(docx)).length > 0) return "structure";
+  const body = await readDocxStructure(docx);
+  const want = flowText.map(asXmlCarries);
+  const pages = docxPageTexts(body);
+  const read = pages.map(asXmlCarries);
+  if (read.length !== want.length || read.some((t, k) => t !== want[k]))
+    return "text";
+  const tables = body.blocks.filter((b): b is ReadTable => b.kind === "tbl");
+  const p = DOCX_TABLE_WRAPS_PROBE;
+  const [tbl] = tables;
+  if (
+    tables.length !== 1 ||
+    tbl!.gridCols.length !== 3 ||
+    tbl!.rows.length !== p.rows.length ||
+    tbl!.rows.some(
+      (r) => r.cells.length !== 3 || r.cells.some((c) => c.span !== 1),
+    )
+  )
+    return "shape";
+  type Blocks = ReadTable["rows"][number]["cells"][number]["blocks"];
+  const paragraphsOf = (blocks: Blocks) =>
+    blocks.filter(
+      (b): b is Extract<Blocks[number], { kind: "p" }> => b.kind === "p",
+    );
+  const runsOf = (blocks: Blocks) =>
+    paragraphsOf(blocks).flatMap((b) => b.runs);
+  // A cell's paragraphs are joined with a SPACE here, not "\n": joined with
+  // "\n" a cell split into a paragraph per line could never match the
+  // probe's text, so the one-paragraph test below could not fail on its own
+  // (mutated to `true` on 2026-11-16, every negative stayed green). Joined
+  // with a space, the split cell reads as the probe's text and only the
+  // paragraph count refuses it (negative (e)).
+  const textOf = (blocks: Blocks) =>
+    paragraphsOf(blocks)
+      .map((b) => b.runs.map((r) => r.text).join(""))
+      .join(" ");
+  const wraps: Readonly<Record<number, readonly string[]>> = p.wraps;
+  const cellsOk = p.rows.every((row, r) =>
+    row.every((_, c) => {
+      const blocks = tbl!.rows[r]!.cells[c]!.blocks;
+      if (textOf(blocks) !== docxTableWrapsCell(r, c)) return false;
+      return !(c === 1 && wraps[r]) || paragraphsOf(blocks).length === 1;
+    }),
+  );
+  if (!cellsOk) return "cells";
+  const header = tbl!.rows[0]!.cells.flatMap((c) => runsOf(c.blocks));
+  const rest = tbl!.rows
+    .slice(1)
+    .flatMap((r) => r.cells.flatMap((c) => runsOf(c.blocks)));
+  if (
+    header.length === 0 ||
+    !header.every((r) => r.b && r.bCs) ||
+    rest.some((r) => r.b)
+  )
+    return "bold";
+  const words = pages.join("\n").split(/\s+/).filter(Boolean);
+  if (multisetKey(words) !== multisetKey(docxTableWrapsSourceWords()))
+    return "source";
+  return null;
+}
+
+/**
+ * Does THIS worker image's PDF to Word keep a table cell whose text
+ * continues onto the lines below it, in a column of text other than the
+ * first, in its row as one paragraph (#28 slice 3, key `docxTableWraps`)?
+ *
+ * The probe PDF ({@link docxTableWrapsProbePdf}) runs as a real job would,
+ * in the executor's order (`../capability-chain`: soundness gate, the
+ * processor the daemon's registry resolves, the artifact-manifest gate), on
+ * the deps the image's jobs run on (`pdfOfficeExportDeps(env)`), exactly as
+ * {@link provesDocxTables} does. The .docx is read back by
+ * `./docx-structure`, which shares nothing with the writer, and a pass needs
+ * every check of {@link docxTableWrapsProblem}: continuations written as
+ * rows of their own or left outside the table as lines, a continuation in
+ * the row below, the total taken into the last row, an absorbed cell split
+ * into a paragraph per line, the header's bold stripped, or a word that
+ * flow doubled or lost all answer `false`; so does an image without the
+ * extractor or the page reader, and one whose real jobs a gate refuses.
+ *
+ * NOT covered (the engine's stated limits): first-column wraps, a lone
+ * figure under a table, any wrap under a column of figures below the
+ * header, two cells wrapping on one baseline, tables whose wrapped lines
+ * outnumber their rows, and header lines that sit above the row. An image
+ * built before this key publishes nothing, and the reader parses the
+ * absence as `false`.
+ */
+export async function provesDocxTableWraps(
+  deps: PdfOfficeExportDeps,
+  run?: typeof runPdfOfficeExport,
+  gates: ProbeGates = {},
+): Promise<boolean> {
+  try {
+    if (!deps.extractFlow || !deps.scanPages) return false;
+    const pdf = await docxTableWrapsProbePdf();
+    const docx = await wordThroughExecutor(pdf, deps, run, gates);
+    if (!docx) return false;
+    const flow = await deps.extractFlow(pdf);
+    return (
+      (await docxTableWrapsProblem(docx, flow.pages.map(flowPageText))) === null
     );
   } catch {
     return false;

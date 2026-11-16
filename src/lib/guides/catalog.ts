@@ -285,6 +285,10 @@ import {
 } from "@/lib/jobs/chat-with-pdf";
 import { MAX_CONTEXT_EXCHANGES } from "@/lib/workers/chat-with-pdf-conversation";
 import {
+  CHAT_PAGE_SELECTION,
+  CHAT_SELECTION_MISS,
+} from "@/lib/tools/chat-page-selection";
+import {
   PAGE_HEADINGS_HINT as MD_PAGE_HEADINGS_HINT,
   REPEATED_LINES_HINT as MD_REPEATED_HINT,
 } from "@/lib/tools/pdf-to-markdown-options";
@@ -1248,7 +1252,7 @@ export const guides: Guide[] = [
         heading: "What to expect from the converted document",
         body: [
           `The output is a DOCX file, the standard editable Word format. ${PDF_TO_WORD_KEEPS}`,
-          "Headings keep their bold and size but not a Word heading style, lists arrive as lines of text, and a table comes through as a Word table only when each of its cells fits on one line and one of its columns holds figures, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
+          "Headings keep their bold and size but not a Word heading style, lists arrive as lines of text, and a table comes through as a Word table only when it has at least three rows and one of its columns holds figures, and one whose cells wrap onto further lines may come through whole, in part or as lines of text, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
           "That makes PDF to Word the right tool when you need the words back to rework them — rewrite a paragraph, fix a date, reuse a section — and the wrong one when the look of the page is what matters. For that, keep the PDF itself.",
         ],
       },
@@ -1305,7 +1309,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-15",
+    updated: "2026-11-16",
   },
   {
     slug: "how-to-convert-jpg-to-pdf",
@@ -1667,7 +1671,7 @@ export const guides: Guide[] = [
         id: "changing-existing-text",
         heading: "Changing the text that is already there",
         body: [
-          `To rework the wording itself, convert the file with ${nameOf("pdf-to-word")}: it exports the PDF's selectable text as an editable Word document, in reading order, each word keeping its bold, italics, size and colour where our reader matches it, with each picture between the paragraphs. The page layout is not recreated, words are set in standard Office fonts, and only a table whose cells each fit on one line, with a column of figures, comes through as a Word table, so it suits documents where the words matter more than the look.`,
+          `To rework the wording itself, convert the file with ${nameOf("pdf-to-word")}: it exports the PDF's selectable text as an editable Word document, in reading order, each word keeping its bold, italics, size and colour where our reader matches it, with each picture between the paragraphs. The page layout is not recreated, words are set in standard Office fonts, and only a table with at least three rows and a column of figures comes through as a Word table (one whose cells wrap onto further lines may come through whole, in part or as lines of text), so it suits documents where the words matter more than the look.`,
         ],
       },
       {
@@ -1714,7 +1718,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-11-15",
+    updated: "2026-11-16",
   },
   {
     slug: "how-to-create-a-fillable-pdf-form",
@@ -5544,7 +5548,7 @@ export const guides: Guide[] = [
         body: [
           `The conversation lives in your browser tab, and every question is a job of its own: the page uploads the PDF again and sends the most recent exchanges with it, up to ${MAX_CONTEXT_EXCHANGES}. A note above the button says how many travel with the next question, and whether any were shortened or left out to stay within the request limits.`,
           "Our server does not link one question to the next. Reloading the page, choosing another file, or pressing Remove beside the file name starts a new conversation.",
-          `Each question reads a bounded amount of text, with your question and the conversation sent with it counted first, and the exact figure is stated on the ${nameOf("chat-with-pdf")} page. Past that point the model is told not to claim the document lacks something, and a notice above the answer says that only part of the document was read, naming the pages when it can. For a long file, pull the part you need into its own PDF with ${nameOf("extract-pages")} and ask that; its [p.N] citations then count the pages of the extracted copy. Files are capped at ${ceilingMb("chat-with-pdf")} MB.`,
+          `Each question reads a bounded amount of text, with your question and the conversation sent with it counted first, and the exact figure is stated on the ${nameOf("chat-with-pdf")} page. When a file is longer than that, each question is sent ${CHAT_PAGE_SELECTION}. ${CHAT_SELECTION_MISS} The model is told not to claim the document lacks something, and a notice above the answer says that only part of the document was read, naming the pages when it can. If the page you need was not read, pull that part into its own PDF with ${nameOf("extract-pages")} and ask that; its [p.N] citations then count the pages of the extracted copy. Files are capped at ${ceilingMb("chat-with-pdf")} MB.`,
         ],
       },
       {
