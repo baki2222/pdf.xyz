@@ -178,6 +178,7 @@ function capabilitiesOf(value: unknown): HeartbeatCapabilities {
     chatRetrieval: boolOf(src.chatRetrieval),
     summarizePages: boolOf(src.summarizePages),
     translatePdfLanguages: translatePdfLanguagesOf(src.translatePdfLanguages),
+    translateReadingOrder: boolOf(src.translateReadingOrder),
   };
 }
 
@@ -241,6 +242,7 @@ export function serializeHeartbeat(hb: WorkerHeartbeat): string {
       chatRetrieval: hb.capabilities.chatRetrieval,
       summarizePages: hb.capabilities.summarizePages,
       translatePdfLanguages: [...hb.capabilities.translatePdfLanguages],
+      translateReadingOrder: hb.capabilities.translateReadingOrder,
     },
     at: hb.at,
   });

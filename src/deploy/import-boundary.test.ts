@@ -88,6 +88,11 @@ const ALLOWED = new Set(
     "src/lib/workers/translate/pdf-readers.ts",
     "src/lib/workers/translate/pdf-capability.ts",
     "src/lib/workers/translate/pdf-measure.ts",
+    // Translate's reading-order proof (2026-11-16, audit #29 slice 3): it
+    // runs `translateDeps(env).extract`, the image's real pdftotext. Reached
+    // only by the daemon's proved-capability table, the in-image proof
+    // script and tests.
+    "src/lib/workers/translate/reading-order-capability.ts",
     // Chat with PDF's page-selection proof (2026-11-16, slice 3): it runs the
     // daemon's chat deps (`chat-with-pdf/native`, the `pdftotext` runner).
     // Reached only by the daemon's proved-capability table, the in-image

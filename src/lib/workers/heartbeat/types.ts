@@ -400,6 +400,29 @@ export interface HeartbeatCapabilities {
    * panel then describes the ZIP alone, as it did before.
    */
   readonly translatePdfLanguages: readonly string[];
+  /**
+   * This image's Translate PDF sends a two-column page's columns to the model
+   * one after the other, not line by line across the page (2026-11-16, slice
+   * 3 of competitor audit #29: reading order).
+   *
+   * PROVEN AT START-UP (`translate/reading-order-capability.ts`,
+   * `provesTranslateReadingOrder`): one `translate-pdf` job through the
+   * executor's order on a generated two-column page, with the image's REAL
+   * Translate extractor (`pdftotext -layout`, then `-bbox-layout`) and a stub
+   * provider. The text the provider received AND the delivered
+   * `translation.txt` must each hold the left column's sentence whole, before
+   * the right column's, with no line of both columns together; the job record
+   * must say the page was sent as flow; and the same page's `-layout` reading
+   * must interleave the columns on this binary (the in-probe control).
+   *
+   * What it does NOT prove: that every layout is read in order (the gate is
+   * order-blind, and flow's block order on an unusual page is poppler's), that
+   * a right-to-left page is sent as flow (it is not, by design), or that a
+   * real provider call succeeds. Until a later slice flips the copy, no
+   * sentence depends on it. An image built before the key publishes nothing,
+   * and the absence parses as `false`.
+   */
+  readonly translateReadingOrder: boolean;
 }
 
 /**

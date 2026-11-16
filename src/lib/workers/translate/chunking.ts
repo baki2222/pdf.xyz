@@ -36,8 +36,16 @@ export interface TranslateChunk {
   readonly index: number;
   /** Real page numbers carried by this chunk, ascending. Never indices. */
   readonly pages: readonly number[];
-  /** Exactly what is sent to the model: the pages joined as the extractor joins them. */
+  /**
+   * Exactly what is sent to the model: each page's SENT text (`send ?? text`,
+   * see {@link PlannedPage}) joined with {@link PAGE_JOIN}.
+   */
   readonly text: string;
+  /**
+   * What the chunk WEIGHS: each page's `text` length plus one
+   * {@link PAGE_JOIN} per boundary. Never less than `text.length`, because a
+   * page's `send` is never longer than its `text` (`./reading-order`).
+   */
   readonly characters: number;
 }
 
@@ -49,6 +57,21 @@ export interface TranslateChunk {
 export interface OversizePage {
   readonly pageNumber: number;
   readonly characters: number;
+}
+
+/**
+ * One page as the planner reads it.
+ *
+ * `text` is what the page WEIGHS — every size, ceiling and bound below is in
+ * its unit, the `-layout` unit the published figures were calibrated in.
+ * `send`, when present, is what is SENT in its place (Translate's flow text,
+ * gated by `./reading-order`'s `translatePageBlocks`). The browser preflight
+ * never sets it, so its plans are unchanged.
+ */
+export interface PlannedPage {
+  pageNumber: number;
+  text: string;
+  send?: string;
 }
 
 export interface TranslatePlan {
@@ -71,14 +94,14 @@ export interface TranslatePlan {
  * stay in document order for the assembly to place the gap where the page was.
  */
 export function planTranslateChunks(
-  pageChunks: readonly { pageNumber: number; text: string }[],
+  pageChunks: readonly PlannedPage[],
   ceiling: number,
 ): TranslatePlan {
   const chunks: TranslateChunk[] = [];
   const oversize: OversizePage[] = [];
   const pages: number[] = [];
 
-  let pending: { pageNumber: number; text: string }[] = [];
+  let pending: PlannedPage[] = [];
   let pendingChars = 0;
 
   const flush = (): void => {
@@ -86,7 +109,7 @@ export function planTranslateChunks(
     chunks.push({
       index: chunks.length,
       pages: pending.map((p) => p.pageNumber),
-      text: pending.map((p) => p.text).join(PAGE_JOIN),
+      text: pending.map((p) => p.send ?? p.text).join(PAGE_JOIN),
       characters: pendingChars,
     });
     pending = [];
@@ -182,15 +205,24 @@ export interface CappedPlan {
  * pay for text nobody translated. It still gets its own marker, from the
  * planner, because it is inside the delivered range.
  *
- * ── THE ACCUMULATION IS A HAIR UNDER WHAT IS SENT ───────────────────────────
+ * ── EVERY SENT CHARACTER IS WEIGHED, WITH ONE RECORDED EXCEPTION ────────────
  *
- * Chunks are joined with {@link PAGE_JOIN}, so a call carries two characters
- * per page boundary that this walk does not count. That is a handful of
- * characters against a reservation in the tens of thousands, and it errs toward
- * delivering slightly more than was reserved rather than slightly less — the
- * direction that cannot truncate an honest caller's document. Stated because an
- * uncounted term is a defect even when it is small, and the next person needs
- * to know it was seen rather than missed.
+ * The general rule: any character in `chunk.text` that a page's `text` length
+ * does not include must be COUNTED — here, in {@link planTranslateChunks}, and
+ * therefore in the browser preflight, which plans with the same function.
+ * Since reading order, a page is weighed by its `-layout` `text` while its
+ * flow `send` is what goes out, so a term added to the sent text (a page
+ * marker, say) is invisible to every bound unless it is counted explicitly.
+ * `reading-order.chain.test.ts` ("sent ≤ weighed") goes red when it is not.
+ *
+ * The one exception is {@link PAGE_JOIN}: chunks are joined with it, so a call
+ * carries two characters per page boundary that this walk does not count
+ * (`planTranslateChunks` does count them, in `characters`). That is a handful
+ * of characters against a reservation in the tens of thousands, and it errs
+ * toward delivering slightly more than was reserved rather than slightly
+ * less — the direction that cannot truncate an honest caller's document. The
+ * test subtracts exactly this term (`UNCOUNTED_JOIN_PER_BOUNDARY`) and no
+ * other; it is not a precedent for a second uncounted term.
  *
  * ── STOPS; DOES NOT SKIP ────────────────────────────────────────────────────
  *
@@ -199,7 +231,7 @@ export interface CappedPlan {
  * through the document instead of leaving one honest tail the reader can act on.
  */
 export function capPagesToDelivery(
-  pageChunks: readonly { pageNumber: number; text: string }[],
+  pageChunks: readonly PlannedPage[],
   ceiling: number,
   limit: DeliveryLimit,
 ): CappedPlan {

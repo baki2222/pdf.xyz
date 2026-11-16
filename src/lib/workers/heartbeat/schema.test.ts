@@ -38,6 +38,7 @@ const CAPS: HeartbeatCapabilities = {
   chatRetrieval: true,
   summarizePages: true,
   translatePdfLanguages: [],
+  translateReadingOrder: true,
 };
 
 describe("coarseRelease", () => {
@@ -110,6 +111,7 @@ describe("buildHeartbeat / serialize / parse", () => {
       chatRetrieval: false,
       summarizePages: false,
       translatePdfLanguages: [],
+      translateReadingOrder: false,
     });
     expect(JSON.stringify(hb)).not.toContain("evil.example.com");
     expect(JSON.stringify(hb)).not.toContain("secretEndpoint");
@@ -266,6 +268,7 @@ describe("buildHeartbeat / serialize / parse", () => {
         chatRetrieval: false,
         summarizePages: false,
         translatePdfLanguages: [],
+        translateReadingOrder: false,
       },
       at: 1234,
     });
@@ -429,5 +432,41 @@ describe("translatePdfLanguages — bounded like ocrLanguages (2026-11-15)", () 
       capabilities: Record<string, unknown>;
     };
     expect(wire.capabilities.translatePdfLanguages).toEqual(["es", "bn"]);
+  });
+});
+
+describe("translateReadingOrder — deploy skew (2026-11-16)", () => {
+  it("a heartbeat serialised WITHOUT the key (an older image) parses as false and does not throw", () => {
+    const wire = JSON.parse(
+      serializeHeartbeat(
+        buildHeartbeat({
+          mode: "once",
+          capabilities: { ...CAPS, translateReadingOrder: true },
+          at: 9,
+        }),
+      ),
+    ) as { capabilities: Record<string, unknown> };
+    // Positive control: the key IS on the wire when the image publishes it.
+    expect(wire.capabilities.translateReadingOrder).toBe(true);
+    delete wire.capabilities.translateReadingOrder;
+    expect("translateReadingOrder" in wire.capabilities).toBe(false);
+    const parsed = parseHeartbeat(wire);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.capabilities.translateReadingOrder).toBe(false);
+  });
+
+  it("a malformed value is false, never truthy", () => {
+    const wire = JSON.parse(
+      serializeHeartbeat(
+        buildHeartbeat({ mode: "once", capabilities: CAPS, at: 9 }),
+      ),
+    ) as { capabilities: Record<string, unknown> };
+    for (const bad of ["true", 1, {}, null]) {
+      const parsed = parseHeartbeat({
+        ...wire,
+        capabilities: { ...wire.capabilities, translateReadingOrder: bad },
+      });
+      expect(parsed?.capabilities.translateReadingOrder).toBe(false);
+    }
   });
 });

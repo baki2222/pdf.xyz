@@ -81,6 +81,15 @@ import { parseRedisQueueConfig, REDIS_QUEUE_ENV } from "./queue/redis-config";
 import { createLocalDevQueue } from "./queue/local-dev";
 import { DevWorkerStore } from "./store";
 import type { ClaimableQueue } from "./queue/claim";
+import {
+  concatReadingOrderPairs,
+  discoverReadingOrderPairs,
+} from "@/tests/reading-order-pairs";
+import { capPagesToDelivery } from "./translate/chunking";
+import {
+  composeReadingOrderExtractor,
+  translatePageBlocks,
+} from "./translate/reading-order";
 
 const ts = createRequire(import.meta.url)("typescript") as typeof TS;
 
@@ -175,6 +184,66 @@ describe("a declaration on the wire becomes the cap the job runs under", () => {
       { fallbackCharacters: 10, headroom: 1.5 },
     );
     expect(cap.characters).toBe(5);
+  });
+});
+
+describe("reading order: the cap from the declaration bounds what is SENT (2026-11-16)", () => {
+  // Every discovered poppler pair, alone and as one document. The panel
+  // declares the extraction's character count (the browser has no `send`),
+  // the route derives the cap from it, and the worker walks the cap over
+  // `-layout` weights while it sends flow text. Declared at 1×, ½× and ¼×
+  // so the cap binds. The generated-document version of this property is
+  // `translate/declared-characters.reading-order.property.test.ts`.
+  it("Σ sent page text ≤ Σ walked -layout characters ≤ cap, and withheld/boundBy match -layout-only", async () => {
+    const pairs = discoverReadingOrderPairs();
+    expect(
+      pairs.length,
+      "health: the pairs went missing",
+    ).toBeGreaterThanOrEqual(12);
+    const docs = [
+      ...pairs.map((p) => ({ layout: p.layout, flow: p.flow })),
+      concatReadingOrderPairs(pairs),
+    ];
+    let bound = 0;
+    let flowSent = 0;
+    for (const doc of docs) {
+      const extracted = await composeReadingOrderExtractor(
+        async () => doc.layout,
+        async () => doc.flow,
+      )(new Uint8Array([1]));
+      for (const factor of [1, 0.5, 0.25]) {
+        const cap = capFromWire({
+          declaredCharacters: Math.max(
+            1,
+            Math.round(extracted.characterCount * factor),
+          ),
+        });
+        const { blocks, tally } = translatePageBlocks(extracted.pages);
+        flowSent += tally.flowPages;
+        const viaFlow = capPagesToDelivery(
+          blocks,
+          TRANSLATE_MAX_INPUT_CHARS,
+          cap,
+        );
+        const viaLayout = capPagesToDelivery(
+          blocks.map(({ pageNumber, text }) => ({ pageNumber, text })),
+          TRANSLATE_MAX_INPUT_CHARS,
+          cap,
+        );
+        expect(viaFlow.withheldPages).toEqual(viaLayout.withheldPages);
+        expect(viaFlow.boundBy).toBe(viaLayout.boundBy);
+        if (viaFlow.boundBy !== null) bound += 1;
+        const delivered = new Set(viaFlow.plan.chunks.flatMap((c) => c.pages));
+        const kept = blocks.filter((b) => delivered.has(b.pageNumber));
+        const sent = kept.reduce((n, b) => n + (b.send ?? b.text).length, 0);
+        const walked = kept.reduce((n, b) => n + b.text.length, 0);
+        expect(sent).toBeLessThanOrEqual(walked);
+        expect(walked).toBeLessThanOrEqual(cap.characters);
+      }
+    }
+    // Health: the cap bound somewhere, and flow was actually sent.
+    expect(bound).toBeGreaterThan(0);
+    expect(flowSent).toBeGreaterThan(0);
   });
 });
 

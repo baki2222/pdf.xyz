@@ -52,6 +52,7 @@ import {
   provesDeliveryCap,
 } from "@/lib/workers/translate/capability";
 import { provesTranslateOcr } from "@/lib/workers/translate/ocr-capability";
+import { provesTranslateReadingOrder } from "@/lib/workers/translate/reading-order-capability";
 import { provesHtmlZip } from "@/lib/workers/html-render/zip-capability";
 import { provesChatRetrieval } from "@/lib/workers/chat-with-pdf/retrieval-capability";
 import { provesSummarizePages } from "@/lib/workers/summarize/pages-capability";
@@ -152,6 +153,13 @@ export const PROVED_CAPABILITIES = defineProvers({
   translatePdfLanguages: {
     prove: (env) => translatePdfLanguages(env),
     parse: languages,
+  },
+  // The image's REAL Translate extractor (`-layout`, then `-bbox-layout`)
+  // on a generated two-column page, through the executor's order: the
+  // model and the delivered text must get the columns one after the other.
+  translateReadingOrder: {
+    prove: (env) => provesTranslateReadingOrder(env),
+    parse: bool,
   },
 });
 

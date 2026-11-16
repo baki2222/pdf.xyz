@@ -379,6 +379,19 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "Translate PDF returns a reflowed PDF of the same translation beside the ZIP for each target language the panel names, its fonts embedded and every character read back from the PDF, not the ZIP alone",
     proves: provenByReportedLanguages,
   },
+  translateReadingOrder: {
+    label: "reading order in Translate",
+    promise:
+      // Added 2026-11-16 (competitor audit #29, slice 3). Written to be TRUE
+      // AT MERGE: the copy makes no column-order claim yet (its sentence
+      // still discloses interleaving, true of both images), so this row may
+      // go blocked between the web deploy and the worker redeploy without
+      // publishing a false sentence about our own copy. The slice that flips
+      // the copy to "columns are read in order" must edit this promise in the
+      // same commit — `capability-hedges.test.ts` goes red until it does.
+      "nothing yet about Translate PDF's column order: its page says a two-column paper's lines can reach the model interleaved, and no sentence rests on this proof until that changes",
+    proves: provenByFlag,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */

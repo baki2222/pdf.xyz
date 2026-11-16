@@ -11,6 +11,13 @@ import {
   type ExtractedPdfText,
 } from "@/lib/pdf/text";
 import {
+  hasTranslatableText,
+  translatePageBlocks,
+  tallySentPages,
+  type TranslateExtracted,
+  type TranslateExtractor,
+} from "./reading-order";
+import {
   capPagesToDelivery,
   nothingDeliverableMessage,
   type DeliveryLimit,
@@ -47,7 +54,11 @@ import {
   translateTooLongMessage,
 } from "@/lib/jobs/translate-limits";
 import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
-import type { AiDeliveryMeta, AiUsageMeta } from "@/lib/jobs/ai-results";
+import type {
+  AiDeliveryMeta,
+  AiReadingOrderMeta,
+  AiUsageMeta,
+} from "@/lib/jobs/ai-results";
 import type { JobDeliveryCap } from "@/lib/jobs/delivery-cap";
 
 /**
@@ -118,7 +129,12 @@ export interface TranslateLimits {
 }
 
 export interface TranslateDeps {
-  extract?: PdfTextExtractor;
+  /**
+   * Translate's extractor (`./reading-order`): the `-layout` reading, maybe
+   * with each page's flow text attached as `send`. Any plain
+   * {@link PdfTextExtractor} is one.
+   */
+  extract?: TranslateExtractor;
   /** A configured AI provider. Absent ⇒ the engine fails honestly as `ai_unconfigured`. */
   provider?: AiProvider;
   /** ISO timestamp source; defaults to the wall clock. Injected for deterministic tests. */
@@ -211,6 +227,12 @@ export interface TranslateMeta {
   delivery?: AiDeliveryMeta;
   /** The reflowed PDF's outcome — always present on success. */
   pdf: TranslatePdfMeta;
+  /**
+   * Which text each page was SENT as, and how much was sent — always present
+   * on success, and on every failure after a provider call (`spentSoFar`).
+   * See {@link AiReadingOrderMeta}.
+   */
+  readingOrder: AiReadingOrderMeta;
 }
 
 export type TranslateFailureKind =
@@ -279,6 +301,12 @@ export type TranslateRun =
        * unproven, the same reason `hadNotes` stayed separate from `notes.length`.
        */
       window?: TruncationWindow;
+      /**
+       * Which text was sent, on every failure after a provider call — the
+       * same carrier as `usage` and `window` (`spentSoFar`). Absent on a
+       * failure before any call: nothing was sent.
+       */
+      readingOrder?: AiReadingOrderMeta;
     };
 
 /**
@@ -305,20 +333,11 @@ const UNBOUNDED_DELIVERY: DeliveryLimit = {
 };
 
 /**
- * Does this extraction hold text the engine will translate?
- *
- * ONE definition, read by the engine's `no_text` refusal below AND by the
- * translate processor's decision to run OCR first (audit translate-pdf#3):
- * OCR runs on exactly the documents this engine would otherwise refuse as
- * having no text, and on nothing else. Two copies of the predicate would let
- * a PDF with a text layer be recognised (and charged for) again, or a scan
- * slip past OCR into the refusal.
+ * Does this extraction hold text the engine will translate? ONE definition,
+ * in `./reading-order` (which must not import this module); re-exported so
+ * the processor and every existing reader keep their import.
  */
-export function hasTranslatableText(
-  extracted: Pick<ExtractedPdfText, "hasText" | "text">,
-): boolean {
-  return extracted.hasText && extracted.text.trim().length > 0;
-}
+export { hasTranslatableText };
 
 /** The honesty-critical system prompt: translate ONLY the provided text; invent nothing. */
 function buildSystemPrompt(
@@ -355,8 +374,15 @@ function buildSystemPrompt(
   return parts.join(" ");
 }
 
-/** What a failure after a provider call carries: the window, and the spend. */
-type SpendCarry = { window: TruncationWindow; usage?: AiUsageMeta };
+/**
+ * What a failure after a provider call carries: the window, the spend, and
+ * which text was sent.
+ */
+type SpendCarry = {
+  window: TruncationWindow;
+  usage?: AiUsageMeta;
+  readingOrder: AiReadingOrderMeta;
+};
 
 /**
  * Map a provider completion failure to an honest, typed run failure.
@@ -518,7 +544,7 @@ export async function runTranslate(
 
   const now = deps.now ?? (() => new Date().toISOString());
 
-  let extracted: ExtractedPdfText;
+  let extracted: TranslateExtracted;
   try {
     extracted = await extract(input, signalOption(signal));
   } catch (err) {
@@ -580,9 +606,15 @@ export async function runTranslate(
   const ceilingCharacters = translateMaxInputChars(maxOutputTokens);
 
   // The page blocks the extractor joined, WITH their real page numbers — the
-  // same chunks the truncation window is described from, so a gap this engine
-  // names is a page the reader can go and check.
-  const pageBlocks = pageTextChunks(extracted.pages);
+  // same pages, and the same `text`, the truncation window is described from
+  // (`pageTextChunks` above), so a gap this engine names is a page the reader
+  // can go and check. Each block may also carry `send`, the flow text that
+  // goes to the model in place of its `text`: the reading-order gate runs
+  // HERE, once, at the point of consumption (`./reading-order`). Every bound
+  // below still weighs `text`.
+  const { blocks: pageBlocks, outcomes: readingOutcomes } = translatePageBlocks(
+    extracted.pages,
+  );
 
   // NO PAGE STRUCTURE ⇒ NO SAFE SPLIT. Some callers hand over text with no
   // per-page breakdown (and a browser extractor may too). Splitting that at an
@@ -677,6 +709,33 @@ export async function runTranslate(
   /** Pages a chunk failure left untranslated, in document order. */
   let interruptedPages: number[] = [];
   let interruption: TranslateRun | null = null;
+  /**
+   * Characters literally put between the `---` delimiters, over the calls
+   * actually made: a segment is added BEFORE its call, so an interrupted job
+   * counts the call that failed and not the segments after it.
+   */
+  let sentCharacters = 0;
+  /**
+   * Pages literally put on the wire, by the same rule as `sentCharacters`:
+   * added BEFORE the call. `readingOrder`'s page counts are taken over THESE
+   * — never over every text page, which would count withheld, oversize and
+   * post-interruption pages as sent (the S3 review finding, 2026-11-16).
+   */
+  const sentPages: number[] = [];
+
+  /** Which text the calls made so far sent: page counts over `sentPages`. */
+  const readingOrderSoFar = (): AiReadingOrderMeta => {
+    const sent = tallySentPages(readingOutcomes, sentPages);
+    return {
+      // An extractor with no flow reader (any plain `PdfTextExtractor`)
+      // made no second run.
+      source: extracted.readingOrder?.source ?? "not_run",
+      flowPages: sent.flowPages,
+      layoutPages: sent.layoutPages,
+      fellBack: { ...sent.fellBack },
+      sentCharacters,
+    };
+  };
 
   /**
    * What every return below this point carries: the window, and the usage of
@@ -700,10 +759,15 @@ export async function runTranslate(
     ...(usage.reported
       ? { usage: { ...usage.totals(), calls: usage.calls, model } }
       : {}),
+    // Explicit, never spread conditionally: a dropped optional field is
+    // invisible at every hop (the heartbeat fingerprint lesson).
+    readingOrder: readingOrderSoFar(),
   });
 
   for (const [i, segment] of segments.entries()) {
     const many = segments.length > 1;
+    sentCharacters += segment.text.length;
+    sentPages.push(...segment.pages);
     const completion = await provider.complete({
       system: buildSystemPrompt(options, window),
       messages: [
