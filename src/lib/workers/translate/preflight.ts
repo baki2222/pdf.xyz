@@ -44,6 +44,12 @@ export interface TranslatePreflight {
 export function translatePreflight(
   extracted: Pick<ExtractedPdfText, "pages" | "hasText" | "characterCount">,
   ceiling: number,
+  /**
+   * Whose pages `extracted` holds: "document" (the default, every caller that
+   * checks a whole document) or "chosen" (a page selection), passed through
+   * to the every-page-oversize sentence, which names its object.
+   */
+  scope: "document" | "chosen" = "document",
 ): TranslatePreflight {
   const textPages = pageTextChunks(extracted.pages);
   const plan = planTranslateChunks(textPages, ceiling);
@@ -78,7 +84,7 @@ export function translatePreflight(
     return {
       textPages,
       plan,
-      refusal: translateEveryPageTooLongMessage(plan.oversize, ceiling),
+      refusal: translateEveryPageTooLongMessage(plan.oversize, ceiling, scope),
     };
   }
 

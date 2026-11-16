@@ -43,6 +43,7 @@ const body = (text: string): TranslationPart => ({
   kind: "body",
   pages: [1],
   text,
+  chosen: null,
 });
 const inputOf = (text: string, target: TypesetInput["target"] = "fr") =>
   ({ parts: [body(text)], target, sourceName: "paper.pdf" }) as TypesetInput;

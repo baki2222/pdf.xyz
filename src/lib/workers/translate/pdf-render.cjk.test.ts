@@ -34,7 +34,14 @@ const fixture = (f: string) =>
 
 const judged = probeJudgedText("zh", LANGUAGE_SAMPLES.zh);
 const INPUT: TypesetInput = {
-  parts: [{ kind: "body", pages: [1], text: `## ${judged}\n\n${judged}` }],
+  parts: [
+    {
+      kind: "body",
+      pages: [1],
+      chosen: null,
+      text: `## ${judged}\n\n${judged}`,
+    },
+  ],
   target: "zh",
   sourceName: "probe.pdf",
 };
@@ -90,7 +97,7 @@ async function deliver(
   text: string,
 ) {
   const input: TypesetInput = {
-    parts: [{ kind: "body", pages: [1], text }],
+    parts: [{ kind: "body", pages: [1], text, chosen: null }],
     target,
     sourceName: "probe.pdf",
   };

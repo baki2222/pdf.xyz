@@ -59,9 +59,9 @@ export function pagesOutOfRangeMessage(
 }
 
 /**
- * What Summarize says when the pages a person CHOSE hold no selectable text,
- * though the document as a whole does (Summarize's page range, audit
- * summarize-pdf#5). One owner for both sides of the upload, like
+ * What Summarize and Translate say when the pages a person CHOSE hold no
+ * selectable text, though the document as a whole does (Summarize's page
+ * range, audit summarize-pdf#5; Translate's, audit #29 slice 6). One owner for both sides of the upload, like
  * `NO_SELECTABLE_TEXT_MESSAGE` in `./ai-no-text` — but HERE, not there:
  * `./ai-no-text` is on every worker panel's first load (through
  * `pdf-security-client`), and the panel's lazy judgement using this export
@@ -73,5 +73,9 @@ export function pagesOutOfRangeMessage(
  */
 export const NO_TEXT_IN_CHOSEN_PAGES_MESSAGE = {
   "summarize-pdf":
+    "The pages you chose have no selectable text. Choose other pages, or run OCR PDF first.",
+  // Translate's page range (audit #29 slice 6): the same fact, the same
+  // sentence, keyed by its tool so each side reads its own entry.
+  "translate-pdf":
     "The pages you chose have no selectable text. Choose other pages, or run OCR PDF first.",
 } as const;

@@ -193,7 +193,7 @@ async function rtlPagePdf(
   const body = Array.from({ length: 8 }, () => text).join(" ");
   const result = await render({
     input: {
-      parts: [{ kind: "body", pages: [1], text: body }],
+      parts: [{ kind: "body", pages: [1], text: body, chosen: null }],
       target,
       sourceName: "reading-order-proof.pdf",
     },
