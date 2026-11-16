@@ -494,11 +494,13 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     // The sentences a hedge about it would sit in: which pages of a longer
     // file Chat with PDF reads for a question — "how far into the document
     // the reading got", "read up to that point only", "names the pages that
-    // were read", "How much of my PDF does Chat with PDF read?". Measured
+    // were read" (since hedged to "says that only part of it was read,
+    // naming the pages when it can"), "How much of my PDF does Chat with
+    // PDF read?". Measured
     // that day over the whole corpus: see "the chatRetrieval subject reaches
     // the chat reading sentences". catalogueCopy is true because those exist.
     subject:
-      /\bhow far into the document\b|\bread up to that point\b|\bpages? that (?:were|was) read\b|\bwhich page it reached\b|\bHow much of my PDF does Chat with PDF read\b|\bpages? (?:are|is) chosen\b/i,
+      /\bhow far into the document\b|\bread up to that point\b|\bpages? that (?:were|was) read\b|\bwhich page it reached\b|\bHow much of my PDF does Chat with PDF read\b|\bpages? (?:are|is) chosen\b|\bonly part (?:of (?:it|the document) )?was read\b/i,
     catalogueCopy: true,
   },
   translatePdfLanguages: {

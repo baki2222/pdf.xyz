@@ -33,6 +33,11 @@ import {
   CHAT_RETRIEVAL_ANCHOR_SHARES,
   chatRetrievalPanelLine,
 } from "@/lib/pdf/chat-retrieval-anchor";
+import {
+  describeSelection,
+  describeWindow,
+  userTruncationNotice,
+} from "@/lib/workers/ai/truncation";
 import { factFaq, toolFacts } from "./tool-facts";
 import {
   cardSummary,
@@ -163,6 +168,59 @@ describe("Chat with PDF static copy names the pages read, never how they were ch
       chatRetrievalShapesIn(s).map((name) => `[${name}] ${s}`),
     );
     expect(caught).toEqual([]);
+  });
+
+  it("the hedged static sentence is true of the user notice in every state, on both images", () => {
+    // The static copy says the notice "says that only part of it was read,
+    // naming the pages when it can". Not "names the pages that were read":
+    // when the first page alone overflows the budget, the old image's notice
+    // says "the first part of this N-page document" and names none. Every
+    // state either image can produce, through the one renderer both use.
+    const hedge = "naming the pages when it can";
+    const served = CORPUS.map((e) => e.text).join("\n");
+    expect(served).toContain(hedge);
+    expect(served).not.toMatch(/names the pages that were read/);
+    const page = "[Page 1]\n" + "a".repeat(400);
+    const two = `${page}\n\n[Page 2]\n${"b".repeat(400)}`;
+    const starts = [
+      { pageNumber: 1, offset: 0, length: page.length },
+      { pageNumber: 2, offset: page.length + 2, length: page.length },
+    ];
+    const states = {
+      // old and new image: a prefix that holds a whole page names it
+      "prefix, a page complete": describeWindow(two, starts, 9, 500),
+      // old and new image: the first page alone overflows, nothing to name
+      "prefix, first page overflows": describeWindow(two, starts, 9, 100),
+      // new image: pages chosen for the question
+      "relevance, spans": describeSelection(9_000, 800, 9, [1, 7], null),
+      // new image: spans dropped by the writer's re-bounding
+      "relevance, spans dropped": {
+        ...describeSelection(9_000, 800, 9, [1, 7], null),
+        pagesSent: undefined,
+      },
+    } as const;
+    const named: Record<string, boolean> = {};
+    const dash = String.fromCodePoint(0x2013);
+    const onlyPart = new RegExp(
+      "^Only (?:pages 1" +
+        dash +
+        "\\d+ of \\d+|the first part of this \\d+-page document) could be read" +
+        "|\\bso (?:only some|\\d+) of its \\d+ pages (?:were|was) read\\b",
+    );
+    for (const [name, window] of Object.entries(states)) {
+      const notice = userTruncationNotice(window);
+      // "only part was read" holds in every state.
+      expect(notice, name).toMatch(onlyPart);
+      named[name] = /\bpages? \d/.test(notice);
+    }
+    // "naming the pages WHEN IT CAN": both branches occur, so the hedge is
+    // load-bearing, not decoration.
+    expect(named).toEqual({
+      "prefix, a page complete": true,
+      "prefix, first page overflows": false,
+      "relevance, spans": true,
+      "relevance, spans dropped": false,
+    });
   });
 
   it("positive control through the detector: the gated panel line is caught, at every share the sweep measures", () => {

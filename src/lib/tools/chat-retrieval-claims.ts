@@ -10,7 +10,9 @@
  * can be served beside an image that reads only the opening pages (every
  * image before this slice) or one that chooses pages by the question (this
  * slice's). Static copy must therefore stay true of BOTH: it may say that
- * the notice names the pages that were read, and never why those pages.
+ * the notice says that only part was read, naming the pages when it can,
+ * and never why those pages. (Not "names the pages that were read": when
+ * the first page alone overflows the budget, the notice can name none.)
  * The only surface allowed to describe the choice is the panel line gated on
  * an OBSERVED `chatRetrieval: true` heartbeat (`chatRetrievalPanelLine`),
  * plus the model prompt, where the engine knows what it did.
@@ -203,12 +205,12 @@ export const CHAT_RETRIEVAL_HONEST: readonly string[] = [
   // Shipped before this slice and true on both images; the reason a bare
   // /every page/ is not a shape.
   `Ask "What is the notice period?" and the model receives your PDF's text with every page that has text marked by its number, plus an instruction to answer from that text alone and to cite what it used as [p.4].`,
-  "For a longer file, a notice above the answer names the pages that were read, by number when the text allows.",
-  "Past that point, the model is told not to claim the document lacks something but to say which pages it can see, and the notice above the answer names the pages that were read.",
+  "For a longer file, a notice above the answer says that only part of it was read, naming the pages when it can.",
+  "Past that point, the model is told not to claim the document lacks something but to say which part it can see, and the notice above the answer says that only part was read, naming the pages when it can.",
   "When the same text returns with a follow-up, the provider may keep it in a short-lived cache, measured in minutes rather than days, which lowers the cost of reprocessing it.",
-  "Past that point the model is told not to claim the document lacks something, and a notice above the answer names the pages that were read.",
+  "Past that point the model is told not to claim the document lacks something, and a notice above the answer says that only part of the document was read, naming the pages when it can.",
   "When the same text goes with a follow-up, the provider may also hold it in a short-lived cache, measured in minutes rather than days.",
-  "The document gets what the conversation leaves; for a longer one, a notice above the answer names the pages that were read, by number when the text allows, rather than treating the rest as absent.",
+  "The document gets what the conversation leaves; for a longer one, a notice above the answer says that only part of it was read, naming the pages when it can, rather than treating the rest as absent.",
 ];
 
 /** The shape names that catch `text`, or none. */

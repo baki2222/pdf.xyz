@@ -108,7 +108,7 @@ describe("chat page retrieval, as the build serves it", () => {
       expect(caught, rel(file)).toEqual([]);
       // Positive control: this slice's sentence is what the page serves, so
       // the scan above read the current copy, not a stale or empty page.
-      expect(text, rel(file)).toContain("names the pages that were read");
+      expect(text, rel(file)).toContain("naming the pages when it can");
     }
   });
 
