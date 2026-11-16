@@ -331,8 +331,10 @@ describe("the shared pdftotext extractor stays shared, and Translate is not on i
         "d.cts",
         "e.d.ts",
         "f.d.mts",
-        "g.test.ts",
-        "h.test.tsx",
+        // Built, not spelled: test-references.test.ts reads a spelled
+        // `*.test.ts` name as a reference to a test that must exist.
+        ["g", "test", "ts"].join("."),
+        ["h", "test", "tsx"].join("."),
         "i.js",
       ].filter(isScanned),
     ).toEqual(["a.ts", "b.tsx", "c.mts", "d.cts"]);
