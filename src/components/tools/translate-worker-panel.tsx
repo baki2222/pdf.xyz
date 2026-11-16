@@ -1,16 +1,17 @@
 "use client";
 
 import { usePickRefusal } from "@/components/tools/use-pick";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import {
+  AlertTriangle,
   Download,
   Languages,
   ShieldCheck,
   Sparkles,
   Timer,
 } from "lucide-react";
-import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
+import { DEFAULT_RETENTION, JOB_LIMITS, type Job } from "@/lib/jobs/types";
 import {
   DEFAULT_TRANSLATE_SOURCE,
   LANGUAGE_NAMES,
@@ -75,6 +76,12 @@ import {
   TRANSLATE_MAX_INPUT_CHARS,
   TRANSLATE_NO_TEXT_MESSAGE,
 } from "@/lib/jobs/translate-limits";
+import {
+  TRANSLATE_PAGES_UNCONFIRMED_MESSAGE,
+  translateSelectionSentence,
+} from "@/lib/jobs/translate-pages";
+import { selectionConfirmed } from "@/lib/jobs/selection-echo";
+import type { PageSpan } from "@/lib/pdf/page-spans";
 import { TruncationNotice } from "./truncation-notice";
 import { DeliveryNotice, deliverySummary } from "./delivery-notice";
 import type { Tool } from "@/lib/tools/types";
@@ -230,6 +237,9 @@ function waitOptions(budget: JobPollBudget) {
 
 const RUN_LABEL = "Translate PDF";
 
+/** The Pages field's longest entry. */
+const MAX_PAGES_TEXT = 200;
+
 /** The "You get" row when the running worker does not print the target. */
 export const TRANSLATE_OUTPUT_ZIP =
   "ZIP · translation.md + translation.txt + manifest";
@@ -314,7 +324,28 @@ function TranslateBuilder({
   setTargetLanguage: (target: TranslateLanguage) => void;
 }) {
   const { available, status } = useWorkerPanel();
-  const [file, setFile] = useState<File | null>(null);
+  const [file, setFileState] = useState<File | null>(null);
+  /**
+   * PAGES (audit #29 slice 6). Offered ONLY while the running worker proves
+   * it sends just the chosen pages (`translatePageRange`, the predicate
+   * `POST /api/jobs` admits a `pages` job on). Off, nothing new renders and
+   * no measure chunk is fetched.
+   */
+  const pageRangeOffered = status?.translatePageRange === true;
+  const [pagesText, setPagesText] = useState("");
+  const pagesHelpId = useId();
+  // What THIS run sent as pages (null: the whole document), for the rollback
+  // check on its result. A job resumed after a reload has none, so it gets no
+  // warning: the panel cannot know what was asked.
+  const [sentPages, setSentPages] = useState<{
+    job: string | null;
+    pages: PageSpan[] | null;
+  } | null>(null);
+  /** Every file change starts again from the whole document. */
+  const setFile = useCallback((next: File | null) => {
+    setFileState(next);
+    setPagesText("");
+  }, []);
   /** Whether the panel described a PDF for the target of the last run. */
   const [pdfOffered, setPdfOffered] = useState(false);
   const [sourceLanguage, setSourceLanguage] = useState<TranslateSourceLanguage>(
@@ -489,8 +520,17 @@ function TranslateBuilder({
     // What the "You get" row said at the press: a PDF the row promised and
     // the job did not bring back is named, whatever its reason.
     setPdfOffered(translatesToPdf(status, targetLanguage));
+    // PAGES ONLY ON THE TEXT PATH: the field is hidden for a detected scan,
+    // and the OCR request never carries `pages` (the parser refuses the pair).
+    const pagesWanted =
+      pageRangeOffered && !sendOcr && !scanDetected && pagesText.trim() !== "";
     await run(async (controls) => {
       const trimmed = instructions.trim();
+      setSentPages(null);
+      // The measure chunk is requested BEFORE the extraction is awaited, so
+      // Run pays one round trip, not two (the lazy-chunk waterfall rule).
+      const measure = pagesWanted ? translateTextDeps.measure() : null;
+      measure?.catch(() => undefined);
       const bytes = new Uint8Array(await file.arrayBuffer());
 
       // MEASURE HERE, BEFORE ANYTHING IS SPENT.
@@ -522,6 +562,18 @@ function TranslateBuilder({
       } catch (err) {
         return { ok: false, message: translateFailureMessage(err) };
       }
+      // THE CHOSEN PAGES, from the SAME extraction (D14): the page check reads
+      // its page count, and everything below (the refusal, the declaration,
+      // the wait) reads the selection, so the charge and the worker's walk
+      // describe one set of pages. `pages` null: the whole document.
+      let pages: PageSpan[] | null = null;
+      if (measure) {
+        const { judgeTranslatePages } = await measure;
+        const judged = judgeTranslatePages(extracted, pagesText);
+        if (!judged.ok) return { ok: false, message: judged.message };
+        pages = judged.pages;
+        extracted = judged.selected;
+      }
       // THE SAME BLOCKS THE WORKER WILL CHUNK, computed once and used for both
       // the refusal below and the page count declared with the job. Counting
       // them twice — here and again at the call site — is how the declaration
@@ -532,9 +584,13 @@ function TranslateBuilder({
       // "0 characters of text" and should be split into smaller files. The
       // preflight tells no-text, every-page-oversize and too-long apart, in
       // the worker's order and with the worker's sentences.
+      // The every-page-oversize sentence names its object: "chosen" only
+      // for a real selection, so an empty or every-page field keeps today's
+      // sentence byte for byte.
       const { textPages, plan, refusal } = translatePreflight(
         extracted,
         TRANSLATE_MAX_INPUT_CHARS,
+        pages ? "chosen" : "document",
       );
       // A SCAN, AND THE RUNNING WORKER CAN RECOGNISE IT: send it with an OCR
       // request instead of refusing. It declares no count — the browser found
@@ -584,6 +640,7 @@ function TranslateBuilder({
           // would over-declare a document with any of them — and the bound this
           // feeds is the one that is supposed to be exact.
           declaredTextPages: textPages.length,
+          ...(pages ? { pages } : {}),
         },
         {
           ...controls,
@@ -592,6 +649,7 @@ function TranslateBuilder({
           ...waitOptions(translateJobPoll(plan.chunks.length)),
         },
       );
+      setSentPages({ job: result.ok ? result.job.jobId : null, pages });
       return result;
     });
   }, [
@@ -607,6 +665,9 @@ function TranslateBuilder({
     recogniseScan,
     scriptLanguage,
     ocrLanguages.selected,
+    pageRangeOffered,
+    scanDetected,
+    pagesText,
   ]);
 
   return (
@@ -714,6 +775,24 @@ function TranslateBuilder({
             className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
           />
         </label>
+        {pageRangeOffered && !scanDetected ? (
+          <label className="text-muted flex flex-col gap-1 text-xs sm:col-span-2">
+            Pages (optional)
+            <input
+              type="text"
+              inputMode="text"
+              value={pagesText}
+              onChange={(e) =>
+                setPagesText(e.target.value.slice(0, MAX_PAGES_TEXT))
+              }
+              maxLength={MAX_PAGES_TEXT}
+              placeholder="e.g. 1-3, 8"
+              aria-describedby={pagesHelpId}
+              className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
+            />
+            <span id={pagesHelpId}>Leave empty for the whole document.</span>
+          </label>
+        ) : null}
       </div>
 
       {recogniseScan ? (
@@ -850,6 +929,14 @@ function TranslateBuilder({
             consequence="The rest of the document was not translated — this package covers those pages only."
           />
           <DeliveryNotice job={outcome.job} />
+          <TranslateSelectionNotice
+            job={outcome.job}
+            sent={
+              sentPages && sentPages.job === outcome.job?.jobId
+                ? sentPages.pages
+                : null
+            }
+          />
           <p className="text-ok text-sm">
             {outcome.job?.results?.ai?.delivery
               ? "The pages that were translated are in the package — Markdown and plain text, plus a manifest recording the model and honest scope."
@@ -890,6 +977,49 @@ function TranslateBuilder({
         </ResultCard>
       )}
     </div>
+  );
+}
+
+/**
+ * Which pages this job was sent (audit #29 slice 6), from the worker's own
+ * record (`translateSelectionSentence`, the function the README, the manifest
+ * and translation.md use), or, when this run SENT pages and the result does
+ * not confirm exactly those (`selectionConfirmed`), the rollback warning
+ * INSTEAD. An image that predates page selection translates the whole
+ * document and says nothing false, so silence is the defect this catches.
+ * The worker derives its echo from the pages that survived its filter, so a
+ * keyed image whose filter did nothing warns here too.
+ *
+ * The sentence claims only that no other page was SENT, never that every
+ * chosen page was translated: a withheld tail or a failed call is reported
+ * by the DeliveryNotice and the package, beside it, and both stay true.
+ */
+export function TranslateSelectionNotice({
+  job,
+  sent,
+}: {
+  job: Job | undefined;
+  /** What this run sent as pages, or null (whole document, or resumed). */
+  sent: readonly PageSpan[] | null;
+}) {
+  const window = job?.results?.ai?.truncation;
+  if (sent && !selectionConfirmed(sent, window)) {
+    return (
+      <p
+        role="status"
+        className="border-warn/40 bg-warn/10 text-warn rounded-panel flex items-start gap-2 border px-4 py-3 text-sm"
+      >
+        <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+        <span>{TRANSLATE_PAGES_UNCONFIRMED_MESSAGE}</span>
+      </p>
+    );
+  }
+  const sentence = window ? translateSelectionSentence(window) : "";
+  if (!sentence) return null;
+  return (
+    <p role="status" className="text-muted text-sm">
+      {sentence}
+    </p>
   );
 }
 

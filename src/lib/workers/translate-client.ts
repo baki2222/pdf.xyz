@@ -14,6 +14,7 @@ import {
   type JobPollBudget,
 } from "@/lib/jobs/client-wait";
 import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
+import type { PageSpan } from "@/lib/pdf/page-spans";
 import type {
   TranslateLanguage,
   TranslateSourceLanguage,
@@ -112,6 +113,12 @@ export interface TranslateScanInput {
   ocr: { languages: readonly string[] };
   declaredCharacters?: never;
   declaredTextPages?: never;
+  /**
+   * Never with OCR (audit #29 slice 6, D7): a scan declares no count, OCR
+   * recognises the whole file, and no proof has exercised the two together.
+   * The worker's parser refuses the pair; this makes the panel unable to ask.
+   */
+  pages?: never;
 }
 
 export interface TranslateCountedInput {
@@ -151,6 +158,13 @@ export interface TranslateCountedInput {
    * count, so a silent fallback would be a regression rather than a default.
    */
   declaredTextPages: number;
+  /**
+   * The chosen pages as canonical physical spans (audit #29 slice 6), or
+   * absent for the whole document. When present, BOTH counts above are the
+   * selection's, from the same extraction the spans were checked against,
+   * so the charge and the worker's walk describe the same pages.
+   */
+  pages?: PageSpan[];
 }
 
 export async function runWorkerTranslate(
@@ -168,6 +182,7 @@ export async function runWorkerTranslate(
     jobOptions.ocr = true;
     jobOptions.languages = [...input.ocr.languages];
   }
+  if (input.pages !== undefined) jobOptions.pages = input.pages;
   return withTranslatedPdf(
     await runSecurityJob(
       "translate-pdf",
@@ -213,7 +228,16 @@ export function canRunTranslate(
  */
 export const translateTextDeps: {
   extract: (bytes: Uint8Array) => Promise<ExtractedPdfText>;
-} = { extract: extractPdfText };
+  /**
+   * The lazy page-range measure (audit #29 slice 6), fetched only at a Run
+   * whose Pages field holds text. A seam so a test can COUNT the fetch: an
+   * empty field, or a status without `translatePageRange`, must fetch nothing.
+   */
+  measure: () => Promise<typeof import("./translate-measure")>;
+} = {
+  extract: extractPdfText,
+  measure: () => import("./translate-measure"),
+};
 
 /**
  * True when the panel may offer to recognise a scan before translating it
