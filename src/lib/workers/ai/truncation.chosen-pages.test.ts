@@ -331,7 +331,10 @@ describe("userSelectionNotice wording", () => {
       ],
       `This summary covers pages 1, 3 and 5${EN}6 of 40, the pages you chose.`,
     ],
-    [[[1, 40]], `This summary covers pages 1${EN}40 of 40, the pages you chose.`],
+    [
+      [[1, 40]],
+      `This summary covers pages 1${EN}40 of 40, the pages you chose.`,
+    ],
   ])("%j", (spans, sentence) => {
     expect(userSelectionNotice(w(spans))).toBe(sentence);
   });
