@@ -212,7 +212,7 @@ const content: ToolContent = {
   intro: [
     `Summarize PDF condenses a long document into something you can read before deciding whether the full text deserves your time. You choose a length (${shortLength("brief")}, ${shortLength("standard")} or ${shortLength("detailed")}) and a shape: prose paragraphs, bullet points or an outline with headings. An optional focus line asks the model to pay special attention to whatever you name, such as deadlines, costs or risks.`,
     `The summary is written by an AI model, not in your browser. The PDF is uploaded over TLS to pdf.xyz's secure server, which extracts its selectable text and passes that text, never the file, to a third-party AI provider. Once the job ends, success or failure, our server deletes your uploaded PDF; its link to the summary ZIP lasts ${OUTPUT_TTL} minutes, and a storage rule that runs daily later erases the stored ZIP.`,
-    `The model is given at most ${MAX_CHARS} characters of the extracted text. A longer document is summarized from its first page up to that point, and both the results panel and summary.md say how far the reading got, by page. Pages that hold only a scanned image add nothing to the summary, because no character recognition runs in this tool.`,
+    `The model is given at most ${MAX_CHARS} characters of the extracted text. Past that limit the summary covers only the pages that fit, taken in page order, and both the results panel and summary.md name the pages that were read. Pages that hold only a scanned image add nothing to the summary, because no character recognition runs in this tool.`,
   ],
 
   useCases: [
@@ -260,7 +260,7 @@ const content: ToolContent = {
     },
     {
       q: "How long a PDF can it summarize?",
-      a: `Files of up to ${CEILING_MB} MB can be uploaded, and the model is sent at most ${MAX_CHARS} characters of their text. How many pages that covers depends on how densely the document is set. Past the limit the summary covers only the opening pages, and the panel and summary.md both state how far into the document the reading reached.`,
+      a: `Files of up to ${CEILING_MB} MB can be uploaded, and the model is sent at most ${MAX_CHARS} characters of their text. How many pages that covers depends on how densely the document is set. Past the limit the summary covers only the pages that fit, taken in page order, and the panel and summary.md both name the pages that were read.`,
     },
     {
       q: "Who receives the text of the PDF I summarize?",
