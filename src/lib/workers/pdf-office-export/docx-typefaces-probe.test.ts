@@ -7,8 +7,10 @@
  * wrong, each shown failing on ITS OWN check through `docxTypefacesProblem`.
  *
  * Only the stand-in extractor runs here (`flowStandIn`); the container step
- * (`worker:docx-tables-proof`, "PDF to Word tables and typefaces proof") is
- * where the image's real poppler answers.
+ * (`worker:docx-tables-proof`, "Worker image PDF to Word tables, wraps and
+ * typefaces proof", container.yml) is where the image's real poppler
+ * answers. Until 2026-11-16 the step was "PDF to Word tables and typefaces
+ * proof".
  */
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";

@@ -168,10 +168,12 @@ describe("the advertised set and the wire contract agree", () => {
     const advertised = ADVERTISED_WORKER_CAPABILITIES.map((c) => c.key);
 
     // BOUND THE CORPUS: two empty lists are equal, and `[] ⊆ []` is the
-    // strongest possible pass. The wire has had eighteen capabilities since
-    // `chatRetrieval` landed on 2026-11-16; seventeen since
-    // `translatePdfLanguages` and `docxTypefaces` landed on 2026-11-15
-    // (sixteen and fifteen since `docxTables`, the same day; fourteen since
+    // strongest possible pass. The wire has had nineteen capabilities since
+    // `docxTableWraps` landed on 2026-11-16 (both on 2026-11-16:
+    // eighteen since `chatRetrieval`; seventeen since `translatePdfLanguages`
+    // and `docxTypefaces` on 2026-11-15 — this comment said "sixteen" from
+    // then until 2026-11-16 while asserting 17; fifteen since `docxTables`,
+    // the same day; fourteen since
     // `docxRunStyles`,
     // the same day; thirteen since `htmlZip`,
     // twelve since `translateOcr`, eleven since
@@ -182,7 +184,7 @@ describe("the advertised set and the wire contract agree", () => {
       wire.length,
       "the heartbeat's capability set is implausibly small — the corpus, not " +
         "the code, is what failed",
-    ).toBeGreaterThanOrEqual(18);
+    ).toBeGreaterThanOrEqual(19);
 
     expect(
       [...advertised].sort(),
@@ -261,6 +263,7 @@ describe("the advertised set and the wire contract agree", () => {
       docxRunStyles: true,
       docxTables: true,
       docxTypefaces: true,
+      docxTableWraps: true,
       translateOcr: true,
       htmlZip: true,
       chatRetrieval: true,
@@ -572,6 +575,7 @@ describe("the daemon PROVES the capabilities, it does not declare them", () => {
     // HEALTH: printed, not counted — the keys a prover publishes today.
     expect(published.map(([key]) => key)).toEqual(
       expect.arrayContaining([
+        "docxTableWraps",
         "docxTypefaces",
         "docxTables",
         "docxRunStyles",

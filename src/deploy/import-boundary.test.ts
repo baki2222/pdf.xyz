@@ -139,6 +139,14 @@ const ALLOWED = new Set(
     // barrel. (Added at the wave-1 L03 merge: L03 wrote it against a
     // direct-importers check; this closure check sees the transitive edge.)
     "src/tests/table-extract-fixtures.ts",
+    // #28 slice 3 (wraps), 2026-11-16: the capture registry for the worker
+    // image's poppler builds its PDFs from the two fixture modules above, so
+    // it inherits their PATH probe. Imported by
+    // `poppler-samples-image.test.ts` and `scripts/capture-flow-image.ts`,
+    // never by a route, component or barrel. (Named by this check on the
+    // copy part's full run; the capture part's run lumped it with the
+    // build-dependent deploy failures.)
+    "src/tests/poppler-image-fixtures.ts",
     // Spawns Windows PowerShell for the two PowerPoint instruments
     // (`scripts/prove-pptx-opens.ts`, `scripts/measure-pptx-fidelity.ts`) and
     // its own `*.test.ts`; nothing on a route, a component or a barrel

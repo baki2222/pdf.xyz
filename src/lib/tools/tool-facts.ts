@@ -1650,7 +1650,10 @@ function isCommentKind(kind: string): boolean {
  * until the wave-1 L03 merge (2026-09-28), when the engine began reading
  * poppler's reading order (`workers/pdf-text/flow.ts`). The table clause is
  * limited to cells that fit on one line: flow.ts documents that a table whose
- * cells wrap is read in poppler's order instead.
+ * cells wrap is read in poppler's order instead. (Until 2026-11-16; since
+ * then flow.ts rule 7 keeps a wrapped cell in its row in a column of text
+ * other than the first, and the last sentence says so in the interim form
+ * below.)
  *
  * CHANGED 2026-10-17, with the engine (`pdf-office-export/docx-layout.ts`):
  * it said "Images, tables, fonts, colors and the page layout are not carried
@@ -1686,8 +1689,21 @@ function isCommentKind(kind: string): boolean {
  * Latin alphabet is now set in a font that comes with Windows or Office, of
  * the same kind as the PDF's (`pdf-office-export/typeface.ts`); no font is
  * embedded. The live answer is the heartbeat's `docxTypefaces`.
+ *
+ * CHANGED 2026-11-16 (#28 slice 3, wraps; PR-1's INTERIM sentence): it said
+ * "a table whose cells wrap onto a second line may come through partly as a
+ * smaller table", which leaves out both the whole five-row table this engine
+ * writes and the zero tables the image before it wrote for the long wrapped
+ * fixture. It now names all three outcomes ("one Word table, each wrapped
+ * cell kept in its row, or … a smaller table and lines of text, or … lines
+ * of text alone"), so it is true of the worker image before slice 3 and
+ * after it; the definite sentence waits for `docxTableWraps` to read true at
+ * the wire (PR-2). The four measured outcomes are tabulated in
+ * content/pdf-to-word.ts's CHANGED entry of the same date. Review
+ * 2026-11-16: the clause first followed "Other tables come through as lines
+ * of text", which already took in a wrapped table; it now comes first.
  */
-export const PDF_TO_WORD_KEEPS = `The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line, with a column of figures such as amounts or dates, comes through as a Word table, each value in the column it sits under. Each picture on a page, such as a photo, a screenshot or a scan, comes through on a line of its own between the paragraphs above and below it, at the size the page shows it, scaled down if it is wider or taller than the Word page, with anything the page draws over it, such as a box or an arrow, drawn into it. Past ${MAX_DOCX_PICTURES.toLocaleString("en-US")} pictures, or past the size of one file or the time one conversion may take, a document's remaining pictures are left out and counted in the note beside the download; the text still comes through whole. Each word keeps its bold, italics, size and color where they can be matched, and such a word in the Latin alphabet is set in a font that comes with Windows or Office, a substitute of the same kind as the PDF's font where our reader can tell its kind; drawings made of lines and shapes elsewhere on the page, and the page layout, are not carried over. Other tables come through as lines of text, their cells separated by tabs, and a table whose cells wrap onto a second line may come through partly as a smaller table. The result is a document ready to edit — not a copy of the page.`;
+export const PDF_TO_WORD_KEEPS = `The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line, with a column of figures such as amounts or dates, comes through as a Word table, each value in the column it sits under. Each picture on a page, such as a photo, a screenshot or a scan, comes through on a line of its own between the paragraphs above and below it, at the size the page shows it, scaled down if it is wider or taller than the Word page, with anything the page draws over it, such as a box or an arrow, drawn into it. Past ${MAX_DOCX_PICTURES.toLocaleString("en-US")} pictures, or past the size of one file or the time one conversion may take, a document's remaining pictures are left out and counted in the note beside the download; the text still comes through whole. Each word keeps its bold, italics, size and color where they can be matched, and such a word in the Latin alphabet is set in a font that comes with Windows or Office, a substitute of the same kind as the PDF's font where our reader can tell its kind; drawings made of lines and shapes elsewhere on the page, and the page layout, are not carried over. A table whose cells wrap onto further lines may come through as one Word table, each wrapped cell kept in its row, or as a smaller table and lines of text, or as lines of text alone; other tables come through as lines of text, their cells separated by tabs. The result is a document ready to edit — not a copy of the page.`;
 
 /** Every language Translate PDF offers, named, from the list its panel renders. */
 export const TRANSLATE_LANGUAGES_ANSWER = `${TRANSLATE_LANGUAGES.length} languages: ${listed(

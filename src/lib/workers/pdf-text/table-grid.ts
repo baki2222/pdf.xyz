@@ -62,6 +62,169 @@ export const MAX_TABLE_SLOTS_PER_PAGE = 20_000;
  */
 export const SEGMENT_GAP_PITCHES = 1.3;
 
+/**
+ * #28 slice 3 (wraps): a continuation line's centre may sit at most this many
+ * of the run's median ROW pitches (top line of a row to the last line of the
+ * row above, `flow.ts`'s `segments`) below the line above it. The design's
+ * value; on the image captures (poppler 22.12, `src/tests/poppler-samples-
+ * image.ts`) every continuation sits 12/18 = 0.67 row pitches below its line
+ * and every note 1.0 or more. Held at or under {@link SEGMENT_GAP_PITCHES}
+ * by a test: a line the gap admits must never be a gap that splits the table.
+ *
+ * What it cannot do: a line ONE row pitch below the last row (a note, a
+ * caption) passes it. It separates a wrap from white space, not from the
+ * next thing; `flow.ts`'s rule 7 has the conditions that do.
+ */
+export const WRAP_GAP_PITCHES = 1.25;
+/**
+ * #28 slice 3 (wraps): a continuation that STARTS a poppler block of its own
+ * (not in its cell's block) is still a wrap when its centre sits at most
+ * this many of the run's median ROW pitches below the line above it — set
+ * tighter than the rows are set apart, as a cell's lines are. On a text PDF
+ * poppler puts a wrapped line in its cell's block; on an OCR'd page, and in
+ * the stand-in extractor (`src/tests/poppler-flow-standin.ts`), it does not.
+ *
+ * Measured 2026-11-16 over both corpora and the stand-in: every wrapped line
+ * sits 0.667-0.813 row pitches below its line (OCR'd own-block lines
+ * 0.698-0.705; WRAPPED_TABLE's 0.813 the widest), and every one-line band
+ * of its own that is NOT a wrap — a note, a caption, a subheading, a
+ * description-only row (S16, S17) — exactly 1.0. 0.9 sits between them.
+ * Held under 1 by a test (a line one row pitch below a row is a row's
+ * spacing, never a cell's), and bounded from both sides by pins: S17
+ * absorbs at 1.0, and the OCR'd invoice loses its own-block wraps under 0.7.
+ *
+ * What it cannot do: a one-line block of its own set TIGHTER than the rows
+ * (a note squeezed under a row of a loosely spaced table) is absorbed into
+ * that row's cell. A stated limit of `flow.ts`'s rule 7.
+ */
+export const WRAP_TIGHT_PITCHES = 0.9;
+/**
+ * The most continuation lines one cell absorbs; past it the run is cut.
+ * `docx-table-measure.ts wrap-cell` (a 60-row table whose last cell carries
+ * 51 lines) keeps exactly 50, in 29 ms / +3 MB on the dev host and 79 ms /
+ * +4 MB in the worker image (medians of 3, 2026-11-16).
+ */
+export const MAX_WRAP_LINES_PER_CELL = 50;
+/**
+ * The most continuation lines one page absorbs, all tables together.
+ * Measured 2026-11-16 (`docx-table-measure.ts`, medians of 3, alternating
+ * with the same page read with absorption off, whole PDF to Word job): a
+ * table at {@link MAX_TABLE_CELLS} (3,333 rows x 3), every body row wrapped,
+ * absorbs 3,332 lines in 259 ms / +141 MB against 189 ms / +125 MB off on
+ * the dev host (Windows 11, Node 24), and 802 ms / +55 MB against 582 ms /
+ * +43 MB in the worker image (`ghcr.io/baki2222/pdfxyz-worker@sha256:7400…`,
+ * node 22): inside #318's exit bound by far.
+ *
+ * NOT the binding bound today: the share cap (continuations <= rows) and
+ * {@link MAX_TABLE_CELLS_PER_PAGE} (rows of at least two cells) already hold
+ * a page under 10,000 absorbed lines by arithmetic (not measured on a
+ * page of several tables); measured: a 10,000-row table (30,000 cells)
+ * absorbs nothing (over the cell cap, it is kept as tabbed rows). Kept as
+ * the brief's value so that a later loosening of either still meets a cap.
+ */
+export const MAX_WRAP_LINES_PER_PAGE = 20_000;
+/**
+ * The most run items (rows and held continuations) rule 7 may JUDGE on one
+ * page, all its judgements together; past it every further run is read as
+ * slice 2 read it. A run cut at every other continuation is judged again
+ * once per cut, each time over what is left of it, so the work grows as the
+ * square of its rows: measured 2026-11-16 on the dev host (Windows 11, Node
+ * 24, under load) without this budget, a 3-column run of 3,000 rows whose
+ * every other continuation is a number took 4,496 ms against 14 ms with
+ * absorption off (2,000 rows: 1,968 ms; 1,000: 500 ms). With it: 104 ms at
+ * 3,000 rows, 103 at 1,000. The whole PDF to Word job on a 3,333-row run cut
+ * at every other continuation (`docx-table-measure.ts wrap-cut`, medians of
+ * 3, 2026-11-16): 327 ms / +150 MB on the dev host against 189 ms / +125 MB
+ * with absorption off; in the worker image 1,266 ms / +54 MB against
+ * 582 ms / +43 MB.
+ */
+export const MAX_WRAP_JUDGE_ITEMS_PER_PAGE = 100_000;
+
+/** The spans an x-range overlaps, by index (`x1 > start && x0 < end`). */
+function overlapped(
+  spans: readonly (readonly [number, number])[],
+  x0: number,
+  x1: number,
+): number[] {
+  const out: number[] = [];
+  spans.forEach(([start, end], i) => {
+    if (x1 > start && x0 < end) out.push(i);
+  });
+  return out;
+}
+
+/**
+ * A one-phrase line belongs to the table around or directly above it only
+ * when it sits in ONE column past the first: it starts at or after the first
+ * column's end and before the last column's end, and overlaps at most one
+ * column. A title, caption, paragraph line or footer starts in the first
+ * column or spans several.
+ *
+ * ONE definition, two consumers (#28 slice 3, 2026-11-16): the table
+ * detector (`../table-extract/detect.ts`, where it was born) and `./flow`'s
+ * wrapped cells. They feed it different spans — detect.ts a contiguous
+ * PARTITION of the table's width, flow.ts its cells' own x-extents with white
+ * gaps between — so over flow's spans a line wholly in a gap, or one far
+ * wider than its column, still passes; flow.ts adds {@link overlappedSpan}
+ * (exactly one span), which over disjoint spans already implies
+ * {@link insideSlot} (a tested property, table-grid-wraps.test.ts). Until
+ * 2026-11-16 this said flow.ts adds `insideSlot` itself; it no longer calls
+ * it.
+ */
+export function fitsAsCell(
+  spans: readonly (readonly [number, number])[],
+  x0: number,
+  x1: number,
+): boolean {
+  const first = spans[0];
+  const last = spans[spans.length - 1];
+  if (!first || !last) return false;
+  return (
+    x0 >= first[1] && x0 < last[1] && overlapped(spans, x0, x1).length <= 1
+  );
+}
+
+/**
+ * The one span an x-range overlaps, or -1 when it overlaps none or several.
+ * flow.ts's wrapped cells need exactly one: over its gapped spans a line in
+ * a gap overlaps none and passes {@link fitsAsCell}.
+ */
+export function overlappedSpan(
+  spans: readonly (readonly [number, number])[],
+  x0: number,
+  x1: number,
+): number {
+  const hit = overlapped(spans, x0, x1);
+  return hit.length === 1 ? hit[0]! : -1;
+}
+
+/**
+ * Column k's SLOT: from the end of the column before it to the start of the
+ * column after it (the page edge for the first and last). A wrapped line may
+ * be wider than every one-line cell of its column, so it is held inside the
+ * slot, not the span. flow.ts's absorption does not call it: its
+ * {@link overlappedSpan} test implies it over disjoint spans (the property
+ * table-grid-wraps.test.ts samples), and the placement invariant (INV-4,
+ * flow-wraps.test.ts) checks absorbed lines against it. Until 2026-11-16
+ * this said both call it; flow.ts dropped the call when the explicit slot
+ * test was measured never to fire.
+ */
+export function insideSlot(
+  spans: readonly (readonly [number, number])[],
+  k: number,
+  x0: number,
+  x1: number,
+): boolean {
+  const before = spans[k - 1];
+  const after = spans[k + 1];
+  return (
+    k >= 0 &&
+    k < spans.length &&
+    (before === undefined || x0 >= before[1]) &&
+    (after === undefined || x1 <= after[0])
+  );
+}
+
 export interface GridCellInput {
   xMin: number;
   xMax: number;
@@ -159,6 +322,34 @@ export function isNumberCell(text: string): boolean {
 const ENDS_SENTENCE = /\p{L}[.!?。！？।]+["'”’»)\]]*$/u;
 
 /**
+ * The grid's FIGURE columns: each with two or more cells below the first row,
+ * every one of them a NUMBER ({@link isNumberCell}). The "numbers" leg of
+ * {@link wordTableDoubt}, which calls it — one definition: a table needs one
+ * such column, and `./flow` never absorbs a wrapped line under one below the
+ * header (#28 slice 3).
+ */
+export function figureColumns(
+  rows: readonly (readonly { text: string }[])[],
+  grid: TableGrid,
+): ReadonlySet<number> {
+  const columns = grid.spans.length;
+  const numbers = Array.from({ length: columns }, () => 0);
+  const notNumbers = Array.from({ length: columns }, () => 0);
+  rows.forEach((row, r) => {
+    if (r === 0) return;
+    row.forEach((cell, c) => {
+      const k = grid.col[r]![c]!;
+      if (isNumberCell(cell.text)) numbers[k]! += 1;
+      else notNumbers[k]! += 1;
+    });
+  });
+  const out = new Set<number>();
+  for (let k = 0; k < columns; k++)
+    if (numbers[k]! >= 2 && notNumbers[k] === 0) out.add(k);
+  return out;
+}
+
+/**
  * Why the grid of `rows` (each row's cells' text, in the order `grid.col`
  * places them) should stay tabbed rows, or null when it is written as a Word
  * table. See {@link WordTableDoubt}.
@@ -170,8 +361,6 @@ export function wordTableDoubt(
   if (rows.length < MIN_WORD_TABLE_ROWS) return "rows";
   const columns = grid.spans.length;
   const filled = Array.from({ length: columns }, () => 0);
-  const numbers = Array.from({ length: columns }, () => 0);
-  const notNumbers = Array.from({ length: columns }, () => 0);
   const sentences = Array.from({ length: columns }, () => 0);
   const inFirstRow = new Set(grid.col[0] ?? []);
   rows.forEach((row, r) =>
@@ -180,16 +369,12 @@ export function wordTableDoubt(
       if (ENDS_SENTENCE.test(cell.text.trim())) sentences[k]! += 1;
       if (r === 0) return;
       filled[k]! += 1;
-      if (isNumberCell(cell.text)) numbers[k]! += 1;
-      else notNumbers[k]! += 1;
     }),
   );
   for (let k = 0; k < columns; k++)
     if (inFirstRow.has(k) && filled[k] === 0) return "header";
   if (sentences.some((n) => n >= 2)) return "prose";
-  for (let k = 0; k < columns; k++)
-    if (numbers[k]! >= 2 && notNumbers[k] === 0) return null;
-  return "numbers";
+  return figureColumns(rows, grid).size > 0 ? null : "numbers";
 }
 
 /**

@@ -467,6 +467,18 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /\b(?:[Tt]ypefaces?|[Ff]onts?)\b(?:[^.?!]|\.(?=\w)){0,120}\b(?:Word|DOCX)\b|\b(?:Word|DOCX)\b(?:[^.?!]|\.(?=\w)){0,120}\b(?:[Tt]ypefaces?|fonts?)\b|\bstandard Office fonts?\b|\band Office fonts\b|\bset in (?:a font that comes|fonts that come) with Windows or Office\b/,
     catalogueCopy: true,
   },
+  docxTableWraps: {
+    // Added 2026-11-16 with the key (backlog #28, slice 3: wraps). The
+    // sentences a hedge about it would sit in: a wrap and a table and Word
+    // (or DOCX) in one sentence, either order, and the shape "stays in its
+    // row". CASE-SENSITIVE, like docxTables: "word" in lower case is any
+    // word. Measured that day over the whole corpus: see "the
+    // docxTableWraps subject reaches the Word wrapped-cell sentences".
+    // catalogueCopy is true because those exist.
+    subject:
+      /\bwrap\w*\b(?:[^.?!]|\.(?=\w)){0,160}\b(?:Word|DOCX)\b(?:[^.?!]|\.(?=\w)){0,40}\btables?\b|\b(?:Word|DOCX)\b(?:[^.?!]|\.(?=\w)){0,40}\btables?\b(?:[^.?!]|\.(?=\w)){0,160}\bwrap\w*\b|\bstays? in (?:its|their) row\b/,
+    catalogueCopy: true,
+  },
   translateOcr: {
     // Added 2026-11-09 with the key (audit translate-pdf#3). The sentences a
     // hedge about it would sit in: a scan recognised ON OUR SERVER, the way
@@ -1495,6 +1507,68 @@ describe("the docxTables subject (backlog #28 slice 2, 2026-11-15)", () => {
     expect(
       hedgeOffenders([planted], []).some((line) =>
         line.includes('hedges "docxTables"'),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("the docxTableWraps subject (backlog #28 slice 3, 2026-11-16)", () => {
+  /**
+   * BOTH DIRECTIONS (house rule 1). Measured 2026-11-16 with PR-1's
+   * INTERIM copy, over the whole corpus: exactly these seven, every one a
+   * sentence about what PDF to Word does with a wrapped cell — PDF to
+   * Word's intro[1] and its tables FAQ answer; PDF_TO_WORD_KEEPS, wherever
+   * it is served (PDF to Word's keep FAQ answer, the convert guide's first
+   * section paragraph and its look FAQ answer); the convert guide's second
+   * section paragraph ("only when it has at least three rows …"); and the
+   * add-text guide's pointer to PDF to Word. The rest of this file stays
+   * green over all seven, so the interim sentence ("may come through as one
+   * Word table, each wrapped cell kept in its row, or as a smaller table and
+   * lines of text, or as lines of text alone") describes outcomes and does
+   * not read as a deferral of the capability.
+   *
+   * Decided, not found: NO PDF to Excel or Extract Tables sentence is a
+   * member. The PDF to Excel guide's "gives you two rows" (a wrapped cell in
+   * a spreadsheet) and Extract Tables' "a cell that wraps in the first
+   * column ends its table" and its centred-note sentence are about a
+   * detector slice 3 does not change, and they name no Word, so a heartbeat
+   * that denies docxTableWraps has nothing to hedge there. They are kept
+   * out by the shape (wrap AND Word/DOCX AND table), not by an exclusion.
+   */
+  it("reaches the Word wrapped-cell sentences, and nothing else", () => {
+    const members = COPY.filter((entry) =>
+      SUBJECTS.docxTableWraps!.subject.test(entry.text),
+    ).map((entry) => `${entry.slug} ${entry.where}`);
+    expect(members.sort()).toEqual(
+      [
+        "pdf-to-word intro[1]",
+        "pdf-to-word faq[3].answer",
+        "pdf-to-word faq[7].answer",
+        "guide:how-to-convert-pdf-to-word sections[0].body[0]",
+        "guide:how-to-convert-pdf-to-word sections[0].body[1]",
+        "guide:how-to-convert-pdf-to-word faq[4].answer",
+        "guide:how-to-add-text-to-a-pdf sections[2].body[0]",
+      ].sort(),
+    );
+  });
+
+  it("positive control: a deferral planted in the wrapped-cell sentence is caught", () => {
+    const planted: CopyEntry = {
+      slug: "pdf-to-word",
+      where: "faq[3].answer",
+      text: "A table whose cells wrap onto further lines comes through as one Word table, each wrapped cell kept in its row (coming soon).",
+    };
+    expect(
+      hedgeOffenders([planted], []).some((line) =>
+        line.includes('hedges "docxTableWraps"'),
+      ),
+    ).toBe(true);
+  });
+
+  it("positive control: the definite shape alone (no table, no Word) is reached", () => {
+    expect(
+      SUBJECTS.docxTableWraps!.subject.test(
+        "A cell whose text continues onto the lines below it stays in its row.",
       ),
     ).toBe(true);
   });

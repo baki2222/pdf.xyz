@@ -1,4 +1,5 @@
 import { CELL_GAP_EMS, isListItem, LONG_CELL_WORDS } from "../pdf-text/flow";
+import { fitsAsCell as fitsAsCellIn } from "../pdf-text/table-grid";
 
 /**
  * The table detector `extract-tables` runs on the worker, over pdftotext's
@@ -290,12 +291,11 @@ function columnFor(columns: readonly Span[], phrase: Phrase): number {
  */
 function fitsAsCell(columns: readonly Span[], row: PageRow): boolean {
   const phrase = row.phrases[0]!;
-  const first = columns[0]!;
-  const last = columns[columns.length - 1]!;
-  return (
-    phrase.x0 >= first.end &&
-    phrase.x0 < last.end &&
-    overlapped(columns, phrase).length <= 1
+  // One definition, shared with PDF to Word's wrapped cells (#28 slice 3).
+  return fitsAsCellIn(
+    columns.map((s) => [s.start, s.end] as const),
+    phrase.x0,
+    phrase.x1,
   );
 }
 

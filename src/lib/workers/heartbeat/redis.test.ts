@@ -34,6 +34,7 @@ const CAPS: HeartbeatCapabilities = {
   docxRunStyles: true,
   docxTables: true,
   docxTypefaces: true,
+  docxTableWraps: true,
   translateOcr: true,
   htmlZip: true,
   chatRetrieval: true,
