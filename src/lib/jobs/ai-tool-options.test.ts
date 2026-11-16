@@ -77,11 +77,44 @@ describe("the table", () => {
   });
 });
 
+/**
+ * Bags for an option key that is not in the per-tool examples, asked here in
+ * both directions all the same. Summarize's `pages` stays OUT of
+ * `AI_TOOL_OPTION_EXAMPLES` on purpose: the chain tests post that example
+ * through `POST /api/jobs`, which admits a `pages` request only while the
+ * heartbeat proves `summarizePages`, so an example carrying it would make
+ * every allowance assertion downstream depend on a beat.
+ */
+const EXTRA_BAGS = [
+  [
+    "summarize-pdf",
+    "admitted",
+    { length: "brief", format: "bullets", pages: [[1, 1]] },
+  ],
+  ["summarize-pdf", "refused", { length: "brief", pages: [] }],
+  [
+    "summarize-pdf",
+    "refused",
+    {
+      pages: [
+        [1, 2],
+        [3, 4],
+      ],
+    },
+  ],
+] as const;
+
 describe("the route and the worker agree, on admitted and refused bags", () => {
-  const corpus = AI_TOOLS.flatMap((slug) => [
-    [slug, "admitted", AI_TOOL_OPTION_EXAMPLES[slug as never]] as const,
-    [slug, "refused", AI_TOOL_OPTION_COUNTEREXAMPLES[slug as never]] as const,
-  ]);
+  const corpus = [
+    ...AI_TOOLS.flatMap((slug) => [
+      [slug, "admitted", AI_TOOL_OPTION_EXAMPLES[slug as never]] as const,
+      [slug, "refused", AI_TOOL_OPTION_COUNTEREXAMPLES[slug as never]] as const,
+    ]),
+    ...EXTRA_BAGS.map(
+      ([slug, kind, bag]) =>
+        [slug, kind, bag as unknown as Record<string, unknown>] as const,
+    ),
+  ];
 
   it("health: every tool has one bag the parser admits and one it refuses", () => {
     for (const [slug, expected, bag] of corpus) {

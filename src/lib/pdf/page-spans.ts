@@ -17,6 +17,13 @@
  * "3, 5", because page 4 was never sent and a range would say it was.
  */
 
+/**
+ * One inclusive `[first, last]` range of 1-based PHYSICAL page numbers (1 is
+ * the first page object in document order, never a printed /PageLabels
+ * label). Type-only, so naming it here costs this leaf nothing at runtime.
+ */
+export type PageSpan = readonly [number, number];
+
 /** Consecutive page numbers merged into inclusive `[first, last]` ranges. */
 export function pageSpans(pages: readonly number[]): [number, number][] {
   const sorted = [...new Set(pages)].sort((a, b) => a - b);

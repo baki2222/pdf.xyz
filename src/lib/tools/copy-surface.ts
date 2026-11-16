@@ -170,6 +170,11 @@ export function copyFiles(): string[] {
     // to the picker's hook.
     path.join(ROOT, "src", "lib", "jobs", "ocr-start-copy.ts"),
     path.join(ROOT, "src", "lib", "jobs", "pdf-security.ts"),
+    // The page-selection option's refusals (2026-11-16, Summarize page
+    // ranges): what `POST /api/jobs` answers a malformed `pages` list. The
+    // panel parses before upload, so a reader meets them only through a
+    // client that skips it; walked from its first file all the same.
+    path.join(ROOT, "src", "lib", "jobs", "page-spans-option.ts"),
     // The pdf.js board's page limit as the reader:'pdfjs' tool pages state it
     // (2026-11-10), beside the constant the guard enforces.
     path.join(ROOT, "src", "lib", "pdf", "pdfjs-board-limit.ts"),
