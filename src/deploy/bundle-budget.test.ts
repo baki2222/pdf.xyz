@@ -1590,6 +1590,11 @@ const TOOL_PAGES_TO_COME = {
   //    parser), and +41 of compression the separate modules no longer share;
   //    plus the shared worker chunk +23 (below), the runtime +7, the page
   //    chunk -1.
+  //    Then review 2026-11-17 (item 1, "You chose" reads the chosen spans
+  //    and the window's reach is its own clause; translate-pages.ts now
+  //    imports `selectionConfirmed`, already on this page): 248,197 ->
+  //    248,280 (+83), so +954 against main. Summarize 236,730 on the same
+  //    build (+12, the +13 below within a byte of gzip noise).
   //  - tools/summarize-pdf 236,718 -> 236,731 (+13): its panel chunk 5,947
   //    -> 5,931 (-16) = summarize-pages.ts 163 -> 119 marginal (the
   //    chosen-pages no-text map moved to jobs/chosen-pages-no-text.ts, which
