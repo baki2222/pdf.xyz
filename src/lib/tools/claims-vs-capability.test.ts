@@ -3449,7 +3449,7 @@ describe("Compare PDF: the page and word claims hold of the comparison", () => {
  * counterexamples from it, one stated limit removed at a time.
  */
 const WRAPS_DEFINITE =
-  "A cell whose text continues onto the lines below it, on the same page, stays in its row as one paragraph, except in a table's first column, where the wrap ends the table, and under a column of figures, where only a heading's wrap is kept; a wrapped line our reader finds apart from its cell, as on a page read by OCR, is kept only when it sits closer under its row than the rows sit to each other, and a short line that close under a row, such as a note, may be taken into that row's cell; two cells that wrap onto the same line come through as a row of their own, a figure on a line of its own under a table stays outside it, and a table whose wrapped lines outnumber its rows keeps none of them in their rows.";
+  "A cell whose text continues onto the lines below it, on the same page, stays in its row as one paragraph, except in a table's first column, where the wrap ends the table, and under a column of figures, where only a heading's wrap is kept, and in a heading whose first line sits above the rest of its row, where that line comes through outside the table; a wrapped line our reader finds apart from its cell, as on a page read by OCR, is kept only when it sits closer under its row than the rows sit to each other, and a short line that close under a row, such as a note, may be taken into that row's cell; two cells that wrap onto the same line come through as a row of their own, a figure on a line of its own under a table stays outside it, and a table whose wrapped lines outnumber its rows is not kept as one table: its cells come through as lines of text, often read column by column, and only rows that do not wrap may still form a smaller table.";
 
 /**
  * #28 slice 2 (tables), added 2026-11-15, modelled on the picture rule above.
@@ -3898,6 +3898,22 @@ describe("PDF to Word: the wrapped-cell sentences hold of the engine", () => {
       /^(?!.*\b(?:figure|number|total)s? (?:on a line of its own|alone|by itself)\b)(?!.*\b(?:lone|single) (?:figure|number|total)s?\b).*(?<!\bmay )\b(?:stays?|is kept|are kept|remains?) in (?:its|their) rows?\b/i,
     "kept in its row, silent about the share cap":
       /^(?!.*\boutnumber\w*\b)(?!.*\bmore wrapped lines than\b).*(?<!\bmay )\b(?:stays?|is kept|are kept|remains?) in (?:its|their) rows?\b/i,
+    // Review 2026-11-16 (PR-2, major 1): flow.ts rule 7 states "a header
+    // line ABOVE the first row is not a continuation", and the definite
+    // sentence first said nothing of it while telling the reader that a
+    // heading's wrap is kept. S7 bottom-aligned (IMAGE_ACADEMIC_HEADER_BOTTOM)
+    // prints "Term | constant maturities | Spread | Volume" as the header
+    // row and "Treasury" as a paragraph after the table.
+    "kept in its row, silent about a heading set above its row":
+      /^(?!.*\bheading\w*\b[^.;]{0,80}?\b(?:above|higher than)\b).*(?<!\bmay )\b(?:stays?|is kept|are kept|remains?) in (?:its|their) rows?\b/i,
+    // Review 2026-11-16 (PR-2, major 2): a share-cap clause that says what
+    // happens to the wrapped LINES ("keeps none of them in their rows") but
+    // not to the TABLE reads as if the table and its rows survive. S4
+    // (IMAGE_WRAPPED_INVOICE_EVERY_ROW) prints no Word table for it: the
+    // item codes, descriptions, quantities and prices each come through as
+    // lines of text, column by column. A share-cap clause must say so.
+    "a share-capped table, silent that its cells come through as lines of text":
+      /\b(?:outnumber\w*|more wrapped lines than (?:its )?rows)\b(?![^.;]*\blines of text\b)/i,
   };
   /**
    * The definite sentence with one stated limit's clause cut out: the
@@ -3917,8 +3933,8 @@ describe("PDF to Word: the wrapped-cell sentences hold of the engine", () => {
       "except under",
     ),
     withoutLimit(
-      ", and under a column of figures, where only a heading's wrap is kept;",
-      ";",
+      ", and under a column of figures, where only a heading's wrap is kept, and in",
+      ", and in",
     ),
     withoutLimit(
       "; a wrapped line our reader finds apart from its cell, as on a page read by OCR, is kept only when it sits closer under its row than the rows sit to each other, and a short line that close under a row,",
@@ -3937,10 +3953,21 @@ describe("PDF to Word: the wrapped-cell sentences hold of the engine", () => {
       "and a table",
     ),
     withoutLimit(
-      ", and a table whose wrapped lines outnumber its rows keeps none of them in their rows.",
+      ", and a table whose wrapped lines outnumber its rows is not kept as one table: its cells come through as lines of text, often read column by column, and only rows that do not wrap may still form a smaller table.",
       ".",
     ),
+    withoutLimit(
+      ", and in a heading whose first line sits above the rest of its row, where that line comes through outside the table;",
+      ";",
+    ),
   ];
+  /**
+   * PR-2's first definite sentence (a334f009, 2026-11-16, never served),
+   * verbatim: silent about a heading set above its row, and its share-cap
+   * clause said only that the wrapped lines were not kept in their rows.
+   */
+  const WRAPS_DEFINITE_FIRST_DRAFT =
+    "A cell whose text continues onto the lines below it, on the same page, stays in its row as one paragraph, except in a table's first column, where the wrap ends the table, and under a column of figures, where only a heading's wrap is kept; a wrapped line our reader finds apart from its cell, as on a page read by OCR, is kept only when it sits closer under its row than the rows sit to each other, and a short line that close under a row, such as a note, may be taken into that row's cell; two cells that wrap onto the same line come through as a row of their own, a figure on a line of its own under a table stays outside it, and a table whose wrapped lines outnumber its rows keeps none of them in their rows.";
   /** The sentence a rewrite would ship, one per shape, and a synonym each. */
   const OVERCLAIM_WRAPS_SHIPPED = [
     "Every wrapped cell stays in its row, as one paragraph.",
@@ -3949,6 +3976,7 @@ describe("PDF to Word: the wrapped-cell sentences hold of the engine", () => {
     "A cell whose text continues onto the lines below it stays in its row, as one paragraph.",
     "A table whose cells wrap onto further lines comes through as one Word table, each wrapped cell kept in its row.",
     ...CUT_LIMITS,
+    WRAPS_DEFINITE_FIRST_DRAFT,
   ];
   const OVERCLAIM_WRAPS_SYNONYMS = [
     "All wrapped cells are kept in their rows.",
@@ -3958,13 +3986,17 @@ describe("PDF to Word: the wrapped-cell sentences hold of the engine", () => {
     "Tables with wrapped cells come through as a single Word table.",
     // PR-2, one per limit shape: each names every OTHER limit, so only its
     // own shape can catch it.
-    "A wrapped cell is kept in its row under a column of figures only as a heading, and a line apart from its cell, as after OCR, only when set tight, though a note that tight may join it; two cells wrapping on the same line form a row of their own, a lone figure stays out, and a table whose wraps outnumber its rows keeps none.",
-    "A wrapped cell remains in its row except in the first column, a line apart from its cell, as after OCR, only when set tight, though a note that tight may join it; two cells wrapping on the same line form a row of their own, a lone figure stays out, and a table whose wraps outnumber its rows keeps none.",
-    "A wrapped cell stays in its row except in the first column and under a column of figures, though a note set tight under a row may join it; two cells wrapping on the same line form a row of their own, a lone figure stays out, and a table whose wraps outnumber its rows keeps none.",
-    "A wrapped cell stays in its row except in the first column and under a column of figures, and a line apart from its cell, as after OCR, only when set tight; two cells wrapping on the same line form a row of their own, a lone figure stays out, and a table whose wraps outnumber its rows keeps none.",
-    "Wrapped cells are kept in their rows except in the first column and under a column of figures, a line apart from its cell, as after OCR, only when set tight, though a note that tight may join it; a lone figure stays out, and a table whose wraps outnumber its rows keeps none.",
-    "Wrapped cells stay in their rows except in the first column and under a column of figures, a line apart from its cell, as after OCR, only when set tight, though a note that tight may join it; two cells wrapping on the same line form a row of their own, and a table whose wraps outnumber its rows keeps none.",
-    "Wrapped cells stay in their rows except in the first column and under a column of figures, a line apart from its cell, as after OCR, only when set tight, though a note that tight may join it; two cells wrapping on the same line form a row of their own, and a lone figure stays out.",
+    "A wrapped cell is kept in its row under a column of figures only as a heading, and a line apart from its cell, as after OCR, only when set tight, though a note that tight may join it, a heading set above its row loses that line to the text below; two cells wrapping on the same line form a row of their own, a lone figure stays out, and a table whose wraps outnumber its rows comes through as lines of text.",
+    "A wrapped cell remains in its row except in the first column, a line apart from its cell, as after OCR, only when set tight, though a note that tight may join it, a heading set above its row loses that line to the text below; two cells wrapping on the same line form a row of their own, a lone figure stays out, and a table whose wraps outnumber its rows comes through as lines of text.",
+    "A wrapped cell stays in its row except in the first column and under a column of figures, though a note set tight under a row may join it, a heading set above its row loses that line to the text below; two cells wrapping on the same line form a row of their own, a lone figure stays out, and a table whose wraps outnumber its rows comes through as lines of text.",
+    "A wrapped cell stays in its row except in the first column and under a column of figures, and a line apart from its cell, as after OCR, only when set tight, a heading set above its row loses that line to the text below; two cells wrapping on the same line form a row of their own, a lone figure stays out, and a table whose wraps outnumber its rows comes through as lines of text.",
+    "Wrapped cells are kept in their rows except in the first column and under a column of figures, a line apart from its cell, as after OCR, only when set tight, though a note that tight may join it, a heading set above its row loses that line to the text below; a lone figure stays out, and a table whose wraps outnumber its rows comes through as lines of text.",
+    "Wrapped cells stay in their rows except in the first column and under a column of figures, a line apart from its cell, as after OCR, only when set tight, though a note that tight may join it, a heading set above its row loses that line to the text below; two cells wrapping on the same line form a row of their own, and a table whose wraps outnumber its rows comes through as lines of text.",
+    "Wrapped cells stay in their rows except in the first column and under a column of figures, a line apart from its cell, as after OCR, only when set tight, though a note that tight may join it, a heading set above its row loses that line to the text below; two cells wrapping on the same line form a row of their own, and a lone figure stays out.",
+    // Review 2026-11-16: the heading set above its row; then a share-cap
+    // clause silent about the table (the shape after the limit shapes).
+    "Wrapped cells stay in their rows except in the first column and under a column of figures, a line apart from its cell, as after OCR, only when set tight, though a note that tight may join it; two cells wrapping on the same line form a row of their own, a lone figure stays out, and a table whose wraps outnumber its rows comes through as lines of text.",
+    "A table with more wrapped lines than rows keeps none of them in its rows.",
   ];
   const denies = (t: string) =>
     Object.values(DENIES_WRAPS).some((re) => re.test(t));
@@ -3994,15 +4026,15 @@ describe("PDF to Word: the wrapped-cell sentences hold of the engine", () => {
     expect(HONEST.filter(overclaims)).toEqual([]);
     // Each shipped denial is a denial and nothing else: not an overclaim.
     expect(SHIPPED.filter(overclaims)).toEqual([]);
-    // PR-2: each limit shape is EXACTLY its limit. Health: seven cuts, each
+    // PR-2: each limit shape is EXACTLY its limit. Health: eight cuts, each
     // a different sentence from the definite one; then shape i catches cut
     // i, and no limit shape catches the definite sentence itself.
     const limitShapes = Object.entries(OVERCLAIMS_WRAPS).filter(([name]) =>
       name.startsWith("kept in its row, silent about"),
     );
-    expect(limitShapes).toHaveLength(7);
+    expect(limitShapes).toHaveLength(8);
     expect(CUT_LIMITS).toHaveLength(limitShapes.length);
-    expect(new Set([WRAPS_DEFINITE, ...CUT_LIMITS]).size).toBe(8);
+    expect(new Set([WRAPS_DEFINITE, ...CUT_LIMITS]).size).toBe(9);
     limitShapes.forEach(([name, re], i) => {
       expect(re.test(CUT_LIMITS[i]!), `${name} misses its cut`).toBe(true);
       expect(
@@ -4010,6 +4042,29 @@ describe("PDF to Word: the wrapped-cell sentences hold of the engine", () => {
         `${name} fires on the definite sentence`,
       ).toBe(false);
     });
+    // Review 2026-11-16: "each names every OTHER limit, so only its own
+    // shape can catch it" was a comment. The limit synonyms are the eight
+    // after the first five; synonym i is caught by limit shape i ALONE.
+    const limitSynonyms = OVERCLAIM_WRAPS_SYNONYMS.slice(
+      5,
+      5 + limitShapes.length,
+    );
+    expect(limitSynonyms).toHaveLength(8);
+    limitSynonyms.forEach((c, i) =>
+      expect(
+        limitShapes.filter(([, re]) => re.test(c)).map(([name]) => name),
+        c,
+      ).toEqual([limitShapes[i]![0]]),
+    );
+    // The share-cap shape: the definite sentence names the lines of text,
+    // the first draft did not, and the limit cuts keep the honest clause.
+    const shareCapTable =
+      OVERCLAIMS_WRAPS[
+        "a share-capped table, silent that its cells come through as lines of text"
+      ]!;
+    expect(shareCapTable.test(WRAPS_DEFINITE)).toBe(false);
+    expect(shareCapTable.test(WRAPS_DEFINITE_FIRST_DRAFT)).toBe(true);
+    expect(CUT_LIMITS.filter((c) => shareCapTable.test(c))).toEqual([]);
     // And the interim sentences, now SHIPPED, are each caught as denials by
     // the inverted shape itself, not only by an older one.
     const inverted =
