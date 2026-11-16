@@ -141,6 +141,11 @@ import { toolFacts } from "./tool-facts";
 import { CHAT_PAGE_SELECTION_CAPABILITY } from "./chat-page-selection";
 import { CHAT_SELECTION_REQUIRED } from "./chat-retrieval-claims";
 import {
+  SUMMARIZE_PAGE_CHOICE,
+  SUMMARIZE_PAGES_CAPABILITY,
+} from "./summarize-page-choice";
+import { SUMMARIZE_PAGE_CHOICE_SHAPES } from "./summarize-page-choice-claims";
+import {
   cardSummary,
   pageContent,
   pageFaq,
@@ -532,9 +537,18 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     // Extract and a dozen other tools take one, which is no claim about
     // this capability. `false` while PR 5a ships no such sentence; PR 5b,
     // which adds the advertisement after the key is observed, flips it.
+    //
+    // FLIPPED 2026-11-16 (PR 5b): production published `summarizePages:
+    // true` and a real job sent only the chosen pages, so the intro, a FAQ
+    // answer and the guide now say a reader can
+    // "choose pages or a bookmarked section" (`SUMMARIZE_PAGE_CHOICE`).
+    // The FAQ QUESTION "Can I summarize only some pages?" joined the
+    // subject: a bare "Not yet." answer is read against its question
+    // (`faqPairs`), so the question must be a member. See "the static
+    // page-choice advertisement is a member of its capability's subject".
     subject:
-      /\bsummar\w*[^.?!]{0,60}\b(?:pages? you cho(?:o)?se|chosen pages|bookmarked section|a page range)\b|\bchoose pages or a bookmarked section\b/i,
-    catalogueCopy: false,
+      /\bsummar\w*[^.?!]{0,60}\b(?:pages? you cho(?:o)?se|chosen pages|bookmarked section|a page range)\b|\bchoose pages or a bookmarked section\b|\bsummar\w* only some pages\b|\bonly the part you choose\b/i,
+    catalogueCopy: true,
   },
   translatePdfLanguages: {
     // Added 2026-11-15 with the key (competitor audit #29, slice 1). The
@@ -970,6 +984,71 @@ describe("catalogue copy may not hedge a worker capability", () => {
     expect(
       hedgeOffenders([planted], []).some((line) =>
         line.includes(`hedges "${key}"`),
+      ),
+    ).toBe(true);
+  });
+
+  it("the static page-choice advertisement is a member of its capability's subject", () => {
+    // PR 5b, the second bound (house rule 5), as for chat's page selection
+    // above. Summarize's static copy says a reader can choose pages or a
+    // bookmarked section because production's worker proved it; what makes
+    // that stale is a future image without the behaviour. Every served
+    // sentence carrying the advertisement (any shape in
+    // `SUMMARIZE_PAGE_CHOICE_SHAPES`), read alone, is in the subject of
+    // the key that image would have to publish
+    // (`SUMMARIZE_PAGES_CAPABILITY`). `WIRE_KEYS` is derived from this
+    // tree's source, NOT read from production: this ties the copy to the
+    // key's name only. The live bound is the operator's deploy check, which
+    // must read production `/api/worker/status` and see `summarizePages`
+    // true (see `src/lib/tools/summarize-page-choice.ts`).
+    const key = SUMMARIZE_PAGES_CAPABILITY;
+    expect(WIRE_KEYS).toContain(key);
+    const subject = SUBJECTS[key]?.subject;
+    expect(subject, `no subject for ${key}`).toBeDefined();
+    const claims = COPY.flatMap((entry) =>
+      entry.text
+        .split(/(?<=[.?!])\s+/)
+        .filter((s) =>
+          SUMMARIZE_PAGE_CHOICE_SHAPES.some(({ pattern }) => pattern.test(s)),
+        )
+        .map((sentence) => ({ at: `${entry.slug} ${entry.where}`, sentence })),
+    );
+    // Health: the intro, the authored FAQ (question and answer) and the
+    // guide (measured 2026-11-16: six sentences).
+    expect(claims.length).toBeGreaterThanOrEqual(6);
+    expect(new Set(claims.map((c) => c.at.split(" ")[0]))).toEqual(
+      new Set(["summarize-pdf", "guide:how-to-summarize-a-pdf"]),
+    );
+    const outside = claims
+      .filter(({ sentence }) => !subject!.test(sentence))
+      .map(({ at, sentence }) => `${at}: ${sentence}`);
+    expect(outside).toEqual([]);
+    // Positive controls, through the same rule the catalogue runs: a
+    // deferral planted in the advertisement, and a bare "Not yet." answer
+    // to the FAQ question (caught only because the question is a member).
+    const advert = claims.find((c) =>
+      c.sentence.includes(SUMMARIZE_PAGE_CHOICE),
+    )!;
+    const planted: CopyEntry = {
+      slug: "summarize-pdf",
+      where: "intro[0]",
+      text: `${advert.sentence.replace(/\.$/, "")} (coming soon).`,
+    };
+    expect(
+      hedgeOffenders([planted], []).some((line) =>
+        line.includes(`hedges "${key}"`),
+      ),
+    ).toBe(true);
+    const question = claims.find((c) => c.at.endsWith(".question"))!;
+    const pair: FaqPair = {
+      slug: "summarize-pdf",
+      where: "faq[9]",
+      question: question.sentence,
+      answer: "Not yet.",
+    };
+    expect(
+      hedgeOffenders([], [pair]).some((line) =>
+        line.includes(`answers a question about "${key}"`),
       ),
     ).toBe(true);
   });

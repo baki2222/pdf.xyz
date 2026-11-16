@@ -289,6 +289,10 @@ import {
   CHAT_SELECTION_MISS,
 } from "@/lib/tools/chat-page-selection";
 import {
+  SUMMARIZE_PAGE_CHOICE,
+  SUMMARIZE_SECTIONS_NEED_BOOKMARKS,
+} from "@/lib/tools/summarize-page-choice";
+import {
   PAGE_HEADINGS_HINT as MD_PAGE_HEADINGS_HINT,
   REPEATED_LINES_HINT as MD_REPEATED_HINT,
 } from "@/lib/tools/pdf-to-markdown-options";
@@ -5015,6 +5019,7 @@ export const guides: Guide[] = [
         body: [
           "Brief asks for a short TL;DR followed by the key points, which suits a report you need to grasp before a meeting. Standard covers the main points, and Detailed works through every major section.",
           `The format sets the shape: ${SUMMARY_FORMAT_NAMES}. A section outline under headings is useful for comparing several papers side by side. The focus line asks the model to pay special attention to what you name, such as payment terms or risks; leave it empty for a general summary.`,
+          `You can also ${SUMMARIZE_PAGE_CHOICE} instead of the whole document. ${SUMMARIZE_SECTIONS_NEED_BOOKMARKS} Only the part you choose is sent to the AI model, and the result says which pages the summary covers.`,
           `The model is told to write in the document's own language, so a Spanish report should come back summarized in Spanish. There is no setting for a different summary language; for the full text in another language, use ${nameOf("translate-pdf")}.`,
         ],
       },

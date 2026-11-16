@@ -20,6 +20,10 @@ import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { getToolBySlug, tools } from "@/lib/tools";
 import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
 import { DEFAULT_OCR_OUTPUT_MODE, OCR_OUTPUT_MODES } from "@/lib/jobs/ocr";
+import {
+  SUMMARIZE_PAGE_CHOICE,
+  SUMMARIZE_SECTIONS_NEED_BOOKMARKS,
+} from "@/lib/tools/summarize-page-choice";
 
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27:
@@ -210,7 +214,7 @@ const content: ToolContent = {
   metaDescription: `Get an AI summary of a PDF as paragraphs, bullet points or a section outline, brief to detailed, with an optional focus. Reads up to ${MAX_CHARS} characters.`,
 
   intro: [
-    `Summarize PDF condenses a long document into something you can read before deciding whether the full text deserves your time. You choose a length (${shortLength("brief")}, ${shortLength("standard")} or ${shortLength("detailed")}) and a shape: prose paragraphs, bullet points or an outline with headings. An optional focus line asks the model to pay special attention to whatever you name, such as deadlines, costs or risks.`,
+    `Summarize PDF condenses a long document into something you can read before deciding whether the full text deserves your time. You choose a length (${shortLength("brief")}, ${shortLength("standard")} or ${shortLength("detailed")}) and a shape: prose paragraphs, bullet points or an outline with headings. An optional focus line asks the model to pay special attention to whatever you name, such as deadlines, costs or risks. You can also ${SUMMARIZE_PAGE_CHOICE} instead of the whole document. ${SUMMARIZE_SECTIONS_NEED_BOOKMARKS}`,
     `The summary is written by an AI model, not in your browser. The PDF is uploaded over TLS to pdf.xyz's secure server, which extracts its selectable text and passes that text, never the file, to a third-party AI provider. Once the job ends, success or failure, our server deletes your uploaded PDF; its link to the summary ZIP lasts ${OUTPUT_TTL} minutes, and a storage rule that runs daily later erases the stored ZIP.`,
     `The model is given at most ${MAX_CHARS} characters of the extracted text. Past that limit the summary covers only the pages that fit, taken in page order, and both the results panel and summary.md name the pages that were read. Pages that hold only a scanned image add nothing to the summary, because no character recognition runs in this tool.`,
   ],
@@ -261,6 +265,10 @@ const content: ToolContent = {
     {
       q: "How long a PDF can it summarize?",
       a: `Files of up to ${CEILING_MB} MB can be uploaded, and the model is sent at most ${MAX_CHARS} characters of their text. How many pages that covers depends on how densely the document is set. Past the limit the summary covers only the pages that fit, taken in page order, and the panel and summary.md both name the pages that were read.`,
+    },
+    {
+      q: "Can I summarize only some pages?",
+      a: `Yes. Before you press Summarize PDF, you can ${SUMMARIZE_PAGE_CHOICE} instead of the whole document. ${SUMMARIZE_SECTIONS_NEED_BOOKMARKS} Only the part you choose is sent to the AI model, and the result says which pages the summary covers.`,
     },
     {
       q: "Who receives the text of the PDF I summarize?",
