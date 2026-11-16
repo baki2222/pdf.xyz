@@ -21,7 +21,7 @@ import {
   translateEveryPageTooLongMessage,
   translateMaxInputChars,
 } from "@/lib/jobs/translate-limits";
-import { NO_TEXT_IN_CHOSEN_PAGES_MESSAGE } from "@/lib/jobs/summarize-pages";
+import { NO_TEXT_IN_CHOSEN_PAGES_MESSAGE } from "@/lib/jobs/chosen-pages-no-text";
 import type {
   AiCompletionRequest,
   AiCompletionResult,

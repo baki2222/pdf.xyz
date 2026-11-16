@@ -1571,6 +1571,57 @@ const TOOL_PAGES_TO_COME = {
   //  pdf-engine pages (a re-split of every runner's chunks); in ./text,
   //  +272 B on the four pages importing it statically. Both measured, both
   //  abandoned.
+  // 2026-11-16, Translate's chosen pages (competitor audit #29, slice 6:
+  // route admission, heartbeat key, worker selection, the Pages field). Main
+  // 20ce84af and the merged branch, each built from an empty .next in ONE
+  // tree (E:/wtr6, same lockfile), gzip -9 over each page's first-load
+  // chunks; chunks diffed, then modules matched by webpack id, each module's
+  // MARGINAL cost = the chunk's gz less the chunk's gz without it:
+  //  - tools/translate-pdf 247,326 -> 248,197 (+871): the panel's chunk
+  //    11,272 -> 12,114 (+842) = the panel module and preflight.ts (with
+  //    chunking.ts concatenated) 6,245 -> 6,191 + 662 marginal (+608: the
+  //    Pages field, the selection notice and translate-pages.ts's sentences,
+  //    `sentPages`, and `declareTranslateRun`, the declaration the composed
+  //    chain now runs; preflight is a module of its own because the lazy
+  //    measure imports `translatePreflight` too — handing it to the measure
+  //    as an argument instead was built and measured: -4 here, +3 on 59
+  //    pages, abandoned), selection-echo.ts +126 (its own module: Summarize's
+  //    panel imports it too), page-spans-option.ts +67 (translate-pdf.ts's
+  //    parser), and +41 of compression the separate modules no longer share;
+  //    plus the shared worker chunk +23 (below), the runtime +7, the page
+  //    chunk -1.
+  //  - tools/summarize-pdf 236,718 -> 236,731 (+13): its panel chunk 5,947
+  //    -> 5,931 (-16) = summarize-pages.ts 163 -> 119 marginal (the
+  //    chosen-pages no-text map moved to jobs/chosen-pages-no-text.ts, which
+  //    no panel imports; chosen-pages-no-text.test.ts holds that), and
+  //    selection-echo.ts as its own module (+140) instead of concatenated
+  //    into the panel module (4,045 -> 3,929, -116): Translate's panel is a
+  //    second importer, and moving Translate's use into its lazy measure
+  //    would leave the module in two chunks, so the split stays (one
+  //    definition of the rollback check). Plus the shared chunk +23 and the
+  //    runtime +7.
+  //  - 19 worker-panel pages (protect, unlock, request-signatures, chat,
+  //    ai-extract, the office conversions, status...) +29..33:
+  //    translate-limits.ts, which their shared chunks carry, took the
+  //    every-page-oversize sentence's "chosen" subject (+23 module gz in the
+  //    chunk), plus the runtime.
+  //  - the other 123 pages +6..7: the runtime's chunk map (Translate's
+  //    measure chunk is new).
+  //  - on demand, never first load: Translate's measure (judgement,
+  //    page-selection, typed-page-spans, the leaf; 1,598 raw / 843 gz),
+  //    fetched only at Run with a non-empty Pages field; Summarize's measure
+  //    1,620 / 865 -> 2,150 / 1,062 (typed-page-spans, the leaf). Neither is
+  //    one shared async chunk: typed-page-spans and the leaf are inlined into
+  //    both measure chunks and page-selection into Translate's (it is also
+  //    Summarize's selection chunk), because webpack's async split minimum
+  //    keeps modules this small inlined; no page fetches both copies, and a
+  //    shared chunk would add a request to each Run.
+  //  AVOIDED, measured on the merged build and fixed before review closed:
+  //  the no-text map's Translate key in summarize-pages.ts (Summarize's
+  //  first load, and Translate's measure made summarize-pages ship in two
+  //  chunks) — at 6640369c Summarize was +74, the 19 worker pages +38..44
+  //  with the whole oversize clause duplicated, Translate +837 (before
+  //  `declareTranslateRun`, +46 of the +871).
   // Nothing allocated: every row has the headroom (test:bundle green).
   unallocated:
     UNALLOCATED -

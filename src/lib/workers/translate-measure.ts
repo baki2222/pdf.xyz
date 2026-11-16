@@ -17,11 +17,18 @@
  * covers, and the worker walks the same pages under the cap it was charged.
  *
  * `page-selection` and `typed-page-spans` are imported by the SAME
- * specifiers Summarize's lazy measure and `selection-lazy` use, so the
- * bundler can keep one shared async chunk for both tools.
+ * specifiers Summarize's lazy measure and `selection-lazy` use: one
+ * definition each. The bundler does NOT emit them as one shared async chunk
+ * (measured 2026-11-16 on the merged build): both are small enough that
+ * webpack's async split minimum keeps them inlined, so `typed-page-spans`
+ * and `../jobs/chosen-pages-no-text` sit in both tools' measure chunks and
+ * `page-selection` in this chunk and in Summarize's selection chunk. No page
+ * fetches two of those chunks (each is one tool's Run), and a shared chunk
+ * would add a request to every Run, so it is not forced; bundle-budget's S6
+ * entry records the bytes.
  */
 
-import { NO_TEXT_IN_CHOSEN_PAGES_MESSAGE } from "@/lib/jobs/summarize-pages";
+import { NO_TEXT_IN_CHOSEN_PAGES_MESSAGE } from "@/lib/jobs/chosen-pages-no-text";
 import {
   TRANSLATE_MAX_INPUT_CHARS,
   TRANSLATE_NO_TEXT_MESSAGE,

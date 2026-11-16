@@ -178,6 +178,10 @@ export function copyFiles(): string[] {
     // Summarize's page-choice refusal at the route and the panel's rollback
     // warning (2026-11-16, slice 5): one module both sides import.
     path.join(ROOT, "src", "lib", "jobs", "summarize-pages.ts"),
+    // The chosen-pages no-text sentence both tools' measures and engines say
+    // (2026-11-16, slice 6): moved out of summarize-pages.ts so no panel
+    // ships it; walked from its first file.
+    path.join(ROOT, "src", "lib", "jobs", "chosen-pages-no-text.ts"),
     // Translate's page-choice refusal at the route (2026-11-16, competitor
     // audit #29 slice 6), walked from its first file.
     path.join(ROOT, "src", "lib", "jobs", "translate-pages.ts"),

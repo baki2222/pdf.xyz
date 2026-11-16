@@ -12,7 +12,7 @@ import {
 } from "@/lib/pdf/text";
 import { firstSpanBeyond, selectExtraction } from "@/lib/pdf/page-selection";
 import { pageSpans, pagesIn, type PageSpan } from "@/lib/pdf/page-spans";
-import { NO_TEXT_IN_CHOSEN_PAGES_MESSAGE } from "@/lib/jobs/summarize-pages";
+import { NO_TEXT_IN_CHOSEN_PAGES_MESSAGE } from "@/lib/jobs/chosen-pages-no-text";
 import {
   translatePagesOutOfRangeMessage,
   translateSelectionSentence,

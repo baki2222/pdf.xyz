@@ -23,10 +23,8 @@
 import { NO_SELECTABLE_TEXT_MESSAGE } from "@/lib/jobs/ai-no-text";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import type { selectExtraction } from "@/lib/pdf/page-selection";
-import {
-  NO_TEXT_IN_CHOSEN_PAGES_MESSAGE,
-  pagesOutOfRangeSentence,
-} from "@/lib/jobs/summarize-pages";
+import { NO_TEXT_IN_CHOSEN_PAGES_MESSAGE } from "@/lib/jobs/chosen-pages-no-text";
+import { pagesOutOfRangeSentence } from "@/lib/jobs/summarize-pages";
 import type { PageSpan } from "@/lib/pdf/page-spans";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import { coversEveryPage, typedPageSpans } from "@/lib/pdf/typed-page-spans";

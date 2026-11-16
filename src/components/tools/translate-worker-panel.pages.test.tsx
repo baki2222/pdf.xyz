@@ -49,7 +49,7 @@ import {
   type JobNetwork,
   type StubbedJobOutcome,
 } from "@/tests/stub-job-network";
-import { NO_TEXT_IN_CHOSEN_PAGES_MESSAGE } from "@/lib/jobs/summarize-pages";
+import { NO_TEXT_IN_CHOSEN_PAGES_MESSAGE } from "@/lib/jobs/chosen-pages-no-text";
 import {
   TRANSLATE_PAGES_NOT_RUNNING_MESSAGE,
   TRANSLATE_PAGES_UNCONFIRMED_MESSAGE,
