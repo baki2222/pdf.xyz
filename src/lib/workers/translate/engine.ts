@@ -10,6 +10,7 @@ import {
   pageTextChunks,
   type ExtractedPdfText,
 } from "@/lib/pdf/text";
+import { hasTranslatableText } from "./reading-order";
 import {
   capPagesToDelivery,
   nothingDeliverableMessage,
@@ -305,20 +306,11 @@ const UNBOUNDED_DELIVERY: DeliveryLimit = {
 };
 
 /**
- * Does this extraction hold text the engine will translate?
- *
- * ONE definition, read by the engine's `no_text` refusal below AND by the
- * translate processor's decision to run OCR first (audit translate-pdf#3):
- * OCR runs on exactly the documents this engine would otherwise refuse as
- * having no text, and on nothing else. Two copies of the predicate would let
- * a PDF with a text layer be recognised (and charged for) again, or a scan
- * slip past OCR into the refusal.
+ * Does this extraction hold text the engine will translate? ONE definition,
+ * in `./reading-order` (which must not import this module); re-exported so
+ * the processor and every existing reader keep their import.
  */
-export function hasTranslatableText(
-  extracted: Pick<ExtractedPdfText, "hasText" | "text">,
-): boolean {
-  return extracted.hasText && extracted.text.trim().length > 0;
-}
+export { hasTranslatableText };
 
 /** The honesty-critical system prompt: translate ONLY the provided text; invent nothing. */
 function buildSystemPrompt(
