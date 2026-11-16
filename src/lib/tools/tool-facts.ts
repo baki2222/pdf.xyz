@@ -1645,6 +1645,35 @@ function isCommentKind(kind: string): boolean {
 }
 
 /**
+ * The question of PDF to Word's tables FAQ entry, whose answer lists every
+ * layout in which a wrapped cell does NOT stay in its row. Read by that FAQ
+ * entry (content/pdf-to-word.ts) and by `PDF_TO_WORD_WRAPS`, which points
+ * readers to it by this text.
+ */
+export const PDF_TO_WORD_TABLES_QUESTION =
+  "How are tables and multi-column pages handled?";
+
+/**
+ * The short wrapped-cell sentence, served by PDF to Word's intro and by
+ * `PDF_TO_WORD_KEEPS` (so its keep FAQ answer and the convert guide). It is
+ * definite and defers its limits to the tables FAQ entry by its question.
+ * claims-vs-capability.test.ts ("a deferral to the FAQ covers the limits
+ * only when …") counts the deferral as covering the limits only while that
+ * entry exists on the PDF to Word page and its list names every one.
+ *
+ * CHANGED 2026-11-16 (plain-copy ruling): until then the intro, the tables
+ * FAQ and this constant's home each served one 130-word sentence naming
+ * all nine limits (kept verbatim in claims-vs-capability.test.ts as
+ * `WRAPS_DEFINITE_ONE_SENTENCE`). The limits now live in the tables FAQ
+ * alone, as four plain sentences, and this points there.
+ *
+ * It names the SAME PAGE itself: a wrap onto the next page comes through as
+ * its own paragraph (S13), and that limit is checked on this sentence alone,
+ * never through the pointer ("the same page is not deferrable").
+ */
+export const PDF_TO_WORD_WRAPS = `A cell whose text wraps onto further lines on the same page stays in its row as one paragraph, except in the layouts listed in the answer to “${PDF_TO_WORD_TABLES_QUESTION}” in the PDF to Word FAQ.`;
+
+/**
  * What PDF to Word's DOCX holds. The catalogue and the guide said "preserving
  * layout and text flow" for the life of the product; `worker-tool-answers.test.ts`
  * decodes the DOCX the engine writes from REAL poppler output and holds each
@@ -1706,8 +1735,25 @@ function isCommentKind(kind: string): boolean {
  * content/pdf-to-word.ts's CHANGED entry of the same date. Review
  * 2026-11-16: the clause first followed "Other tables come through as lines
  * of text", which already took in a wrapped table; it now comes first.
+ *
+ * CHANGED 2026-11-16 (#28 slice 3, wraps; PR-2's DEFINITE sentence), after
+ * `docxTableWraps` was read true in production and a real invoice through
+ * the live page came back as one Word table of 5 rows, each wrapped cell
+ * in its row: the interim clause is replaced by the same definite sentence
+ * as content/pdf-to-word.ts's intro and tables FAQ (its CHANGED entry of
+ * this date lists the limits it names). Until then this said "A table
+ * whose cells wrap onto further lines may come through as one Word table,
+ * each wrapped cell kept in its row, or as a smaller table and lines of
+ * text, or as lines of text alone" — now a DENIAL in
+ * claims-vs-capability.test.ts. A worker rollback to an image without
+ * `docxTableWraps` makes this sentence false; revert it in the same change.
+ *
+ * CHANGED 2026-11-16 (plain-copy ruling): the definite sentence is now
+ * `PDF_TO_WORD_WRAPS`, one short sentence that points to the tables FAQ's
+ * list of limits instead of naming all nine itself. The same rollback rule
+ * applies to it and to that list.
  */
-export const PDF_TO_WORD_KEEPS = `The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line, with a column of figures such as amounts or dates, comes through as a Word table, each value in the column it sits under. Each picture on a page, such as a photo, a screenshot or a scan, comes through on a line of its own between the paragraphs above and below it, at the size the page shows it, scaled down if it is wider or taller than the Word page, with anything the page draws over it, such as a box or an arrow, drawn into it. Past ${MAX_DOCX_PICTURES.toLocaleString("en-US")} pictures, or past the size of one file or the time one conversion may take, a document's remaining pictures are left out and counted in the note beside the download; the text still comes through whole. Each word keeps its bold, italics, size and color where they can be matched, and such a word in the Latin alphabet is set in a font that comes with Windows or Office, a substitute of the same kind as the PDF's font where our reader can tell its kind; drawings made of lines and shapes elsewhere on the page, and the page layout, are not carried over. A table whose cells wrap onto further lines may come through as one Word table, each wrapped cell kept in its row, or as a smaller table and lines of text, or as lines of text alone; other tables come through as lines of text, their cells separated by tabs. The result is a document ready to edit — not a copy of the page.`;
+export const PDF_TO_WORD_KEEPS = `The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line, with a column of figures such as amounts or dates, comes through as a Word table, each value in the column it sits under. Each picture on a page, such as a photo, a screenshot or a scan, comes through on a line of its own between the paragraphs above and below it, at the size the page shows it, scaled down if it is wider or taller than the Word page, with anything the page draws over it, such as a box or an arrow, drawn into it. Past ${MAX_DOCX_PICTURES.toLocaleString("en-US")} pictures, or past the size of one file or the time one conversion may take, a document's remaining pictures are left out and counted in the note beside the download; the text still comes through whole. Each word keeps its bold, italics, size and color where they can be matched, and such a word in the Latin alphabet is set in a font that comes with Windows or Office, a substitute of the same kind as the PDF's font where our reader can tell its kind; drawings made of lines and shapes elsewhere on the page, and the page layout, are not carried over. ${PDF_TO_WORD_WRAPS} Other tables come through as lines of text, their cells separated by tabs. The result is a document ready to edit — not a copy of the page.`;
 
 /** Every language Translate PDF offers, named, from the list its panel renders. */
 export const TRANSLATE_LANGUAGES_ANSWER = `${TRANSLATE_LANGUAGES.length} languages: ${listed(
