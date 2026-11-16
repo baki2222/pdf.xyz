@@ -860,5 +860,7 @@ describe("the read bound holds on the request itself, at every cap", () => {
     expect(relevance).toBeGreaterThanOrEqual(1_000);
     expect(tight).toBeGreaterThan(0);
     expect(cuts).toBeGreaterThanOrEqual(100);
-  });
+    // 1,200 real engine runs: past vitest's 5 s default on CI's Linux runner
+    // (run 43791629897), well inside it on the dev box.
+  }, 60_000);
 });

@@ -112,8 +112,11 @@ const STATUS_SLOT = "min-h-[28.5rem] sm:min-h-[20rem] lg:min-h-[22.5rem]";
  * on, the ready state is the tallest: 506px at 360, 350px at 640, 369.5px
  * at 1024 (Windows; CI's SLOT_NATURAL "chat-with-pdf+chatRetrieval" lines
  * are the Linux column to re-read); x1.035, to the half rem: 33rem below
- * 640px, 23rem from 640px, 24rem from 1024px, the same breakpoints as
- * {@link STATUS_SLOT}.
+ * 640px, 23rem from 640px, 25rem from 1024px, the same breakpoints as
+ * {@link STATUS_SLOT}. The 1024 tier was 24rem until CI's Linux runner
+ * measured 389px there (run 43791629897: the line wraps once more under its
+ * fonts), which 384px could not hold; 25rem = 400px does, with the 1%
+ * headroom the check asks for.
  *
  * An inline style, not utility classes: the shared stylesheet is at its
  * size ceiling, and a new arbitrary min-height per breakpoint would add
@@ -128,7 +131,7 @@ const STATUS_SLOT = "min-h-[28.5rem] sm:min-h-[20rem] lg:min-h-[22.5rem]";
  */
 const RETRIEVAL_SLOT_STYLE: CSSProperties = {
   minHeight:
-    "max(min(24rem, max(23rem, (100vw - 1023px) * 9999)), min(33rem, (640px - 100vw) * 9999))",
+    "max(min(25rem, max(23rem, (100vw - 1023px) * 9999)), min(33rem, (640px - 100vw) * 9999))",
 };
 
 /**
