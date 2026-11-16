@@ -323,3 +323,28 @@ export async function provesTranslateReadingOrder(
     return false;
   }
 }
+
+/**
+ * The proof's corpus check (CLAUDE.md rule 4): every document the corpus
+ * names must have been measured, and nothing the corpus does not name may
+ * stand in for one. Returns one line per discrepancy; empty means the set
+ * measured IS the set declared. A document that failed to generate (no
+ * Chromium, a render refusal, a generator throw) would otherwise drop out of
+ * the measurement and leave "PASS" standing on a smaller corpus.
+ */
+export function proofCorpusShortfall(
+  declared: ReadonlyArray<string>,
+  measured: ReadonlyArray<string>,
+): string[] {
+  const out: string[] = [];
+  const seen = new Map<string, number>();
+  for (const m of measured) seen.set(m, (seen.get(m) ?? 0) + 1);
+  for (const d of declared)
+    if (!seen.has(d)) out.push(`${d}: declared in the corpus but not measured`);
+  for (const [m, n] of seen) {
+    if (!declared.includes(m))
+      out.push(`${m}: measured but not declared in the corpus`);
+    else if (n > 1) out.push(`${m}: measured ${n} times`);
+  }
+  return out;
+}

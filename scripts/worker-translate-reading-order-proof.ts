@@ -22,7 +22,8 @@
  *
  * Exit codes: 0 = proven; 1 = the probe false, the control true, a control
  * whose `failed` lacks "order_sent" or "order_delivered", a lost page, a
- * page-set difference, or a corpus job that failed; 2 = no pdftotext in this
+ * page-set difference, a corpus job that failed, or a corpus document that
+ * was not generated or not measured (the corpus may not shrink); 2 = no pdftotext in this
  * image. Run by `.github/workflows/container.yml`; no secret, queue, store,
  * network, model or user document is touched — the model is a stub and every
  * document is generated here.
@@ -63,6 +64,7 @@ import {
 } from "@/lib/workers/translate/reading-order";
 import {
   probeTranslateReadingOrder,
+  proofCorpusShortfall,
   readingOrderProbePdf,
 } from "@/lib/workers/translate/reading-order-capability";
 import {
@@ -179,7 +181,8 @@ async function scriptPagePdf(sample: string): Promise<Uint8Array> {
  * A right-to-left page. The text tools' pdf-lib drawing refuses RTL scripts
  * (it lays every line out left to right), so these pages are printed by the
  * image's Chromium through Translate's own reflowed-PDF renderer, which sets
- * them right to left. Absent Chromium, the page is not generated (reported).
+ * them right to left. Absent Chromium, the page is not generated, and the
+ * proof FAILS: an RTL row with no witness may not pass as measured.
  */
 async function rtlPagePdf(
   text: string,
@@ -501,15 +504,29 @@ async function main(): Promise<number> {
     try {
       bytes = await make();
     } catch (err) {
-      console.log(
-        `  ${name}: NOT GENERATED (${err instanceof Error ? `${err.name}: ${err.message.slice(0, 80)}` : "unknown"})`,
-      );
+      const why =
+        err instanceof Error
+          ? `${err.name}: ${err.message.slice(0, 80)}`
+          : "unknown";
+      console.log(`  ${name}: NOT GENERATED (${why})`);
+      // A document that is not generated is not measured; the corpus would
+      // shrink and PASS would stand on what is left (CLAUDE.md rule 4).
+      failures.push(`${name}: not generated (${why})`);
       continue;
     }
     const r = await measure(name, bytes, extract);
     results.push(r);
     for (const p of r.problems) failures.push(`${name}: ${p}`);
   }
+
+  // Independent of the catch above: the set measured must BE the set
+  // declared, whatever path a document took out of the loop.
+  for (const s of proofCorpusShortfall(
+    corpus.map(([name]) => name),
+    results.map((r) => r.name),
+  ))
+    failures.push(s);
+  console.log(`corpus: ${results.length} of ${corpus.length} measured`);
 
   console.log("summary:");
   for (const r of results)

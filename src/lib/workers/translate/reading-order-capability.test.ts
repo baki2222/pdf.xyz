@@ -50,6 +50,7 @@ import { composeReadingOrderExtractor } from "./reading-order";
 import {
   columnsSentInOrder,
   probeTranslateReadingOrder,
+  proofCorpusShortfall,
   provesTranslateReadingOrder,
   READING_ORDER_PROBE_COLUMNS,
   READING_ORDER_PROBE_TITLE,
@@ -307,5 +308,32 @@ describe("provesTranslateReadingOrder(env)", () => {
         PDFXYZ_PDF_TEXT_BIN: "/nonexistent/pdftotext-for-this-test",
       }),
     ).resolves.toBe(false);
+  });
+});
+
+describe("proofCorpusShortfall — the proof's corpus may not shrink or widen", () => {
+  const declared = ["two-column", "Arabic", "prose (300 pages)"];
+
+  it("health/positive control: the set measured equal to the set declared gives nothing", () => {
+    expect(proofCorpusShortfall(declared, [...declared])).toEqual([]);
+  });
+
+  it("a document dropped from the measurement is named", () => {
+    expect(
+      proofCorpusShortfall(declared, ["two-column", "prose (300 pages)"]),
+    ).toEqual(["Arabic: declared in the corpus but not measured"]);
+  });
+
+  it("an empty measurement names every declared document (never a vacuous pass)", () => {
+    expect(proofCorpusShortfall(declared, [])).toHaveLength(declared.length);
+  });
+
+  it("a stand-in or a double count is named too (widening is a defect)", () => {
+    expect(
+      proofCorpusShortfall(declared, [...declared, "extra", "Arabic"]),
+    ).toEqual([
+      "Arabic: measured 2 times",
+      "extra: measured but not declared in the corpus",
+    ]);
   });
 });

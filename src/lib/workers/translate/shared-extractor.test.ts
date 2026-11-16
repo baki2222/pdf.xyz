@@ -4,6 +4,11 @@
  *
  * `resolveNativePdfTextExtractor` (`../pdf-text/native`) serves summarize,
  * ai-extract, chat-with-pdf, OCR's read-back and the four OCR proof scripts.
+ * One more file calls it ON PURPOSE without consuming it: Translate's own
+ * reading-order proof (`scripts/worker-translate-reading-order-proof.ts`)
+ * wires the shared resolver into the probe as its CONTROL, which must come
+ * out false FOR ORDER. That call is what makes the probe able to fail, so it
+ * is listed here by name and reason — a control, not a consumer.
  * Translate's reading order adds a second `pdftotext` run (`-bbox-layout`);
  * that run must reach Translate and nobody else, so Translate builds its own
  * composite (`./native`, `nativeTranslateExtractor`) instead of changing the
@@ -12,9 +17,9 @@
  *  - STRUCTURAL: the call sites are DISCOVERED — `git ls-files src scripts`,
  *    non-test `.ts`, each parsed with the TypeScript compiler, every
  *    CallExpression of `resolveNativePdfTextExtractor` collected — and must be
- *    exactly the eight consumers above, NOT `translate/native.ts`. A broken
- *    walk is FATAL (at least 4 engine call sites under `src/lib/workers` and
- *    8 in all), never a vacuous pass.
+ *    exactly the eight consumers plus the one control above (nine), NOT
+ *    `translate/native.ts`. A broken walk is FATAL (at least 4 engine call
+ *    sites under `src/lib/workers` and 9 in all), never a vacuous pass.
  *  - BEHAVIOURAL: the shared resolver, on a text PDF, issues exactly ONE
  *    `pdftotext` run, with `-layout`. A composite slipped inside it would add
  *    a `-bbox-layout` run for every AI engine and for OCR.
@@ -23,6 +28,11 @@
  * restored and diffed empty): putting the composite inside the shared
  * resolver turned the behavioural half red; putting the shared call back in
  * `translate/native.ts` turned the structural half red.
+ *
+ * HISTORY (review 2026-11-16): commit C added the control call to the proof
+ * script and left this list at eight, so the guard went red on its own
+ * branch — the discovery doing its job, the expected set never updated. The
+ * list now names the control separately from the consumers.
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -87,13 +97,17 @@ describe("the shared pdftotext extractor stays shared, and Translate is not on i
     ).toBeGreaterThan(500);
     const engines = files.filter((f) => f.startsWith("src/lib/workers/"));
     expect(engines.length, JSON.stringify(files)).toBeGreaterThanOrEqual(4);
-    expect(files.length, JSON.stringify(files)).toBeGreaterThanOrEqual(8);
+    expect(files.length, JSON.stringify(files)).toBeGreaterThanOrEqual(9);
   });
 
-  it("the call sites are exactly the eight consumers, and not translate/native.ts", () => {
+  it("the call sites are exactly nine: the eight consumers and Translate's proof control, and not translate/native.ts", () => {
     expect(files).not.toContain("src/lib/workers/translate/native.ts");
     expect(files).toEqual(
       [
+        // CONTROL, not a consumer: the reading-order proof wires the shared
+        // resolver into the probe on purpose, so the probe must fail on order.
+        "scripts/worker-translate-reading-order-proof.ts",
+        // Consumers.
         "scripts/worker-ocr-deskew-proof.ts",
         "scripts/worker-ocr-languages-proof.ts",
         "scripts/worker-ocr-redo-proof.ts",
