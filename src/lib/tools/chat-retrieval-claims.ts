@@ -148,18 +148,29 @@ export const CHAT_RETRIEVAL_SHAPES: readonly ChatRetrievalShape[] = [
     // Widened 2026-11-16 (review) to "share enough": the static clause became
     // conditional, because the selector sends only the opening pages when no
     // page shares enough of the question's words (the coverage gate and the
-    // no-signal fallback). The gated panel line still says "the most".
+    // no-signal fallback). The gated panel line followed the same day
+    // ("plus any pages that share enough").
     pattern: /\bshares? (?:the most|enough)\b[^.]*\bwords\b/i,
     shipped: [
       {
+        text: "For a longer file, each question is sent the opening pages plus any pages that share enough of its less common words.",
+        source:
+          "slice 4: chatRetrievalPanelLine(> 0), src/lib/pdf/chat-retrieval-anchor.ts, the gated panel line",
+      },
+      {
+        text: "For a longer file, each question is sent the pages that share enough of its less common words, or the opening pages when none do.",
+        source:
+          "slice 4: chatRetrievalPanelLine(0), src/lib/pdf/chat-retrieval-anchor.ts, the gated panel line's other arm",
+      },
+      {
         text: "For a longer file, each question is sent the opening pages and the pages that share the most of its less common words.",
         source:
-          "this slice: chatRetrievalPanelLine(> 0), src/lib/pdf/chat-retrieval-anchor.ts, the gated panel line",
+          "#337 (shipped, retired 2026-11-16): the gated panel line before it became conditional",
       },
       {
         text: "For a longer file, each question is sent the pages that share the most of its less common words, or the opening pages when none do.",
         source:
-          "this slice: chatRetrievalPanelLine(0), src/lib/pdf/chat-retrieval-anchor.ts, the gated panel line's other arm",
+          "#337 (shipped, retired 2026-11-16): the gated panel line's other arm before it became conditional",
       },
       {
         text: `A longer file is sent ${CHAT_PAGE_SELECTION}.`,
