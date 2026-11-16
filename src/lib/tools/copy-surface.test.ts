@@ -87,6 +87,10 @@ describe("the copy surface reaches what the guards must read", () => {
       // Added 2026-10-24: the in-image options proof's verdict lines, walked
       // because the record outside the walk may not grow.
       "src/lib/workers/options-proof.ts",
+      // Added 2026-11-16: the reading-order probe page's two printed column
+      // sentences (a generated fixture no visitor sees), walked because the
+      // record outside the walk may not grow.
+      "src/lib/workers/translate/reading-order-capability.ts",
       "src/lib/pdf/crop-disclosure.ts",
       // Added 2026-10-24: Compress PDF's Grayscale sentence, in its own leaf.
       "src/lib/pdf/compress-grayscale.ts",

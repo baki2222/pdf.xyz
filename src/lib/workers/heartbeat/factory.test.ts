@@ -126,6 +126,7 @@ describe("createHeartbeatPublisher", () => {
         htmlZip: true,
         chatRetrieval: true,
         translatePdfLanguages: [],
+        translateReadingOrder: true,
       },
       deps: { client: fake, now: () => 1_000 },
     });
@@ -175,6 +176,7 @@ describe("createHeartbeatReader / readWorkerHeartbeatLiveness", () => {
             htmlZip: true,
             chatRetrieval: true,
             translatePdfLanguages: [],
+            translateReadingOrder: true,
           },
           at: now,
         }),

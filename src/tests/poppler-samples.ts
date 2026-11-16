@@ -89,3 +89,78 @@ export const STACKED_TABLES_BBOX =
 /** `loneTotalInvoicePdf()` through `pdftotext -bbox-layout` — an invoice ending on an amount-only total. */
 export const LONE_TOTAL_INVOICE_BBOX =
   '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml">\n<head>\n<title></title>\n<meta name="Creator" content="pdf-lib (https://github.com/Hopding/pdf-lib)"/>\n<meta name="Producer" content="pdf-lib (https://github.com/Hopding/pdf-lib)"/>\n<meta name="CreationDate" content="2026-09-27T02:35:11Z"/>\n<meta name="ModDate" content="2026-09-27T02:35:11Z"/>\n</head>\n<body>\n<doc>\n  <page width="612.000000" height="792.000000">\n    <flow>\n      <block xMin="50.000000" yMin="39.076000" xMax="112.028000" yMax="55.726000">\n        <line xMin="50.000000" yMin="39.076000" xMax="112.028000" yMax="55.726000">\n          <word xMin="50.000000" yMin="39.076000" xMax="112.028000" yMax="55.726000">Invoice</word>\n        </line>\n      </block>\n      <block xMin="50.000000" yMin="68.102000" xMax="210.787000" yMax="78.277000">\n        <line xMin="50.000000" yMin="68.102000" xMax="210.787000" yMax="78.277000">\n          <word xMin="50.000000" yMin="68.102000" xMax="78.116000" yMax="78.277000">Acme</word>\n          <word xMin="81.174000" yMin="68.102000" xMax="126.417000" yMax="78.277000">Supplies,</word>\n          <word xMin="129.475000" yMin="68.102000" xMax="141.707000" yMax="78.277000">12</word>\n          <word xMin="144.765000" yMin="68.102000" xMax="178.381000" yMax="78.277000">Market</word>\n          <word xMin="181.439000" yMin="68.102000" xMax="210.787000" yMax="78.277000">Street</word>\n        </line>\n      </block>\n      <block xMin="50.000000" yMin="104.102000" xMax="105.627000" yMax="162.277000">\n        <line xMin="50.000000" yMin="104.102000" xMax="105.627000" yMax="114.277000">\n          <word xMin="50.000000" yMin="104.102000" xMax="87.906000" yMax="114.277000">Invoice</word>\n          <word xMin="90.964000" yMin="104.102000" xMax="105.627000" yMax="114.277000">No</word>\n        </line>\n        <line xMin="50.000000" yMin="120.102000" xMax="74.464000" yMax="130.277000">\n          <word xMin="50.000000" yMin="120.102000" xMax="74.464000" yMax="130.277000">1001</word>\n        </line>\n        <line xMin="50.000000" yMin="136.102000" xMax="74.464000" yMax="146.277000">\n          <word xMin="50.000000" yMin="136.102000" xMax="74.464000" yMax="146.277000">1002</word>\n        </line>\n        <line xMin="50.000000" yMin="152.102000" xMax="80.580000" yMax="162.277000">\n          <word xMin="50.000000" yMin="152.102000" xMax="80.580000" yMax="162.277000">00123</word>\n        </line>\n      </block>\n    </flow>\n    <flow>\n      <block xMin="130.000000" yMin="104.102000" xMax="186.254000" yMax="162.277000">\n        <line xMin="130.000000" yMin="104.102000" xMax="153.837000" yMax="114.277000">\n          <word xMin="130.000000" yMin="104.102000" xMax="153.837000" yMax="114.277000">Date</word>\n        </line>\n        <line xMin="130.000000" yMin="120.102000" xMax="186.254000" yMax="130.277000">\n          <word xMin="130.000000" yMin="120.102000" xMax="186.254000" yMax="130.277000">2026-01-05</word>\n        </line>\n        <line xMin="130.000000" yMin="136.102000" xMax="186.254000" yMax="146.277000">\n          <word xMin="130.000000" yMin="136.102000" xMax="186.254000" yMax="146.277000">2026-01-06</word>\n        </line>\n        <line xMin="130.000000" yMin="152.102000" xMax="186.254000" yMax="162.277000">\n          <word xMin="130.000000" yMin="152.102000" xMax="186.254000" yMax="162.277000">2026-01-07</word>\n        </line>\n      </block>\n    </flow>\n    <flow>\n      <block xMin="220.000000" yMin="104.102000" xMax="286.638000" yMax="130.277000">\n        <line xMin="220.000000" yMin="104.102000" xMax="280.511000" yMax="114.277000">\n          <word xMin="220.000000" yMin="104.102000" xMax="280.511000" yMax="114.277000">Description</word>\n        </line>\n        <line xMin="220.000000" yMin="120.102000" xMax="286.638000" yMax="130.277000">\n          <word xMin="220.000000" yMin="120.102000" xMax="262.790000" yMax="130.277000">Widgets,</word>\n          <word xMin="265.848000" yMin="120.102000" xMax="286.638000" yMax="130.277000">blue</word>\n        </line>\n      </block>\n      <block xMin="220.000000" yMin="152.102000" xMax="278.080000" yMax="162.277000">\n        <line xMin="220.000000" yMin="152.102000" xMax="278.080000" yMax="162.277000">\n          <word xMin="220.000000" yMin="152.102000" xMax="251.174000" yMax="162.277000">Smith,</word>\n          <word xMin="254.232000" yMin="152.102000" xMax="278.080000" yMax="162.277000">John</word>\n        </line>\n      </block>\n    </flow>\n    <flow>\n      <block xMin="401.663000" yMin="104.102000" xMax="420.000000" yMax="162.277000">\n        <line xMin="401.663000" yMin="104.102000" xMax="420.000000" yMax="114.277000">\n          <word xMin="401.663000" yMin="104.102000" xMax="420.000000" yMax="114.277000">Qty</word>\n        </line>\n        <line xMin="413.884000" yMin="120.102000" xMax="420.000000" yMax="130.277000">\n          <word xMin="413.884000" yMin="120.102000" xMax="420.000000" yMax="130.277000">2</word>\n        </line>\n        <line xMin="413.884000" yMin="136.102000" xMax="420.000000" yMax="146.277000">\n          <word xMin="413.884000" yMin="136.102000" xMax="420.000000" yMax="146.277000">5</word>\n        </line>\n        <line xMin="407.768000" yMin="152.102000" xMax="420.000000" yMax="162.277000">\n          <word xMin="407.768000" yMin="152.102000" xMax="420.000000" yMax="162.277000">12</word>\n        </line>\n      </block>\n    </flow>\n    <flow>\n      <block xMin="471.072000" yMin="104.102000" xMax="520.000000" yMax="178.277000">\n        <line xMin="478.453000" yMin="104.102000" xMax="520.000000" yMax="114.277000">\n          <word xMin="478.453000" yMin="104.102000" xMax="520.000000" yMax="114.277000">Amount</word>\n        </line>\n        <line xMin="477.188000" yMin="120.102000" xMax="520.000000" yMax="130.277000">\n          <word xMin="477.188000" yMin="120.102000" xMax="520.000000" yMax="130.277000">1,250.00</word>\n        </line>\n        <line xMin="471.072000" yMin="136.102000" xMax="520.000000" yMax="146.277000">\n          <word xMin="471.072000" yMin="136.102000" xMax="520.000000" yMax="146.277000">$3,400.50</word>\n        </line>\n        <line xMin="486.362000" yMin="152.102000" xMax="520.000000" yMax="162.277000">\n          <word xMin="486.362000" yMin="152.102000" xMax="520.000000" yMax="162.277000">980.25</word>\n        </line>\n        <line xMin="471.072000" yMin="168.102000" xMax="520.000000" yMax="178.277000">\n          <word xMin="471.072000" yMin="168.102000" xMax="520.000000" yMax="178.277000">$5,630.75</word>\n        </line>\n      </block>\n    </flow>\n  </page>\n</doc>\n</body>\n</html>\n';
+
+// ── `-layout` siblings of the `-bbox-layout` samples above ─────────────────
+//
+// Captured 2026-11-16 with poppler `pdftotext` 22.12.0 — the production
+// worker image's own binary, in a throwaway `docker run --network none` —
+// because no poppler was installed on the development host that day. Same
+// rule as above: CR stripped, never hand-edited. Cross-checked the same day:
+// `TWO_COLUMN_LAYOUT` (25.07) is byte-identical to 22.12.0's `-layout`, and
+// all seventeen `*_BBOX` samples give the same `flowPageText` on both binaries.
+// Translate's reading-order tests pair each `X_LAYOUT` with its `X_BBOX` by
+// name (`../lib/workers/translate/reading-order.chain.test.ts`).
+
+/** `quarterlyTablePdf()` through `pdftotext -layout` (22.12.0). */
+export const TABLE_LAYOUT =
+  "Region   Q1     Q2     Q3\nNorth    1200   1350   1410\nSouth    980    1020   1100\n\f";
+
+/** `incomeStatementPdf()` through `pdftotext -layout` (22.12.0). */
+export const STATEMENT_LAYOUT =
+  "Revenue                       12,400\nCost of goods sold             7,100\nGross profit                   5,300\nSelling and admin expenses     2,900\nOperating income               2,400\nInterest paid on bank loans      300\nNet income                     2,100\n\f";
+
+/** `skuTablePdf()` through `pdftotext -layout` (22.12.0). */
+export const SKU_TABLE_LAYOUT =
+  "SKU     Description\nA-100   Stainless steel water bottle with a bamboo lid\nB-200   Recycled cotton tote bag in a natural colour\nC-300   Ceramic pour-over coffee dripper, white\n\f";
+
+/** `newsletterPdf()` through `pdftotext -layout` (22.12.0). */
+export const NEWSLETTER_LAYOUT =
+  "Our team spent the last quarter rebuilding   Customers noticed the faster uploads within\nthe upload flow from the ground up, and      days, the support queue shrank, and the\nit went well.                                feedback was great.\n\nNext steps                                   Open issues\n\nWe will ship the new editor in two phases    Search inside very large files is still slow\nand measure how people use each one.         and the fix needs a new kind of index.\n\f";
+
+/** `sidebarPdf()` through `pdftotext -layout` (22.12.0). */
+export const SIDEBAR_LAYOUT =
+  "The board approved the budget for next year    Editor\nafter a long debate about hiring, and asked    Jane Doe\nthe finance team to report back every month    Design\non how the new spending plan is working out.   Sam Lee\n\f";
+
+/** `highlightsPdf()` through `pdftotext -layout` (22.12.0). */
+export const HIGHLIGHTS_LAYOUT =
+  "Revenue grew twelve percent over the year.   Currency exposure remains the largest risk.\nCosts fell for the third straight quarter.   Supplier delays may slow the next launch.\nHiring stayed flat in every single region.   Cash reserves cover two full years of costs.\n\f";
+
+/** `columnHeadingsPdf()` through `pdftotext -layout` (22.12.0). */
+export const HEADINGS_LAYOUT =
+  "Sales rose in every region this year and the   Prices for raw materials stayed high all year\nnew stores opened on time and on budget.       and cut margins in the second half again.\nCosts fell.                                    Also tariffs.\n\nOutlook                                        Summary\nWe expect growth to continue next year as      The board will review the dividend in March\nthe second factory comes online in spring.     once the audited accounts are complete.\n\f";
+
+/** `columnListsPdf()` through `pdftotext -layout` (22.12.0). */
+export const LISTS_LAYOUT =
+  "Strengths           Risks\n• Strong cash       - Currency swings\n• Low debt          - Supplier delays\n• Loyal customers   - New rivals\n\f";
+
+/** `letterPdf()` through `pdftotext -layout` (22.12.0). */
+export const LETTER_LAYOUT =
+  "Dear Ms Smith,\nThank you for your letter of 3 March about the club accounts and the\nproposals for next year, which the committee discussed at length last week.\nIt agreed to put three changes to the members at the annual meeting in May.\nProposals\n1. Raise the membership fee by five percent from January to cover costs.\n2. Hold two general meetings each year.\n3. Publish the accounts online.\nBar hours\nWe will also keep the bar open later on match days, as many members asked:\n• a trial for three months,\n• then a vote at the next meeting.\nYours sincerely,\nJohn Doe\n\f";
+
+/** `reportTablesPdf()` through `pdftotext -layout` (22.12.0). */
+export const REPORT_TABLES_LAYOUT =
+  "Quarterly Report\nRevenue grew in every region this quarter, led by North America and\nthe new online store. The tables below give the figures in dollars.\n\n\nRegion                        Units sold           Unit price         Revenue\nNorth America                       1,200               $4.50            $5,400.00\nSouth East                            980               $4.75            $4,655.00\nWest                                1,560               $4.25            $6,630.00\n\nTable 2: Staff by office\n\nOffice                Staff           Manager\nLondon                        12      Ada Lovelace\nNew York                      30      Grace Hopper\nDhaka                         18      Jamal Nazrul Islam\n\nStaff counts as of 30 June            Source: HR\n\n\n\n\n                                              Page 1 of 1\n\f";
+
+/** `titledTablePdf()` through `pdftotext -layout` (22.12.0). */
+export const TITLED_TABLE_LAYOUT =
+  "Quarterly results\n\nRegion              Q1     Q2     Q3\n\nNorth               1200   1350   1410\n\nSouth               980    1020   1105\n\nEast                1560   1490   1620\n\nWest                720    860    915\n\f";
+
+/** `spanningHeaderPdf()` through `pdftotext -layout` (22.12.0). */
+export const SPANNING_TABLE_LAYOUT =
+  "Region   Sales by quarter (units)\n         Q1              Q2         Q3\nNorth    1200            1350       1410\nSouth    980             1020       1105\nEast     1560            1490       1620\n\f";
+
+/** `surroundedInvoicePdf()` through `pdftotext -layout` (22.12.0). */
+export const SURROUNDED_INVOICE_LAYOUT =
+  "Invoice\nAcme Supplies, 12 Market Street                     Period: January 2026\n\n\nInvoice No     Date               Description     Qty          Amount\n\n1001           2026-01-05         Widgets, blue    2           1,250.00\n\n1002           2026-01-06                          5          $3,400.50\n\n00123          2026-01-07         Smith, John     12             980.25\n\nTotal                                             19          $5,630.75\n\n\n\n\nThank you for your business.                                       Page 1 of 1\n\f";
+
+/** `autoSizedTablePdf()` through `pdftotext -layout` (22.12.0). */
+export const AUTO_SIZED_TABLE_LAYOUT =
+  "Product   Quantity   Price   Amount\nPen       12         1.20    14.40\nInk       3          4.50    13.50\nPad       10         2.00    20.00\n\f";
+
+/** `stackedTablesPdf()` through `pdftotext -layout` (22.12.0). */
+export const STACKED_TABLES_LAYOUT =
+  "Branch             Opened           Staff\nLeeds              2019             14\nYork               2021             9\n\n\n\nProduct line                Share\nPaper goods                 41%\nOffice furniture            59%\n\f";
+
+/** `loneTotalInvoicePdf()` through `pdftotext -layout` (22.12.0). */
+export const LONE_TOTAL_INVOICE_LAYOUT =
+  "Invoice\nAcme Supplies, 12 Market Street\n\n\nInvoice No     Date               Description     Qty    Amount\n1001           2026-01-05         Widgets, blue     2    1,250.00\n1002           2026-01-06                           5   $3,400.50\n00123          2026-01-07         Smith, John      12      980.25\n                                                        $5,630.75\n\f";

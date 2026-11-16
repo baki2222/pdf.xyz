@@ -28,7 +28,16 @@ export interface AiWindowMeta {
    * prefix, or for chat the pages chosen for the question.
    */
   truncated: boolean;
-  /** Characters actually sent to the model. */
+  /**
+   * Characters of the source the window covers, in the extractor's calibrated
+   * unit (the `-layout` text on the worker). Not a literal count of what the
+   * model received: Translate never sends withheld or oversize pages, and
+   * since reading order (2026-11-16) may send a page's flow text in place of
+   * its `-layout` text. Translate's literal count is
+   * {@link AiReadingOrderMeta.sentCharacters}, which is never larger than
+   * this while the window is not truncated
+   * (`reading-order.results.test.ts`).
+   */
   charactersSent: number;
   /** Characters the extracted document text holds in total. */
   charactersTotal: number;
@@ -184,6 +193,67 @@ export interface AiPdfMeta {
 
 const PDF_REASONS: ReadonlySet<string> = new Set(TRANSLATE_PDF_REASONS);
 
+/**
+ * Which text Translate SENT for each page (2026-11-16, reading order): the
+ * page's flow text (`-bbox-layout`, column by column) or its `-layout` text,
+ * and how many characters went to the model. Bounded integers and one closed
+ * reason — never document text.
+ *
+ * ABSENT on every job a worker older than reading order ran, and on every
+ * other tool's job. Never defaulted: a `{source: "not_run"}` invented for a
+ * job the old worker ran would be a claim about work nobody did.
+ */
+export interface AiReadingOrderMeta {
+  /**
+   * `flow`: flow text was read and paired page by page (each page still
+   * gated); `bbox_failed`: the flow run failed and every page went as
+   * `-layout`; `page_count`: the two runs disagreed on the page count, so no
+   * page carried flow; `not_run`: no flow run was made.
+   */
+  source: "flow" | "bbox_failed" | "page_count" | "not_run";
+  /**
+   * Text pages SENT as flow: pages whose segment was put on the wire (the
+   * failing call of an interruption included, as `sentCharacters` counts
+   * it). Withheld, oversize and post-interruption pages are not counted.
+   */
+  flowPages: number;
+  /** Text pages SENT as `-layout`, by the same rule. */
+  layoutPages: number;
+  /** Of the sent `-layout` pages, those that had flow text and fell back, by first failing gate. */
+  fellBack: { ink: number; longer: number; rtl: number };
+  /** Characters literally sent between the prompt's delimiters, over the calls made. */
+  sentCharacters: number;
+}
+
+const READING_ORDER_SOURCES: ReadonlySet<string> = new Set([
+  "flow",
+  "bbox_failed",
+  "page_count",
+  "not_run",
+] satisfies AiReadingOrderMeta["source"][]);
+
+/**
+ * Re-bound an untrusted `readingOrder` block, STRICTLY: anything without a
+ * known `source` and a `fellBack` object is dropped whole, never repaired
+ * into a default. Counts are clamped to bounded non-negative integers.
+ */
+function boundReadingOrder(raw: unknown): AiReadingOrderMeta | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.source !== "string" || !READING_ORDER_SOURCES.has(r.source))
+    return undefined;
+  const fell = r.fellBack;
+  if (typeof fell !== "object" || fell === null) return undefined;
+  const f = fell as Record<string, unknown>;
+  return {
+    source: r.source as AiReadingOrderMeta["source"],
+    flowPages: count(r.flowPages),
+    layoutPages: count(r.layoutPages),
+    fellBack: { ink: count(f.ink), longer: count(f.longer), rtl: count(f.rtl) },
+    sentCharacters: count(r.sentCharacters),
+  };
+}
+
 /** Re-bound an untrusted `pdf` block; anything that is not one is dropped. */
 function boundPdf(raw: unknown): AiPdfMeta | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
@@ -208,6 +278,8 @@ export interface AiResultMeta {
   truncation: AiWindowMeta;
   /** Translate PDF only: the reflowed PDF's outcome. See {@link AiPdfMeta}. */
   pdf?: AiPdfMeta;
+  /** Translate PDF only: which text was sent. See {@link AiReadingOrderMeta}. */
+  readingOrder?: AiReadingOrderMeta;
   /**
    * Present ONLY when pages were withheld. See {@link AiDeliveryMeta}: absent
    * is "delivered in full", and there is no third state.
@@ -259,6 +331,7 @@ export function buildAiResultMeta(raw: AiResultMeta): AiResultMeta {
   const selection = truncated ? boundSelection(w, totalPages) : null;
   const used = boundUsage(raw.usage);
   const pdf = boundPdf(raw.pdf);
+  const readingOrder = boundReadingOrder(raw.readingOrder);
   /**
    * Re-bound, and DROPPED unless it reports a real withholding.
    *
@@ -306,6 +379,7 @@ export function buildAiResultMeta(raw: AiResultMeta): AiResultMeta {
     ...(used ? { usage: used } : {}),
     ...(delivery ? { delivery } : {}),
     ...(pdf ? { pdf } : {}),
+    ...(readingOrder ? { readingOrder } : {}),
   };
 }
 

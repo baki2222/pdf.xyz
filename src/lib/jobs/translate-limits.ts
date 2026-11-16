@@ -346,6 +346,8 @@ export const TRANSLATE_EXTRACTOR_DIVERGENCE = {
  * their own file. That is not a tail case a backstop mops up; it is a common
  * input the constant simply did not cover.
  */
+// Reading order's flow/-layout measurement on the same binary (2026-11-16) is
+// worker-only data: TRANSLATE_READING_ORDER_MEASURED in workers/translate/reading-order.ts.
 export const TRANSLATE_EXTRACTOR_DIVERGENCE_SHIPPED = {
   measuredOn: "2026-08-21",
   binary: "poppler-22.12.0",

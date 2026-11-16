@@ -58,6 +58,7 @@ import { createTableExtractProcessor } from "./processor/table-extract";
 import { createPdfOfficeExportProcessor } from "./processor/pdf-office-export";
 import { createSummarizeProcessor } from "./processor/summarize";
 import { createTranslateProcessor } from "./processor/translate";
+import { translateDeps } from "./translate/native";
 import { createAiExtractProcessor } from "./processor/ai-extract";
 import { createChatWithPdfProcessor } from "./processor/chat-with-pdf";
 import { createOcrProcessor } from "./processor/ocr";
@@ -380,15 +381,68 @@ const CASES: Record<string, Case> = {
       input: pdfInput("summarize-pdf"),
     }),
   },
+  // Translate's OWN composite (`translateDeps`, reading order 2026-11-16),
+  // not the shared extractor: the abort lands in its first run, `-layout`.
   "translate-pdf (pdftotext)": {
     spawnModule: "src/lib/workers/pdf-text/native.ts",
     build: (child, calls) => ({
       processor: createTranslateProcessor({
-        extract: pdfTextExtractor(child, calls),
+        ...translateDeps(
+          {},
+          {},
+          { resolveOnPath: () => false },
+          {
+            resolveOnPath: always,
+            exec: redirect<Parameters<PdfTextExec>[2], ReturnType<PdfTextExec>>(
+              defaultPdfTextExec,
+              child,
+              calls,
+            ),
+          },
+        ),
         provider: unreachableProvider,
       }),
       input: pdfInput("translate-pdf", { targetLanguage: "fr" }),
     }),
+  },
+  // THE CASE THAT MATTERS for reading order: `-layout` RETURNS text, then
+  // the `-bbox-layout` run hangs, then the attempt aborts. The composite
+  // catches every flow failure and falls back to `-layout` — except an
+  // abort, which it must rethrow FIRST (`rethrowIfAttemptAbort`). Without
+  // that, the fallback would carry the lost attempt on to a paid provider
+  // call. MUTATION (2026-11-16): removing `rethrowIfAttemptAbort(err)` from
+  // the composite's catch turned this case red at property 2
+  // (`isAttemptAbort(settled.error)`: "expected false to be true" — the
+  // error was the stub provider's "called after the attempt aborted").
+  "translate-pdf (pdftotext, abort during the flow run)": {
+    spawnModule: "src/lib/workers/pdf-text/native.ts",
+    build: (child, calls) => {
+      const toChild = redirect<
+        Parameters<PdfTextExec>[2],
+        ReturnType<PdfTextExec>
+      >(defaultPdfTextExec, child, calls);
+      const exec: PdfTextExec = (command, args, options) => {
+        if (args.includes("-bbox-layout"))
+          return toChild(command, args, options);
+        calls.push([command, ...args]);
+        return Promise.resolve(
+          "A page of real selectable text to translate." +
+            String.fromCharCode(10, 12),
+        );
+      };
+      return {
+        processor: createTranslateProcessor({
+          ...translateDeps(
+            {},
+            {},
+            { resolveOnPath: () => false },
+            { resolveOnPath: always, exec },
+          ),
+          provider: unreachableProvider,
+        }),
+        input: pdfInput("translate-pdf", { targetLanguage: "fr" }),
+      };
+    },
   },
   "ai-extract (pdftotext)": {
     spawnModule: "src/lib/workers/pdf-text/native.ts",
