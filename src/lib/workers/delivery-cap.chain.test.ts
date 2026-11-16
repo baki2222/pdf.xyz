@@ -461,6 +461,44 @@ describe.each([
     ).toEqual(CAP);
   });
 
+  it("a SELECTION job (audit #29 slice 6): the parsed wire body's pages claim back beside the cap derived from it", async () => {
+    // Composed: the REAL parser, the cap from its declaration, the queue. The
+    // cap was charged for the chosen pages only; a queue that kept the cap
+    // and dropped `pages` would run that cap over the whole document and
+    // withhold most of it behind a notice that "the document holds more".
+    const chosen: [number, number][] = [
+      [2, 2],
+      [4, 4],
+    ];
+    const parsed = parseCreateJobRequest({
+      tool: "translate-pdf",
+      inputs: [FILE_ID],
+      options: { targetLanguage: "fr", sourceLanguage: "auto", pages: chosen },
+      declaredCharacters: 1_234,
+      declaredTextPages: 2,
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const cap = deliveryCapFor(parsed.value, LIMITS);
+    expect(cap).toEqual({
+      characters: Math.ceil(1_234 * TRANSLATE_EXTRACTOR_HEADROOM),
+      pages: 2,
+    });
+    const queue = build();
+    const submitted = await queue.submit({
+      job: queuedJob("job_test000003"),
+      inputs: [FILE_ID],
+      options: parsed.value.options as Record<string, unknown>,
+      delivery: cap,
+    });
+    expect(submitted.ok, "the submission was rejected").toBe(true);
+    const claim = await queue.claim({ leaseMs: 30_000 });
+    expect(claim.ok && claim.value, "nothing was claimable").toBeTruthy();
+    if (!claim.ok || !claim.value) return;
+    expect(claim.value.options.pages).toEqual(chosen);
+    expect(claim.value.delivery).toEqual(cap);
+  });
+
   it("CONTROL: a submission with no cap claims back with no cap", async () => {
     // Absent must stay absent rather than becoming a zero, an empty object, or
     // an inherited value from a previous job. An absent cap means unbounded;
