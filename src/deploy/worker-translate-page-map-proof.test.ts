@@ -10,8 +10,11 @@
  *   (`translateDeps(…).extract`, `.pdf`, and `resolveNativePdfTextReader`):
  *   once as shipped, once with arm A's model dropping the markers
  *   (`answerA: stripSeparatorsAnswer`), the control, whose `failed` list must
- *   be EXACTLY [control, pdf_a, wire_a]; then the heartbeat's entry point
- *   `provesTranslatePageMap`.
+ *   be EXACTLY [control, pdf_a, wire_a]; once with arm A's model gluing each
+ *   marker inline with its brand broken by a zero-width space
+ *   (`answerA: gluedBrokenBrandAnswer`, review minor 5, 2026-11-16), whose
+ *   `failed` list must be EXACTLY `GLUED_FAILED` (never zip_clean); then the
+ *   heartbeat's entry point `provesTranslatePageMap`.
  *
  * An AST and not `toContain`, as in `worker-translate-reading-order-proof
  * .test.ts`: a guard that matches prose stays green while the step runs
@@ -126,6 +129,12 @@ describe("the in-image Translate page-map proof runs, from the workflow to the c
     expect(imports.get("stripSeparatorsAnswer")).toBe(
       "@/lib/workers/translate/page-map-capability",
     );
+    expect(imports.get("gluedBrokenBrandAnswer")).toBe(
+      "@/lib/workers/translate/page-map-capability",
+    );
+    expect(imports.get("GLUED_FAILED")).toBe(
+      "@/lib/workers/translate/page-map-capability",
+    );
     expect(imports.get("translateDeps")).toBe("@/lib/workers/translate/native");
     expect(imports.get("translatePdfLanguages")).toBe(
       "@/lib/workers/translate/pdf-capability",
@@ -135,8 +144,9 @@ describe("the in-image Translate page-map proof runs, from the workflow to the c
     );
 
     const calls = probeCalls(file);
-    // Health: the walk found both calls, or every assertion below is vacuous.
-    expect(calls.length).toBe(2);
+    // Health: the walk found all three calls, or every assertion below is
+    // vacuous. (Two until 2026-11-16, when the glued case was added.)
+    expect(calls.length).toBe(3);
     for (const call of calls) {
       expect(call).toContain("extract=deps.extract");
       expect(call).toContain("pdf=deps.pdf");
@@ -146,9 +156,12 @@ describe("the in-image Translate page-map proof runs, from the workflow to the c
       c.includes("answerA=stripSeparatorsAnswer"),
     );
     expect(controls.length).toBe(1);
-    // The probe itself overrides neither model.
     expect(
-      calls.filter((c) => c.some((p) => /^answer[AB]=/.test(p))).length,
+      calls.filter((c) => c.includes("answerA=gluedBrokenBrandAnswer")).length,
+    ).toBe(1);
+    // The probe itself overrides neither model: exactly one call is plain.
+    expect(
+      calls.filter((c) => !c.some((p) => /^answer[AB]=/.test(p))).length,
     ).toBe(1);
 
     const text = file.getFullText();
@@ -157,6 +170,7 @@ describe("the in-image Translate page-map proof runs, from the workflow to the c
       /await translatePdfLanguages\(process\.env\)/,
       /if \(!probe\.ok\)/,
       /if \(control\.ok\)/,
+      /gotGlued\.some\(\(c, i\) => c !== GLUED_FAILED\[i\]\)/,
       /probe\.failed\.includes\("pdf_unavailable"\)/,
       /await provesTranslatePageMap\(process\.env\)/,
       /return 2;/,
