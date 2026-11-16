@@ -51,6 +51,24 @@ const CHILD = "src/tests/hostile/pdfjs-guard.child.ts";
  * old 30 s constant passed both, at 13 s and 21 s). A reader that stopped
  * refusing (the defect lane res1 fixed) is caught by the typed-error
  * assertion beside this one.
+ *
+ * History (2026-11-16): best of two. Linux CI, 25 recent runs of the
+ * `[time-bound] objstm-bomb via ...` lines: honest reads 1.5-2.2, with
+ * outliers at 3.26 (run 43820825827, count-pages) and 3.68 (run
+ * 43804932617, viewer-render: a red with nothing wrong). A single sample
+ * cannot tell a guard that is slow from a runner that stalled for a moment;
+ * a second sample can, because a stall does not repeat on demand and a slow
+ * guard does. So a first measurement over either bound re-runs the same
+ * refusal ONCE in a fresh child with its own yardstick (and its own
+ * typed-error assertion), and the lower ratio is judged; both are printed.
+ * The bound itself is unchanged, 3.5 and 60 s. Resolution kept, mutation
+ * re-run 2026-11-16 (Windows, Node 24): the object scanners fed every chunk
+ * 8 times failed all six again, every attempt over the bound (first and
+ * re-run 4.18-5.18, judged 4.12-4.85). Best of two buys the mutant a little
+ * (judged minimum 4.12 against a single-sample 4.49), so the 4x mutant
+ * (2.86-3.14) stays the resolution limit and passes, as before. The
+ * re-run path itself was forced live by lowering the bound to 1.0 on a
+ * copy: objstm-bomb via access read 1.88, re-ran, read 1.66, judged 1.66.
  */
 const BUDGET_READS_ALLOWED = 3.5;
 /**
@@ -59,7 +77,14 @@ const BUDGET_READS_ALLOWED = 3.5;
  * even if the yardstick were slow for the same reason.
  */
 const REFUSAL_CEILING_MS = 60_000;
-function expectRefusedInBudgetTime(v: Record<string, unknown>, said: string) {
+
+/** One timed refusal, read against its own child's yardstick. */
+interface TimedRefusal {
+  ms: number;
+  reads: number;
+  budgetReadMs: number;
+}
+function timedRefusal(v: Record<string, unknown>, said: string): TimedRefusal {
   const { ms, yardstick } = v.growth as {
     ms: number;
     yardstick: { msPerMiB: number; sampleMiB: number; reps: number[] };
@@ -69,14 +94,122 @@ function expectRefusedInBudgetTime(v: Record<string, unknown>, said: string) {
   expect(yardstick.msPerMiB, said).toBeGreaterThan(0);
   const budgetReadMs =
     yardstick.msPerMiB * (MAX_DECODED_TOTAL_BYTES / (1024 * 1024));
-  const reads = ms / budgetReadMs;
-  const detail = `${said}: ${ms} ms = ${reads.toFixed(2)} budget-reads of ${Math.round(budgetReadMs)} ms`;
-  // Printed on a pass too: CI logs showed this region only on a failure,
-  // so the spread the bound was set from could not be read back.
-  console.log(`[time-bound] ${detail}`);
-  expect(reads, detail).toBeLessThan(BUDGET_READS_ALLOWED);
-  expect(ms, detail).toBeLessThan(REFUSAL_CEILING_MS);
+  return { ms, reads: ms / budgetReadMs, budgetReadMs };
 }
+function withinTimeBounds(t: TimedRefusal): boolean {
+  return t.reads < BUDGET_READS_ALLOWED && t.ms < REFUSAL_CEILING_MS;
+}
+function describeTimed(t: TimedRefusal): string {
+  return `${t.ms} ms = ${t.reads.toFixed(2)} budget-reads of ${Math.round(t.budgetReadMs)} ms`;
+}
+
+/**
+ * Best of two (2026-11-16). The first measurement is judged alone when it is
+ * inside both bounds. When it is not, the SAME refusal runs once more in a
+ * fresh child, with its own yardstick, and the LOWER ratio is judged; both
+ * are returned so both get printed. Kept pure (no child, no
+ * expect) so the selection itself is tested below with fixed numbers.
+ */
+async function bestOfTwo(
+  first: TimedRefusal,
+  again: () => Promise<TimedRefusal>,
+): Promise<{ attempts: TimedRefusal[]; judged: TimedRefusal }> {
+  if (withinTimeBounds(first)) return { attempts: [first], judged: first };
+  const second = await again();
+  // Prefer an attempt inside BOTH bounds (review, 2026-11-16): judging by
+  // ratio alone threw away a clean re-run whenever the first attempt broke
+  // only the absolute ceiling (a stalled child, yardstick included) and the
+  // re-run's ratio was a hair higher. Neither attempt clean: the lower ratio.
+  const judged = withinTimeBounds(second)
+    ? second
+    : withinTimeBounds(first)
+      ? first
+      : second.reads < first.reads
+        ? second
+        : first;
+  return { attempts: [first, second], judged };
+}
+
+/**
+ * `rerun` repeats the same refusal in a fresh child and must itself assert
+ * the typed refusal (the caller's typed-error assertion, again), so a second
+ * attempt that was fast because it stopped refusing can never be the one
+ * judged.
+ */
+async function expectRefusedInBudgetTime(
+  v: Record<string, unknown>,
+  said: string,
+  rerun: () => Promise<Record<string, unknown>>,
+) {
+  const { attempts, judged } = await bestOfTwo(
+    timedRefusal(v, said),
+    async () => timedRefusal(await rerun(), `${said} (re-run)`),
+  );
+  const detail =
+    attempts.length === 1
+      ? `${said}: ${describeTimed(judged)}`
+      : `${said}: ${describeTimed(judged)} (lower of ${attempts.length}: ${attempts.map(describeTimed).join(" | ")})`;
+  // Printed on a pass too: CI logs showed this region only on a failure,
+  // so the spread the bound was set from could not be read back. A re-run
+  // prints both attempts, so the outlier it absorbed stays visible.
+  console.log(`[time-bound] ${detail}`);
+  expect(judged.reads, detail).toBeLessThan(BUDGET_READS_ALLOWED);
+  expect(judged.ms, detail).toBeLessThan(REFUSAL_CEILING_MS);
+}
+
+describe("the res1 time bound's best of two", () => {
+  // Positive and negative controls for the selection, with fixed numbers:
+  // a live forcing of the path is in the commit that added it (2026-11-16).
+  const t = (reads: number, ms = 10_000): TimedRefusal => ({
+    ms,
+    reads,
+    budgetReadMs: ms / reads,
+  });
+  test("a first measurement inside the bound is judged alone, with no re-run", async () => {
+    let reruns = 0;
+    const r = await bestOfTwo(t(2.0), async () => {
+      reruns++;
+      return t(1.0);
+    });
+    expect(reruns).toBe(0);
+    expect(r.attempts).toHaveLength(1);
+    expect(r.judged.reads).toBe(2.0);
+  });
+  test("an outlier re-runs once and the lower ratio is judged", async () => {
+    let reruns = 0;
+    const r = await bestOfTwo(t(3.68), async () => {
+      reruns++;
+      return t(1.9);
+    });
+    expect(reruns).toBe(1);
+    expect(r.attempts.map((a) => a.reads)).toEqual([3.68, 1.9]);
+    expect(r.judged.reads).toBe(1.9);
+    expect(withinTimeBounds(r.judged)).toBe(true);
+  });
+  test("a slow guard is slow twice and still fails (the 8x mutation's shape)", async () => {
+    const r = await bestOfTwo(t(4.89), async () => t(4.49));
+    expect(r.judged.reads).toBe(4.49);
+    expect(withinTimeBounds(r.judged)).toBe(false);
+  });
+  test("a first attempt over the absolute ceiling alone also re-runs, and a clean re-run is the one judged", async () => {
+    let reruns = 0;
+    const r = await bestOfTwo(t(1.0, REFUSAL_CEILING_MS + 1), async () => {
+      reruns++;
+      // A hair HIGHER ratio than the stalled first attempt, but inside both
+      // bounds: ratio-only selection would have judged the first and failed.
+      return t(1.1);
+    });
+    expect(reruns).toBe(1);
+    expect(withinTimeBounds(r.judged)).toBe(true);
+  });
+
+  test("negative control: both attempts over the ceiling still fail", async () => {
+    const r = await bestOfTwo(t(1.0, REFUSAL_CEILING_MS + 1), async () =>
+      t(1.0, REFUSAL_CEILING_MS + 2),
+    );
+    expect(withinTimeBounds(r.judged)).toBe(false);
+  });
+});
 
 /** The value a settled child reported; fails loudly on a hang or crash. */
 function settled(r: BoundedOutcome): Record<string, unknown> {
@@ -503,7 +636,21 @@ describe("lane res1: every pdf.js open goes through the preflight", () => {
         // Second bound: refused in about the time it takes to read the
         // preflight's budget, before pdf.js parsed anything. See
         // `expectRefusedInBudgetTime` for the shape and its history.
-        expectRefusedInBudgetTime(v, `${file} via ${reader}`);
+        await expectRefusedInBudgetTime(
+          v,
+          `${file} via ${reader}`,
+          async () => {
+            const again = settled(
+              await runBounded(CHILD, [`open:${file}:${reader}`], 90_000, {
+                maxOldSpaceMb: 1024,
+              }),
+            );
+            expect(again.error, `${file} via ${reader} (re-run)`).toMatchObject(
+              error,
+            );
+            return again;
+          },
+        );
         const { mb } = v.growth as { mb: number };
         // Third bound, memory: the bomb's refusal comes from a preflight that
         // streams up to 1.6 GB through inflate, so what it KEEPS is the bound
@@ -515,7 +662,7 @@ describe("lane res1: every pdf.js open goes through the preflight", () => {
         await runBounded(CHILD, [`open:control:${reader}`], 60_000),
       );
       expect(control, `control via ${reader}`).toMatchObject({ ok: true });
-    }, 400_000);
+    }, 500_000);
   }
 });
 
@@ -718,10 +865,21 @@ describe("lane res1: the access probe's open goes through the preflight too", ()
         }),
       );
       expect(v, file).toMatchObject({ ok: true, access: "unreadable" });
-      expectRefusedInBudgetTime(v, `${file} via access`);
+      await expectRefusedInBudgetTime(v, `${file} via access`, async () => {
+        const again = settled(
+          await runBounded(CHILD, [`open:${file}:access`], 90_000, {
+            maxOldSpaceMb: 1024,
+          }),
+        );
+        expect(again, `${file} (re-run)`).toMatchObject({
+          ok: true,
+          access: "unreadable",
+        });
+        return again;
+      });
       const { mb } = v.growth as { mb: number };
       expect(mb, file).toBeLessThan(GROWTH_MB);
-    }, 120_000);
+    }, 210_000);
   }
 
   test("positive control: a plain file is still unencrypted", async () => {
