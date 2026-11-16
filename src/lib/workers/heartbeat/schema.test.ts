@@ -38,6 +38,7 @@ const CAPS: HeartbeatCapabilities = {
   chatRetrieval: true,
   translatePdfLanguages: [],
   translateReadingOrder: true,
+  translatePageMap: true,
 };
 
 describe("coarseRelease", () => {
@@ -110,6 +111,7 @@ describe("buildHeartbeat / serialize / parse", () => {
       chatRetrieval: false,
       translatePdfLanguages: [],
       translateReadingOrder: false,
+      translatePageMap: false,
     });
     expect(JSON.stringify(hb)).not.toContain("evil.example.com");
     expect(JSON.stringify(hb)).not.toContain("secretEndpoint");
@@ -266,6 +268,7 @@ describe("buildHeartbeat / serialize / parse", () => {
         chatRetrieval: false,
         translatePdfLanguages: [],
         translateReadingOrder: false,
+        translatePageMap: false,
       },
       at: 1234,
     });
@@ -464,6 +467,66 @@ describe("translateReadingOrder — deploy skew (2026-11-16)", () => {
         capabilities: { ...wire.capabilities, translateReadingOrder: bad },
       });
       expect(parsed?.capabilities.translateReadingOrder).toBe(false);
+    }
+  });
+});
+
+describe("translatePageMap — deploy skew (2026-11-16, audit #29 slice 4)", () => {
+  it("NEW web + OLD worker: a heartbeat serialised WITHOUT the key parses as false and does not throw", () => {
+    const wire = JSON.parse(
+      serializeHeartbeat(
+        buildHeartbeat({
+          mode: "once",
+          capabilities: { ...CAPS, translatePageMap: true },
+          at: 9,
+        }),
+      ),
+    ) as { capabilities: Record<string, unknown> };
+    // Positive control: the key IS on the wire when the image publishes it.
+    expect(wire.capabilities.translatePageMap).toBe(true);
+    delete wire.capabilities.translatePageMap;
+    expect("translatePageMap" in wire.capabilities).toBe(false);
+    const parsed = parseHeartbeat(wire);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.capabilities.translatePageMap).toBe(false);
+  });
+
+  it("OLD web + NEW worker: a capability key this parser does not know is dropped, and the heartbeat still parses", () => {
+    // The old web's view of `translatePageMap` is a key its schema never
+    // heard of. Planted here as a FABRICATED key the current schema does not
+    // know, so this stays the rollback path's test after the real key lands.
+    const fabricated = "translateSomethingNotYetShipped";
+    expect(fabricated in emptyCapabilities()).toBe(false);
+    const wire = JSON.parse(
+      serializeHeartbeat(
+        buildHeartbeat({ mode: "once", capabilities: CAPS, at: 9 }),
+      ),
+    ) as { capabilities: Record<string, unknown> };
+    const parsed = parseHeartbeat({
+      ...wire,
+      capabilities: { ...wire.capabilities, [fabricated]: true },
+    });
+    expect(parsed).not.toBeNull();
+    expect(fabricated in parsed!.capabilities).toBe(false);
+    // Every known key still parses as it was sent.
+    expect(parsed!.capabilities.translateReadingOrder).toBe(
+      CAPS.translateReadingOrder,
+    );
+    expect(parsed!.capabilities.translatePageMap).toBe(CAPS.translatePageMap);
+  });
+
+  it("a malformed value is false, never truthy", () => {
+    const wire = JSON.parse(
+      serializeHeartbeat(
+        buildHeartbeat({ mode: "once", capabilities: CAPS, at: 9 }),
+      ),
+    ) as { capabilities: Record<string, unknown> };
+    for (const bad of ["true", 1, {}, null]) {
+      const parsed = parseHeartbeat({
+        ...wire,
+        capabilities: { ...wire.capabilities, translatePageMap: bad },
+      });
+      expect(parsed?.capabilities.translatePageMap).toBe(false);
     }
   });
 });

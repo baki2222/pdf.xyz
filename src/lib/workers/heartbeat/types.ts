@@ -404,6 +404,38 @@ export interface HeartbeatCapabilities {
    * and the absence parses as `false`.
    */
   readonly translateReadingOrder: boolean;
+  /**
+   * This image's Translate PDF heads a multi-page chunk's reflowed PDF page
+   * by page ("Page 1", "Page 2", ...) when the model keeps the page markers,
+   * and by the chunk's range ("Pages 1–3") when it does not, with the ZIP the
+   * same either way (2026-11-16, slice 4 of competitor audit #29: page
+   * markers).
+   *
+   * PROVEN AT START-UP (`translate/page-map-capability.ts`,
+   * `provesTranslatePageMap`): two `translate-pdf` jobs through the
+   * executor's order on a generated three-page PDF, with the image's REAL
+   * Translate extractor, its REAL reflowed-PDF renderer (Chromium) and the
+   * engine's own `pdftotext` read-back, after the PDF-language memo settles;
+   * the target is derived from the proven languages. Arm A's stub model
+   * echoes the segment (markers kept), arm B's strips the markers. The marker
+   * lines and the instruction must reach the model; each job record's
+   * `results.ai.pageMap` must be exact with both invariants holding; arm A's
+   * PDF must read back "Page N" before each page's tokens and arm B's one
+   * "Pages 1–3" before all of them; the two ZIPs' `translation.txt` must be
+   * identical and carry every page's tokens in order; no text a reader gets
+   * may hold the marker's brand; and each arm's heading predicate must FAIL
+   * on the other arm's PDF (the in-probe control).
+   *
+   * What it does NOT prove: that a real model keeps the markers
+   * (`results.ai.pageMap.verified` / `marked` on real jobs measures that,
+   * per job), that every target language keeps them, or that each page's
+   * words stay under its own heading when a model moves text across a
+   * marker. A worker with no Chromium, or no provable PDF language, publishes
+   * `false`: there is no PDF to label. Until a later slice writes the copy,
+   * no sentence depends on it. An image built before the key publishes
+   * nothing, and the absence parses as `false`.
+   */
+  readonly translatePageMap: boolean;
 }
 
 /**

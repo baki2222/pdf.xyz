@@ -548,6 +548,21 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /translated paragraphs with the original|columns' lines (?:reach|to) the model/i,
     catalogueCopy: true,
   },
+  translatePageMap: {
+    // Added 2026-11-16 with the key (competitor audit #29, slice 4: page
+    // markers). The sentence a hedge about it would sit in: Translate's PDF
+    // heading each page of the original. FALSE: no shipped sentence
+    // describes page headings yet, so "each subject matcher's declared
+    // catalogue coverage is the truth" REQUIRES this to match nothing, and
+    // goes red on the first sentence ever written about it (S5 flips it on
+    // purpose). Kept off compare-pdf's "headed with its page", the page-label
+    // prose in extract/merge/organize, and pdf-to-markdown's page headings:
+    // "translat…" must come first, or "page heading(s)" must be followed by
+    // "translat…". See "the translatePageMap subject".
+    subject:
+      /\btranslat[^.]{0,80}\b(?:heads?|headed|headings?)\b[^.]{0,40}\bpages?\b|\bpage headings?\b[^.]{0,60}\btranslat/i,
+    catalogueCopy: false,
+  },
 };
 
 /* ------------------------------------------------------------------ *
@@ -1434,6 +1449,64 @@ describe("the translateReadingOrder subject (competitor audit #29 slice 3, 2026-
     expect(POSITIVE_COLUMN_ORDER.test(promise!)).toBe(false);
     expect(promise).toMatch(/nothing yet/);
     expect(promise).toMatch(/interleav/);
+  });
+});
+
+describe("the translatePageMap subject (competitor audit #29 slice 4, 2026-11-16)", () => {
+  /**
+   * `catalogueCopy: false`: the planted sentence below is the ONLY thing that
+   * exercises the subject (house rule 1), so it is mandatory, and so is the
+   * negative control — the shipped sentences nearest to it in words, which
+   * are about other tools, must not be members.
+   */
+  it("reaches nothing shipped today (measured: no member)", () => {
+    const members = COPY.filter((entry) =>
+      SUBJECTS.translatePageMap!.subject.test(entry.text),
+    ).map((entry) => `${entry.slug} ${entry.where}`);
+    expect(members).toEqual([]);
+  });
+
+  it("positive control: a deferral planted about page headings is caught as hedging translatePageMap", () => {
+    const planted: CopyEntry = {
+      slug: "translate-pdf",
+      where: "useCases[0].body",
+      text: "The translated PDF will soon head each page with its page number.",
+    };
+    expect(SUBJECTS.translatePageMap!.subject.test(planted.text)).toBe(true);
+    expect(
+      hedgeOffenders([planted], []).some((line) =>
+        line.includes('hedges "translatePageMap"'),
+      ),
+    ).toBe(true);
+  });
+
+  it("negative control: compare-pdf's 'headed with its page' sentences are NOT members", () => {
+    const near = COPY.filter(
+      (entry) =>
+        entry.slug === "compare-pdf" &&
+        /headed with its page/i.test(entry.text),
+    );
+    // Health: the sentences this control is about are still in the corpus.
+    expect(near.length).toBeGreaterThanOrEqual(1);
+    for (const entry of near)
+      expect(
+        SUBJECTS.translatePageMap!.subject.test(entry.text),
+        `${entry.slug} ${entry.where}`,
+      ).toBe(false);
+    // And the phrasing itself, outside any corpus.
+    expect(
+      SUBJECTS.translatePageMap!.subject.test(
+        "Each hunk is headed with its page in both files.",
+      ),
+    ).toBe(false);
+  });
+
+  it("the operations promise claims no page heading either", () => {
+    const promise = ADVERTISED_WORKER_CAPABILITIES.find(
+      (c) => c.key === "translatePageMap",
+    )?.promise;
+    expect(promise, "the operations row lost its promise").toBeDefined();
+    expect(promise).toMatch(/nothing yet/);
   });
 });
 

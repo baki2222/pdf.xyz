@@ -84,6 +84,7 @@ const SPEC = {
     translateOcr: true,
     htmlZip: true,
     translateReadingOrder: true,
+    translatePageMap: true,
     chatRetrieval: true,
   },
   release: "7.9.3",
