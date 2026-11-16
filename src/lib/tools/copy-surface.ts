@@ -178,6 +178,12 @@ export function copyFiles(): string[] {
     // Summarize's page-choice refusal at the route and the panel's rollback
     // warning (2026-11-16, slice 5): one module both sides import.
     path.join(ROOT, "src", "lib", "jobs", "summarize-pages.ts"),
+    // Translate's page-choice refusal at the route (2026-11-16, competitor
+    // audit #29 slice 6), walked from its first file.
+    path.join(ROOT, "src", "lib", "jobs", "translate-pages.ts"),
+    // The typed page text's one author, shared by Summarize's and
+    // Translate's measures (2026-11-16, slice 6): the span-limit refusal.
+    path.join(ROOT, "src", "lib", "pdf", "typed-page-spans.ts"),
     // Summarize's refusals before upload (2026-11-16, slice 5): a locked,
     // unreadable or text-less PDF, and chosen pages the PDF cannot give.
     path.join(ROOT, "src", "lib", "workers", "summarize-measure.ts"),

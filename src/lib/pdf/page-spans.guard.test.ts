@@ -69,6 +69,8 @@ describe("page spans: one formatter, used by every module that imports it", () =
       "src/lib/workers/ai/truncation.ts",
       "src/lib/jobs/summarize-pages.ts",
       "src/lib/workers/summarize-measure.ts",
+      // The typed-text author both measures share (audit #29 slice 6).
+      "src/lib/pdf/typed-page-spans.ts",
     ])
       expect(paths).toContain(known);
   });

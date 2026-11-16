@@ -3,8 +3,10 @@
  *
  * Two parties measure a selection and must get the same number: the browser,
  * which DECLARES the characters it is about to send (and is charged on that
- * declaration), and the worker, which READS them and sends them to the model.
- * Both call {@link selectExtraction}, so "charged for" and "sent" come from one
+ * declaration), and the worker, which READS them and sends them to the model
+ * — Summarize PDF's worker (`summarize/engine.ts`) and Translate PDF's
+ * (`translate/engine.ts`, competitor audit #29 slice 6) alike. All of them
+ * call {@link selectExtraction}, so "charged for" and "sent" come from one
  * function over one shape — the pdfjs extractor and `parseLayoutText` both
  * produce `ExtractedPdfText`, and both put every page, blank ones included, in
  * `pages` with its real `pageNumber`.
@@ -14,12 +16,17 @@
  * page number, and selecting "page 3" by position would read page 4 of a
  * document whose page 2 is blank.
  *
- * Pure. Browser callers reach it only through `extractSelectionOnDemand`
- * (`./selection-lazy`), so it never rides a page's first load.
+ * Pure. Browser callers reach it only through lazy modules
+ * (`extractSelectionOnDemand` in `./selection-lazy`, and the measures that
+ * import it), so it never rides a page's first load.
  */
 
 import type { PageSpan } from "./page-spans";
-import { joinPageTexts, type ExtractedPdfText } from "./text";
+import {
+  joinPageTexts,
+  type ExtractedPdfText,
+  type ExtractedTextPage,
+} from "./text";
 
 /** Whether 1-based `page` lies inside one of `spans`. */
 export function pageInSpans(page: number, spans: readonly PageSpan[]): boolean {
@@ -40,11 +47,17 @@ export function pageInSpans(page: number, spans: readonly PageSpan[]): boolean {
  * own `assembleExtraction`, which `text-reading-order.test.ts` reserves for
  * the routes; `page-selection.test.ts` holds "every page selected" equal to
  * the extraction itself on both extractors' shapes, so the two cannot drift.
+ *
+ * GENERIC over the page type (slice 6): Translate's pages carry more than
+ * text (`ReadingOrderPage.send`, the reading-order gate's verdict), and the
+ * selection keeps each page object as it is, so the richer type survives it
+ * typed, with no cast. The other fields of `extracted` are not carried: the
+ * caller spreads the result over its own extraction when it has more.
  */
-export function selectExtraction(
-  extracted: ExtractedPdfText,
+export function selectExtraction<P extends ExtractedTextPage>(
+  extracted: Omit<ExtractedPdfText, "pages"> & { readonly pages: readonly P[] },
   spans: readonly PageSpan[],
-): ExtractedPdfText {
+): Omit<ExtractedPdfText, "pages"> & { pages: P[] } {
   const pages = extracted.pages.filter((page) =>
     pageInSpans(page.pageNumber, spans),
   );
