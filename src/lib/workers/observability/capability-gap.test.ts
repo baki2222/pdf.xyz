@@ -183,6 +183,7 @@ describe("the 2026-08-12 worker, as it actually was", () => {
         docxTypefaces: true,
         translateOcr: true,
         htmlZip: true,
+        chatRetrieval: true,
         translatePdfLanguages: ["es", "bn"],
       },
     });
@@ -302,6 +303,7 @@ describe("the build fingerprint reaches the operator, or says it could not", () 
           docxTypefaces: chunked,
           translateOcr: chunked,
           htmlZip: chunked,
+          chatRetrieval: chunked,
         },
       }),
     );

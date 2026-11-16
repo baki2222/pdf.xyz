@@ -130,6 +130,16 @@ export interface WorkerStatus {
    * web tier, so merged code is not evidence; only the beat is.
    */
   translatePdfLanguages?: readonly string[];
+  /**
+   * Whether Chat with PDF chooses a longer document's pages by the question
+   * (2026-11-16, competitor audit wave 2 #30). True only when an OBSERVED
+   * heartbeat proves `chatRetrieval` (`liveWorkerSelectsChatPages`): an image
+   * built before the feature sends only the opening pages, and the image
+   * ships separately from this web tier, so merged code is not evidence.
+   * Until it reads true the chat panel says nothing about how pages are
+   * chosen. Optional: absent reads as `false`.
+   */
+  chatRetrieval?: boolean;
 }
 
 const NO_COMPRESS: CompressCapability = {
@@ -251,6 +261,11 @@ export function buildWorkerStatus(
    * The observed worker's heartbeat `translatePdfLanguages`, or absent.
    */
   workerTranslatePdfLanguages?: readonly string[],
+  /**
+   * Whether the observed worker's heartbeat proves `chatRetrieval`
+   * (`liveWorkerSelectsChatPages`).
+   */
+  workerChatRetrieval?: boolean,
 ): WorkerStatus {
   const ocr = buildOcrCapability(
     mode,
@@ -281,6 +296,7 @@ export function buildWorkerStatus(
   const htmlZip = workerObserved === true && workerHtmlZip === true;
   const translatePdfLanguages =
     workerObserved === true ? [...(workerTranslatePdfLanguages ?? [])] : [];
+  const chatRetrieval = workerObserved === true && workerChatRetrieval === true;
 
   if (mode === "local-dev") {
     const engines = DEEP_COMPRESSION_TOOLS.filter((tool) => tools?.[tool]);
@@ -303,6 +319,7 @@ export function buildWorkerStatus(
       translateOcr,
       htmlZip,
       translatePdfLanguages,
+      chatRetrieval,
     };
   }
 
@@ -325,6 +342,7 @@ export function buildWorkerStatus(
       translateOcr,
       htmlZip,
       translatePdfLanguages,
+      chatRetrieval,
     };
   }
 
@@ -349,5 +367,6 @@ export function buildWorkerStatus(
     translateOcr,
     htmlZip,
     translatePdfLanguages,
+    chatRetrieval,
   };
 }

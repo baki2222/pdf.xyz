@@ -93,6 +93,9 @@ describe("createChatWithPdfProcessor", () => {
       expect(result.meta).toMatchObject({
         provider: "anthropic",
         model: "claude-sonnet-5",
+        // Copied one by one into the flat meta, so a field the mapper skips
+        // never reaches a log line (slice 3: which text was sent).
+        selection: "whole",
       });
     }
   });

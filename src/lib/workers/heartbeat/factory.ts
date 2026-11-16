@@ -379,6 +379,26 @@ export function liveWorkerRendersHtmlZip(liveness: HeartbeatLiveness): boolean {
   return liveness.observed && liveness.capabilities?.htmlZip === true;
 }
 
+/**
+ * Does the running Chat with PDF choose a longer document's pages by the
+ * question (competitor audit wave 2 #30)? ONE pure predicate, read by
+ * `GET /api/worker/status` for the chat panel's sentence about how pages
+ * are chosen.
+ *
+ * The property is "the running image chooses pages by the question within
+ * the charged budget", not "the code is merged": an image built before the
+ * feature sends only the opening pages, and the web tier deploys first.
+ * Only a fresh, observed heartbeat carrying `chatRetrieval: true` (proven at
+ * the daemon's start-up, `chat-with-pdf/retrieval-capability.ts`) says so; a
+ * stale, absent or unreachable beat, or an older image's record (no key,
+ * parsed as false), says no.
+ */
+export function liveWorkerSelectsChatPages(
+  liveness: HeartbeatLiveness,
+): boolean {
+  return liveness.observed && liveness.capabilities?.chatRetrieval === true;
+}
+
 /** The admission gates' question, read from the broker. See {@link liveWorkerRendersHtmlZip}. */
 export async function runningWorkerRendersHtmlZip(
   env: EnvSource = process.env,

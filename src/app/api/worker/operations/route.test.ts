@@ -196,6 +196,7 @@ describe("GET /api/worker/operations — daemon liveness heartbeat (Phase 30)", 
           docxTypefaces: true,
           translateOcr: true,
           htmlZip: true,
+          chatRetrieval: true,
           translatePdfLanguages: [],
         },
         at: Date.now() - 10 * 60 * 1000, // 10 minutes old ⇒ far past the fresh window
