@@ -1720,6 +1720,9 @@ describe("the converters' pages describe the page they produce", () => {
     expect(answer).toMatch(
       /bold, italics and backtick code are set in their own faces/,
     );
+    // Scoped since the review of 2026-11-17: a document with one character
+    // outside Western European text sets bold and italics in one Noto face.
+    expect(answer).toMatch(/For Western European text, bold, italics/);
     expect(answer).not.toMatch(/Bold and italics print as plain text/);
     // Scoped since the review of markdown-to-pdf#6: a table cell's link
     // prints but has no annotation (markdown-runs.test.ts).

@@ -26,17 +26,29 @@
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { inflateSync } from "node:zlib";
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFRawStream,
+  PDFString,
+} from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { tools } from "@/lib/tools";
 import { guides } from "@/lib/guides";
 import { OVERLAY_PAGINGS } from "@/lib/pdf/offered-kinds";
+import { overlayDropHint } from "@/components/tools/runner/overlay-runner";
 import { WORD_OCR_LABEL } from "@/lib/jobs/pdf-office-export";
 import { offersOfficeOcr } from "@/lib/jobs/office-export-ocr";
 import {
   MARKDOWN_BLOCK_KINDS,
   blockRuns,
+  markdownToPdf,
   parseMarkdownBlocks,
 } from "@/lib/pdf/markdown-to-pdf";
+import { useNodeFontSource } from "@/tests/unicode-fonts";
 import { panelDispatchArms } from "@/tests/worker-panel-dispatch";
 import {
   copyFiles,
@@ -52,7 +64,7 @@ import {
   pageUseCases,
   stepText,
 } from "./page-copy";
-import { toolFacts } from "./tool-facts";
+import { MARKDOWN_SYNTAX_FACT, toolFacts } from "./tool-facts";
 
 const ROOT = process.cwd();
 
@@ -187,7 +199,9 @@ describe("the surfaces these bans read", () => {
 const OVERLAY_SHAPES: Record<string, RegExp> = {
   // The first page, stated as what lands on every page, with no mode in it.
   "its first page is applied to every page": new RegExp(
-    String.raw`\b(?:its|the overlay(?:['${APOS}]s)?)\s+first\s+page\s+is\s+(?:applied|drawn|placed|stamped|put|used)\s+(?:to|over|on|onto)\s+(?:every|each|all)\s+(?:of\s+the\s+)?pages?\b`,
+    // The verb slot is open (review 2026-11-17): "goes on" walked past a
+    // list of participles, and it is the verb the new hint itself uses.
+    String.raw`\b(?:its|the overlay(?:['${APOS}]s)?)\s+first\s+page\s+(?:is\s+\w+|goes|sits|lands|appears|repeats|prints|shows)\s+(?:to|over|on|onto|across)\s+(?:every|each|all)\s+(?:of\s+the\s+)?pages?\b`,
     "i",
   ),
 };
@@ -198,11 +212,15 @@ const OVERLAY_SHIPPED = [
   "Yes. Save it as a PDF and add it as the overlay: its first page is drawn over every page of your document.",
   // A respelling the shape must catch too (a synonym walks past a string).
   "The overlay's first page is placed on each page.",
+  // The respelling that passed the participle list (review 2026-11-17).
+  "Yes. Save it as a PDF and add it as the overlay: its first page goes on every page of your document.",
 ];
 
 /** Honest sentences beside it: a MODE's own hint, a one-page overlay. */
 const OVERLAY_HONEST = [
   OVERLAY_PAGINGS.find((p) => p.id === "repeat")!.hint,
+  // The drop zone's hint as it ships: "A one-page overlay goes on every page".
+  overlayDropHint(),
   "A one-page overlay is drawn over every page of your document, or only the pages you list.",
   "Under Pages, choose Selected pages and type 1: only the first page gets the letterhead.",
 ];
@@ -210,6 +228,9 @@ const OVERLAY_HONEST = [
 describe("Overlay PDF does not say its first page goes on every page", () => {
   it("the shapes catch every sentence that shipped, and no honest one", () => {
     expect(OVERLAY_PAGINGS.find((p) => p.id === "repeat")).toBeDefined();
+    // Health: the hint really uses the open verb, so "not caught" means
+    // something (its subject is a one-page overlay, not "its first page").
+    expect(overlayDropHint()).toMatch(/\bgoes on every page\b/);
     expectCorpus(OVERLAY_SHAPES, OVERLAY_SHIPPED, OVERLAY_HONEST);
   });
 
@@ -399,6 +420,69 @@ const SAMPLE = [
   "| [cell link](https://example.com/c) | x |",
 ].join("\n");
 
+/** Every /Link /URI annotation's address in the PDF. */
+async function linkUris(bytes: Uint8Array): Promise<string[]> {
+  const doc = await PDFDocument.load(bytes);
+  return doc.getPages().flatMap((page) => {
+    const annots = page.node.lookup(PDFName.of("Annots"));
+    if (!(annots instanceof PDFArray)) return [];
+    return annots.asArray().flatMap((ref) => {
+      const annot = doc.context.lookup(ref);
+      if (!(annot instanceof PDFDict)) return [];
+      const action = annot.lookup(PDFName.of("A"));
+      const uri =
+        action instanceof PDFDict ? action.lookup(PDFName.of("URI")) : null;
+      return uri instanceof PDFString ? [uri.decodeText()] : [];
+    });
+  });
+}
+
+/**
+ * The faces (each font resource's /BaseFont) page 1 draws BODY text in: the
+ * Tf operators at the size most of them use. The title and page number are
+ * set at other sizes, and the resource names carry a random suffix per embed,
+ * so neither is counted.
+ */
+async function bodyFaces(bytes: Uint8Array): Promise<Set<string>> {
+  const doc = await PDFDocument.load(bytes);
+  const page = doc.getPages()[0]!;
+  const fonts = page.node.Resources()?.lookup(PDFName.of("Font"));
+  const contents = page.node.lookup(PDFName.of("Contents"));
+  const streams =
+    contents instanceof PDFArray
+      ? contents.asArray().map((ref) => doc.context.lookup(ref))
+      : [contents];
+  const ops = streams
+    .map((stream) => {
+      if (!(stream instanceof PDFRawStream)) return "";
+      const raw = stream.getContents();
+      const filter = stream.dict.lookup(PDFName.of("Filter"));
+      return Buffer.from(
+        filter === PDFName.of("FlateDecode") ? inflateSync(raw) : raw,
+      ).toString("latin1");
+    })
+    .join("\n");
+  const selects = [...ops.matchAll(/\/([^\s/]+)\s+([\d.]+)\s+Tf\b/g)].map(
+    (m) => ({ name: m[1]!, size: m[2]! }),
+  );
+  const tally = new Map<string, number>();
+  for (const s of selects) tally.set(s.size, (tally.get(s.size) ?? 0) + 1);
+  const body = [...tally].sort((a, b) => b[1] - a[1])[0]?.[0];
+  return new Set(
+    selects
+      .filter((s) => s.size === body)
+      .map((s) => {
+        const font =
+          fonts instanceof PDFDict ? fonts.lookup(PDFName.of(s.name)) : null;
+        const base =
+          font instanceof PDFDict ? font.lookup(PDFName.of("BaseFont")) : null;
+        // A missing face is a broken read, not a face: fail loudly.
+        if (!(base instanceof PDFName)) throw new Error(`no font ${s.name}`);
+        return base.decodeText();
+      }),
+  );
+}
+
 describe("Markdown to PDF's catalogue line says what the renderer draws", () => {
   const line = tools.find((t) => t.slug === "markdown-to-pdf")!.description;
   const blocks = parseMarkdownBlocks(SAMPLE);
@@ -422,26 +506,43 @@ describe("Markdown to PDF's catalogue line says what the renderer draws", () => 
       code: "code",
       tables: "table",
     };
-    for (const [word, kind] of Object.entries(named)) {
-      expect(line, `the line names ${word}`).toMatch(
-        new RegExp(`\\b${word}\\b`),
+    /**
+     * The block words missing from the LIST, the text between the colon and
+     * the sentence's full stop. Not the whole line: "except in tables" later
+     * on it satisfied a whole-line match with "tables" dropped from the list.
+     */
+    const missing = (text: string) => {
+      const colon = text.indexOf(":");
+      const list = text.slice(colon + 1, text.indexOf(".", colon));
+      return Object.keys(named).filter(
+        (word) => !new RegExp(`\\b${word}\\b`).test(list),
       );
+    };
+    expect(line.indexOf(":")).toBeGreaterThan(0);
+    expect(missing(line)).toEqual([]);
+    for (const kind of Object.values(named)) {
       expect(MARKDOWN_BLOCK_KINDS).toContain(kind);
       expect(kinds.has(kind), `the parser made no ${kind}`).toBe(true);
     }
+    // Negative control (review 2026-11-17): "tables" dropped from the list,
+    // while "except in tables" stays on the line.
+    const mutated = line.replace("code and tables.", "code and rules.");
+    expect(mutated, "the mutation did not land").not.toBe(line);
+    expect(mutated).toMatch(/except in tables/);
+    expect(missing(mutated)).toEqual(["tables"]);
   });
 
-  it("web links open outside tables and only print inside them, as the line says", () => {
+  it("web links open outside tables and only print inside them, as the line says", async () => {
     expect(line).toMatch(/\bWeb links open when clicked, except in tables\b/);
-    const paragraph = blocks.find((b) => b.kind === "paragraph")!;
-    const heading = blocks.find((b) => b.kind === "heading")!;
-    const table = blocks.find((b) => b.kind === "table")!;
-    const hrefs = (b: (typeof blocks)[number]) =>
-      (blockRuns(b) ?? []).map((r) => r.href).filter(Boolean);
-    expect(hrefs(paragraph)).toEqual(["https://example.com/p"]);
-    expect(hrefs(heading)).toEqual(["https://example.com/h"]);
+    // Read from the PDF, not the parser: table blocks carry no runs at all,
+    // so a parser-level check of a cell's link could never go red.
+    const uris = await linkUris(await markdownToPdf(SAMPLE));
+    expect(uris).toContain("https://example.com/p");
+    expect(uris).toContain("https://example.com/h");
     // The day a cell's link opens, "except in tables" is the stale claim.
-    expect(hrefs(table)).toEqual([]);
+    expect(uris).not.toContain("https://example.com/c");
+    // Health: the cell's address is in the sample, so its absence is earned.
+    expect(SAMPLE).toContain("](https://example.com/c)");
   });
 
   it("does not promise bold or italics, which a non-Western document loses", () => {
@@ -452,5 +553,73 @@ describe("Markdown to PDF's catalogue line says what the renderer draws", () => 
     // ...but the line stays clear of them: one character outside Western
     // European text sets the whole PDF in one Noto face, no bold, no oblique.
     expect(line).not.toMatch(/\bbold\b|\bitalic/i);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  Markdown to PDF: "bold, italics and backtick code are set in their
+ *  own faces" is true of Western European text only (review 2026-11-17)
+ * ------------------------------------------------------------------ */
+
+const MARKDOWN_FACES_SHAPES: Record<string, RegExp> = {
+  // A sentence that sets bold in its own face and names no scope.
+  "bold is set in its own face, for any text": new RegExp(
+    String.raw`(?:^|[.!?]\s+)(?![^.!?]*\bWestern European\b)[^.!?]*\bbold\b[^.!?]*\bset\s+in\s+(?:their\s+own\s+faces|the\s+bold\s+face)\b`,
+    "i",
+  ),
+};
+
+/** What shipped until the review, verbatim. */
+const MARKDOWN_FACES_SHIPPED = [
+  // MARKDOWN_SYNTAX_FACT (facts, FAQ, guide section).
+  "Headings, paragraphs and tables. In paragraphs, list items and quotes, bold, italics and backtick code are set in their own faces. A link keeps its address in parentheses.",
+  // The tool page's section body.
+  "This is a clean document renderer, not a GitHub-style web page engine. In paragraphs, list items and quotes, bold text is set in the bold face, italics in the oblique face, and backtick code in the monospaced face on a light grey wash; text that is both bold and italic is set in the bold face, and headings and table cells keep their one face.",
+];
+
+const MARKDOWN_FACES_HONEST = [
+  MARKDOWN_SYNTAX_FACT,
+  "One character outside that set moves the body text to a single regular-weight Noto face: headings then differ by size only, quotes are upright, and inline bold and italics print in that same face.",
+  "This is a clean document renderer. For Western European text, in paragraphs, list items and quotes, bold text is set in the bold face, italics in the oblique face.",
+];
+
+describe("Markdown to PDF scopes its bold and italic faces to Western European text", () => {
+  it("the shapes catch every sentence that shipped, and no honest one", () => {
+    expectCorpus(
+      MARKDOWN_FACES_SHAPES,
+      MARKDOWN_FACES_SHIPPED,
+      MARKDOWN_FACES_HONEST,
+    );
+  });
+
+  it("no served string or walked file says it", () => {
+    // Health: the sentence is served, on the tool page and on its guide.
+    const served = SERVED.filter((e) => e.text.includes(MARKDOWN_SYNTAX_FACT));
+    expect(served.some((e) => e.slug === "markdown-to-pdf")).toBe(true);
+    expect(served.some((e) => e.slug.startsWith("guide:"))).toBe(true);
+    expect(offenders(MARKDOWN_FACES_SHAPES, SERVED, SOURCES)).toEqual([]);
+  });
+
+  it("the PDF agrees: bold and italics get faces of their own only while the text is Western European", async () => {
+    const restore = useNodeFontSource();
+    try {
+      const faces = async (text: string) =>
+        (await bodyFaces(await markdownToPdf(text))).size;
+      const styled = "Plain **heavy** and *slanted* and `mono` end.";
+      const bare = "Plain heavy and slanted and `mono` end.";
+      // Western European: bold and italics add two faces to the body text
+      // and code (positive control).
+      expect(await faces(bare)).toBe(2);
+      expect(await faces(styled)).toBe(4);
+      // One Polish letter: they add none, as the page's FAQ says.
+      const z = String.fromCodePoint(0x017c);
+      const withZ = (text: string) => text.replace("Plain", `Plain${z}`);
+      expect(withZ(styled)).not.toBe(styled);
+      // Health: a read that found no faces would make 0 - 0 a pass.
+      expect(await faces(withZ(bare))).toBeGreaterThan(0);
+      expect((await faces(withZ(styled))) - (await faces(withZ(bare)))).toBe(0);
+    } finally {
+      restore();
+    }
   });
 });
