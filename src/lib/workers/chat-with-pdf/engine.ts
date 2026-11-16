@@ -633,7 +633,8 @@ export async function runChatWithPdf(
     // stable head (the rules, then the anchor pages, which come first because
     // pages go in page order). On Anthropic it avoids a write premium per
     // question. The token ceiling counts cached and fresh input alike, so
-    // this cannot move it.
+    // this cannot move it (held by `ai-spend-ceiling.test.ts`, "the token
+    // ceiling counts every input class at full weight").
     cacheSystem: selection !== "relevance",
     maxOutputTokens,
     // Deterministic, factual question-answering: no creative sampling.
