@@ -39,6 +39,13 @@ import { useToolHandoff } from "./use-tool-handoff";
 import { TextSourceNotes } from "./text-source-notes";
 import { decodeTextFile, describeDecoding } from "@/lib/text/decode-text-file";
 import { monospaceClaimSentence } from "@/lib/pdf/font-packs";
+import {
+  DEFAULT_TEXT_PAGE_OPTIONS,
+  TEXT_PAGE_SIZES,
+  type TextPageOptions,
+} from "@/lib/pdf/text-page-options";
+import { TextPageSetup } from "./text-page-setup";
+import { regionalChoice, useRegionalPaper } from "../use-regional-paper";
 
 /** One owner for the in-browser source cap: the check and the copy both derive. */
 
@@ -53,8 +60,12 @@ import { monospaceClaimSentence } from "@/lib/pdf/font-packs";
  * sentence is checked for any category the face only partly draws
  * (`text-to-pdf-claim.test.tsx`). The title — the file name — shares the body
  * font, so it is named too.
+ *
+ * It opened "Paginated Letter-size PDF." until 2026-11-16, when the page got
+ * a size choice (audit backlog #5); the sizes are now read from the chips'
+ * own table, so the sentence names what the chips offer.
  */
-const MONOSPACE_CLAIM = `Paginated Letter-size PDF. ${monospaceClaimSentence()} Other characters, in the text or its file name, can move the whole document to a proportional Noto face.`;
+const MONOSPACE_CLAIM = `Paginated PDF on ${new Intl.ListFormat("en", { type: "disjunction" }).format(TEXT_PAGE_SIZES.map((s) => s.label))} pages. ${monospaceClaimSentence()} Other characters, in the text or its file name, can move the whole document to a proportional Noto face.`;
 
 /**
  * Two or more text files: the batch (batch plan P2), one PDF per file, its
@@ -99,6 +110,25 @@ export function TextToPdfRunner() {
     files: File[];
     handedOver: boolean;
   } | null>(null);
+  // Page setup, one for the editor and the batch. The paper starts on the
+  // browser region's (A4, or Letter in a Letter country) until a chip is
+  // pressed; orientation and text size start on the page this tool always
+  // drew (`DEFAULT_TEXT_PAGE_OPTIONS`).
+  const regional = useRegionalPaper();
+  const [chosen, setChosen] = useState<Partial<TextPageOptions>>({});
+  const page = useMemo<TextPageOptions>(
+    () => ({
+      ...DEFAULT_TEXT_PAGE_OPTIONS,
+      pageSize: regionalChoice(TEXT_PAGE_SIZES, regional),
+      ...chosen,
+    }),
+    [regional, chosen],
+  );
+  const choosePage = useCallback(
+    (next: Partial<TextPageOptions>) =>
+      setChosen((current) => ({ ...current, ...next })),
+    [],
+  );
 
   const readTextFile = useCallback(async (file: File) => {
     if (!isLikelyTextFile(file)) {
@@ -158,6 +188,8 @@ export function TextToPdfRunner() {
         files={many.files}
         onReset={resetMany}
         onSingle={narrowTo}
+        page={page}
+        onPage={choosePage}
         arrival={
           many.handedOver && handoff.status === "ready"
             ? { origin: handoff.origin, skipped: handoff.skipped }
@@ -187,6 +219,8 @@ export function TextToPdfRunner() {
         }
         loadError={loadError}
         onClearError={() => setLoadError(null)}
+        page={page}
+        onPage={choosePage}
       />
     </div>
   );
@@ -199,6 +233,8 @@ function TextToPdfEditor({
   onFile,
   loadError,
   onClearError,
+  page,
+  onPage,
 }: {
   boxId: string;
   source: TextSource;
@@ -206,6 +242,8 @@ function TextToPdfEditor({
   onFile: (files: File[]) => void;
   loadError: string | null;
   onClearError: () => void;
+  page: TextPageOptions;
+  onPage: (next: Partial<TextPageOptions>) => void;
 }) {
   const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
   const characterCount = source.text.length;
@@ -223,7 +261,10 @@ function TextToPdfEditor({
 
   const onRun = () =>
     run(() =>
-      textToPdf(source.text, { title: source.name.replace(/\.[^/.]+$/, "") }),
+      textToPdf(source.text, {
+        ...page,
+        title: source.name.replace(/\.[^/.]+$/, ""),
+      }),
     );
 
   if (result) {
@@ -300,6 +341,8 @@ function TextToPdfEditor({
           />
         </div>
       </RunnerSection>
+
+      <TextPageSetup value={page} onChange={onPage} disabled={busy} />
 
       {loadError && <ErrorNote message={loadError} />}
       {error && <ErrorNote message={error} />}

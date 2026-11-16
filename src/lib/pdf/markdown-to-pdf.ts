@@ -5,7 +5,7 @@ import { PdfEngineError } from "./engine";
 import { embedDrawingFont } from "./unicode-font";
 import { TEXT_PAGE_MARGIN_PT, US_LETTER_PT } from "./page-geometry";
 import { MARKDOWN_BLOCK_KINDS } from "./markdown-blocks";
-import { wrapTextLine } from "./text-to-pdf";
+import { wrapTextLine } from "./text-wrap";
 import {
   BOLD,
   CODE,
