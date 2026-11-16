@@ -220,6 +220,7 @@ import {
   targetOutcome,
 } from "@/lib/pdf/compress-target";
 import { MB, sizeLabel } from "@/lib/pdf/size-presets";
+import { decimalBytes, portalSafeKb } from "@/lib/pdf/size-targets";
 import {
   LIMIT_EXAMPLE,
   LIMIT_TIME_BUDGET_MS,
@@ -406,8 +407,6 @@ const TARGET_DEFAULT_QUALITY_LABEL = (() => {
   if (!preset) throw new Error("the guide's default Quality is not offered");
   return preset.label;
 })();
-/** A whole-KB target under 100,000 bytes, for a portal that counts KB as 1,000. */
-const PORTAL_SAFE_100_KB = Math.floor(100_000 / KB_BYTES);
 /**
  * A size people search for that is not a preset (2 MB), by label and as the
  * Custom box takes it, in whole KB.
@@ -4428,7 +4427,7 @@ export const guides: Guide[] = [
         id: "how-big-is-a-kb",
         heading: "How big is 100 KB, here and on the form you are filling in",
         body: [
-          `On this page 1 KB is ${KB_BYTES.toLocaleString("en-US")} bytes, so a ${TARGET_PRESET_100} target means at most ${(100 * KB_BYTES).toLocaleString("en-US")} bytes — the same unit every size on the page is shown in. Some upload portals count 1 KB as 1,000 bytes instead. If yours does, and is strict, choose “${TARGET_SIZE_LABELS.custom}” and enter ${PORTAL_SAFE_100_KB} KB, which is under 100,000 bytes.`,
+          `On this page 1 KB is ${KB_BYTES.toLocaleString("en-US")} bytes, so a ${TARGET_PRESET_100} target means at most ${(100 * KB_BYTES).toLocaleString("en-US")} bytes — the same unit every size on the page is shown in. Some upload portals count 1 KB as 1,000 bytes instead. If yours does, and is strict, choose “${TARGET_SIZE_LABELS.custom}” and enter ${portalSafeKb(100 * KB_BYTES)} KB, which is under ${decimalBytes(100 * KB_BYTES).toLocaleString("en-US")} bytes.`,
           "The file usually comes back a little under your target rather than exactly on it, because the server stops at the first version that fits.",
         ],
       },
@@ -4527,7 +4526,7 @@ export const guides: Guide[] = [
         id: "how-big-is-a-kb",
         heading: "How big is 100 KB, here and on the form",
         body: [
-          `On this page 1 KB is ${KB_BYTES.toLocaleString("en-US")} bytes, so a ${LIMIT_100} limit means at most ${(100 * KB_BYTES).toLocaleString("en-US")} bytes — the same unit every size on the page is shown in. Some application portals count 1 KB as 1,000 bytes instead. If yours does, and is strict, choose “${MAX_SIZE_LABELS.custom}” and enter ${PORTAL_SAFE_100_KB} KB, which is under 100,000 bytes.`,
+          `On this page 1 KB is ${KB_BYTES.toLocaleString("en-US")} bytes, so a ${LIMIT_100} limit means at most ${(100 * KB_BYTES).toLocaleString("en-US")} bytes — the same unit every size on the page is shown in. Some application portals count 1 KB as 1,000 bytes instead. If yours does, and is strict, choose “${MAX_SIZE_LABELS.custom}” and enter ${portalSafeKb(100 * KB_BYTES)} KB, which is under ${decimalBytes(100 * KB_BYTES).toLocaleString("en-US")} bytes.`,
           "The PDF usually comes back a little under your limit rather than exactly on it, because the first version that fits is the one kept.",
         ],
       },
