@@ -646,7 +646,6 @@ describe("copy reach: every file that holds words for a reader is walked, or rec
           "src/lib/workers/queue/redis.ts",
           "src/lib/workers/soundness/types.ts",
           "src/lib/workers/storage/s3.ts",
-          "src/lib/workers/summarize-client.ts",
           "src/lib/workers/table-extract/engine.ts",
           "src/lib/workers/translate/chunking.ts",
         ],
@@ -817,8 +816,13 @@ describe("copy reach: every file that holds words for a reader is walked, or rec
      * record. Its report moved to the walked runner root
      * (`runner/compare/report.ts`) and its refusal to the walked
      * `src/lib/pdf/compare/` root (audit compare-pdf#4).
+     *
+     * Lowered to 163 on 2026-11-16: `src/lib/workers/summarize-client.ts`
+     * left the record. Its pre-upload refusals moved to
+     * `summarize-measure.ts` (Summarize's chosen pages, slice 5), which is
+     * in copyFiles(), so the guards now read them.
      */
-    const OUTSIDE_THE_WALK_CEILING = 164;
+    const OUTSIDE_THE_WALK_CEILING = 163;
 
     /**
      * Identity language a recorded module may hold, each with the reason, as

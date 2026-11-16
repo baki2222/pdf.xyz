@@ -178,6 +178,9 @@ export function copyFiles(): string[] {
     // Summarize's page-choice refusal at the route and the panel's rollback
     // warning (2026-11-16, slice 5): one module both sides import.
     path.join(ROOT, "src", "lib", "jobs", "summarize-pages.ts"),
+    // Summarize's refusals before upload (2026-11-16, slice 5): a locked,
+    // unreadable or text-less PDF, and chosen pages the PDF cannot give.
+    path.join(ROOT, "src", "lib", "workers", "summarize-measure.ts"),
     // The pdf.js board's page limit as the reader:'pdfjs' tool pages state it
     // (2026-11-10), beside the constant the guard enforces.
     path.join(ROOT, "src", "lib", "pdf", "pdfjs-board-limit.ts"),
