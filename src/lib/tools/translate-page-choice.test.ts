@@ -257,6 +257,25 @@ describe("Translate PDF advertises choosing pages (slice 7)", () => {
     ])
       expect(s).not.toMatch(/\b(?:tomorrow|midnight|tonight|next day)\b/i);
   });
+
+  it("never says one reset finishes the rest: a long document needs several", () => {
+    // History: the branch first served "...and translate the rest after the
+    // allowance resets." A document over twice the allowance does not fit
+    // after one reset.
+    const ONE_RESET = /\bthe rest after the allowance resets\b/i;
+    expect(
+      "You can choose which pages to translate instead, and translate the rest after the allowance resets.",
+    ).toMatch(ONE_RESET);
+    const served = translateSurfaces(COPY).flatMap((e) =>
+      sentencesOf(e.text).filter((s) => ONE_RESET.test(s)),
+    );
+    expect(served).toEqual([]);
+    expect(
+      translateSurfaces(COPY).some((e) =>
+        e.text.includes(TRANSLATE_OVER_ALLOWANCE_REMEDY),
+      ),
+    ).toBe(true);
+  });
 });
 
 /* ------------------------------------------------------------------ *

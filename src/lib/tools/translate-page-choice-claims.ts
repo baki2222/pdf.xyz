@@ -57,7 +57,7 @@ export const TRANSLATE_PAGE_CHOICE_SHIPPED: readonly {
 }[] = [
   {
     at: "translate-pdf intro[2], faq (How much of my PDF...); guide sections[1], faq[0], faq[4]",
-    sentence: `You can ${TRANSLATE_PAGE_CHOICE} instead, and translate the rest after the allowance resets.`,
+    sentence: `You can ${TRANSLATE_PAGE_CHOICE} instead, and translate more pages each time the allowance resets.`,
   },
   {
     at: "translate-pdf intro[2], faq (Can I translate only some pages?); guide sections[1]",

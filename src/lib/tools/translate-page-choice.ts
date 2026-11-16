@@ -53,8 +53,10 @@
  * `translate-worker-panel.tsx`), which is why {@link TRANSLATE_PAGES_NEED_TEXT}
  * travels with the phrase wherever a reader may meet it alone. Never a
  * refill TIME: the allowance is a fixed window from its first charge, not a
- * calendar day, so the remedy says "after the allowance resets", the word
- * `AI_ALLOWANCE_FACT` already uses, and never "tomorrow" or "at midnight".
+ * calendar day, so the remedy says "each time the allowance resets", the
+ * word `AI_ALLOWANCE_FACT` already uses, and never "tomorrow" or "at
+ * midnight". Never that one reset is enough for "the rest": a document over
+ * twice the allowance needs several.
  * Never that choosing a page helps a page longer than one pass: it does not,
  * and the copy that says so is untouched. The shapes, the served sentences
  * and the surfaces that must carry it are pinned in
@@ -79,6 +81,7 @@ export const TRANSLATE_ONLY_CHOSEN_PAGES =
 
 /**
  * The remedy for a document over what the allowance has left, where the
- * split-first advice used to sit. "After the allowance resets": see above.
+ * split-first advice used to sit. "Each time the allowance resets": see
+ * above.
  */
-export const TRANSLATE_OVER_ALLOWANCE_REMEDY = `You can ${TRANSLATE_PAGE_CHOICE} instead, and translate the rest after the allowance resets.`;
+export const TRANSLATE_OVER_ALLOWANCE_REMEDY = `You can ${TRANSLATE_PAGE_CHOICE} instead, and translate more pages each time the allowance resets.`;
