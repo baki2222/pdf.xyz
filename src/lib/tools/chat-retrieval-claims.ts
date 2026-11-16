@@ -44,10 +44,13 @@
  * ({@link CHAT_RETRIEVAL_OVERCLAIMS}): every page read. Nothing may say the
  * right page is always found either, but the product never shipped such a
  * sentence, so per rule 1 that is held by a REQUIRED limit rather than by a
- * shape with an invented exemplar: the page that claims selection must say
- * that matching is by words and can miss ({@link CHAT_SELECTION_LIMIT}). The
- * sentences slice 3 wrote are kept in {@link CHAT_RETRIEVAL_SLICE3_HEDGES},
- * and their test now asserts they are no longer served.
+ * shape with an invented exemplar: every ENTRY that claims selection (not
+ * merely its page: the tool-facts answer also ships alone, as FAQ JSON-LD)
+ * must say that matching is by words and can miss
+ * ({@link CHAT_SELECTION_LIMIT}). The sentences slice 3 wrote are kept in
+ * {@link CHAT_RETRIEVAL_SLICE3_HEDGES}, and the unconditional clause slice 4
+ * first shipped in {@link CHAT_PAGE_SELECTION_UNCONDITIONAL}; their tests
+ * assert they are no longer served.
  *
  * ── RULE 1, BOTH DIRECTIONS ─────────────────────────────────────────────────
  *
@@ -89,7 +92,10 @@ import {
 } from "@/lib/workers/ai/truncation";
 import { chatRelevanceNotice } from "@/lib/workers/chat-with-pdf/relevance-notice";
 import type { RelevanceSource } from "@/lib/pdf/page-retrieval";
-import { CHAT_PAGE_SELECTION } from "./chat-page-selection";
+import {
+  CHAT_PAGE_SELECTION,
+  CHAT_SELECTION_MISS,
+} from "./chat-page-selection";
 
 /**
  * The sentence of chat's relevance model notice that says how the pages were
@@ -135,11 +141,15 @@ export interface ChatRetrievalShape {
 
 export const CHAT_RETRIEVAL_SHAPES: readonly ChatRetrievalShape[] = [
   {
-    name: "shares the most … words",
+    name: "shares the most / enough … words",
     role: "required",
     // Rewritten from the design's `share(s)? the most words` to match the
     // gated line as worded ("share the most of its less common words").
-    pattern: /\bshares? the most\b[^.]*\bwords\b/i,
+    // Widened 2026-11-16 (review) to "share enough": the static clause became
+    // conditional, because the selector sends only the opening pages when no
+    // page shares enough of the question's words (the coverage gate and the
+    // no-signal fallback). The gated panel line still says "the most".
+    pattern: /\bshares? (?:the most|enough)\b[^.]*\bwords\b/i,
     shipped: [
       {
         text: "For a longer file, each question is sent the opening pages and the pages that share the most of its less common words.",
@@ -300,6 +310,40 @@ export const CHAT_RETRIEVAL_SLICE3_HEDGES: readonly {
 ];
 
 /**
+ * HISTORY, inverted not deleted (review, 2026-11-16). The clause slice 4
+ * first shipped (39405f42) said every longer-file question is sent "the
+ * opening pages and the pages that share the most of the question's less
+ * common words", with no condition. The worker sends ONLY the opening pages
+ * when the coverage gate (`CHAT_RETRIEVAL_MIN_COVERAGE`, "low-coverage") or
+ * the no-signal fallback fires, so the clause was false in those states. It
+ * is now conditional (`chatPageSelection`); neither the clause nor any of
+ * the sentences it was served in may be served again.
+ */
+export const CHAT_PAGE_SELECTION_UNCONDITIONAL = {
+  clause:
+    "the opening pages and the pages that share the most of the question's less common words",
+  sentences: [
+    {
+      text: "For a longer file, each question is sent the opening pages and the pages that share the most of the question's less common words, within that limit, and a notice above the answer says that only part of it was read, naming the pages when it can.",
+      source: "39405f42:src/lib/tools/content/chat-with-pdf.ts intro[1]",
+    },
+    {
+      text: "A longer file is sent the opening pages and the pages that share the most of the question's less common words.",
+      source:
+        "39405f42:src/lib/tools/content/chat-with-pdf.ts, the reading FAQ",
+    },
+    {
+      text: "When a file is longer than that, each question is sent the opening pages and the pages that share the most of the question's less common words.",
+      source: "39405f42:src/lib/guides/catalog.ts, the chat guide",
+    },
+    {
+      text: "The document gets what the conversation leaves; a longer one is sent the opening pages and the pages that share the most of the question's less common words, and a notice above the answer says that only part of it was read, naming the pages when it can, rather than treating the rest as absent.",
+      source: "39405f42:src/lib/tools/tool-facts.ts, the chat read FAQ",
+    },
+  ],
+} as const;
+
+/**
  * The REQUIRED row (slice 4): the static page-selection claim's shape,
  * which is also the panel line's. Wherever the static copy says the notice
  * reports that only part was read ({@link CHAT_NOTICE_CLAIM}), the same entry
@@ -320,9 +364,10 @@ export const CHAT_RETRIEVAL_OVERCLAIMS: readonly ChatRetrievalShape[] =
 export const CHAT_NOTICE_CLAIM = /\bnaming the pages when it can\b/;
 
 /**
- * The honest limit the page that claims selection must carry: matching is
- * by words, so a question in other words can miss the page. Both shipped
- * spellings are its exemplars (rule 1, direction A, in the test).
+ * The honest limit every ENTRY that claims selection must carry (since
+ * review, 2026-11-16; before, once per page): matching is by words, so a
+ * question in other words can miss the page. Every shipped spelling is an
+ * exemplar (rule 1, direction A, in the test).
  */
 export const CHAT_SELECTION_LIMIT: ChatRetrievalShape = {
   name: "matching by words can miss",
@@ -338,6 +383,11 @@ export const CHAT_SELECTION_LIMIT: ChatRetrievalShape = {
     {
       text: "The match is by words, so a question worded differently from the document can miss the page it needs.",
       source: "slice 4: src/lib/guides/catalog.ts, the chat guide",
+    },
+    {
+      text: CHAT_SELECTION_MISS,
+      source:
+        "review 2026-11-16: CHAT_SELECTION_MISS, the chat intro, the tool-facts read answer and the chat guide",
     },
   ],
 };

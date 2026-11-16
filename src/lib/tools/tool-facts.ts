@@ -76,7 +76,10 @@ import {
   MAX_EXTRACTION_FIELDS,
 } from "@/lib/jobs/ai-extract";
 import { MAX_CONTEXT_EXCHANGES } from "@/lib/workers/chat-with-pdf-conversation";
-import { CHAT_PAGE_SELECTION } from "./chat-page-selection";
+import {
+  CHAT_PAGE_SELECTION,
+  CHAT_SELECTION_MISS,
+} from "./chat-page-selection";
 import { IMAGE_HEAVY_SHARE, LOSSLESS_MIN_RATIO } from "@/lib/pdf/analyze";
 import { buildSplitParts } from "@/lib/pdf/split-parts";
 import {
@@ -2267,7 +2270,7 @@ export function factFaq(tool: Tool): readonly ToolFaqEntry[] {
       const sparse = aiReadPagesAtSparsest(tool.slug);
       entries.push({
         question: `How much of my PDF does ${tool.name} read?`,
-        answer: `Up to ${read.toLocaleString("en-US")} characters for each question, the question and the conversation sent with it included — roughly ${dense} ${pluralPages(dense)} of dense text, or about ${sparse} of sparsely-set pages. The document gets what the conversation leaves; a longer one is sent ${CHAT_PAGE_SELECTION}, and a notice above the answer says that only part of it was read, naming the pages when it can, rather than treating the rest as absent.`,
+        answer: `Up to ${read.toLocaleString("en-US")} characters for each question, the question and the conversation sent with it included — roughly ${dense} ${pluralPages(dense)} of dense text, or about ${sparse} of sparsely-set pages. The document gets what the conversation leaves; a longer one is sent ${CHAT_PAGE_SELECTION}, and a notice above the answer says that only part of it was read, naming the pages when it can, rather than treating the rest as absent. ${CHAT_SELECTION_MISS}`,
       });
     } else {
       // One run's read, derived from the route's pricing and the processor's

@@ -503,12 +503,13 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     // the chat reading sentences". catalogueCopy is true because those exist.
     //
     // Slice 4 (2026-11-16): the static copy now SAYS how pages are chosen
-    // ("share the most of the question's less common words"), so that shape
+    // ("share the most of the question's less common words"; since review,
+    // conditional: "when some pages share enough of …"), so that shape
     // is in the subject: the claim is read as a claim about this key. See
     // "the static page-selection claim is a member of its capability's
     // subject".
     subject:
-      /\bhow far into the document\b|\bread up to that point\b|\bpages? that (?:were|was) read\b|\bwhich page it reached\b|\bHow much of my PDF does Chat with PDF read\b|\bpages? (?:are|is) chosen\b|\bonly part (?:of (?:it|the document) )?was read\b|\bshares? the most\b[^.?!]*\bwords\b/i,
+      /\bhow far into the document\b|\bread up to that point\b|\bpages? that (?:were|was) read\b|\bwhich page it reached\b|\bHow much of my PDF does Chat with PDF read\b|\bpages? (?:are|is) chosen\b|\bonly part (?:of (?:it|the document) )?was read\b|\bshares? (?:the most|enough)\b[^.?!]*\bwords\b/i,
     catalogueCopy: true,
   },
   translatePdfLanguages: {
@@ -893,8 +894,13 @@ describe("catalogue copy may not hedge a worker capability", () => {
     // (`CHAT_PAGE_SELECTION_CAPABILITY`, `chatRetrieval`): the key is on the
     // wire, and EVERY sentence carrying the claim, read alone, is in that
     // key's subject, so the no-hedge rule and any later reader of the
-    // subject see it as a claim about the key. CI makes the built image
-    // prove the key (`src/deploy/worker-chat-retrieval-proof.test.ts`).
+    // subject see it as a claim about the key. `WIRE_KEYS` is derived from
+    // this tree's source, NOT read from production: this ties the copy to
+    // the key's name only. CI makes images it BUILDS prove the key
+    // (`src/deploy/worker-chat-retrieval-proof.test.ts`); the live bound is
+    // the operator's deploy verification, which reads production
+    // `/api/worker/status` and fails unless `chatRetrieval` is true, and
+    // lives outside this repo (see `src/lib/tools/chat-page-selection.ts`).
     const key = CHAT_PAGE_SELECTION_CAPABILITY;
     expect(WIRE_KEYS).toContain(key);
     const subject = SUBJECTS[key]?.subject;

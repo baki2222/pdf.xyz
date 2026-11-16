@@ -17,24 +17,32 @@
  * ── THE SECOND BOUND (house rule 5) ─────────────────────────────────────────
  *
  * What can make this claim stale is a FUTURE worker image without the
- * behaviour. Two checks bind the claim to the heartbeat key
- * {@link CHAT_PAGE_SELECTION_CAPABILITY}, the boolean the worker publishes
- * only after proving page selection on its own pdftotext:
+ * behaviour. The heartbeat key {@link CHAT_PAGE_SELECTION_CAPABILITY} is the
+ * boolean a worker publishes only after proving page selection on its own
+ * pdftotext. What each check here does and does NOT cover:
  *
  *  - `src/lib/tools/capability-hedges.test.ts`, "the static page-selection
  *    claim is a member of its capability's subject": every served sentence
  *    carrying this clause is matched by the `chatRetrieval` subject, so the
- *    claim is read as a claim ABOUT that key, and the key must be on the
- *    wire for the subject to exist at all.
+ *    claim is read as a claim ABOUT that key. It checks the key against
+ *    `WIRE_KEYS`, which is derived from this tree's source, not read from
+ *    the production wire: it ties the copy to the key's NAME, and says
+ *    nothing about what the running image publishes.
  *  - `src/deploy/worker-chat-retrieval-proof.test.ts`: CI's container step
- *    `worker:chat-retrieval-proof` runs that same proof inside the BUILT
- *    image and fails the build unless it passes, so an image that lost the
- *    behaviour does not get built green.
+ *    `worker:chat-retrieval-proof` runs that same proof inside an image CI
+ *    BUILDS and fails the build unless it passes. It covers built images
+ *    only; the worker image is built and deployed by hand, so an image that
+ *    never went through CI, or an older one left running, is outside it.
+ *
+ * The LIVE bound is therefore an operator check, not a repo test: the deploy
+ * verification reads production `/api/worker/status` and fails when
+ * `chatRetrieval` is not `true`. It lives in the operator's verify script,
+ * outside this repository, so no test here can fail when it is skipped.
  *
  * A boolean has no list to derive copy from (contrast Translate's
  * `TRANSLATE_PDF_CI_REQUIRED`, which the copy counts), so the honest
- * equivalent is the tie above: the copy names the key, and the key is what
- * the built image must prove.
+ * equivalent in the repo is the tie above: the copy names the key, and the
+ * key is what a CI-built image must prove.
  *
  * ── WHAT IT MAY NOT SAY ─────────────────────────────────────────────────────
  *
@@ -56,8 +64,31 @@ export const CHAT_PAGE_SELECTION_CAPABILITY =
 /**
  * Which pages a longer file's question is sent, as a noun phrase:
  * "each question is sent {this}".
+ *
+ * CONDITIONAL on purpose. The selector sends ONLY the opening pages when no
+ * page shares enough of the question's informative words: the coverage gate
+ * (`CHAT_RETRIEVAL_MIN_COVERAGE`, reason "low-coverage") and the no-signal
+ * fallback in `selectPages` (`src/lib/pdf/page-retrieval.ts`). Until review
+ * (2026-11-16) this said "the opening pages and the pages that share the
+ * most of …", which was false in exactly those states; that wording is kept
+ * in `CHAT_PAGE_SELECTION_UNCONDITIONAL` (`./chat-retrieval-claims`).
  */
-export const CHAT_PAGE_SELECTION =
-  CHAT_RETRIEVAL_ANCHOR_SHARE > 0
-    ? "the opening pages and the pages that share the most of the question's less common words"
-    : "the pages that share the most of the question's less common words, or the opening pages when none do";
+export function chatPageSelection(anchorShare: number): string {
+  return anchorShare > 0
+    ? "the opening pages and, when some pages share enough of the question's less common words, those pages"
+    : "the pages that share enough of the question's less common words, or the opening pages when none do";
+}
+
+/** {@link chatPageSelection} at the measured anchor share: the served clause. */
+export const CHAT_PAGE_SELECTION = chatPageSelection(
+  CHAT_RETRIEVAL_ANCHOR_SHARE,
+);
+
+/**
+ * The limit every entry carrying {@link CHAT_PAGE_SELECTION} must state, as a
+ * sentence: the match is by words, so it can miss. Required per ENTRY by
+ * `chat-retrieval-copy.test.ts`, because an entry can be read alone (the
+ * tool-facts answer ships as FAQ JSON-LD, away from the page's other text).
+ */
+export const CHAT_SELECTION_MISS =
+  "The match is by words, so a question worded differently from the document can miss the page it needs.";

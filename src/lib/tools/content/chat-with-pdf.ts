@@ -14,7 +14,10 @@ import {
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { getToolBySlug } from "@/lib/tools";
 import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
-import { CHAT_PAGE_SELECTION } from "@/lib/tools/chat-page-selection";
+import {
+  CHAT_PAGE_SELECTION,
+  CHAT_SELECTION_MISS,
+} from "@/lib/tools/chat-page-selection";
 
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27:
@@ -159,7 +162,7 @@ const content: ToolContent = {
 
   intro: [
     `Chat with PDF answers questions about one document at a time. Ask "What is the notice period?" and the model receives your PDF's text with every page that has text marked by its number, plus an instruction to answer from that text alone and to cite what it used as [p.4]. If the answer is not there, the instruction is to say so plainly instead of reaching for outside knowledge.`,
-    `Only the PDF's selectable text is read; no character recognition runs here. A scan or photographed document has no such text, so the page stops it before upload (our server refuses any the browser cannot check) and points you to ${OCR_TOOL}; run that first and ask the searchable copy. Uploads of up to ${CEILING_MB} MB are accepted, and the model is sent at most ${READ_CHARS} characters of the page-labelled text. For a longer file, each question is sent ${CHAT_PAGE_SELECTION}, within that limit, and a notice above the answer says that only part of it was read, naming the pages when it can.`,
+    `Only the PDF's selectable text is read; no character recognition runs here. A scan or photographed document has no such text, so the page stops it before upload (our server refuses any the browser cannot check) and points you to ${OCR_TOOL}; run that first and ask the searchable copy. Uploads of up to ${CEILING_MB} MB are accepted, and the model is sent at most ${READ_CHARS} characters of the page-labelled text. For a longer file, each question is sent ${CHAT_PAGE_SELECTION}, within that limit, and a notice above the answer says that only part of it was read, naming the pages when it can. ${CHAT_SELECTION_MISS}`,
     `There is no in-browser mode. Every question is its own job: the PDF goes over TLS to pdf.xyz's secure server, which pulls out the text and forwards it, with your question and the recent exchanges, to a third-party AI provider, while the PDF file itself is not passed on. That job's upload is removed as soon as it ends, our server's link to its answer ZIP lapses ${OUTPUT_TTL} minutes after the answer is ready, and a storage rule that runs once a day clears the leftover copy. Our server does not link one question to the next; this page holds the conversation and re-sends it each time.`,
   ],
 

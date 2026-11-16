@@ -346,7 +346,10 @@ const WORKER_CAPABILITY_PROMISES: Record<
     promise:
       // Added 2026-11-16 (competitor audit wave 2 #30, slice 3). The Chat
       // with PDF panel says how pages are chosen only while this reads true
-      // on a fresh heartbeat.
+      // on a fresh heartbeat. Since slice 4 the STATIC chat copy (tool page,
+      // tool facts, chat guide: `CHAT_PAGE_SELECTION`) says it too, with no
+      // gate, and relies on production publishing this key as true; the
+      // operator's deploy verification checks that at the wire.
       "Chat with PDF reads, for a longer file, the pages a question's words point to, not only the opening pages it read until 2026-11-16",
     proves: provenByFlag,
   },

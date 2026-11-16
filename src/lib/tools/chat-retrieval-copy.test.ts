@@ -47,7 +47,13 @@ import {
   describeWindow,
   userTruncationNotice,
 } from "@/lib/workers/ai/truncation";
+import { selectPages } from "@/lib/pdf/page-retrieval";
 import { factFaq, toolFacts } from "./tool-facts";
+import {
+  CHAT_PAGE_SELECTION,
+  CHAT_SELECTION_MISS,
+  chatPageSelection,
+} from "./chat-page-selection";
 import {
   cardSummary,
   pageDescription,
@@ -60,6 +66,7 @@ import {
 } from "./page-copy";
 import {
   CHAT_NOTICE_CLAIM,
+  CHAT_PAGE_SELECTION_UNCONDITIONAL,
   CHAT_RETRIEVAL_HONEST,
   CHAT_RETRIEVAL_OVERCLAIMS,
   CHAT_RETRIEVAL_SHAPES,
@@ -153,6 +160,24 @@ function selectionHoles(corpus: readonly Entry[]): string[] {
     .map(({ where, text }) => `${where}: ${text}`);
 }
 
+/**
+ * Every entry that carries the selection claim without a sentence saying the
+ * match is by words and can miss ({@link CHAT_SELECTION_LIMIT}). Per ENTRY,
+ * not per page (review, 2026-11-16): the tool-facts answer also ships alone,
+ * as FAQ JSON-LD, where the page's other sentences do not travel with it.
+ */
+function limitHoles(corpus: readonly Entry[]): string[] {
+  return corpus
+    .filter(({ text }) => {
+      const sentences = sentencesOf(text);
+      return (
+        sentences.some((s) => CHAT_SELECTION_REQUIRED.pattern.test(s)) &&
+        !sentences.some((s) => CHAT_SELECTION_LIMIT.pattern.test(s))
+      );
+    })
+    .map(({ where, text }) => `${where}: ${text}`);
+}
+
 /** Which served page an entry is on: the tool page, or one guide. */
 const pageOf = (where: string) =>
   where.startsWith("guide:") ? where.split(".")[0]! : "tool";
@@ -240,10 +265,53 @@ describe("Chat with PDF static copy says how a longer file's pages are chosen, a
     expect(back).toEqual([]);
   });
 
-  it("every page that claims selection says matching is by words and names the fallback", () => {
-    // The honest limits that keep the claim from becoming "always finds":
-    // the match can miss a page asked about in other words, and Extract
-    // pages is the way to ask about a page that was not read.
+  it("every ENTRY that claims selection says matching is by words and can miss", () => {
+    // HISTORY: until review (2026-11-16) this was asked once per PAGE, so the
+    // intro and the tool-facts answer (which ships alone as FAQ JSON-LD)
+    // claimed selection with no limit beside them. Health first: the set is
+    // derived, and an empty one passes vacuously (rule 4).
+    const carriers = CORPUS.filter(({ text }) =>
+      sentencesOf(text).some((s) => CHAT_SELECTION_REQUIRED.pattern.test(s)),
+    );
+    expect(carriers.length).toBeGreaterThanOrEqual(4);
+    const sources = new Set(
+      carriers.map(({ where }) =>
+        where.startsWith("guide:") ? "guide" : where.split(/[.[]/)[0],
+      ),
+    );
+    for (const source of ["intro", "faq", "factFaq", "guide"])
+      expect(sources, `no ${source} entry claims selection`).toContain(source);
+    expect(limitHoles(CORPUS)).toEqual([]);
+  });
+
+  it("positive control through the detector: the factFaq answer without its limit is a hole", () => {
+    const fact = CORPUS.find(
+      ({ where, text }) =>
+        where.startsWith("factFaq[") &&
+        where.endsWith(".answer") &&
+        text.includes(CHAT_PAGE_SELECTION),
+    );
+    expect(
+      fact,
+      "no factFaq answer carries the selection clause",
+    ).toBeDefined();
+    expect(fact!.text).toContain(CHAT_SELECTION_MISS);
+    const planted = {
+      where: fact!.where,
+      text: fact!.text.replace(` ${CHAT_SELECTION_MISS}`, ""),
+    };
+    // The mutation landed: the text changed and the limit is gone.
+    expect(planted.text).not.toBe(fact!.text);
+    expect(planted.text).not.toContain(CHAT_SELECTION_MISS);
+    expect(limitHoles([planted])).toEqual([
+      `${planted.where}: ${planted.text}`,
+    ]);
+    // And the unmutated entry passes the same function.
+    expect(limitHoles([fact!])).toEqual([]);
+  });
+
+  it("every page that claims selection names the fallback", () => {
+    // Extract pages is the way to ask about a page that was not read.
     const claiming = new Set(
       SENTENCES.filter(({ sentence }) =>
         CHAT_SELECTION_REQUIRED.pattern.test(sentence),
@@ -260,16 +328,75 @@ describe("Chat with PDF static copy says how a longer file's pages are chosen, a
     const missing: string[] = [];
     for (const page of claiming) {
       const own = SENTENCES.filter(({ where }) => pageOf(where) === page);
-      if (
-        !own.some(({ sentence }) => CHAT_SELECTION_LIMIT.pattern.test(sentence))
-      )
-        missing.push(
-          `${page}: no sentence says matching is by words and can miss`,
-        );
       if (!own.some(({ sentence }) => sentence.includes(EXTRACT_TOOL)))
         missing.push(`${page}: never names ${EXTRACT_TOOL}`);
     }
     expect(missing).toEqual([]);
+  });
+
+  it("the selection clause is conditional: true when the selector sends only the opening pages", () => {
+    // Review finding (2026-11-16): the clause said every longer-file question
+    // is sent "the opening pages and the pages that share the most …", but
+    // the selector sends ONLY the opening pages when no page carries enough
+    // of the question's words. That state is real, through the selector
+    // itself, not a paragraph about it:
+    const chunks = Array.from({ length: 10 }, (_, i) => ({
+      pageNumber: i + 1,
+      text: `[Page ${i + 1}]\n${"x".repeat(100)}`,
+    }));
+    const base = {
+      chunks,
+      question: "q",
+      seedPages: [],
+      prefixPages: new Set([1, 2]),
+      budget: 400,
+      separator: "\n\n",
+      scores: new Map([[7, 1]]),
+    };
+    const low = selectPages({ ...base, coverage: new Map([[7, 0.2]]) });
+    expect(low).toEqual({ strategy: "prefix", reason: "low-coverage" });
+    // POSITIVE CONTROL, same input past the gate: page 7 is sent.
+    const high = selectPages({ ...base, coverage: new Map([[7, 1]]) });
+    expect(high.strategy).toBe("relevance");
+    // So the clause must hold when only the opening pages go: every arm
+    // names them, and makes the chosen pages conditional, at every share the
+    // sweep measures (the measured share picks the arm).
+    const conditional = (clause: string) =>
+      /\bopening pages\b/.test(clause) && /\bwhen\b/.test(clause);
+    for (const share of [...CHAT_RETRIEVAL_ANCHOR_SHARES, 0])
+      expect(conditional(chatPageSelection(share)), `share ${share}`).toBe(
+        true,
+      );
+    expect(CHAT_PAGE_SELECTION).toBe(
+      chatPageSelection(CHAT_RETRIEVAL_ANCHOR_SHARE),
+    );
+    // Positive control: the clause slice 4 first shipped fails the predicate.
+    expect(conditional(CHAT_PAGE_SELECTION_UNCONDITIONAL.clause)).toBe(false);
+    // Every static selection sentence carries the one definition, so a
+    // reworded unconditional sentence cannot slip past this test.
+    const strays = SENTENCES.filter(
+      ({ sentence }) =>
+        CHAT_SELECTION_REQUIRED.pattern.test(sentence) &&
+        !sentence.includes(CHAT_PAGE_SELECTION),
+    ).map(({ where, sentence }) => `${where}: ${sentence}`);
+    expect(strays).toEqual([]);
+  });
+
+  it("history: the unconditional clause slice 4 first shipped is not served", () => {
+    const { clause, sentences } = CHAT_PAGE_SELECTION_UNCONDITIONAL;
+    expect(sentences.length).toBe(4);
+    // Each history sentence carries the clause, so the clause check covers it.
+    for (const { text } of sentences) expect(text).toContain(clause);
+    const served = CORPUS.map((e) => e.text).join("\n");
+    expect(served.includes(clause)).toBe(false);
+    const back = sentences
+      .filter(({ text }) => served.includes(text))
+      .map(({ source }) => source);
+    expect(back).toEqual([]);
+    // Positive control: the clause planted in the served text is found.
+    expect(served.replace(CHAT_PAGE_SELECTION, clause).includes(clause)).toBe(
+      true,
+    );
   });
 
   it("rule 1, direction A: every shipped exemplar is caught by its own shape", () => {
@@ -355,7 +482,7 @@ describe("Chat with PDF static copy says how a longer file's pages are chosen, a
     // scan uses. Both arms, because the measured share picks one of them.
     for (const share of [...CHAT_RETRIEVAL_ANCHOR_SHARES, 0]) {
       expect(chatRetrievalShapesIn(chatRetrievalPanelLine(share))).toEqual([
-        "shares the most … words",
+        CHAT_SELECTION_REQUIRED.name,
       ]);
     }
     // Still distinct from every static sentence: the served-HTML check
