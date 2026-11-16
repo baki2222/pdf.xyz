@@ -92,7 +92,13 @@
  *      - it is not a NUMBER (`isNumberCell`): a figure alone under a table is
  *        a total or a value, not a wrapped word;
  *      - its column is not a FIGURE column (`figureColumns`) unless the row
- *        above is the header — a wrapped amount cannot be told from a total;
+ *        above is the header — a wrapped amount cannot be told from a total.
+ *        The header is its grid segment's first row (each segment is a Word
+ *        table of its own: STACKED_TABLES' second table has one) AND that
+ *        row's cell in the column is not itself a figure: a segment cut from
+ *        one table by white space starts on a data row. Until 2026-11-16 the
+ *        first row alone counted, and a word under the first figure of a
+ *        later segment was absorbed (review 2026-11-16);
  *      - the row above has exactly ONE cell in that column: never an empty
  *        slot, never a combined slot (two cells chained into one column);
  *      - its centre sits at most `WRAP_GAP_PITCHES` median row pitches below
@@ -315,6 +321,12 @@ export interface PdfFlowTextPage {
 export interface FlowPolicy {
   /** Rule 7: join a wrapped cell's continuation lines into the cell. */
   absorbWraps: boolean;
+  /**
+   * Test seam: told the size of every run rule 7 judges, so a test can count
+   * the page's judging work (`MAX_WRAP_JUDGE_ITEMS_PER_PAGE`) instead of
+   * timing it — a wall clock cannot tell a slow runner from a quadratic cut.
+   */
+  onJudge?: (items: number) => void;
 }
 
 export const WORD_FLOW_POLICY: FlowPolicy = { absorbWraps: true };
@@ -1040,13 +1052,20 @@ function placedPage(
       if (!fitsAsCell(spans, cell.xMin, cell.xMax)) return i;
       const k = overlappedSpan(spans, cell.xMin, cell.xMax);
       if (k < 0) return i;
-      // Not a figure, and not under a figure column below the header.
+      // Not a figure.
       if (isNumberCell(cell.text)) return i;
-      if (at.figures.has(k) && at.r !== 0) return i;
       // Exactly one cell of the row above in that column.
       const inColumn = at.cells.filter((_, c) => grid.col[at.r]![c] === k);
       if (inColumn.length !== 1) return i;
       const target = inColumn[0]!;
+      // Not under a figure column below the header. Each grid segment is a
+      // Word table of its own, so its first row is that table's header when
+      // it heads one (STACKED_TABLES' second table) — but a segment cut from
+      // one table by white space starts on a DATA row. A header's cell in a
+      // figure column is never a figure (`figureColumns` counts only the
+      // rows below it), so a first row holding a figure there is data.
+      if (at.figures.has(k) && (at.r !== 0 || isNumberCell(target.text)))
+        return i;
       // Close under the line above it.
       const above = lastOf.get(band);
       const aboveY = above?.yCenter ?? band[0]!.yCenter;
@@ -1106,6 +1125,7 @@ function placedPage(
         continue;
       }
       judged += items.length;
+      policy.onJudge?.(items.length);
       const verdict = judge(items);
       if (typeof verdict === "number") {
         // The failing continuation is an ordinary line; each side is

@@ -15,8 +15,9 @@
  *  - INV-2 / INV-2b: no poppler word box and no character is lost or
  *    doubled (pieces, and `flowPageText`, which pieces cannot see);
  *  - INV-3 / INV-4: where an absorbed line may go, and the placement
- *    predicate extended to the column's SLOT (`insideSlot`, the bound rule 7
- *    itself uses);
+ *    predicate extended to the column's SLOT (`insideSlot`; rule 7 itself
+ *    tests `overlappedSpan`, which implies it over disjoint spans — a
+ *    property table-grid-wraps.test.ts samples);
  *  - INV-5: order — absorbed words in their row, after the cell's own text.
  */
 import { createHash } from "node:crypto";
@@ -1047,6 +1048,37 @@ describe("flow rule 7 — the judging budget (MAX_WRAP_JUDGE_ITEMS_PER_PAGE)", (
     ).pages[0]!;
   };
 
+  /** Every run rule 7 judges on `page`, by size (the `onJudge` seam). */
+  const judgedRuns = (page: FlowPage) => {
+    const sizes: number[] = [];
+    flowText(
+      { pageCount: 1, pages: [page] },
+      { ...WORD_FLOW_POLICY, onJudge: (n) => sizes.push(n) },
+    );
+    return sizes;
+  };
+
+  it("COUNTED: the 3,000-row cut run judges at most MAX_WRAP_JUDGE_ITEMS_PER_PAGE items, whatever the runner's speed", async () => {
+    const { MAX_WRAP_JUDGE_ITEMS_PER_PAGE } = await import("./table-grid");
+    const sizes = judgedRuns(wrapCut(3000));
+    const total = sizes.reduce((a, b) => a + b, 0);
+    // Health: the seam sees the cut-and-rejudge (many runs), and this page
+    // reaches the budget — unbudgeted it is ~4.5 million items, so a total
+    // under the cap here is the cap, not a page too small to need one.
+    expect(sizes.length).toBeGreaterThan(20);
+    expect(total).toBeGreaterThan(MAX_WRAP_JUDGE_ITEMS_PER_PAGE / 2);
+    expect(total).toBeLessThanOrEqual(MAX_WRAP_JUDGE_ITEMS_PER_PAGE);
+  });
+
+  it("COUNTED, positive control: a small cut run is judged in full, its cuts each rejudged (the counter is not stuck at the cap)", () => {
+    const sizes = judgedRuns(wrapCut(41));
+    // 41 rows and 40 continuations, one failing every other row: the run,
+    // then each part below a cut, 81 items down to a handful.
+    expect(sizes[0]).toBe(81);
+    expect(sizes.length).toBeGreaterThan(10);
+    expect(sizes.reduce((a, b) => a + b, 0)).toBeGreaterThan(400);
+  });
+
   it("a 3,000-row run cut at every other continuation: bounded (4.5 s unbudgeted, measured), and no word lost", () => {
     const page = wrapCut(3000);
     const t0 = performance.now();
@@ -1055,5 +1087,77 @@ describe("flow rule 7 — the judging budget (MAX_WRAP_JUDGE_ITEMS_PER_PAGE)", (
     expect(ms).toBeLessThan(2500);
     expect(boxDifference(out, pageOff(page))).toEqual([]);
     expect(charBag(out)).toBe(charBag(pageOff(page)));
+  });
+});
+
+describe("flow rule 7 — 'the header' across grid segments (review minor 1)", () => {
+  /**
+   * One run, two grid segments (a white space two row pitches tall between
+   * them, wider than SEGMENT_GAP_PITCHES), so two Word tables. `head2` is the
+   * second segment's first row; `under` is a line in that row's block, 12 pt
+   * below it, under the Amount column (a figure column in both segments).
+   */
+  const twoSegments = (head2: readonly string[], under: string) => {
+    const word = (t: string, x: number, y: number) =>
+      `<word xMin="${x}" yMin="${y}" xMax="${x + 6 * t.length}" yMax="${y + 10}">${t}</word>`;
+    const row = (cells: readonly string[], y: number) =>
+      `<line>${cells.map((t, c) => word(t, [50, 150, 400][c]!, y)).join("")}</line>`;
+    const blocks: string[] = [];
+    let y = 50;
+    const first = [
+      ["Item", "Description", "Amount"],
+      ["A-1", "item", "1.00"],
+      ["A-2", "item", "2.00"],
+      ["A-3", "item", "3.00"],
+    ];
+    for (const cells of first) {
+      blocks.push(`<block>${row(cells, y)}</block>`);
+      y += 18;
+    }
+    y += 36;
+    blocks.push(
+      `<block>${row(head2, y)}<line>${word(under, 400, y + 12)}</line></block>`,
+    );
+    y += 30;
+    for (const cells of [
+      ["B-2", "item", "5.00"],
+      ["B-3", "item", "6.00"],
+      ["B-4", "item", "7.00"],
+    ]) {
+      blocks.push(`<block>${row(cells, y)}</block>`);
+      y += 18;
+    }
+    return parseBboxFlow(
+      `<doc><page width="612" height="${y + 50}"><flow>${blocks.join("")}</flow></page></doc>`,
+    ).pages[0]!;
+  };
+
+  it("health: both pages are two Word tables, the segment split in the run", () => {
+    for (const head of [
+      ["B-1", "item", "4.00"],
+      ["Code", "Product", "Share"],
+    ]) {
+      const out = pageOff(twoSegments(head, "approx"));
+      expect(
+        new Set(out.tables!.filter(Boolean).map((t) => t!.table)).size,
+      ).toBe(2);
+    }
+  });
+
+  it("a word under a figure cell of the second segment's first DATA row is not absorbed", () => {
+    const out = pageOn(twoSegments(["B-1", "item", "4.00"], "approx"));
+    expect(out.wrapLines).toBeUndefined();
+    expect(
+      out.paragraphs.some((p) => p.join("\t").includes("4.00 approx")),
+    ).toBe(false);
+    expect(outside(out)).toContain("approx");
+  });
+
+  it("POSITIVE CONTROL: the second segment's HEADER (a stacked table's own, STACKED_TABLES' shape) keeps its figure-column wrap", () => {
+    const out = pageOn(twoSegments(["Code", "Product", "Share"], "(USD)"));
+    expect(out.wrapLines).toBe(1);
+    expect(
+      out.paragraphs.some((p) => p.join("\t").includes("Share (USD)")),
+    ).toBe(true);
   });
 });
