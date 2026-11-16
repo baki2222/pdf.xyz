@@ -790,3 +790,45 @@ for (const tool of FILE_TOOLS) {
     expect(wide).toEqual([]);
   });
 }
+
+/**
+ * Translate PDF's Pages field (competitor audit #29, slice 6), drawn only
+ * while the observed worker proves `translatePageRange`. `READY_WORKER_STATUS`
+ * carries no optional capability key, so the long-name case above never draws
+ * it. At 360px, with a 66-character file name on the page and the field
+ * typed into, the page must not widen and the field must sit inside the
+ * phone, labelled. The field is outside the status slot, so no reserve moves.
+ */
+test.describe("360px, translatePageRange observed", () => {
+  test.use({ viewport: { width: 360, height: 844 } });
+
+  test("/tools/translate-pdf at 360px: the Pages field fits the phone", async ({
+    page,
+  }) => {
+    await planStatus(page, ["ready"], {
+      ...READY_WORKER_STATUS,
+      translatePageRange: true,
+    });
+    await page.addInitScript((key) => {
+      window.localStorage.setItem(key, "denied");
+    }, CONSENT_STORAGE_KEY);
+    await page.goto("/tools/translate-pdf");
+    const input = fileInput(page);
+    await waitForHydration(input);
+    const payload = (await payloadFor("PDF"))!;
+    await input.setInputFiles(payload);
+    await expect(page.getByText(payload.name)).toBeVisible();
+    const field = page.getByLabel("Pages (optional)");
+    // Health: the field is drawn, or this reads the ordinary page.
+    await expect(field).toBeVisible();
+    await field.fill("1-3, 8, 12-15, 20, 22-30, 40-45, 50, 60-61");
+    const box = (await field.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(360);
+    await expect(
+      page.getByText("Leave empty for the whole document."),
+    ).toBeVisible();
+    const { scrollWidth, phone } = await widest(page);
+    expect(scrollWidth).toBeLessThanOrEqual(phone);
+  });
+});

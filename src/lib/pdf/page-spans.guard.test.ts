@@ -9,9 +9,18 @@
  * The subjects are DISCOVERED, not named: every module that imports
  * `page-spans` (by alias or relatively) knows the span shape and has the
  * formatter in hand, so none of them may write a range or a page/pages
- * phrase of its own. Other features' range writers (Translate's typeset,
- * Office export's coverage) predate the leaf and do not import it; they are
- * outside this guard's set, deliberately.
+ * phrase of its own. Office export's coverage predates the leaf and does
+ * not import it; it is outside this guard's set, deliberately.
+ *
+ * Translate's three range writers (typeset's `pageRangeLabel`, assembly's
+ * `interruptedNotice`, chunking's `withheldPagesMarker`) were outside it too
+ * until audit #29 slice 6, which gave them one author derived from the
+ * chosen spans (`src/lib/workers/translate/page-labels.ts`): they now import
+ * the leaf and are held to it here. The phrase pattern is CASE-INSENSITIVE
+ * since then, because the label shape is capitalised (`Page ${n}` :
+ * `Pages ${...}`), and a case-sensitive pattern could not see the shape that
+ * module authors or a fourth copy of it. `page-labels.ts` is exempt BY NAME
+ * from that one shape, with its reason below; it writes no range of its own.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
@@ -44,13 +53,25 @@ const IMPORTS_LEAF =
 const RANGE_AUTHOR = new RegExp(
   `\\${D}\\{[^}\`]*\\}(?:${EN}|\\\\u2013)\\${D}\\{`,
 );
-/** `page ${…}` : `pages ${…}` — a singular/plural phrase of one span. */
+/**
+ * `page ${…}` : `pages ${…}` — a singular/plural phrase of one span, in
+ * either case: "Page 4" / "Pages 2, 4" is the heading shape.
+ */
 const PHRASE_AUTHOR = new RegExp(
   `\`page \\${D}\\{[^}\`]*\\}\`\\s*:\\s*\`pages \\${D}\\{`,
+  "i",
 );
 
-const offends = (source: string) =>
-  RANGE_AUTHOR.test(source) || PHRASE_AUTHOR.test(source);
+/**
+ * The heading style's one author. "Pages 2, 4" deliberately differs from
+ * `pagesPhrase`'s sentence style ("pages 2 and 4"): a heading is a list. It
+ * is exempt from the PHRASE shape only, never from the range shape.
+ */
+const HEADING_AUTHOR = "src/lib/workers/translate/page-labels.ts";
+
+const offends = (path: string, source: string) =>
+  RANGE_AUTHOR.test(source) ||
+  (path !== HEADING_AUTHOR && PHRASE_AUTHOR.test(source));
 
 const importers = walk(SRC)
   .map((file) => ({
@@ -69,6 +90,15 @@ describe("page spans: one formatter, used by every module that imports it", () =
       "src/lib/workers/ai/truncation.ts",
       "src/lib/jobs/summarize-pages.ts",
       "src/lib/workers/summarize-measure.ts",
+      // The typed-text author both measures share (audit #29 slice 6).
+      "src/lib/pdf/typed-page-spans.ts",
+      // Translate's label author and the three writers it replaced, and
+      // Translate's page sentences (audit #29 slice 6).
+      "src/lib/workers/translate/typeset.ts",
+      "src/lib/workers/translate/assembly.ts",
+      "src/lib/workers/translate/chunking.ts",
+      "src/lib/jobs/translate-pages.ts",
+      HEADING_AUTHOR,
     ])
       expect(paths).toContain(known);
   });
@@ -90,10 +120,26 @@ describe("page spans: one formatter, used by every module that imports it", () =
     expect(RANGE_AUTHOR.test(`\`${D}{a}${EN_ESCAPE}${D}{b}\``)).toBe(true);
   });
 
+  it("POSITIVE CONTROL: the heading author is seen, and only its name exempts it", () => {
+    const heading = readFileSync(join(ROOT, HEADING_AUTHOR), "utf8");
+    // The scan SEES the capitalised shape the heading author writes…
+    expect(PHRASE_AUTHOR.test(heading)).toBe(true);
+    expect(offends(HEADING_AUTHOR, heading)).toBe(false);
+    // …so a planted copy of it in any other module is caught.
+    const planted = [
+      "const label = one",
+      `  ? \`Page ${D}{clip[0]![0]}\``,
+      `  : \`Pages ${D}{formatSpans(clip)}\`;`,
+    ].join("\n");
+    expect(offends("src/lib/workers/translate/typeset.ts", planted)).toBe(true);
+    // And the exemption is the phrase shape only: a range there is caught.
+    expect(offends(HEADING_AUTHOR, `\`${D}{a}${EN}${D}{b}\``)).toBe(true);
+  });
+
   it("no importer other than the leaf writes a span of its own", () => {
     const offenders = importers
       .filter((f) => f.path !== LEAF.split(sep).join("/"))
-      .filter((f) => offends(f.source))
+      .filter((f) => offends(f.path, f.source))
       .map((f) => f.path);
     expect(offenders).toEqual([]);
   });

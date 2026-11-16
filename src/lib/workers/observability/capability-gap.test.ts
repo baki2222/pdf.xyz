@@ -189,6 +189,7 @@ describe("the 2026-08-12 worker, as it actually was", () => {
         translatePdfLanguages: ["es", "bn"],
         translateReadingOrder: true,
         translatePageMap: true,
+        translatePageRange: true,
       },
     });
     const row = collectWebOperationsSnapshot(DRAINABLE_ENV, {
@@ -310,6 +311,7 @@ describe("the build fingerprint reaches the operator, or says it could not", () 
           htmlZip: chunked,
           translateReadingOrder: chunked,
           translatePageMap: chunked,
+          translatePageRange: chunked,
           chatRetrieval: chunked,
           summarizePages: chunked,
         },

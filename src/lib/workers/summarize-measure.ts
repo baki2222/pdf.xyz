@@ -22,18 +22,12 @@
 
 import { NO_SELECTABLE_TEXT_MESSAGE } from "@/lib/jobs/ai-no-text";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
-import {
-  MAX_PAGE_SPANS,
-  pageSpansFromIndices,
-} from "@/lib/jobs/page-spans-option";
 import type { selectExtraction } from "@/lib/pdf/page-selection";
-import {
-  NO_TEXT_IN_CHOSEN_PAGES_MESSAGE,
-  pagesOutOfRangeSentence,
-} from "@/lib/jobs/summarize-pages";
+import { NO_TEXT_IN_CHOSEN_PAGES_MESSAGE } from "@/lib/jobs/chosen-pages-no-text";
+import { pagesOutOfRangeSentence } from "@/lib/jobs/summarize-pages";
 import type { PageSpan } from "@/lib/pdf/page-spans";
-import { PageRangeError, parsePageList } from "@/lib/pdf/ranges";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
+import { coversEveryPage, typedPageSpans } from "@/lib/pdf/typed-page-spans";
 
 /** What the person chose to summarize. */
 export type SummarizeChoice =
@@ -125,18 +119,20 @@ export function judgeSummarizeRun(
     return { ok: true, declaredCharacters: declared(extracted.characterCount) };
 
   const pageCount = extracted.pageCount;
+  // Every page chosen: the whole document, sent and charged as one.
+  const whole: SummarizeMeasure = {
+    ok: true,
+    declaredCharacters: declared(extracted.characterCount),
+  };
   let spans: PageSpan[];
   if (choice.kind === "pages") {
-    try {
-      spans = pageSpansFromIndices(parsePageList(choice.text, pageCount));
-    } catch (error) {
-      if (error instanceof PageRangeError) return pagesRefusal(error.message);
-      throw error;
-    }
-    if (spans.length > MAX_PAGE_SPANS)
-      return pagesRefusal(
-        `Choose at most ${MAX_PAGE_SPANS} separate page ranges.`,
-      );
+    // The typed text has one author (`@/lib/pdf/typed-page-spans`, shared
+    // with Translate since slice 6 of audit #29); it returns `null` for a
+    // selection naming every page.
+    const typed = typedPageSpans(choice.text, pageCount);
+    if (!typed.ok) return pagesRefusal(typed.message);
+    if (typed.spans === null) return whole;
+    spans = typed.spans;
   } else {
     const [first, last] = choice.span;
     if (
@@ -148,11 +144,10 @@ export function judgeSummarizeRun(
     )
       return pagesRefusal(pagesOutOfRangeSentence(pageCount, choice.span));
     spans = [[first, last]];
+    // A section spanning every page is the whole document too: the same
+    // rule, from its one author.
+    if (coversEveryPage(spans, pageCount)) return whole;
   }
-
-  // Every page chosen: the whole document, sent and charged as one.
-  if (spans.length === 1 && spans[0]![0] === 1 && spans[0]![1] === pageCount)
-    return { ok: true, declaredCharacters: declared(extracted.characterCount) };
 
   const selected = select(extracted, spans);
   if (!selected.hasText || selected.text.trim().length === 0)

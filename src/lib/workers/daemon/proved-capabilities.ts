@@ -54,6 +54,7 @@ import {
 import { provesTranslateOcr } from "@/lib/workers/translate/ocr-capability";
 import { provesTranslateReadingOrder } from "@/lib/workers/translate/reading-order-capability";
 import { provesTranslatePageMap } from "@/lib/workers/translate/page-map-capability";
+import { provesTranslatePageRange } from "@/lib/workers/translate/page-range-capability";
 import { provesHtmlZip } from "@/lib/workers/html-render/zip-capability";
 import { provesChatRetrieval } from "@/lib/workers/chat-with-pdf/retrieval-capability";
 import { provesSummarizePages } from "@/lib/workers/summarize/pages-capability";
@@ -168,6 +169,15 @@ export const PROVED_CAPABILITIES = defineProvers({
   // markers gets "Page N" headings, one that drops them gets the range.
   translatePageMap: {
     prove: (env) => provesTranslatePageMap(env),
+    parse: bool,
+  },
+  // Competitor audit #29 slice 6: four jobs on a generated five-page PDF
+  // (page 1 blank) through the executor's order, with the image's REAL
+  // Translate extractor, a recording provider and a recording PDF dep: chosen
+  // pages 2 and 4 reach the model and pages 3 and 5 do not, the labels name
+  // "Page 2", "Page 4" (or "Pages 2, 4"), and page 6 fails with no call.
+  translatePageRange: {
+    prove: (env) => provesTranslatePageRange(env),
     parse: bool,
   },
 });

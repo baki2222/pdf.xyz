@@ -10,6 +10,13 @@ import {
   pageTextChunks,
   type ExtractedPdfText,
 } from "@/lib/pdf/text";
+import { firstSpanBeyond, selectExtraction } from "@/lib/pdf/page-selection";
+import { pageSpans, pagesIn, type PageSpan } from "@/lib/pdf/page-spans";
+import { NO_TEXT_IN_CHOSEN_PAGES_MESSAGE } from "@/lib/jobs/chosen-pages-no-text";
+import {
+  translatePagesOutOfRangeMessage,
+  translateSelectionSentence,
+} from "@/lib/jobs/translate-pages";
 import {
   hasTranslatableText,
   translatePageBlocks,
@@ -204,8 +211,18 @@ export interface TranslateMeta {
   pageCount: number;
   inputBytes: number;
   outputBytes: number;
-  /** Character count of the extracted source text (a COUNT, never the text). */
+  /**
+   * Character count of the extracted source text (a COUNT, never the text):
+   * the chosen pages' text when the job chose pages.
+   */
   sourceCharacters: number;
+  /**
+   * How many pages the job CHOSE (a COUNT, `pagesIn(options.pages)`, never the
+   * spans), or `null` for a whole-document job. Blank chosen pages count:
+   * they were chosen. The processor carries it only when non-null, so a
+   * whole-document job's record gains no key.
+   */
+  selectedPages: number | null;
   /** Character count of the produced translation (a COUNT, never the text). */
   translationCharacters: number;
   /** True when the source exceeded `maxInputChars` and only a prefix was translated. */
@@ -270,6 +287,14 @@ export type TranslateFailureKind =
    * caller their file is too big would be false.
    */
   | "over_reservation"
+  /**
+   * A chosen page lies past the document's end (`options.pages`, audit #29
+   * slice 6). Refused right after extraction, before any provider call, and
+   * not retryable: the page stays past the end on every retry. Its own case
+   * in the processor's `jobError` (`unprocessable_entity`), never the
+   * `default:` arm, which would make a fact about the request a 500.
+   */
+  | "pages_out_of_range"
   | "rate_limited"
   | "content_filtered"
   | "failed";
@@ -381,12 +406,23 @@ function buildSystemPrompt(
   // is a fifth of a document handed back with nothing marking where it stops —
   // because the instruction a few lines above says "Output ONLY the translation,
   // with no preamble or commentary." That is the instruction this revokes.
-  const notice = modelTruncationNotice(
-    window,
-    (upTo) =>
-      `You were given only ${upTo}. Translate all of it, then end with one final line saying the translation covers only the pages you were given (${upTo}).\n` +
-      "That closing line is REQUIRED and overrides the instruction to output no commentary. Never present the result as a translation of the whole document.",
-  );
+  //
+  // ONLY WHEN TRUNCATED (audit #29 slice 6, D10). With a page selection the
+  // window carries `pagesSent`, and `modelTruncationNotice` would then add
+  // the chosen-pages notice to EVERY selection job, whose revocation orders a
+  // closing commentary line — which would land inside translation.txt and the
+  // PDF. A translator translates the text it is given; the selection is
+  // disclosed by the product (panel, README, manifest), not by the model. For
+  // a whole-document job this is byte-identical: untruncated gives "" either
+  // way, truncated makes the same call.
+  const notice = window.truncated
+    ? modelTruncationNotice(
+        window,
+        (upTo) =>
+          `You were given only ${upTo}. Translate all of it, then end with one final line saying the translation covers only the pages you were given (${upTo}).\n` +
+          "That closing line is REQUIRED and overrides the instruction to output no commentary. Never present the result as a translation of the whole document.",
+      )
+    : "";
   if (notice) parts.push(notice);
   return parts.join(" ");
 }
@@ -591,6 +627,38 @@ export async function runTranslate(
     };
   }
 
+  // THE PAGES THE PERSON CHOSE (audit #29 slice 6), applied HERE: right after
+  // extraction, BEFORE the text check, the window, the reading-order gate,
+  // the marker decision and the delivery cap. ORDER is the property (CLAUDE.md
+  // rule 3, "is this early enough"): selected after the cap, the cap would
+  // walk unchosen pages and withhold chosen ones; selected after the window,
+  // the window would describe the document, not the selection.
+  //
+  // `extracted` is REBOUND, so no later line can read the unselected
+  // document by accident, and `readingOrder` survives the spread. Pages are
+  // matched by their own `pageNumber` (`selectExtraction`), never by
+  // position; `pageCount` stays the document's total. A span past the end is
+  // refused first, before any provider call (`pages_out_of_range`).
+  // `engine.page-range.test.ts` pins the order ("ORDER under the cap").
+  const chosen: readonly PageSpan[] | undefined = options.pages;
+  if (chosen) {
+    const beyond = firstSpanBeyond(chosen, extracted.pageCount);
+    if (beyond) {
+      return {
+        ok: false,
+        kind: "pages_out_of_range",
+        retryable: false,
+        message: translatePagesOutOfRangeMessage(extracted.pageCount, beyond),
+      };
+    }
+  }
+  // Decided on the UNSELECTED extraction: chosen blank pages in a document
+  // with text get the chosen-pages sentence, a document with no text at all
+  // keeps the scan sentence.
+  const documentHasText = hasTranslatableText(extracted);
+  if (chosen)
+    extracted = { ...extracted, ...selectExtraction(extracted, chosen) };
+
   const sourceText = extracted.text.trim();
   if (!hasTranslatableText(extracted)) {
     return {
@@ -599,18 +667,30 @@ export async function runTranslate(
       retryable: false,
       // Shared with the browser's pre-upload check, which refuses a scan with
       // this exact sentence before anything is uploaded or charged.
-      message: TRANSLATE_NO_TEXT_MESSAGE,
+      message:
+        chosen && documentHasText
+          ? NO_TEXT_IN_CHOSEN_PAGES_MESSAGE["translate-pdf"]
+          : TRANSLATE_NO_TEXT_MESSAGE,
     };
   }
 
   const maxChars = deps.limits?.maxInputChars ?? DEFAULT_MAX_INPUT_CHARS;
   // One description of the window, shared by the prompt, the meta and the
   // package, so the model and the user cannot be told different things.
+  //
+  // Under a selection the window's `selection` argument is the spans of the
+  // pages that SURVIVED the filter, never the `pages` option itself: the
+  // echo (`pagesSent`) is then a witness of the filter, not of the request.
+  // A filter that did nothing would echo the whole document, `chosenSpans`
+  // would read no selection, and the panel would warn that the choice is
+  // unconfirmed (`selectionConfirmed`). For an in-range selection the two
+  // are equal (`engine.page-range.test.ts`).
   const window = describeWindow(
     sourceText,
     pageStartsFor(pageTextChunks(extracted.pages), PAGE_JOIN),
     extracted.pageCount,
     maxChars,
+    chosen ? pageSpans(extracted.pages.map((p) => p.pageNumber)) : undefined,
   );
   const truncated = window.truncated;
   const promptText = truncated ? sourceText.slice(0, maxChars) : sourceText;
@@ -690,7 +770,11 @@ export async function runTranslate(
       ok: false,
       kind: "over_reservation",
       retryable: false,
-      message: nothingDeliverableMessage(capped.boundBy, limit),
+      message: nothingDeliverableMessage(
+        capped.boundBy,
+        limit,
+        chosen !== undefined,
+      ),
     };
   }
 
@@ -725,7 +809,11 @@ export async function runTranslate(
       characters: sourceText.length,
       ceilingCharacters,
       message: everyPageOversize
-        ? translateEveryPageTooLongMessage(plan.oversize, ceilingCharacters)
+        ? translateEveryPageTooLongMessage(
+            plan.oversize,
+            ceilingCharacters,
+            chosen ? "chosen" : "document",
+          )
         : translateTooLongMessage(sourceText.length, ceilingCharacters),
     };
   }
@@ -847,7 +935,9 @@ export async function runTranslate(
           role: "user",
           content: `Translate the following document.${
             truncated
-              ? " (Only the first part of a long document is included.)"
+              ? chosen
+                ? " (Only the first part of the pages the user chose is included.)"
+                : " (Only the first part of a long document is included.)"
               : ""
           }${
             many
@@ -956,6 +1046,7 @@ export async function runTranslate(
     plan,
     interruptedPages,
     withheld,
+    chosen ?? null,
   );
   // THE ZIP IS MAIN'S, BYTE FOR BYTE (review r1, 2026-11-15; exit property:
   // artifacts[0] identical to main for EVERY job). Main placed the i-th
@@ -978,8 +1069,13 @@ export async function runTranslate(
           plan,
           interruptedPages,
           withheld,
+          chosen ?? null,
         );
   const translation = partsToMarkdown(zipParts);
+  // The selection lines, ONLY on a selection job: a whole-document ZIP gains
+  // no key and no line (review r1: artifacts[0] identical to main for every
+  // whole-document job). Present together or not at all.
+  const selectionNotice = translateSelectionSentence(window, chosen);
 
   const createdAt = now();
   const manifest: TranslationManifest = {
@@ -1000,6 +1096,9 @@ export async function runTranslate(
       characters: sourceText.length,
       truncatedToCharacters: truncated ? maxChars : null,
       truncationNotice: userTruncationNotice(window) || null,
+      ...(selectionNotice && window.pagesSent
+        ? { pagesSent: window.pagesSent, selectionNotice }
+        : {}),
     },
     translation: { characters: translation.length },
     // main's notice, byte for byte (review r1, 2026-11-15): the ZIP at
@@ -1092,6 +1191,7 @@ export async function runTranslate(
       inputBytes: input.byteLength,
       outputBytes: output.byteLength,
       sourceCharacters: sourceText.length,
+      selectedPages: chosen ? pagesIn(chosen) : null,
       translationCharacters: translation.length,
       truncated,
       truncationNotice: userTruncationNotice(window) || null,
@@ -1132,6 +1232,14 @@ interface TranslationManifest {
     truncatedToCharacters: number | null;
     /** The page-named disclosure, or null when the whole document was read. */
     truncationNotice: string | null;
+    /**
+     * The chosen pages in the job's read window (`window.pagesSent`,
+     * canonical spans), on a job that chose pages ONLY; absent, never null,
+     * on a whole-document job, whose ZIP must not move a byte.
+     */
+    pagesSent?: readonly PageSpan[];
+    /** `translateSelectionSentence(window, options.pages)`, present exactly with `pagesSent`. */
+    selectionNotice?: string;
   };
   translation: { characters: number };
   notice: string;
@@ -1151,6 +1259,13 @@ function renderMarkdown(
   lines.push(
     `> Pages: ${manifest.source.pageCount} · Source characters: ${manifest.source.characters}${manifest.source.truncatedToCharacters !== null ? ` (truncated to ${manifest.source.truncatedToCharacters} for translation)` : ""}`,
   );
+  // A selection job's sentence reads directly under the counts it qualifies
+  // (the characters are the chosen pages', the page count the document's),
+  // and BEFORE the truncation notice, which then names the chosen pages read.
+  if (manifest.source.selectionNotice) {
+    lines.push(`>`);
+    lines.push(`> **${manifest.source.selectionNotice}**`);
+  }
   // The header directly above says this came from the source PDF. Without
   // this line it says so over a translation of the first fifth of it.
   if (manifest.source.truncationNotice) {
@@ -1182,6 +1297,8 @@ function renderReadme(manifest: TranslationManifest): string {
     `Target language: ${manifest.options.targetLanguageName} (${manifest.options.targetLanguage})`,
   );
   lines.push(`Source language: ${source}`);
+  if (manifest.source.selectionNotice)
+    lines.push(manifest.source.selectionNotice);
   if (manifest.options.instructions)
     lines.push(`Instruction: ${manifest.options.instructions}`);
   lines.push("");

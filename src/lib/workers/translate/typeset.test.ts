@@ -20,14 +20,26 @@ const HOSTILE = [
 ].join("\n\n");
 
 const PARTS: TranslationPart[] = [
-  { kind: "body", pages: [1, 2, 3], text: `# Titre\n\n${HOSTILE}` },
-  { kind: "gap", reason: "oversize", pages: [4], characters: 12_345 },
+  {
+    kind: "body",
+    pages: [1, 2, 3],
+    chosen: null,
+    text: `# Titre\n\n${HOSTILE}`,
+  },
+  {
+    kind: "gap",
+    reason: "oversize",
+    pages: [4],
+    characters: 12_345,
+    chosen: null,
+  },
   {
     kind: "body",
     pages: [5],
+    chosen: null,
     text: "- un\n- deux\n\n1. premier\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```\ncode <x>\n```",
   },
-  { kind: "gap", reason: "interrupted", pages: [6, 7] },
+  { kind: "gap", reason: "interrupted", pages: [6, 7], chosen: null },
 ];
 
 const input = (target: (typeof TRANSLATE_LANGUAGES)[number] = "fr") => ({
@@ -111,7 +123,12 @@ describe("gaps are words only", () => {
     [...html.matchAll(/<aside>([\s\S]*?)<\/aside>/g)].map((m) => m[1]!);
 
   it("positive control: the ZIP's marker carries the emoji the PDF must not", () => {
-    const zip = gapMarkdown({ kind: "gap", reason: "interrupted", pages: [6] });
+    const zip = gapMarkdown({
+      kind: "gap",
+      reason: "interrupted",
+      pages: [6],
+      chosen: null,
+    });
     expect(zip.includes(FE0F)).toBe(true);
     expect(zip.includes(WARN)).toBe(true);
   });
@@ -135,7 +152,7 @@ describe("section headings equal the parts' page ranges", () => {
       (m) => m[1],
     );
     const expected = PARTS.filter((p) => p.kind === "body").map((p) =>
-      pageRangeLabel(p.pages),
+      pageRangeLabel(p.pages, null),
     );
     expect(headings).toEqual(expected);
     expect(expected).toEqual(["Pages 1–3", "Page 5"]);
@@ -143,7 +160,7 @@ describe("section headings equal the parts' page ranges", () => {
 
   it("an unchunked body has no page heading to invent", () => {
     const html = translationHtml({
-      parts: [{ kind: "body", pages: [], text: "Bonjour." }],
+      parts: [{ kind: "body", pages: [], text: "Bonjour.", chosen: null }],
       target: "fr",
       sourceName: "a.pdf",
     });

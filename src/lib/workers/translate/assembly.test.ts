@@ -96,6 +96,7 @@ describe("the assembly places each body by its own pages", () => {
       },
       [],
       null,
+      null,
     );
     expect(parts.map((p) => p.kind)).toEqual(["gap", "body"]);
     expect(partsToMarkdown(parts)).toMatch(

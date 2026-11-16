@@ -183,7 +183,14 @@ export async function readCommonCorpus(
 ): Promise<CorpusReadResult> {
   const result = await render({
     input: {
-      parts: [{ kind: "body", pages: [], text: corpusBody(corpus.chars) }],
+      parts: [
+        {
+          kind: "body",
+          pages: [],
+          text: corpusBody(corpus.chars),
+          chosen: null,
+        },
+      ],
       target: corpus.language,
       sourceName: "corpus.pdf",
     },

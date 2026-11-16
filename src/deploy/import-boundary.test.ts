@@ -98,6 +98,11 @@ const ALLOWED = new Set(
     // `resolveNativePdfTextReader`. Reached only by the daemon's
     // proved-capability table, the in-image proof script and tests.
     "src/lib/workers/translate/page-map-capability.ts",
+    // Translate's page-range proof (2026-11-16, audit #29 slice 6): it runs
+    // `translateDeps(env)` (the image's pdftotext extractor). Reached only by
+    // the daemon's proved-capability table, the in-image proof script
+    // (`scripts/worker-translate-page-range-proof.ts`) and tests.
+    "src/lib/workers/translate/page-range-capability.ts",
     // Chat with PDF's page-selection proof (2026-11-16, slice 3): it runs the
     // daemon's chat deps (`chat-with-pdf/native`, the `pdftotext` runner).
     // Reached only by the daemon's proved-capability table, the in-image
@@ -162,6 +167,13 @@ const ALLOWED = new Set(
     // copy part's full run; the capture part's run lumped it with the
     // build-dependent deploy failures.)
     "src/tests/poppler-image-fixtures.ts",
+    // Audit #29 slice 6, 2026-11-16: the composed-chain harness for
+    // Translate's chosen pages runs the translate processor (and so its
+    // Node-only reading-order imports) under the route's cap. Imported only
+    // by `translate-page-range.chain.test.ts` and
+    // `translate-page-range.property.test.ts`, never by a route, component
+    // or barrel.
+    "src/tests/translate-page-range-chain.ts",
     // Spawns Windows PowerShell for the two PowerPoint instruments
     // (`scripts/prove-pptx-opens.ts`, `scripts/measure-pptx-fidelity.ts`) and
     // its own `*.test.ts`; nothing on a route, a component or a barrel

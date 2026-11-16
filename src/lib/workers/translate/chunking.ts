@@ -29,11 +29,13 @@
 
 import { PAGE_JOIN } from "@/lib/pdf/text";
 import type { DeliveryBound } from "@/lib/jobs/delivery-cap";
+import type { PageSpan } from "@/lib/pdf/page-spans";
 import {
   collidesWithMarker,
   separatorFor,
   separatorOverhead,
 } from "./page-markers";
+import { pagesLabel } from "./page-labels";
 
 /** One provider call's worth of whole pages, in document order. */
 export interface TranslateChunk {
@@ -393,20 +395,29 @@ export function capPagesToDelivery(
  * more pages than were declared for it" lead to different next steps — and
  * telling them apart is also the only way anyone learns which bound binds in
  * practice, because nothing else records it.
+ *
+ * `chosen` is the job's page selection (or `null`), read from the gap part.
+ * The page list is `pagesLabel`'s (`./page-labels`), so under a selection it
+ * names only chosen pages; and the `because` sentence names the object the
+ * declaration was OF: under a selection the browser declared the chosen
+ * pages, so "the document" would be the wrong one. For a whole-document job
+ * both are byte-identical to what they were (the ZIP's characterisation SHAs).
  */
 export function withheldPagesMarker(
   pages: readonly number[],
   boundBy: DeliveryBound,
   limit: DeliveryLimit,
+  chosen: readonly PageSpan[] | null,
 ): string {
-  const first = pages[0];
-  const last = pages[pages.length - 1];
-  const list =
-    pages.length === 1 ? `Page ${first}` : `Pages ${first}\u2013${last}`;
+  const list = pagesLabel(pages, chosen);
+  const reserved = limit.characters.toLocaleString("en-US");
+  const declared = (limit.pages ?? 0).toLocaleString("en-US");
   const because =
     boundBy === "characters"
-      ? `This job reserved enough of the daily allowance for ${limit.characters.toLocaleString("en-US")} characters of text, and the document holds more.`
-      : `This document was submitted as ${(limit.pages ?? 0).toLocaleString("en-US")} pages of text and holds more than that.`;
+      ? `This job reserved enough of the daily allowance for ${reserved} characters of text, and ${chosen ? "the pages you chose hold" : "the document holds"} more.`
+      : chosen
+        ? `The pages you chose were submitted as ${declared} pages of text and hold more than that.`
+        : `This document was submitted as ${declared} pages of text and holds more than that.`;
   return [
     "",
     `> \u26a0\ufe0f **${list} ${pages.length === 1 ? "is" : "are"} not translated.**`,
@@ -415,12 +426,23 @@ export function withheldPagesMarker(
   ].join("\n");
 }
 
-/** The refusal when the reservation covered no page at all. */
+/**
+ * The refusal when the reservation covered no page at all.
+ *
+ * `chosen` is true for a job that chose pages: the declaration was then of
+ * the chosen pages, and "the document's first page" is not the first page
+ * the walk met. Byte-identical for a whole-document job (`chosen` false).
+ */
 export function nothingDeliverableMessage(
   boundBy: DeliveryBound,
   limit: DeliveryLimit,
+  chosen: boolean,
 ): string {
-  return boundBy === "characters"
-    ? `This job reserved enough of the daily allowance for ${limit.characters.toLocaleString("en-US")} characters of text, and the document's first page alone holds more — so no page could be translated and nothing was sent to the AI model. Submit the document again with its real length, or split it into smaller files.`
-    : `This document was submitted as ${(limit.pages ?? 0).toLocaleString("en-US")} pages of text, which covers no complete page of it — so nothing was translated and nothing was sent to the AI model. Submit the document again with its real page count.`;
+  const reserved = limit.characters.toLocaleString("en-US");
+  const declared = (limit.pages ?? 0).toLocaleString("en-US");
+  if (boundBy === "characters")
+    return `This job reserved enough of the daily allowance for ${reserved} characters of text, and ${chosen ? "the first page you chose" : "the document's first page"} alone holds more — so no page could be translated and nothing was sent to the AI model. Submit the document again with its real length, or split it into smaller files.`;
+  return chosen
+    ? `The pages you chose were submitted as ${declared} pages of text, which covers no complete page of them — so nothing was translated and nothing was sent to the AI model. Submit them again with their real page count.`
+    : `This document was submitted as ${declared} pages of text, which covers no complete page of it — so nothing was translated and nothing was sent to the AI model. Submit the document again with its real page count.`;
 }

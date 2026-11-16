@@ -83,7 +83,9 @@ describe("the table", () => {
  * `AI_TOOL_OPTION_EXAMPLES` on purpose: the chain tests post that example
  * through `POST /api/jobs`, which admits a `pages` request only while the
  * heartbeat proves `summarizePages`, so an example carrying it would make
- * every allowance assertion downstream depend on a beat.
+ * every allowance assertion downstream depend on a beat. Translate's `pages`
+ * (audit #29 slice 6) stays out for the same reason: it is admitted only
+ * while the heartbeat proves `translatePageRange`.
  */
 const EXTRA_BAGS = [
   [
@@ -101,6 +103,35 @@ const EXTRA_BAGS = [
         [3, 4],
       ],
     },
+  ],
+  [
+    "translate-pdf",
+    "admitted",
+    {
+      targetLanguage: "fr",
+      sourceLanguage: "auto",
+      pages: [
+        [2, 2],
+        [4, 4],
+      ],
+    },
+  ],
+  ["translate-pdf", "refused", { targetLanguage: "fr", pages: [] }],
+  [
+    "translate-pdf",
+    "refused",
+    {
+      targetLanguage: "fr",
+      pages: [
+        [1, 2],
+        [3, 4],
+      ],
+    },
+  ],
+  [
+    "translate-pdf",
+    "refused",
+    { targetLanguage: "fr", pages: [[1, 1]], ocr: true, languages: ["eng"] },
   ],
 ] as const;
 

@@ -195,7 +195,7 @@ const PAGE_NOTICES = [
     pageNumber: 1,
     characters: TRANSLATE_MAX_INPUT_CHARS + 1,
   }),
-  withheldPagesMarker([1], "characters", { characters: 1 }),
+  withheldPagesMarker([1], "characters", { characters: 1 }, null),
 ];
 if (!PAGE_NOTICES.every((notice) => notice.includes("Page 1"))) {
   throw new Error(
@@ -250,7 +250,11 @@ const content: ToolContent = {
     // images are not recreated." — true until the worker printed a PDF.
     `Translate PDF has an AI model rewrite your document's text between any two of ${LANGUAGE_COUNT} languages, from ${list(["es", "bn"])} to ${list(["ja", "ar"])}. The model is told to keep headings and lists, leave names, numbers, code and URLs alone unless they clearly need translating, and add, drop or summarise nothing. You always get a ZIP such as ${EXAMPLE_ZIP} holding translation.md, translation.txt, a README and a manifest naming the model and languages. ${translatePdfCoverageSentence(PDF_COVERAGE, EXAMPLE_PDF)} Neither reproduces the original's fonts, columns, images or positions: the PDF is the translated text reflowed onto new pages.`,
     `The work happens online, on pdf.xyz's secure server. Your PDF, one file up to ${CEILING_MB} MB, is uploaded over TLS; our server extracts its text and sends that text, plus any instruction you typed, but not the PDF file, to a third-party AI provider used under agreements that prohibit training on data sent through the API. The uploaded PDF is deleted when the job finishes, each download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored copy.`,
-    `One pass carries up to ${PASS_CHARS} characters; longer documents are split at page boundaries, translated in order and reassembled. Your browser counts the text before anything uploads, so a file with no page that fits a pass is stopped without touching the allowance; a scan with no text layer is recognised on our server first when it can do that, and stopped the same way when it cannot. ${AI_ALLOWANCE_FACT} The allowance is charged when the job is created, just after the upload: a document needing more than is left today is refused whole with nothing charged rather than half translated, and one over ${DAY_CHARS} characters, the whole day's allowance, has to be split into smaller files first.`,
+    // CHANGED 2026-11-16 (audit #29 slice 6, D12): the last clause said one
+    // over the whole day's allowance "has to be split into smaller files
+    // first", false for a run that chooses pages once the panel offers them.
+    // Rewritten true with or without a page range; slice 7 adds the remedy.
+    `One pass carries up to ${PASS_CHARS} characters; longer documents are split at page boundaries, translated in order and reassembled. Your browser counts the text before anything uploads, so a file with no page that fits a pass is stopped without touching the allowance; a scan with no text layer is recognised on our server first when it can do that, and stopped the same way when it cannot. ${AI_ALLOWANCE_FACT} The allowance is charged when the job is created, just after the upload: a document needing more than is left today is refused whole with nothing charged rather than half translated, and one over ${DAY_CHARS} characters, the whole day's allowance, cannot be translated in a single day.`,
   ],
 
   useCases: [

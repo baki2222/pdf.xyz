@@ -11,6 +11,8 @@
  *    each paragraph carrying tokens no other page carries
  *    (`translatePageMap`, slice 4). All three fit in ONE chunk, so the job is
  *    the commonest marked case: a multi-page document with no part clause.
+ *  - the same function over {@link PAGE_RANGE_PROBE_PAGES}: five pages, the
+ *    first blank (`translatePageRange`, slice 6).
  */
 import { PDFDocument } from "pdf-lib";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
@@ -92,16 +94,54 @@ export const PAGE_MAP_PROBE_PAGES: readonly PageMapProbePage[] = [
   },
 ];
 
-/** The page-map probe's PDF: three Letter pages, one paragraph each. */
+/**
+ * The page-range probe's five pages (`translatePageRange`, slice 6 of audit
+ * #29): page 1 BLANK (`null`), pages 2-5 one line each in the page-map shape.
+ *
+ * The blank first page is what makes an index-for-number defect visible: with
+ * text pages [2, 3, 4, 5], every off-by-one reading of the choice
+ * `[[2,2],[4,4]]` lands on page 3 and/or page 5 (0-based indices into all
+ * pages give 3 and 5; 1-based positions in the text-page list give 3 and 5;
+ * 0-based positions give 4 and nothing; index minus one gives 1 and 3). Page
+ * 3 holds text, so a "Pages 2-4" label would claim a real unchosen page, not
+ * a blank one. Do not change these pages without re-deriving that table.
+ */
+export const PAGE_RANGE_PROBE_PAGES: readonly (PageMapProbePage | null)[] = [
+  null,
+  {
+    text: "Birch lane note P2-Birch says the covered market opens at nine.",
+    tokens: ["P2-Birch", "market"],
+  },
+  {
+    text: "Cedar hill note P3-Cedar says the public library closes at five.",
+    tokens: ["P3-Cedar", "library"],
+  },
+  {
+    text: "Dogwood road note P4-Dogwood says the town museum opens at ten.",
+    tokens: ["P4-Dogwood", "museum"],
+  },
+  {
+    text: "Elm square note P5-Elm says the night bakery closes at four.",
+    tokens: ["P5-Elm", "bakery"],
+  },
+];
+
+/**
+ * A probe's PDF: one Letter page per entry, one paragraph each, `null` a
+ * blank page. Three pages by default (the page-map probe); the page-range
+ * probe passes {@link PAGE_RANGE_PROBE_PAGES}.
+ */
 export async function pageMapProbePdf(
-  pages: readonly PageMapProbePage[] = PAGE_MAP_PROBE_PAGES,
+  pages: readonly (PageMapProbePage | null)[] = PAGE_MAP_PROBE_PAGES,
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await embedDrawingFont(
     doc,
-    pages.map((p) => p.text),
+    pages.flatMap((p) => (p ? [p.text] : [])),
   );
-  for (const { text } of pages)
-    doc.addPage([612, 792]).drawText(text, { x: 50, y: 700, size: 11, font });
+  for (const page of pages) {
+    const sheet = doc.addPage([612, 792]);
+    if (page) sheet.drawText(page.text, { x: 50, y: 700, size: 11, font });
+  }
   return doc.save();
 }

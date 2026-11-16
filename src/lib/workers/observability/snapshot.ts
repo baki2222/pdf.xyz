@@ -409,6 +409,15 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "Translate PDF's reflowed PDF puts each page's translation under its own page heading when the server marks the page breaks and the model returns every marker in order, and one page-range heading otherwise, as its page and guide say",
     proves: provenByFlag,
   },
+  translatePageRange: {
+    label: "page ranges in Translate",
+    promise:
+      // Added 2026-11-16 (competitor audit #29, slice 6). Positive, like
+      // `summarizePages`'s: the Translate panel offers a page choice, and the
+      // job API admits one, only while this reads true on a fresh heartbeat.
+      "Translate PDF sends only the pages the reader chose to the AI model, charges only their text and names those pages in the PDF, the ZIP and the panel, instead of translating the whole document",
+    proves: provenByFlag,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */

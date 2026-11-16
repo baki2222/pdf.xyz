@@ -24,8 +24,18 @@ import {
 import { typesetText, type TypesetInput } from "./typeset";
 
 const PARTS: TranslationPart[] = [
-  { kind: "body", pages: [1], text: "# Bonjour\n\nPremier bloc." },
-  { kind: "body", pages: [2], text: "Second bloc, qui doit survivre." },
+  {
+    kind: "body",
+    pages: [1],
+    text: "# Bonjour\n\nPremier bloc.",
+    chosen: null,
+  },
+  {
+    kind: "body",
+    pages: [2],
+    text: "Second bloc, qui doit survivre.",
+    chosen: null,
+  },
 ];
 const INPUT: TypesetInput = { parts: PARTS, target: "fr", sourceName: "a.pdf" };
 

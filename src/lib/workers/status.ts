@@ -151,6 +151,18 @@ export interface WorkerStatus {
    * only, exactly as before. Optional: absent reads as `false`.
    */
   summarizePages?: boolean;
+  /**
+   * Whether Translate PDF may offer a choice of pages (2026-11-16, competitor
+   * audit #29 slice 6). True only when an OBSERVED heartbeat proves
+   * `translatePageRange` (`liveWorkerTranslatesPageRanges`, the predicate
+   * `POST /api/jobs` admits a translate `pages` job on): an image built
+   * before the feature drops `pages` silently and translates the whole
+   * document under a cap sized for the selection, and the image ships
+   * separately from this web tier, so merged code is not evidence. Until it
+   * reads true the panel offers the whole document only, exactly as before.
+   * Optional: absent reads as `false`.
+   */
+  translatePageRange?: boolean;
 }
 
 const NO_COMPRESS: CompressCapability = {
@@ -282,6 +294,11 @@ export function buildWorkerStatus(
    * (`liveWorkerSummarizesPages`, the predicate the admission gate uses).
    */
   workerSummarizePages?: boolean,
+  /**
+   * Whether the observed worker's heartbeat proves `translatePageRange`
+   * (`liveWorkerTranslatesPageRanges`, the predicate the admission gate uses).
+   */
+  workerTranslatePageRange?: boolean,
 ): WorkerStatus {
   const ocr = buildOcrCapability(
     mode,
@@ -315,6 +332,8 @@ export function buildWorkerStatus(
   const chatRetrieval = workerObserved === true && workerChatRetrieval === true;
   const summarizePages =
     workerObserved === true && workerSummarizePages === true;
+  const translatePageRange =
+    workerObserved === true && workerTranslatePageRange === true;
 
   if (mode === "local-dev") {
     const engines = DEEP_COMPRESSION_TOOLS.filter((tool) => tools?.[tool]);
@@ -339,6 +358,7 @@ export function buildWorkerStatus(
       translatePdfLanguages,
       chatRetrieval,
       summarizePages,
+      translatePageRange,
     };
   }
 
@@ -363,6 +383,7 @@ export function buildWorkerStatus(
       translatePdfLanguages,
       chatRetrieval,
       summarizePages,
+      translatePageRange,
     };
   }
 
@@ -389,5 +410,6 @@ export function buildWorkerStatus(
     translatePdfLanguages,
     chatRetrieval,
     summarizePages,
+    translatePageRange,
   };
 }

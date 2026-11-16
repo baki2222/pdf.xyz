@@ -243,6 +243,7 @@ function mainShape(plan: Awaited<ReturnType<typeof planFor>>): string {
       pages: withheld,
       boundBy: plan.capped.boundBy!,
       limit: plan.limit,
+      chosen: null,
     })
   );
 }
@@ -316,14 +317,14 @@ describe("page markers through runTranslate, the ZIP and the render input", () =
       const headings = (input: TypesetInput) =>
         input.parts
           .filter((p) => p.kind === "body")
-          .map((p) => pageRangeLabel(p.pages));
+          .map((p) => pageRangeLabel(p.pages, null));
       expect(echoPdf.inputs).toHaveLength(1);
       expect(stripPdf.inputs).toHaveLength(1);
       expect(headings(echoPdf.inputs[0]!)).toEqual(
         delivered.map((n) => `Page ${n}`),
       );
       expect(headings(stripPdf.inputs[0]!)).toEqual(
-        chunks.map((c) => pageRangeLabel(c.pages)),
+        chunks.map((c) => pageRangeLabel(c.pages, null)),
       );
       // Each page's body is its own sent text: nothing moved across a page.
       for (const part of echoPdf.inputs[0]!.parts)

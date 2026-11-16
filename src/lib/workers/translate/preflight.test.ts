@@ -162,13 +162,13 @@ describe("a page too long for one pass is named, and splitting is not suggested"
       pageNumber,
       characters: CEILING + pageNumber,
     }));
-    const five = translateEveryPageTooLongMessage(pages, CEILING);
+    const five = translateEveryPageTooLongMessage(pages, CEILING, "document");
     for (const page of pages.slice(0, 3))
       expect(five).toContain(`page ${page.pageNumber} holds`);
     expect(five).not.toContain("page 4 holds");
     expect(five).toContain("and 2 more pages are over it too");
     expect(
-      translateEveryPageTooLongMessage(pages.slice(0, 4), CEILING),
+      translateEveryPageTooLongMessage(pages.slice(0, 4), CEILING, "document"),
     ).toContain("and 1 more page is over it too");
     expect(five).not.toMatch(OLD_SPLIT);
   });

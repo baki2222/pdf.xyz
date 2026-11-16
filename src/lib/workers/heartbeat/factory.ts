@@ -431,6 +431,42 @@ export async function runningWorkerSummarizesPages(
   );
 }
 
+/**
+ * May Translate PDF translate only the pages a person chose (competitor
+ * audit #29, slice 6)? ONE pure predicate, read by the page's offer (`GET
+ * /api/worker/status`, which shows the Pages field) and by the admission gate
+ * (`POST /api/jobs` for a translate job carrying `pages`), so the two cannot
+ * drift apart.
+ *
+ * The property is "the running image applies the selection by physical page
+ * number BEFORE the reading-order gate, the planner and the delivery cap",
+ * not "the code is merged": an image built before the feature parses the
+ * options leniently, drops `pages` without a word, and translates the WHOLE
+ * document under a delivery cap sized for the selection, which then withholds
+ * most of it behind a notice about the document. Only a fresh, observed
+ * heartbeat carrying `translatePageRange: true` (proven at the daemon's
+ * start-up, `translate/page-range-capability.ts`, on the image's own
+ * extractor) says so; a stale, absent or unreachable beat, or an older
+ * image's record (no key, parsed as false), says no.
+ */
+export function liveWorkerTranslatesPageRanges(
+  liveness: HeartbeatLiveness,
+): boolean {
+  return (
+    liveness.observed && liveness.capabilities?.translatePageRange === true
+  );
+}
+
+/** The admission gate's question, read from the broker. See {@link liveWorkerTranslatesPageRanges}. */
+export async function runningWorkerTranslatesPageRanges(
+  env: EnvSource = process.env,
+  deps: HeartbeatRedisDeps = {},
+): Promise<boolean> {
+  return liveWorkerTranslatesPageRanges(
+    await readWorkerHeartbeatLiveness(env, deps),
+  );
+}
+
 /** The admission gates' question, read from the broker. See {@link liveWorkerRendersHtmlZip}. */
 export async function runningWorkerRendersHtmlZip(
   env: EnvSource = process.env,

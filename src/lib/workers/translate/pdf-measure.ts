@@ -45,6 +45,7 @@ export function deliverySizeParts(
   return [1, 2, 3].map((chunk) => ({
     kind: "body" as const,
     pages: [chunk * 4 - 3, chunk * 4],
+    chosen: null,
     text: syntheticTranslation(
       LANGUAGE_SAMPLES[language],
       TRANSLATE_MAX_INPUT_CHARS,

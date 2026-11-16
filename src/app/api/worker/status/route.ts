@@ -20,6 +20,7 @@ import {
   liveWorkerRendersHtmlZip,
   liveWorkerSelectsChatPages,
   liveWorkerSummarizesPages,
+  liveWorkerTranslatesPageRanges,
   liveWorkerTranslatesScans,
   readWorkerHeartbeatLiveness,
 } from "@/lib/workers/heartbeat";
@@ -115,6 +116,12 @@ export async function GET(request: Request): Promise<Response> {
   // and the gate cannot drift (`summarize-pages.route.test.ts` runs each beat
   // through both routes). An older image publishes no key; absent is false.
   const workerSummarizePages = liveWorkerSummarizesPages(liveness);
+  // Translate's chosen pages (competitor audit #29, slice 6): the panel's
+  // Pages field, offered only on a fresh beat that proves it. The SAME
+  // predicate `POST /api/jobs` admits a translate `pages` job on
+  // (`translate-page-range.route.test.ts` runs each beat through both
+  // routes). An older image publishes no key; absent is false.
+  const workerTranslatePageRange = liveWorkerTranslatesPageRanges(liveness);
 
   return respond(
     ok(
@@ -133,6 +140,7 @@ export async function GET(request: Request): Promise<Response> {
         workerTranslatePdfLanguages,
         workerChatRetrieval,
         workerSummarizePages,
+        workerTranslatePageRange,
       ),
     ),
   );

@@ -79,6 +79,15 @@ function jobError(run: Failure): JobError {
         message: run.message,
         retryable: false,
       };
+    case "pages_out_of_range":
+      // Its own case, not the `default:` arm: that arm is an `internal_error`
+      // (a 500-class code for a fact about the request), and a page past the
+      // end of this file stays past it on every retry.
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
     case "no_text":
     case "cannot_open":
       // Both are facts about the file: retrying cannot change them.
@@ -123,6 +132,9 @@ function meta(m: TranslateMeta): ProcessorMeta {
     sourceCharacters: m.sourceCharacters,
     translationCharacters: m.translationCharacters,
     truncated: m.truncated,
+    // A COUNT, only on a job that chose pages: `ProcessorMeta` takes no
+    // null, and a whole-document job's record gains no key.
+    ...(m.selectedPages !== null ? { selectedPages: m.selectedPages } : {}),
   };
 }
 
