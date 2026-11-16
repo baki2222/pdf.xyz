@@ -85,6 +85,8 @@ import {
   FORM_TABLE,
   formTablePdf,
   tableItems,
+  tableInterruptItems,
+  tableInterruptPdf,
   tableNoteItems,
   tableNotePdf,
   twoColumnShortLinesItems,
@@ -316,6 +318,30 @@ export const CAPTURE_FIXTURES: Readonly<Record<string, CaptureFixture>> = {
       "S16, two tables with a centred caption one row pitch below the first",
     build: () => tableNotePdf("caption"),
     words: () => drawnWords(tableNoteItems("caption")),
+  },
+  TABLE_INTERRUPT_SUBHEADING: {
+    kind: "synthetic",
+    source: 'tableInterruptPdf("subheading")',
+    shape:
+      "S17, a subheading under Description in a poppler block of its own, between two groups of rows",
+    build: () => tableInterruptPdf("subheading"),
+    words: () => drawnWords(tableInterruptItems("subheading")),
+  },
+  TABLE_INTERRUPT_MIDNOTE: {
+    kind: "synthetic",
+    source: 'tableInterruptPdf("midnote")',
+    shape:
+      "S17, a note centred under Description in a block of its own, between the rows and the Total / Paid / Due lines",
+    build: () => tableInterruptPdf("midnote"),
+    words: () => drawnWords(tableInterruptItems("midnote")),
+  },
+  TABLE_INTERRUPT_BLANKFIRST: {
+    kind: "synthetic",
+    source: 'tableInterruptPdf("blankfirst")',
+    shape:
+      "S17, a statement row whose only cell is its description, in a block of its own, between two rows",
+    build: () => tableInterruptPdf("blankfirst"),
+    words: () => drawnWords(tableInterruptItems("blankfirst")),
   },
 
   // ── S15: the 17 generators behind ./poppler-samples' _BBOX exports ──

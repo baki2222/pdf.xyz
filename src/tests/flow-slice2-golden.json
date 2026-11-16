@@ -8,8 +8,8 @@
       "src/lib/workers/pdf-text/table-grid.ts": "68a58a37d4afbc90608de5f372255af6075e4075"
     },
     "generator": "npx tsx scripts/write-flow-slice2-golden.ts",
-    "written": "2026-11-15T22:16:31.801Z",
-    "count": 58
+    "written": "2026-11-16T01:34:30.646Z",
+    "count": 61
   },
   "samples": [
     {
@@ -2765,7 +2765,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_ACADEMIC_HEADER_BOTTOM_BBOX",
-      "input": "18ac12416098983cb07981907e7eff286e70d6e0ffa74386a07f39838cea9a69",
+      "input": "57c1593eb02b825a86003fccef379751d92911626ff73ff88b95ce99ad64d898",
       "output": "56983108280ddfc1bc6a1c5df5003044259bae33e3ad71b53baccc29ad0b4aa6",
       "pages": [
         {
@@ -2884,7 +2884,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_ACADEMIC_HEADER_WRAP_BBOX",
-      "input": "f927271400d1470fc8c04b985f0d3e6873034b75e7a6b632bf671a0bd5d9eed5",
+      "input": "7926f41c5fcfeb3632ccc2640a46df75cf1c6314707a73220f0671cc2214ee15",
       "output": "28a1d8caafda1dce93d50284bf1841a417b2b44f143ee97585bacd8629380e03",
       "pages": [
         {
@@ -2997,7 +2997,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_ACADEMIC_HEADER_WRAP_FIGURE_BBOX",
-      "input": "6054a8d7b88f34f31fd5a29e8ec958b79e960e8a8351eab0a01f873294fd9dd7",
+      "input": "90facab08c68c4f5fec0325b91975139450690e9d6b85eb0e7162ec9c17e19d0",
       "output": "12af7d118b239d451028d01eec2e53e5dbe7ab6fcd75a2e1d90a99ddaf5f0829",
       "pages": [
         {
@@ -3114,7 +3114,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_ACADEMIC_HEADER_WRAP_PAIR_BBOX",
-      "input": "62e0d46bfff3bbfc407b6792493616aa473b12ac90d5e24442fd4c24bb174f04",
+      "input": "abc72eaeffa18e3df93d42cc49ad3f1d16581c98843d46cf1c5d9e0c5bcd47cd",
       "output": "47aaad6210c21c97a997cf475afa767aa12b2a23f58cc6bb47e80f5f060c2919",
       "pages": [
         {
@@ -3242,7 +3242,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_ACADEMIC_LABEL_WRAP_BBOX",
-      "input": "108da3d0c98b9aa7e9b463ecfae71ca757614fac0869bfc546969f05aef2a08e",
+      "input": "5caa2eb553c3d5747572c001c7a264e00d6b5a416a1cf3da7995e864118902b4",
       "output": "766a69e2629e69ac95466221e8b63eda918e5d550119b31aa738830b8e8e143b",
       "pages": [
         {
@@ -3360,7 +3360,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_AUTO_SIZED_TABLE_BBOX",
-      "input": "7bd9e84bb10255a6bfb2bc328d43be1a7a0ebdd2e6f159ccce1c19515c2f867e",
+      "input": "3f60c7004ac545630fdf2699a0c8991916f3ac0fc5ba1322e9e7546f34cf24eb",
       "output": "d818b22a29365e8a14f72edce4e6ab7fec32bbfc3ffe1430d248fca49b21f7ad",
       "pages": [
         {
@@ -3451,7 +3451,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_BANK_STATEMENT_BBOX",
-      "input": "ddd30a2b81991bd7525def791c67c66806d8f8fa67802ad5830ec436f9f99734",
+      "input": "06cdb2a42271a33d0bec74f3dbddf2c3e8c5bc98364637789973617c1a8efa9a",
       "output": "a974b3fcbbd99449d45cf8b0b7017265edf035930be75308eeb106f9bb93c01e",
       "pages": [
         {
@@ -3593,7 +3593,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_DOCX_TABLE_WRAPS_PROBE_BBOX",
-      "input": "4b106271c0f86df3218124b609b6594b6d1cddaa8ab3c7f325cd3489a47ed578",
+      "input": "755ce594b6e101b13b78e5a019994a94ad791cf0ebc1eaa57175a3cb8149c528",
       "output": "75cd5a1b0c58cfed12302101b3c4177425ea7ef0abad80076d9a5ef6e2316853",
       "pages": [
         {
@@ -3680,7 +3680,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_FIGURES_SIDEBAR_BBOX",
-      "input": "0d83c06f8600307e4cdf9f8dcd63f4da478c6e8b9d3b6d982e3aa3f943671dae",
+      "input": "f48bbc3e493fdb8650d94c83b48de2d86c53d6723a91c7a1aa53d57795edb6c9",
       "output": "8c0312dca2294652edf3fb0a395eae6dede9153511b0da0aa4d67f1623ea76c2",
       "pages": [
         {
@@ -3839,7 +3839,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_FORM_TABLE_BBOX",
-      "input": "5016a477b391077bbdbb4242838d63de20c6c5da4a4464975681e838dd729797",
+      "input": "b181fae0b348493d3f3fb1b40dabc5874e79ca0962ccefc950f968625cacf544",
       "output": "43720bf4d43b74b2df01bb6a955424324704869a0ac7c5e699993136fccc7663",
       "pages": [
         {
@@ -3921,7 +3921,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_HEADINGS_BBOX",
-      "input": "93e5433ce3d3f4e5480b06b8a3f857a1b9c2e3a0a30bac6083156f4db487ed56",
+      "input": "2bca5e2e6c7bc13d2eea3f358d26a43100cb2a658edb235003c9d5a998478878",
       "output": "9074efcc02b448a920a6abbb8eda0f847444f2849ca369a709e10e3ac6c6adcb",
       "pages": [
         {
@@ -4121,7 +4121,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_HIGHLIGHTS_BBOX",
-      "input": "5d0feb9f01f8eeb7d6dbea554d4c2645d0de3ba086212b3526f134d1b1063e19",
+      "input": "8dc1f21f0439a6830c3a45d0dbde834cf599b4c13a1cdfc7f67fd1fae13af698",
       "output": "f53da4d8642119adfd7a21497aa9829f7c2408e214a18b1320825a4da9cde232",
       "pages": [
         {
@@ -4257,7 +4257,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_LETTER_BBOX",
-      "input": "994fb36f6179c5c77e3b2ae9a093a9694575e49ff59cd49f9d1c4df3771e3d8f",
+      "input": "c3dc17f002a5dd43166c4ebb774943614f6b058f16152eb7e34959ab6085e7d5",
       "output": "183567c5c11cd203e4036753e3e0012b92b16747a463f3c5286f1e2472311415",
       "pages": [
         {
@@ -4658,7 +4658,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_LISTS_BBOX",
-      "input": "f002ab558c8ce25d49a8dcaec36b7a4cd4d3dc24fe26e7a87ed9907afcef2813",
+      "input": "4b96b8963a8c46d7548f1ed8e5c71daa664e593034ddaadee666658a3f944720",
       "output": "4a16fdfe5e3d5e07f314806a873ce9877a935b3a99ce98ab7d579bf0e3d0ead0",
       "pages": [
         {
@@ -4757,7 +4757,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_LONE_TOTAL_INVOICE_BBOX",
-      "input": "e324c128db5c4d3f979f04be8dbd765693737a57ee5bc429458774de5b22561d",
+      "input": "eb4166155621e61ee2930f61769cd82777e3c53ff71f58a6a280299a3e669b5a",
       "output": "cdf7aebd5a5432f148290e8108c9930f916d77fa230dfa7c693b4f3fbfdf5922",
       "pages": [
         {
@@ -4910,7 +4910,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_NEWSLETTER_BBOX",
-      "input": "02b03951be5b4a9461e05f46916ad6b9a3a1cbcba4cf6e74dbcf706d1eb75726",
+      "input": "7a0f3d29d169812858d3f66ef8921b78c154076c590c6861787bc21a5ef182ef",
       "output": "08499f79be649fd2d6dd1dae436339e23c166cf7c27fa3f96b12ec27ae03d8df",
       "pages": [
         {
@@ -5121,7 +5121,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_OCR_WRAPPED_INVOICE_BBOX",
-      "input": "3d2c1d38c1c9c26713fc449cc2b197a88db4342fd75b7a299be62698542389e6",
+      "input": "e168b42b34e5e07aff46c017aec8b531c6ed2b079621e67f73879c7614510ab5",
       "output": "ebb502cb2c1905555b06882658df8dd9b3d4e1d66606bf3b0bc9c6eb6ef24370",
       "pages": [
         {
@@ -5415,7 +5415,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_REPORT_TABLES_BBOX",
-      "input": "114add72a013718f7291cadc1cdf69b5b98b0688dd7cc1de1b684e42b3275998",
+      "input": "b5f4b37dac17f558130bae2f2d92dc155c99f02bdb81741c720aff31898ce4c9",
       "output": "9c4632cb424e20e260711cc83c680fd879be99c3384b06faad99b6b88712342b",
       "pages": [
         {
@@ -5699,7 +5699,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_SIDEBAR_BBOX",
-      "input": "6a7f86a9ef131c82088e165f0621c6a4663d040a421a8ddfc0b3287b37c467b3",
+      "input": "bc6097a6efae5de6d1fb763105e09cce572c99c963dac237a96a0220bf2dadcb",
       "output": "078072722e5837c8a9e4449ef20221b45d16817cec69be1b61b122232ebc8334",
       "pages": [
         {
@@ -5812,7 +5812,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_SKU_TABLE_BBOX",
-      "input": "6d417b5ad3d227839bda54cc24277aa337850bb3c06a87859b447ba15f94d124",
+      "input": "ff68190955909cd94aa9af75a45011c4d1d0438baca48558f69ab358c627076d",
       "output": "6a03673816c3ff8e4a07c6d348afe43cbc63ab3bfd6ebfb79664f03ee0e93c25",
       "pages": [
         {
@@ -5947,7 +5947,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_SPANNING_TABLE_BBOX",
-      "input": "8ad3c23c817c4f0a12a8ad61495cd347cf8c6f829dabf1512f420ffe652ea8ba",
+      "input": "045d27d153d888e59f87d274eadb1d987490787afb005b3ddf3a402375ad2dba",
       "output": "e2279c0938d39e596265d23683a90319b9a811a30fe917b870d30eba070d7197",
       "pages": [
         {
@@ -6059,7 +6059,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_STACKED_TABLES_BBOX",
-      "input": "049ab11617b7da5ddea00b60400609560f1cd270a7347112572b6212c2bbf670",
+      "input": "af5319ecf9f78e34af26625a5c67c15e8da81334d304bfc973098920f244a50f",
       "output": "c940752e36f70150236a36b59cf4aec2c0ea0193faecc75f4f82730ac3b49890",
       "pages": [
         {
@@ -6180,7 +6180,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_STATEMENT_BBOX",
-      "input": "9c2871cf9d4a9c86314a6b71e06b1f694baf94b931b2b3059d6d5ca5a27fd992",
+      "input": "bba387613b5164a0e40f088fd2c62b5abcdead0cd3f75aefb09d7effef81aca0",
       "output": "8dde7694cf0f56d278d0dd5106d3f477e84c94b9cf437db9d93eadeb068d5288",
       "pages": [
         {
@@ -6343,7 +6343,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_SURROUNDED_INVOICE_BBOX",
-      "input": "bb3f904866cadc003c1ececa7d7c78d8575818a5b4a871f629f70b969ae42bcd",
+      "input": "c6866d558bf68471e5719dd46b6b34220680f6134f75f378050335600b0950ec",
       "output": "b0c103298fee3dca7edb3052af4d6f3a4176724dbbf9d6ac756fd1ee1c1e96c7",
       "pages": [
         {
@@ -6542,7 +6542,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_TABLE_BBOX",
-      "input": "904e93e201ed11ad9ebbce2874539891f63ad3300d80e093a2a44969b4c4e9b2",
+      "input": "322af2b95c808af6d40519d9f6c7f56319498dae43df2381b0f97d92f9025425",
       "output": "fe9a4937e440c2497bd48e93c26e3b0dba9fafff6c8b2236dae5d8fcfd417a44",
       "pages": [
         {
@@ -6614,8 +6614,424 @@
       ]
     },
     {
+      "key": "poppler-samples-image:IMAGE_TABLE_INTERRUPT_BLANKFIRST_BBOX",
+      "input": "3d80e584e0318f6897f07458130d83c7b80e8218d81a89cbb6568c6c1f18ddbe",
+      "output": "9e942424c4961bc2a9e1a2a8f0fb3175c2d1eec9d25946c076bfdac8da76bc1b",
+      "pages": [
+        {
+          "pageNumber": 1,
+          "paragraphs": [
+            ["Date", "Description", "Amount"],
+            ["02-01", "Opening balance", "100.00"],
+            ["02-02", "Card payment", "12.50"],
+            ["02-03", "Transfer in", "250.00"],
+            ["02-04", "Standing order", "40.00"],
+            ["02-05", "Card payment", "8.99"],
+            ["Interest credited"]
+          ],
+          "boxes": [
+            [72, 104.82, 460, 114.07],
+            [72, 122.82, 460, 132.07],
+            [72, 140.82, 460, 150.07],
+            [72, 176.82, 460, 186.07],
+            [72, 194.82, 460, 204.07],
+            [72, 212.82, 460, 222.07],
+            [160, 158.82, 231.7, 168.07]
+          ],
+          "pieces": [
+            [
+              [{ "text": "Date", "box": [72, 104.82, 93.67, 114.07] }],
+              [{ "text": "Description", "box": [160, 104.82, 215.01, 114.07] }],
+              [{ "text": "Amount", "box": [422.23, 104.82, 460, 114.07] }]
+            ],
+            [
+              [{ "text": "02-01", "box": [72, 122.82, 97.57, 132.07] }],
+              [
+                { "text": "Opening", "box": [160, 122.82, 197.8, 132.07] },
+                { "text": " balance", "box": [200.58, 122.82, 235.6, 132.07] }
+              ],
+              [{ "text": "100.00", "box": [429.42, 122.82, 460, 132.07] }]
+            ],
+            [
+              [{ "text": "02-02", "box": [72, 140.82, 97.57, 150.07] }],
+              [
+                { "text": "Card", "box": [160, 140.82, 181.67, 150.07] },
+                { "text": " payment", "box": [184.45, 140.82, 222.8, 150.07] }
+              ],
+              [{ "text": "12.50", "box": [434.98, 140.82, 460, 150.07] }]
+            ],
+            [
+              [{ "text": "02-03", "box": [72, 176.82, 97.57, 186.07] }],
+              [
+                { "text": "Transfer", "box": [160, 176.82, 197.23, 186.07] },
+                { "text": " in", "box": [200.01, 176.82, 207.79, 186.07] }
+              ],
+              [{ "text": "250.00", "box": [429.42, 176.82, 460, 186.07] }]
+            ],
+            [
+              [{ "text": "02-04", "box": [72, 194.82, 97.57, 204.07] }],
+              [
+                { "text": "Standing", "box": [160, 194.82, 199.47, 204.07] },
+                { "text": " order", "box": [202.25, 194.82, 225.59, 204.07] }
+              ],
+              [{ "text": "40.00", "box": [434.98, 194.82, 460, 204.07] }]
+            ],
+            [
+              [{ "text": "02-05", "box": [72, 212.82, 97.57, 222.07] }],
+              [
+                { "text": "Card", "box": [160, 212.82, 181.67, 222.07] },
+                { "text": " payment", "box": [184.45, 212.82, 222.8, 222.07] }
+              ],
+              [{ "text": "8.99", "box": [440.54, 212.82, 460, 222.07] }]
+            ],
+            [
+              [
+                { "text": "Interest", "box": [160, 158.82, 193.35, 168.07] },
+                { "text": " credited", "box": [196.13, 158.82, 231.7, 168.07] }
+              ]
+            ]
+          ],
+          "tables": [
+            {
+              "table": 0,
+              "spans": [
+                [72, 97.57],
+                [160, 235.6],
+                [422.23, 460]
+              ],
+              "col": [0, 1, 2]
+            },
+            {
+              "table": 0,
+              "spans": [
+                [72, 97.57],
+                [160, 235.6],
+                [422.23, 460]
+              ],
+              "col": [0, 1, 2]
+            },
+            {
+              "table": 0,
+              "spans": [
+                [72, 97.57],
+                [160, 235.6],
+                [422.23, 460]
+              ],
+              "col": [0, 1, 2]
+            },
+            {
+              "table": 1,
+              "spans": [
+                [72, 97.57],
+                [160, 225.59],
+                [429.42, 460]
+              ],
+              "col": [0, 1, 2]
+            },
+            {
+              "table": 1,
+              "spans": [
+                [72, 97.57],
+                [160, 225.59],
+                [429.42, 460]
+              ],
+              "col": [0, 1, 2]
+            },
+            {
+              "table": 1,
+              "spans": [
+                [72, 97.57],
+                [160, 225.59],
+                [429.42, 460]
+              ],
+              "col": [0, 1, 2]
+            },
+            null
+          ],
+          "tablesAsTabs": 0
+        }
+      ]
+    },
+    {
+      "key": "poppler-samples-image:IMAGE_TABLE_INTERRUPT_MIDNOTE_BBOX",
+      "input": "4021083b94fa5eee3682e00cc36315388aae86afc7f94490ee1e076a6700b0bf",
+      "output": "d248ea8404ec04b824fedcac0783ee36f86d3fcbea2faad1c883529d99840588",
+      "pages": [
+        {
+          "pageNumber": 1,
+          "paragraphs": [
+            ["Item", "Description", "Amount"],
+            ["A-100", "Filter cartridge", "12.50"],
+            ["B-200", "Service visit", "95.00"],
+            ["C-300", "Gasket", "3.25"],
+            ["Total", "110.75"],
+            ["Paid", "110.75"],
+            ["Due", "0.00"],
+            ["Prices exclude VAT"]
+          ],
+          "boxes": [
+            [72, 104.82, 460, 114.07],
+            [72, 122.82, 460, 132.07],
+            [72, 140.82, 460, 150.07],
+            [72, 158.82, 460, 168.07],
+            [72, 194.82, 460, 204.07],
+            [72, 212.82, 460, 222.07],
+            [72, 230.82, 460, 240.07],
+            [197.7, 176.82, 284.95, 186.07]
+          ],
+          "pieces": [
+            [
+              [{ "text": "Item", "box": [72, 104.82, 92.56, 114.07] }],
+              [{ "text": "Description", "box": [160, 104.82, 215.01, 114.07] }],
+              [{ "text": "Amount", "box": [422.23, 104.82, 460, 114.07] }]
+            ],
+            [
+              [{ "text": "A-100", "box": [72, 122.82, 98.68, 132.07] }],
+              [
+                { "text": "Filter", "box": [160, 122.82, 182.22, 132.07] },
+                { "text": " cartridge", "box": [185, 122.82, 223.9, 132.07] }
+              ],
+              [{ "text": "12.50", "box": [434.98, 122.82, 460, 132.07] }]
+            ],
+            [
+              [{ "text": "B-200", "box": [72, 140.82, 98.68, 150.07] }],
+              [
+                { "text": "Service", "box": [160, 140.82, 193.34, 150.07] },
+                { "text": " visit", "box": [196.12, 140.82, 213.34, 150.07] }
+              ],
+              [{ "text": "95.00", "box": [434.98, 140.82, 460, 150.07] }]
+            ],
+            [
+              [{ "text": "C-300", "box": [72, 158.82, 99.23, 168.07] }],
+              [{ "text": "Gasket", "box": [160, 158.82, 191.68, 168.07] }],
+              [{ "text": "3.25", "box": [440.54, 158.82, 460, 168.07] }]
+            ],
+            [
+              [{ "text": "Total", "box": [72, 194.82, 94.23, 204.07] }],
+              [{ "text": "110.75", "box": [429.42, 194.82, 460, 204.07] }]
+            ],
+            [
+              [{ "text": "Paid", "box": [72, 212.82, 92.01, 222.07] }],
+              [{ "text": "110.75", "box": [429.42, 212.82, 460, 222.07] }]
+            ],
+            [
+              [{ "text": "Due", "box": [72, 230.82, 90.34, 240.07] }],
+              [{ "text": "0.00", "box": [440.54, 230.82, 460, 240.07] }]
+            ],
+            [
+              [
+                { "text": "Prices", "box": [197.7, 176.82, 225.48, 186.07] },
+                { "text": " exclude", "box": [228.26, 176.82, 262.72, 186.07] },
+                { "text": " VAT", "box": [265.5, 176.82, 284.95, 186.07] }
+              ]
+            ]
+          ],
+          "tables": [
+            {
+              "table": 0,
+              "spans": [
+                [72, 99.23],
+                [160, 223.9],
+                [422.23, 460]
+              ],
+              "col": [0, 1, 2]
+            },
+            {
+              "table": 0,
+              "spans": [
+                [72, 99.23],
+                [160, 223.9],
+                [422.23, 460]
+              ],
+              "col": [0, 1, 2]
+            },
+            {
+              "table": 0,
+              "spans": [
+                [72, 99.23],
+                [160, 223.9],
+                [422.23, 460]
+              ],
+              "col": [0, 1, 2]
+            },
+            {
+              "table": 0,
+              "spans": [
+                [72, 99.23],
+                [160, 223.9],
+                [422.23, 460]
+              ],
+              "col": [0, 1, 2]
+            },
+            {
+              "table": 1,
+              "spans": [
+                [72, 94.23],
+                [429.42, 460]
+              ],
+              "col": [0, 1]
+            },
+            {
+              "table": 1,
+              "spans": [
+                [72, 94.23],
+                [429.42, 460]
+              ],
+              "col": [0, 1]
+            },
+            {
+              "table": 1,
+              "spans": [
+                [72, 94.23],
+                [429.42, 460]
+              ],
+              "col": [0, 1]
+            },
+            null
+          ],
+          "tablesAsTabs": 0
+        }
+      ]
+    },
+    {
+      "key": "poppler-samples-image:IMAGE_TABLE_INTERRUPT_SUBHEADING_BBOX",
+      "input": "de6fd8c3d6f27d36d0ead0c7798793bafd0bfb34005b75b590e7c0b4494d72c3",
+      "output": "147b3a28d2c1be6de1cf377c9e8743b620f3e109fc044d96629a7f464f4deaa4",
+      "pages": [
+        {
+          "pageNumber": 1,
+          "paragraphs": [
+            ["Item", "Description", "Amount"],
+            ["A-100", "Filter cartridge", "12.50"],
+            ["B-200", "Service visit", "95.00"],
+            ["C-300", "Gasket", "3.25"],
+            ["D-400", "Hose clamp", "1.75"],
+            ["E-500", "Pressure valve", "22.40"],
+            ["Spare parts"]
+          ],
+          "boxes": [
+            [72, 104.82, 460, 114.07],
+            [72, 122.82, 460, 132.07],
+            [72, 140.82, 460, 150.07],
+            [72, 176.82, 460, 186.07],
+            [72, 194.82, 460, 204.07],
+            [72, 212.82, 460, 222.07],
+            [160, 158.82, 211.69, 168.07]
+          ],
+          "pieces": [
+            [
+              [{ "text": "Item", "box": [72, 104.82, 92.56, 114.07] }],
+              [{ "text": "Description", "box": [160, 104.82, 215.01, 114.07] }],
+              [{ "text": "Amount", "box": [422.23, 104.82, 460, 114.07] }]
+            ],
+            [
+              [{ "text": "A-100", "box": [72, 122.82, 98.68, 132.07] }],
+              [
+                { "text": "Filter", "box": [160, 122.82, 182.22, 132.07] },
+                { "text": " cartridge", "box": [185, 122.82, 223.9, 132.07] }
+              ],
+              [{ "text": "12.50", "box": [434.98, 122.82, 460, 132.07] }]
+            ],
+            [
+              [{ "text": "B-200", "box": [72, 140.82, 98.68, 150.07] }],
+              [
+                { "text": "Service", "box": [160, 140.82, 193.34, 150.07] },
+                { "text": " visit", "box": [196.12, 140.82, 213.34, 150.07] }
+              ],
+              [{ "text": "95.00", "box": [434.98, 140.82, 460, 150.07] }]
+            ],
+            [
+              [{ "text": "C-300", "box": [72, 176.82, 99.23, 186.07] }],
+              [{ "text": "Gasket", "box": [160, 176.82, 191.68, 186.07] }],
+              [{ "text": "3.25", "box": [440.54, 176.82, 460, 186.07] }]
+            ],
+            [
+              [{ "text": "D-400", "box": [72, 194.82, 99.23, 204.07] }],
+              [
+                { "text": "Hose", "box": [160, 194.82, 183.34, 204.07] },
+                { "text": " clamp", "box": [186.12, 194.82, 212.79, 204.07] }
+              ],
+              [{ "text": "1.75", "box": [440.54, 194.82, 460, 204.07] }]
+            ],
+            [
+              [{ "text": "E-500", "box": [72, 212.82, 98.68, 222.07] }],
+              [
+                { "text": "Pressure", "box": [160, 212.82, 200.01, 222.07] },
+                { "text": " valve", "box": [202.79, 212.82, 226.13, 222.07] }
+              ],
+              [{ "text": "22.40", "box": [434.98, 212.82, 460, 222.07] }]
+            ],
+            [
+              [
+                { "text": "Spare", "box": [160, 158.82, 186.68, 168.07] },
+                { "text": " parts", "box": [189.46, 158.82, 211.69, 168.07] }
+              ]
+            ]
+          ],
+          "tables": [
+            {
+              "table": 0,
+              "spans": [
+                [72, 98.68],
+                [160, 223.9],
+                [422.23, 460]
+              ],
+              "col": [0, 1, 2]
+            },
+            {
+              "table": 0,
+              "spans": [
+                [72, 98.68],
+                [160, 223.9],
+                [422.23, 460]
+              ],
+              "col": [0, 1, 2]
+            },
+            {
+              "table": 0,
+              "spans": [
+                [72, 98.68],
+                [160, 223.9],
+                [422.23, 460]
+              ],
+              "col": [0, 1, 2]
+            },
+            {
+              "table": 1,
+              "spans": [
+                [72, 99.23],
+                [160, 226.13],
+                [434.98, 460]
+              ],
+              "col": [0, 1, 2]
+            },
+            {
+              "table": 1,
+              "spans": [
+                [72, 99.23],
+                [160, 226.13],
+                [434.98, 460]
+              ],
+              "col": [0, 1, 2]
+            },
+            {
+              "table": 1,
+              "spans": [
+                [72, 99.23],
+                [160, 226.13],
+                [434.98, 460]
+              ],
+              "col": [0, 1, 2]
+            },
+            null
+          ],
+          "tablesAsTabs": 0
+        }
+      ]
+    },
+    {
       "key": "poppler-samples-image:IMAGE_TABLE_NOTE_1_0_BBOX",
-      "input": "609e9d93b21e154d13c48c1b79b2fa27c7a429085097eb9e1831e6c7e5143def",
+      "input": "1d54a6374b7b9fece01c84d6ff48ac26162db22f3376a1979d5f994871567e87",
       "output": "311cecccf23556079abe0c0c88dda7cbed08bf9d53cac8048d983fea989e49d2",
       "pages": [
         {
@@ -6714,7 +7130,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_TABLE_NOTE_1_5_BBOX",
-      "input": "932a544c501146b885163efed7e84684ed1ce96d08da148a29971bf46780e058",
+      "input": "0882c7a8840920960def9cee92568d2ee1d182d91f8610458006f901ff65e383",
       "output": "afabed4cdb7edc8155f93f6f4c55c3afaa59019bd27b7158efcf90c557905691",
       "pages": [
         {
@@ -6813,7 +7229,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_TABLE_NOTE_CAPTION_BBOX",
-      "input": "f53bee3b8664abbb967eb9c41a9d0c9deee7780984ea636697e7729d4683509d",
+      "input": "5d55f1b440f402475c0a5949921136c7f22d6c90130abe98b29c21895feb77d7",
       "output": "42a13c2b5e46e23ccd3d3a0c4ab4cee06547da0fbabdc3b2e8377ed9f2048fb3",
       "pages": [
         {
@@ -6965,7 +7381,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_TITLED_TABLE_BBOX",
-      "input": "e47d5ec85e959352801fcf4a50ad0448a6bb5d5de69ff3c9f86e3601b971ffb8",
+      "input": "bc0dbebaa4d7998c17cc009477ebdc538351b094a573fc19c558db64ebb4116f",
       "output": "ce644c639314e7af00432757b504057cca968d59d1e7d5a2403f81757e6ebaf4",
       "pages": [
         {
@@ -7086,7 +7502,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_TWO_COLUMN_BBOX",
-      "input": "bf07dc703439f09eb8df6177f40e9d201bb13ccb76f6181985a9accb83dca738",
+      "input": "d0f69be3dd3a30aa0ebc69c15ac3aea050173ae2342686406a305fefa67ec303",
       "output": "bb0ec2fa0345d34e3bccf824ee31e7c3d7dbb06d6139fb8a7574fc9bc08260b9",
       "pages": [
         {
@@ -7225,7 +7641,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_TWO_COLUMN_SHORT_LINES_BBOX",
-      "input": "26a98b3e657e19ab44926a94f7368b20804c8e6e50d461b85b7c4d622aa2750e",
+      "input": "fca8e6def741f7847ff49d5b09fb34b850f86876c81c0bde8cd0507fe1a623ec",
       "output": "937f456b6ea84d79a309f0f012c46c3b114a5218d1da7577ce056fbfe330fd7c",
       "pages": [
         {
@@ -7359,7 +7775,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_WRAPPED_BENGALI_TABLE_BBOX",
-      "input": "e8ae007001efa948727eff69213047f68c1e2eac0390a2ee53f34579f7a3aebc",
+      "input": "34c81b3664261e377d6fd818a14cf624d336704a437e06b658a51f42ca8b1993",
       "output": "3511895ececcbe03538369608fe503b3614eb256a787e85b42be10f8bd30ce5d",
       "pages": [
         {
@@ -7475,7 +7891,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_WRAPPED_INVOICE_AMOUNT_NOTE_BBOX",
-      "input": "4806d0386c3bc0378eb6800a8cbbaa790688e5d5b6fe77ec03b9760bec0d3089",
+      "input": "c59ed963e1c7d9a04107e8e5666695442ae00ee2e5a2df001a11f2966d95d388",
       "output": "3bcd89ac30a182bd894b90207f25fd1a506b9995a9684b2870d38f23ac31047f",
       "pages": [
         {
@@ -7705,7 +8121,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_WRAPPED_INVOICE_BBOX",
-      "input": "bc79d3458cb87d956c10f3991461192760b1f2c1cfdeff879e36d476d80aad4c",
+      "input": "b2565ef77ef1874d242a3c411a20cf8b858ea880eb9f69db3b7c6cf0a24e3304",
       "output": "e9bc8b94da3a5d164a08e9d1e2157722ecf64b489ec56fbf2399b591b2701698",
       "pages": [
         {
@@ -7929,7 +8345,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_WRAPPED_INVOICE_EMBEDDED_BBOX",
-      "input": "75f15a3ff5adc92f7b54e05a2046ad5bc4ce4e6af8be5cfe4d66b50311438132",
+      "input": "2426a1e14abd62e51dce1fdf212e7c28daf3e8cd7cd6a417ce2d96141ad7a3d6",
       "output": "777b15f978a7e17376bfa2164f29de90a8b9bb09911b1a562f572be3c21d2f6a",
       "pages": [
         {
@@ -8153,7 +8569,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_WRAPPED_INVOICE_EVERY_ROW_BBOX",
-      "input": "257e1ddfd23b005f85f59f0cb4a9633f05eb966e2fb784248fa1fbabcc53fd56",
+      "input": "bfed2c1ce5e54bf1b327d9e3679e398cf61a5e4486152da3320384f199ab083d",
       "output": "8337e57cce754de9da55850759e5ad24073e04c7e0dfd84cc93e8365d98a1867",
       "pages": [
         {
@@ -8373,7 +8789,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_WRAPPED_INVOICE_STRAY_NUMBER_BBOX",
-      "input": "457839938b744956b359476921d31003e49989d26de310ca65ae51bc78118432",
+      "input": "45d379b3eaed3805aeb55efaccdd7c84a88acb1ce704c2cb52c445341edded4b",
       "output": "5ee8e67059295b929d435fefd49b52fa6c1ac8efa8ef00b70dd9920817546826",
       "pages": [
         {
@@ -8611,7 +9027,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_WRAPPED_LONG_BBOX",
-      "input": "c54ffd7d730ed1a1f7c667b24b6f52eee6b4154a889ece8aeb901d17f2d8d6fc",
+      "input": "b5be266dd5403cf8c8ddad22f94dd12a05d1046adb775ecaf42b5a7ca9f63396",
       "output": "185a71fcfec6ce5e37837a9ddb0d35b42a3bba212972eeff868960a3d4c7d9ce",
       "pages": [
         {
@@ -8684,7 +9100,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_WRAPPED_SHORT_BBOX",
-      "input": "e59d2d62dcdefdde034350c7e95190e5570f8001e6beb4dcafab2e09b9fb8152",
+      "input": "bdff85ec042893c5d14f35a870347b4256e95c97f367ff6952476b567a2b1aba",
       "output": "4498b7a6c9a97582d53906353d6c7812cf92e7b9d200d24759e956ee36e42537",
       "pages": [
         {
@@ -8774,7 +9190,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_WRAPPED_TWO_COLUMN_PAGE_BBOX",
-      "input": "7b87589fb7df4b99705f0d572b5630ccba78413547cd2b76c7e45207866f41f7",
+      "input": "8a2c898795a66fac0d3042bc7201770e13d787753eaa1d7750e23f6ecdfdf486",
       "output": "fa3e95f283b2cdd84e776825b7488fecdefdfda4ae79a7c9a0bfdfb2c42e48b9",
       "pages": [
         {
@@ -8914,7 +9330,7 @@
     },
     {
       "key": "poppler-samples-image:IMAGE_WRAP_ACROSS_PAGES_BBOX",
-      "input": "7f6dbd645ee27db94df65f8e88d1f01d104d6e08798b6acf46356577f269259a",
+      "input": "8cc52e26e261642af4acd9611efe70c5587564157d336901fa12a1355a4d915d",
       "output": "c4c52fd3435dd9bde88eb499885999785788a6e6089276daea9ea9b84a55a194",
       "pages": [
         {

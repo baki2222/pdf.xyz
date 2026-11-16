@@ -768,3 +768,107 @@ export async function tableNotePdf(
 ): Promise<Uint8Array> {
   return drawnPdf(tableNoteItems(variant));
 }
+
+// ──────────────── S17: a one-line band of its own between two rows ──────────
+
+/**
+ * S17's three shapes (review of rule 7, 2026-11-16): a one-cell line in a
+ * non-first, non-figure column, set between two rows of a table one row
+ * pitch from each, in a poppler block of its OWN. Under any row but the
+ * last, slice 3 first absorbed such a line into the row above (the block
+ * condition was checked under the last row only), merging two tables into
+ * one and folding the line into a data cell.
+ *
+ * - `subheading`: "Spare parts" under Description, left-aligned like the
+ *   column, between two groups of parts;
+ * - `midnote`: a note centred under Description between the parts and the
+ *   Total / Paid / Due lines;
+ * - `blankfirst`: a statement row whose only cell is its description
+ *   ("Interest credited": no date, no amount).
+ */
+export type TableInterruptVariant = "subheading" | "midnote" | "blankfirst";
+
+/** S17: each variant's rows above the line, the line, and the rows below. */
+export const TABLE_INTERRUPT: Readonly<
+  Record<
+    TableInterruptVariant,
+    {
+      spec: WrapTableSpec;
+      line: { text: string; x: number; align: "left" | "centre" };
+      below: readonly (readonly string[])[];
+    }
+  >
+> = {
+  subheading: {
+    spec: {
+      ...TABLE_NOTE_TABLE,
+      rows: [
+        ["Item", "Description", "Amount"],
+        ["A-100", "Filter cartridge", "12.50"],
+        ["B-200", "Service visit", "95.00"],
+      ],
+    },
+    line: { text: "Spare parts", x: 160, align: "left" },
+    below: [
+      ["C-300", "Gasket", "3.25"],
+      ["D-400", "Hose clamp", "1.75"],
+      ["E-500", "Pressure valve", "22.40"],
+    ],
+  },
+  midnote: {
+    spec: {
+      ...TABLE_NOTE_TABLE,
+      rows: [
+        ["Item", "Description", "Amount"],
+        ["A-100", "Filter cartridge", "12.50"],
+        ["B-200", "Service visit", "95.00"],
+        ["C-300", "Gasket", "3.25"],
+      ],
+    },
+    line: { text: TABLE_NOTE, x: 240, align: "centre" },
+    below: [
+      ["Total", "", "110.75"],
+      ["Paid", "", "110.75"],
+      ["Due", "", "0.00"],
+    ],
+  },
+  blankfirst: {
+    spec: {
+      ...TABLE_NOTE_TABLE,
+      rows: [
+        ["Date", "Description", "Amount"],
+        ["02-01", "Opening balance", "100.00"],
+        ["02-02", "Card payment", "12.50"],
+      ],
+    },
+    line: { text: "Interest credited", x: 160, align: "left" },
+    below: [
+      ["02-03", "Transfer in", "250.00"],
+      ["02-04", "Standing order", "40.00"],
+      ["02-05", "Card payment", "8.99"],
+    ],
+  },
+};
+
+/** Every item {@link tableInterruptPdf} draws for `variant`. */
+export function tableInterruptItems(variant: TableInterruptVariant): Drawn[] {
+  const { spec, line, below } = TABLE_INTERRUPT[variant];
+  const upper = tableItems(spec);
+  const lower = tableItems({
+    ...spec,
+    rows: below,
+    top: upper.below - spec.rowPitch,
+  });
+  return [
+    ...upper.items,
+    { ...line, y: upper.below, size: spec.size },
+    ...lower.items.map((d) => ({ ...d, bold: false })),
+  ];
+}
+
+/** S17: {@link tableInterruptItems}. */
+export async function tableInterruptPdf(
+  variant: TableInterruptVariant,
+): Promise<Uint8Array> {
+  return drawnPdf(tableInterruptItems(variant));
+}
