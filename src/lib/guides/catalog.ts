@@ -77,6 +77,10 @@ import {
   translatePdfCoverageSentence,
 } from "@/lib/jobs/translate-pdf-coverage";
 import {
+  TRANSLATE_COLUMN_ORDER,
+  TRANSLATE_PAGE_HEADINGS,
+} from "@/lib/jobs/translate-reading-copy";
+import {
   DEFAULT_JPEG_QUALITY,
   DEFAULT_JPEG_QUALITY_ID,
   JPEG_QUALITY_LABEL,
@@ -2210,7 +2214,9 @@ export const guides: Guide[] = [
           // Was "…, delivered together as a single ZIP." (until 2026-11-16):
           // the text alone as the whole output, read sentence by sentence.
           "Every translation arrives as a Markdown file and a plain-text file in a single ZIP, the one download every job gets whether or not a PDF comes with it. Markdown keeps the translation usable as a document — read it as-is, convert it, or paste it wherever the text needs to go. Plain text is the same words with nothing else attached.",
-          `${translatePdfCoverageSentence()} That PDF is the translated text reflowed onto new pages, not the original redesigned: fonts, columns, and positioning from the original are not reconstructed in the new language. If the goal is the same PDF in a different language, plan on taking the translated text into your own layout — this tool's job is getting the words right. If what you need from a long document is the gist rather than a full translation, Summarize PDF works from the same selectable text.`,
+          // CHANGED 2026-11-16 (audit #29 slice 5): the page-heading
+          // sentence joined, after `translatePageMap` was observed live.
+          `${translatePdfCoverageSentence()} That PDF is the translated text reflowed onto new pages, not the original redesigned: fonts, columns, and positioning from the original are not reconstructed in the new language. ${TRANSLATE_PAGE_HEADINGS} If the goal is the same PDF in a different language, plan on taking the translated text into your own layout — this tool's job is getting the words right. If what you need from a long document is the gist rather than a full translation, Summarize PDF works from the same selectable text.`,
         ],
       },
       {
@@ -2279,9 +2285,16 @@ export const guides: Guide[] = [
         // then translate the output."
         answer: TRANSLATE_SCAN_ROUTE,
       },
+      {
+        // Added 2026-11-16 (audit #29 slice 5), after `translateReadingOrder`
+        // was observed live and a real two-column job came back in column
+        // order. The guide said nothing about columns before.
+        question: "How are two-column pages translated?",
+        answer: TRANSLATE_COLUMN_ORDER,
+      },
     ],
     published: "2026-09-17",
-    updated: "2026-11-15",
+    updated: "2026-11-16",
   },
   {
     slug: "how-to-delete-pages-from-a-pdf",

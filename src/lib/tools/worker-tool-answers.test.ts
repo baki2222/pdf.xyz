@@ -54,6 +54,10 @@ import {
   type SignatureRequestOptions,
 } from "@/lib/jobs/request-signatures";
 import { LANGUAGE_NAMES, TRANSLATE_LANGUAGES } from "@/lib/jobs/translate-pdf";
+import {
+  TRANSLATE_COLUMN_ORDER,
+  TRANSLATE_PAGE_HEADINGS,
+} from "@/lib/jobs/translate-reading-copy";
 import { isSafePublicHttpUrl } from "@/lib/jobs/validation";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import { applyFormValues } from "@/lib/pdf/forms";
@@ -2113,6 +2117,28 @@ describe("Translate PDF's languages are in the HTML Google indexes", () => {
     const panel = read("src/components/tools/translate-worker-panel.tsx");
     expect(panel).toMatch(/TRANSLATE_LANGUAGES\.map/);
     expect(panel).toContain(">Auto-detect<");
+  });
+});
+
+/**
+ * Audit #29 slice 5 (2026-11-16): column order and page headings, read where
+ * the reader meets them — the SERVED page, not the content module. The
+ * sentences are defined once (`@/lib/jobs/translate-reading-copy`, whose
+ * docblock states the live bound); the guards on their wording live in
+ * translate-reading-order-copy.test.ts and capability-hedges.test.ts.
+ */
+describe("Translate PDF's served page says how columns are read and how the PDF heads pages", () => {
+  it("the column sentence, with its fallback clause, is in the served HTML", () => {
+    const served = page("translate-pdf").text;
+    expect(TRANSLATE_COLUMN_ORDER.length).toBeGreaterThan(0);
+    expect(served).toContain(TRANSLATE_COLUMN_ORDER);
+    // The retired admission is gone from the page as served.
+    expect(served).not.toMatch(/interleav/i);
+  });
+
+  it("the page-heading sentence is in the layout answer, as JSON-LD carries it", () => {
+    const served = answer("translate-pdf", /keep the original layout/i);
+    expect(served).toContain(TRANSLATE_PAGE_HEADINGS);
   });
 });
 
