@@ -111,19 +111,49 @@ describe("each budget outlasts the worker's own work", () => {
   // that code with "expected 303000 to be greater than or equal to 362000".
   //
   // 2026-11-16 (reading order): a retried attempt extracts again, the
-  // `-bbox-layout` run included, so the floor carries the flow deadline too:
-  // 392,000 ms. For one chunk the floor is the binding term, so a flow term
-  // added only per chunk would change nothing for a small document.
+  // `-bbox-layout` run included, so the floor carries the flow deadline too.
+  // For one chunk the floor is the binding term, so a flow term added only
+  // per chunk would change nothing for a small document.
+  //
+  // S3 review, 2026-11-16: the first version added the flow term ONCE
+  // (392,000 ms) and this test agreed with it. The retried worst case is two
+  // whole attempts and each makes a flow run, so it is TWO terms: 422,000 ms.
+  // Inverted rather than deleted; red on the one-term floor with "expected
+  // 393000 to be greater than or equal to 422000" (392 s rounded up to a
+  // whole poll interval).
   it("translate: the retried call's render is waited for too (the one-chunk floor)", () => {
     for (const chunks of [1, 2, 5, 12]) {
       expect(pollWaitMs(translateJobPoll(chunks))).toBeGreaterThanOrEqual(
         2 * AI_TIMEOUT_MS_BOUNDS.default +
           retryRequeueDelayMs(1) +
-          TRANSLATE_FLOW_TIMEOUT_MS +
+          2 * TRANSLATE_FLOW_TIMEOUT_MS +
           TRANSLATE_PDF_RENDER_TIMEOUT_MS +
           PIPELINE_MARGIN_MS,
       );
     }
+  });
+
+  it("translate: the one-chunk floor is the retried worst case, attempt by attempt", () => {
+    // Each attempt spelled out, from the worker's own numbers, so the sum is
+    // not a restatement of the floor's expression.
+    const attempt = (withRender: boolean) =>
+      TRANSLATE_FLOW_TIMEOUT_MS +
+      AI_TIMEOUT_MS_BOUNDS.default +
+      (withRender ? TRANSLATE_PDF_RENDER_TIMEOUT_MS : 0);
+    const retriedWorstCase =
+      attempt(false) +
+      retryRequeueDelayMs(1) +
+      attempt(true) +
+      PIPELINE_MARGIN_MS;
+    // Health: the figure the docblock states, with the defaults it assumes.
+    expect(retriedWorstCase).toBe(422_000);
+    expect(pollWaitMs(translateJobPoll(1))).toBeGreaterThanOrEqual(
+      retriedWorstCase,
+    );
+    // Not an accident of rounding: within one poll interval of the sum.
+    expect(pollWaitMs(translateJobPoll(1))).toBeLessThan(
+      retriedWorstCase + translateJobPoll(1).intervalMs,
+    );
   });
 
   it("translate: the flow run's deadline the worker sets is never longer than the wait adds", () => {
