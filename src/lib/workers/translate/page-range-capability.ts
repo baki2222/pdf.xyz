@@ -59,7 +59,16 @@
  *       and 5, and the manifest has no `source.pagesSent`. This is what proves
  *       the recorder records: (1)'s "did not see page 3" is an absence;
  *   (4) `pages: [[6,6]]`: failed as `unprocessable_entity`, not retryable,
- *       with ZERO provider calls;
+ *       with ZERO provider calls, AND as the OUT-OF-RANGE refusal: its
+ *       message is `translatePagesOutOfRangeMessage(5, [6,6])`. The code,
+ *       the retry flag and the zero calls are shared with the chosen-pages
+ *       `no_text` refusal, which an engine with its range check removed
+ *       reaches instead ([[6,6]] selects nothing, and nothing has no text),
+ *       so without the message this step passed on that image (review
+ *       2026-11-17). The job error carries only code, message and retry
+ *       flag, so the message IS the refusal's kind at the wire; a health
+ *       check asserts the two refusals' messages differ, or the step would
+ *       be blind again;
  *   (5) CONTROL: arm A's heading predicate fails on arm B's text and arm B's
  *       on arm A's (a reader that cannot tell them apart proved nothing).
  *   Any throw is `false`.
@@ -78,6 +87,8 @@
 import JSZip from "jszip";
 import type { TranslateLanguage } from "@/lib/jobs/translate-pdf";
 import { sanitizeJobResults } from "@/lib/jobs/results";
+import { NO_TEXT_IN_CHOSEN_PAGES_MESSAGE } from "@/lib/jobs/chosen-pages-no-text";
+import { translatePagesOutOfRangeMessage } from "@/lib/jobs/translate-pages";
 import type { AiCompletionRequest, AiProvider } from "../ai/provider";
 import {
   runThroughExecutorOrder,
@@ -117,6 +128,8 @@ const CHOSEN: [number, number][] = [
   [4, 4],
 ];
 const BEYOND: [number, number][] = [[6, 6]];
+/** The out-of-range refusal of {@link BEYOND} on the five-page probe. */
+const BEYOND_MESSAGE = translatePagesOutOfRangeMessage(5, [6, 6]);
 /** What a reader of a selection job must be told (typed: it is the property). */
 const SENTENCE = "You chose pages 2 and 4 of 5.";
 /** The PDF's headings per arm, typed rather than built from the label author. */
@@ -148,6 +161,7 @@ export type PageRangeCheck =
   | "control_sent"
   | "control_manifest"
   | "beyond"
+  | "beyond_kind"
   | "control_headings"
   | "throw";
 
@@ -527,6 +541,23 @@ export async function probeTranslatePageRange(
         error.retryable === false &&
         beyond.requests.length === 0,
       `pages [[6,6]] fails as ${error?.code ?? beyond.outcome.stage} (retryable ${String(error?.retryable)}) with ${beyond.requests.length} provider calls (need 0)`,
+    );
+    // Which refusal: the code above is shared with the chosen-pages no-text
+    // refusal, so only the message tells them apart (see the header).
+    const kind =
+      error === null
+        ? beyond.outcome.stage
+        : error.message === BEYOND_MESSAGE
+          ? "pages_out_of_range"
+          : error.message === NO_TEXT_IN_CHOSEN_PAGES_MESSAGE["translate-pdf"]
+            ? "chosen-pages no_text"
+            : "another refusal";
+    check(
+      "4",
+      "beyond_kind",
+      BEYOND_MESSAGE !== NO_TEXT_IN_CHOSEN_PAGES_MESSAGE["translate-pdf"] &&
+        kind === "pages_out_of_range",
+      `pages [[6,6]] is the out-of-range refusal, told apart from the chosen-pages no-text refusal (${kind})`,
     );
 
     // (5) CONTROL: the two readers tell the arms apart.

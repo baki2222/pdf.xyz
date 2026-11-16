@@ -22,7 +22,13 @@
  *     positive control must be what turn it false);
  *   - arm A answered by the stripping model (the headings step and the
  *     heading control);
- *   - an extractor that throws.
+ *   - an extractor that throws;
+ *   - an engine whose out-of-range check is gone (the extractor seam
+ *     reports as many pages as the job names, so `firstSpanBeyond` finds
+ *     nothing past the end): [[6,6]] then selects no page and is refused as
+ *     the chosen-pages `no_text`, with the same code, retry flag and zero
+ *     calls, so only (4)'s refusal-kind check can see it (review
+ *     2026-11-17: before that check the proof passed this image).
  *
  * And, where this host has a real `pdftotext` (the worker image; a dev box
  * with poppler), the proof as the daemon runs it, with no fake at all.
@@ -107,6 +113,31 @@ function silentRecorder(d: TranslateDeps): ProcessorRegistry {
   );
 }
 
+/**
+ * A registry whose engine never finds a span past the end: each job's
+ * extractor reports at least as many pages as the job's `pages` name, so the
+ * engine's `firstSpanBeyond` returns nothing and the selection proceeds
+ * (selecting no page for [[6,6]]). The page entries are unchanged.
+ */
+function skipsRangeCheck(d: TranslateDeps): ProcessorRegistry {
+  return new ProcessorRegistry().register({
+    ...createTranslateProcessor(d),
+    process: (input) => {
+      const spans = ((input.options as { pages?: [number, number][] }).pages ??
+        []) as [number, number][];
+      const named = Math.max(0, ...spans.map(([, b]) => b));
+      const own = d.extract!;
+      return createTranslateProcessor({
+        ...d,
+        extract: async (bytes, run) => {
+          const read = await own(bytes, run);
+          return { ...read, pageCount: Math.max(read.pageCount, named) };
+        },
+      }).process(input);
+    },
+  });
+}
+
 /** pdfjs's reading with the blank page dropped and the rest renumbered. */
 const numbersByPosition: TranslateExtractor = async (bytes) => {
   const read = await pdfjsExtract(bytes);
@@ -144,6 +175,19 @@ describe("the page-range proof fails, naming the step, on each defect", () => {
         "sentence_a",
         "beyond",
       ]),
+    );
+  });
+
+  it("an engine without its out-of-range check: (4) fails on the refusal's kind alone", async () => {
+    const verdict = await probeTranslatePageRange(
+      deps({ registry: skipsRangeCheck }),
+    );
+    // Exactly the kind check: code, retry flag and zero calls all still
+    // hold, which is why the step needed it.
+    expect(verdict.failed, verdict.lines.join(NL)).toEqual(["beyond_kind"]);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.lines.find((l) => l.startsWith("FAIL (4)"))).toContain(
+      "chosen-pages no_text",
     );
   });
 

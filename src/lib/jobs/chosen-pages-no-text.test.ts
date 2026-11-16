@@ -12,8 +12,9 @@
  *  1. one author: the sentence's text appears in exactly one non-test source
  *     file, the leaf (a copy in a second module is the defect the map was
  *     keyed by tool to prevent);
- *  2. the importers are the two measures and the two engines, none a
- *     component;
+ *  2. the importers are the two measures, the two engines and Translate's
+ *     page-range start-up proof (worker-only: step (4) tells the
+ *     out-of-range refusal from this one by its message), none a component;
  *  3. no tool panel reaches the leaf by a STATIC import, at any depth: the
  *     closure is walked from every panel module the tool page mounts
  *     (`ownPanelModules`), following `import` / `export … from` but not
@@ -101,7 +102,7 @@ describe("chosen-pages-no-text: one author, no panel's first load", () => {
     }
   });
 
-  it("the importers are both measures and both engines, and no component", () => {
+  it("the importers are both measures, both engines and the page-range proof, and no component", () => {
     const importers = sources
       .filter((f) => f !== LEAF && staticEdges(f).includes(LEAF))
       .map(posix)
@@ -111,6 +112,7 @@ describe("chosen-pages-no-text: one author, no panel's first load", () => {
       "src/lib/workers/summarize/engine.ts",
       "src/lib/workers/translate-measure.ts",
       "src/lib/workers/translate/engine.ts",
+      "src/lib/workers/translate/page-range-capability.ts",
     ]);
   });
 
