@@ -22,6 +22,7 @@ import {
   withheldPagesMarker,
   type DeliveryLimit,
   type TranslatePlan,
+  type WithheldRemedy,
 } from "./chunking";
 import { pagesLabel } from "./page-labels";
 
@@ -68,6 +69,8 @@ export type TranslationGap = Chosen &
         readonly pages: readonly number[];
         readonly boundBy: DeliveryBound;
         readonly limit: DeliveryLimit;
+        /** What the notice tells the reader to do (`withheldPagesMarker`). */
+        readonly remedy: WithheldRemedy;
       }
   );
 
@@ -103,6 +106,7 @@ export function assembleParts(
     pages: readonly number[];
     boundBy: DeliveryBound;
     limit: DeliveryLimit;
+    remedy: WithheldRemedy;
   } | null,
   chosen: readonly PageSpan[] | null,
 ): TranslationPart[] {
@@ -159,6 +163,7 @@ export function assembleParts(
         pages: withheld.pages,
         boundBy: withheld.boundBy,
         limit: withheld.limit,
+        remedy: withheld.remedy,
         chosen,
       },
     });
@@ -196,7 +201,13 @@ export function gapMarkdown(gap: TranslationGap): string {
     case "interrupted":
       return interruptedNotice(gap.pages, gap.chosen);
     case "withheld":
-      return withheldPagesMarker(gap.pages, gap.boundBy, gap.limit, gap.chosen);
+      return withheldPagesMarker(
+        gap.pages,
+        gap.boundBy,
+        gap.limit,
+        gap.chosen,
+        gap.remedy,
+      );
   }
 }
 

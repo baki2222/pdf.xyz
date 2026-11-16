@@ -28,6 +28,7 @@ import {
   capPagesToDelivery,
   nothingDeliverableMessage,
   type DeliveryLimit,
+  type WithheldRemedy,
 } from "./chunking";
 import {
   collidesWithMarker,
@@ -73,7 +74,7 @@ import type {
   AiReadingOrderMeta,
   AiUsageMeta,
 } from "@/lib/jobs/ai-results";
-import type { JobDeliveryCap } from "@/lib/jobs/delivery-cap";
+import type { DeliveryBound, JobDeliveryCap } from "@/lib/jobs/delivery-cap";
 
 /**
  * Translate PDF engine for the `translate-pdf` AI tool.
@@ -167,6 +168,36 @@ export interface TranslateDeps {
    * `limits.delivery`. Printed as the PDF's title; never sent to the model.
    */
   document?: { name: string };
+  /**
+   * Whether the reader of THIS job can choose pages next time: this
+   * process's own `translatePageRange` proof (`./page-range-proved`, wired
+   * by `./native`), which the processor turns off for a job that asked for
+   * OCR (no Pages field for a scan). `null` or absent: not proved, and the
+   * withheld-pages notice keeps its old sentence (`withheldRemedy`).
+   */
+  pageChoice?: () => boolean | null;
+}
+
+/**
+ * What the withheld-pages notice tells the reader to do (slice 7). Page
+ * choice ONLY when choosing those pages next time works: the reader will be
+ * offered the field (`pageChoice`), the bound was the characters reserved
+ * (a pages bound means the browser counted fewer pages of text than there
+ * are, and it would count the chosen ones the same way), and no withheld
+ * page is longer than one pass (choosing it would not make it shorter).
+ * Otherwise main's sentence, byte for byte.
+ */
+export function withheldRemedy(args: {
+  pageChoice: boolean | null | undefined;
+  boundBy: DeliveryBound;
+  withheldSizes: readonly number[];
+  ceilingCharacters: number;
+}): WithheldRemedy {
+  return args.pageChoice === true &&
+    args.boundBy === "characters" &&
+    args.withheldSizes.every((size) => size <= args.ceilingCharacters)
+    ? "choose-pages"
+    : "separate-document";
 }
 
 export interface TranslatePdfDeps {
@@ -1024,6 +1055,17 @@ export async function runTranslate(
           pages: capped.withheldPages,
           boundBy: capped.boundBy,
           limit,
+          remedy: withheldRemedy({
+            pageChoice: deps.pageChoice?.(),
+            boundBy: capped.boundBy,
+            // Weighed as the cap weighed them: each withheld block's `text`.
+            withheldSizes: capped.withheldPages.map(
+              (page) =>
+                pageBlocks.find((block) => block.pageNumber === page)?.text
+                  .length ?? Number.POSITIVE_INFINITY,
+            ),
+            ceilingCharacters,
+          }),
         }
       : null;
 

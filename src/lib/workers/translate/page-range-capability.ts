@@ -117,6 +117,7 @@ import {
 } from "./probe-pdf";
 import type { TranslateExtractor } from "./reading-order";
 import { delimitedSegment } from "./reading-order-capability";
+import { recordTranslatePageRange } from "./page-range-proved";
 
 type EnvSource = Record<string, string | undefined>;
 
@@ -598,15 +599,19 @@ export async function runTranslatePageRangeProof(
 
 /**
  * The heartbeat's `translatePageRange`: {@link runTranslatePageRangeProof}'s
- * verdict. No extractor, any throw: `false`.
+ * verdict. No extractor, any throw: `false`. The verdict is also RECORDED
+ * (`./page-range-proved`) for the engine, which offers page choice in its
+ * withheld-pages notice only when this process proved it (slice 7).
  */
 export async function provesTranslatePageRange(
   env: EnvSource = process.env,
 ): Promise<boolean> {
   try {
     const verdict = await runTranslatePageRangeProof(env);
+    recordTranslatePageRange(verdict.ok);
     return verdict.ok;
   } catch {
+    recordTranslatePageRange(false);
     return false;
   }
 }

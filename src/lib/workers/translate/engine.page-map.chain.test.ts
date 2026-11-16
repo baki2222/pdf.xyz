@@ -243,6 +243,8 @@ function mainShape(plan: Awaited<ReturnType<typeof planFor>>): string {
       pages: withheld,
       boundBy: plan.capped.boundBy!,
       limit: plan.limit,
+      // These jobs pass no `pageChoice`, so the engine keeps main's sentence.
+      remedy: "separate-document",
       chosen: null,
     })
   );

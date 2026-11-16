@@ -386,6 +386,17 @@ export function capPagesToDelivery(
   };
 }
 
+/** What a withheld-pages notice tells the reader to do (see `withheldPagesMarker`). */
+export type WithheldRemedy = "choose-pages" | "separate-document";
+
+/** The withheld notice's last sentence on main, and wherever page choice does not help. */
+export const WITHHELD_SEPARATE_DOCUMENT =
+  "Translate the remaining pages as a separate document.";
+
+/** The withheld notice's last sentence when choosing those pages next time works. */
+export const WITHHELD_CHOOSE_PAGES =
+  "To translate them, run this PDF again and choose only those pages.";
+
 /**
  * The marker left where delivery stopped because the job ran out of what it
  * reserved.
@@ -402,12 +413,25 @@ export function capPagesToDelivery(
  * declaration was OF: under a selection the browser declared the chosen
  * pages, so "the document" would be the wrong one. For a whole-document job
  * both are byte-identical to what they were (the ZIP's characterisation SHAs).
+ *
+ * `remedy` is REQUIRED (slice 7): what the reader is told to do about the
+ * untranslated pages. {@link WITHHELD_SEPARATE_DOCUMENT} is today's sentence,
+ * byte for byte; {@link WITHHELD_CHOOSE_PAGES} is offered only when choosing
+ * those pages next time really works, which the ENGINE decides
+ * (`withheldRemedy`): this worker proved `translatePageRange`, the job was
+ * not an OCR job (a scan gets no Pages field), the bound was the characters
+ * reserved (a pages bound means the browser saw fewer pages of text than
+ * there are, and would see them the same way again), and no withheld page is
+ * longer than one pass (choosing such a page does not help). Under a
+ * selection "those pages" are the header's, which `pagesLabel` derives from
+ * the chosen pages only, so the remaining pages are remaining CHOSEN pages.
  */
 export function withheldPagesMarker(
   pages: readonly number[],
   boundBy: DeliveryBound,
   limit: DeliveryLimit,
   chosen: readonly PageSpan[] | null,
+  remedy: WithheldRemedy,
 ): string {
   const list = pagesLabel(pages, chosen);
   const reserved = limit.characters.toLocaleString("en-US");
@@ -421,7 +445,7 @@ export function withheldPagesMarker(
   return [
     "",
     `> \u26a0\ufe0f **${list} ${pages.length === 1 ? "is" : "are"} not translated.**`,
-    `> ${because} Everything above was translated, and nothing was charged beyond what was reserved. Translate the remaining pages as a separate document.`,
+    `> ${because} Everything above was translated, and nothing was charged beyond what was reserved. ${remedy === "choose-pages" ? WITHHELD_CHOOSE_PAGES : WITHHELD_SEPARATE_DOCUMENT}`,
     "",
   ].join("\n");
 }
