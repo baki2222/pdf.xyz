@@ -25,6 +25,8 @@ import { runChatWithPdf } from "../chat-with-pdf/engine";
 import { runSummarize } from "../summarize/engine";
 import { runTranslate } from "../translate/engine";
 import { runAiExtract } from "../ai-extract/engine";
+import type { selectPages } from "@/lib/pdf/page-retrieval";
+import { provesAiReadCap } from "../processor/read-cap-proof";
 
 const FIXTURE = fileURLToPath(
   new URL("./__fixtures__/requests-at-0985432a.json", import.meta.url),
@@ -131,7 +133,15 @@ const NOW = () => "2026-11-16T00:00:00.000Z";
 const LONG = pages(40, 60);
 const LONG_BLANKS = pages(40, 60, {}, [2, 5, 6, 19]);
 
-type Case = (provider: AiProvider) => Promise<unknown>;
+type Case = (
+  provider: AiProvider,
+  /** Chat cases only: the selector seam (`ChatWithPdfDeps.selectPages`). */
+  select?: typeof selectPages,
+) => Promise<unknown>;
+
+/** The seam, spread into a chat case's deps only when a test passes one. */
+const seam = (select?: typeof selectPages) =>
+  select ? { selectPages: select } : {};
 
 /**
  * The matrix. Chat's over-budget cases are the ones retrieval must leave
@@ -139,13 +149,13 @@ type Case = (provider: AiProvider) => Promise<unknown>;
  * window, a cited page inside the prefix window.
  */
 const CASES: Record<string, Case> = {
-  "chat/fit": (provider) =>
+  "chat/fit": (provider, select) =>
     runChatWithPdf(
       INPUT,
       { question: "What does page two say?" },
-      { extract: paged(pages(3, 40)), provider, now: NOW },
+      { extract: paged(pages(3, 40)), provider, now: NOW, ...seam(select) },
     ),
-  "chat/fit-follow-up": (provider) =>
+  "chat/fit-follow-up": (provider, select) =>
     runChatWithPdf(
       INPUT,
       {
@@ -155,9 +165,9 @@ const CASES: Record<string, Case> = {
           { role: "assistant", content: "It is on [p.2]." },
         ],
       },
-      { extract: paged(pages(3, 40)), provider, now: NOW },
+      { extract: paged(pages(3, 40)), provider, now: NOW, ...seam(select) },
     ),
-  "chat/prefix-no-match": (provider) =>
+  "chat/prefix-no-match": (provider, select) =>
     runChatWithPdf(
       INPUT,
       { question: "What is the governing currency?" },
@@ -165,10 +175,11 @@ const CASES: Record<string, Case> = {
         extract: paged(LONG),
         provider,
         now: NOW,
+        ...seam(select),
         limits: { maxInputChars: 3_000 },
       },
     ),
-  "chat/prefix-common-terms-only": (provider) =>
+  "chat/prefix-common-terms-only": (provider, select) =>
     runChatWithPdf(
       INPUT,
       // Every filler word is on more than half the pages: IDF 0.
@@ -177,10 +188,11 @@ const CASES: Record<string, Case> = {
         extract: paged(LONG),
         provider,
         now: NOW,
+        ...seam(select),
         limits: { maxInputChars: 3_000 },
       },
     ),
-  "chat/prefix-blank-pages": (provider) =>
+  "chat/prefix-blank-pages": (provider, select) =>
     runChatWithPdf(
       INPUT,
       { question: "What is the governing currency?" },
@@ -188,10 +200,11 @@ const CASES: Record<string, Case> = {
         extract: paged(LONG_BLANKS),
         provider,
         now: NOW,
+        ...seam(select),
         limits: { maxInputChars: 2_500 },
       },
     ),
-  "chat/prefix-match-inside-window": (provider) =>
+  "chat/prefix-match-inside-window": (provider, select) =>
     runChatWithPdf(
       INPUT,
       { question: "What does the Zephyrine clause say?" },
@@ -199,10 +212,11 @@ const CASES: Record<string, Case> = {
         extract: paged(pages(40, 60, { 2: "Zephyrine" })),
         provider,
         now: NOW,
+        ...seam(select),
         limits: { maxInputChars: 3_000 },
       },
     ),
-  "chat/prefix-cited-inside-window": (provider) =>
+  "chat/prefix-cited-inside-window": (provider, select) =>
     runChatWithPdf(
       INPUT,
       {
@@ -216,10 +230,11 @@ const CASES: Record<string, Case> = {
         extract: paged(LONG),
         provider,
         now: NOW,
+        ...seam(select),
         limits: { maxInputChars: 3_000 },
       },
     ),
-  "chat/prefix-delivery-cap": (provider) =>
+  "chat/prefix-delivery-cap": (provider, select) =>
     runChatWithPdf(
       INPUT,
       { question: "What is the governing currency?" },
@@ -227,16 +242,22 @@ const CASES: Record<string, Case> = {
         extract: paged(LONG),
         provider,
         now: NOW,
+        ...seam(select),
         limits: { delivery: { characters: 2_000 } },
       },
     ),
-  "chat/ungrounded-fit": (provider) =>
+  "chat/ungrounded-fit": (provider, select) =>
     runChatWithPdf(
       INPUT,
       { question: "What is the total?" },
-      { extract: flat("The total is 42."), provider, now: NOW },
+      {
+        extract: flat("The total is 42."),
+        provider,
+        now: NOW,
+        ...seam(select),
+      },
     ),
-  "chat/ungrounded-over-budget": (provider) =>
+  "chat/ungrounded-over-budget": (provider, select) =>
     runChatWithPdf(
       INPUT,
       { question: "What does the Zephyrine clause say?" },
@@ -244,6 +265,7 @@ const CASES: Record<string, Case> = {
         extract: flat(LONG.join("\n\n") + " Zephyrine"),
         provider,
         now: NOW,
+        ...seam(select),
         limits: { maxInputChars: 3_000 },
       },
     ),
@@ -379,6 +401,82 @@ describe("AI provider requests are main's bytes wherever retrieval adds no page"
 
   it("every recorded request is deep-equal to main's", async () => {
     expect(await recordAll()).toEqual(loadFixture());
+  });
+
+  it("a throwing selector sends main's prefix request, and the read-cap proof still holds", async () => {
+    // FAIL CLOSED: retrieval is an addition to main, never a dependency of
+    // it. A throw from the selector (or the tokenizer / BM25 that feed it)
+    // must leave main's exact slice and window — main's request bytes — not
+    // fail the question. The same matrix case, through the `selectPages`
+    // seam, compared with the request main recorded.
+    const fixture = loadFixture();
+    const throwing = () => {
+      throw new Error("selector exploded");
+    };
+    for (const name of [
+      "chat/prefix-no-match",
+      "chat/prefix-blank-pages",
+      "chat/prefix-delivery-cap",
+    ] as const) {
+      const provider = recorder();
+      let called = 0;
+      const run = await CASES[name]!(provider, () => {
+        called += 1;
+        return throwing();
+      });
+      // Health: the seam was reached, or this proves nothing about a throw.
+      expect(called, `${name}: the selector was never called`).toBeGreaterThan(
+        0,
+      );
+      expect(run, name).toMatchObject({
+        ok: true,
+        meta: { selection: "prefix" },
+      });
+      expect(provider.seen, name).toEqual(fixture[name]);
+    }
+    // A document whose planted page lies past the prefix WOULD take the
+    // relevance branch; thrown, it sends exactly what a selector that chose
+    // the prefix sends (main's prefix).
+    const planted = pages(40, 60, { 30: "Zephyrine" });
+    const question = { question: "What does the Zephyrine clause say?" };
+    const limits = { maxInputChars: 3_000 };
+    const live = recorder();
+    const liveRun = await runChatWithPdf(INPUT, question, {
+      extract: paged(planted),
+      provider: live,
+      now: NOW,
+      limits,
+    });
+    expect(liveRun).toMatchObject({
+      ok: true,
+      meta: { selection: "relevance" },
+    });
+    const thrown = recorder();
+    const thrownRun = await runChatWithPdf(INPUT, question, {
+      extract: paged(planted),
+      provider: thrown,
+      now: NOW,
+      limits,
+      selectPages: throwing,
+    });
+    const prefix = recorder();
+    await runChatWithPdf(INPUT, question, {
+      extract: paged(planted),
+      provider: prefix,
+      now: NOW,
+      limits,
+      selectPages: () => ({ strategy: "prefix", reason: "no-signal" }),
+    });
+    expect(thrownRun).toMatchObject({
+      ok: true,
+      meta: { selection: "prefix" },
+    });
+    expect(thrown.seen).toEqual(prefix.seen);
+    expect(thrown.seen[0]!.system).not.toContain("[Page 30]");
+    expect(thrown.seen[0]!.system).toMatch(/pages 1-\d+ of 40/);
+    expect(thrown.seen[0]!.cacheSystem).toBe(true);
+    // The charged read bound is untouched by the fallback.
+    expect(await provesAiReadCap()).toBe(true);
   });
 
   it("positive control: one byte changed in a recorded system prompt is seen", async () => {

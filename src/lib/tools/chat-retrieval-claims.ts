@@ -62,17 +62,21 @@ import {
   modelTruncationNotice,
 } from "@/lib/workers/ai/truncation";
 import { chatRelevanceNotice } from "@/lib/workers/chat-with-pdf/relevance-notice";
+import type { RelevanceSource } from "@/lib/pdf/page-retrieval";
 
 /**
  * The sentence of chat's relevance model notice that says how the pages were
  * chosen, exactly as the engine composes it (a 70-page document, pages 1–3
  * and 60 sent), for one arm of `chatRelevanceNotice`.
  */
-export function chatModelNoticeSentence(anchored: boolean): string {
+export function chatModelNoticeSentence(
+  anchored: boolean,
+  source: RelevanceSource,
+): string {
   const notice = modelTruncationNotice(
     describeSelection(100_000, 8_000, 70, [1, 2, 3, 60], null),
     () => "",
-    chatRelevanceNotice(anchored),
+    chatRelevanceNotice(anchored, source),
   );
   const line = notice
     .split("\n")
@@ -116,14 +120,50 @@ export const CHAT_RETRIEVAL_SHAPES: readonly ChatRetrievalShape[] = [
       /\bpages? (?:are |were |is |was )?chosen by\b[^.]*\b(?:words?|question)\b/i,
     shipped: [
       {
-        text: chatModelNoticeSentence(true),
+        text: chatModelNoticeSentence(true, "words"),
         source:
-          "this slice: chatRelevanceNotice(true) via modelTruncationNotice, src/lib/workers/chat-with-pdf/relevance-notice.ts, the model notice's anchor arm",
+          'this slice: chatRelevanceNotice(true, "words") via modelTruncationNotice, src/lib/workers/chat-with-pdf/relevance-notice.ts, the model notice’s anchor arm',
       },
       {
-        text: chatModelNoticeSentence(false),
+        text: chatModelNoticeSentence(false, "words"),
         source:
-          "this slice: chatRelevanceNotice(false) via modelTruncationNotice, the model notice's other arm",
+          'this slice: chatRelevanceNotice(false, "words") via modelTruncationNotice, the model notice’s other arm',
+      },
+    ],
+  },
+  {
+    // A follow-up whose sent page came only from the previous answer's
+    // citations. Said by static copy it would be false of an image that
+    // reads only the opening pages.
+    name: "pages the previous answer cited",
+    pattern: /\bpages? (?:that )?the previous answer cited\b/i,
+    shipped: [
+      {
+        text: chatModelNoticeSentence(true, "cited"),
+        source:
+          'this slice: chatRelevanceNotice(true, "cited") via modelTruncationNotice, the model notice’s seed-only anchor arm',
+      },
+      {
+        text: chatModelNoticeSentence(false, "cited"),
+        source:
+          'this slice: chatRelevanceNotice(false, "cited") via modelTruncationNotice, the model notice’s seed-only arm',
+      },
+    ],
+  },
+  {
+    // Cited and scored pages together: the neutral wording.
+    name: "pages chosen for … question",
+    pattern: /\bpages? (?:are |were |is |was )?chosen for\b[^.]*\bquestion\b/i,
+    shipped: [
+      {
+        text: chatModelNoticeSentence(true, "mixed"),
+        source:
+          'this slice: chatRelevanceNotice(true, "mixed") via modelTruncationNotice, the model notice’s mixed anchor arm',
+      },
+      {
+        text: chatModelNoticeSentence(false, "mixed"),
+        source:
+          'this slice: chatRelevanceNotice(false, "mixed") via modelTruncationNotice, the model notice’s mixed arm',
       },
     ],
   },

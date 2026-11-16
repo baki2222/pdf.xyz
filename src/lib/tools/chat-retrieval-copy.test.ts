@@ -22,7 +22,10 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { getToolBySlug } from "@/lib/tools";
-import { chatRelevanceNotice } from "@/lib/workers/chat-with-pdf/relevance-notice";
+import {
+  CHAT_RELEVANCE_SOURCES,
+  chatRelevanceNotice,
+} from "@/lib/workers/chat-with-pdf/relevance-notice";
 import { guides } from "@/lib/guides";
 import { CHAT_TOOL_SLUG } from "@/lib/jobs/chat-with-pdf";
 import {
@@ -180,19 +183,43 @@ describe("Chat with PDF static copy names the pages read, never how they were ch
     // question." appended to the intro passed every test, because no shape
     // caught the model notice. Its exemplars are composed from the leaf the
     // engine sends (`chatRelevanceNotice`), so a reworded notice moves them.
-    for (const anchored of [true, false]) {
-      const sentence = chatModelNoticeSentence(anchored);
-      expect(sentence).toContain(chatRelevanceNotice(anchored).chosenBy);
-      expect(chatRetrievalShapesIn(sentence)).toEqual([
-        "pages chosen by … words / question",
-      ]);
-      // The chosen-by clause alone, as static copy would paraphrase it.
-      expect(
-        chatRetrievalShapesIn(
-          `For a longer file, the model sees ${chatRelevanceNotice(anchored).chosenBy}.`,
-        ),
-      ).toEqual(["pages chosen by … words / question"]);
-    }
+    // Every arm the engine can send: anchored or not, by each source the
+    // selection reports (a seed-only follow-up is not "chosen by the words
+    // they share", so it has its own wording and its own shape).
+    const ellipsis = String.fromCodePoint(0x2026);
+    const SHAPE_FOR: Record<(typeof CHAT_RELEVANCE_SOURCES)[number], string> = {
+      words: `pages chosen by ${ellipsis} words / question`,
+      cited: "pages the previous answer cited",
+      mixed: `pages chosen for ${ellipsis} question`,
+    };
+    expect(CHAT_RELEVANCE_SOURCES.length).toBe(3);
+    for (const source of CHAT_RELEVANCE_SOURCES)
+      for (const anchored of [true, false]) {
+        const sentence = chatModelNoticeSentence(anchored, source);
+        const { chosenBy } = chatRelevanceNotice(anchored, source);
+        expect(sentence).toContain(chosenBy);
+        expect(chatRetrievalShapesIn(sentence)).toEqual([SHAPE_FOR[source]]);
+        // The chosen-by clause alone, as static copy would paraphrase it.
+        expect(
+          chatRetrievalShapesIn(
+            `For a longer file, the model sees ${chosenBy}.`,
+          ),
+        ).toEqual([SHAPE_FOR[source]]);
+        // Every arm is an exemplar of the corpus, so a new arm cannot ship
+        // outside it (rule 1, direction A, over the engine's own words).
+        expect(
+          CHAT_RETRIEVAL_SHAPES.some(({ shipped }) =>
+            shipped.some(({ text }) => text === sentence),
+          ),
+          `${source}/${anchored} is not a shipped exemplar`,
+        ).toBe(true);
+      }
+    // Only the words arm may claim the words: the other two never do.
+    for (const source of ["cited", "mixed"] as const)
+      for (const anchored of [true, false])
+        expect(chatRelevanceNotice(anchored, source).chosenBy).not.toMatch(
+          /words|share/,
+        );
     // The relationship that makes the exemplar the engine's words, not a
     // copy of them: the engine sends the notice from that leaf.
     const engine = readFileSync(
@@ -202,6 +229,10 @@ describe("Chat with PDF static copy names the pages read, never how they were ch
     expect(engine).toMatch(
       /import \{ chatRelevanceNotice \} from "\.\/relevance-notice";/,
     );
-    expect(engine).toMatch(/noticeParts = chatRelevanceNotice\(/);
+    expect(engine).toMatch(/noticeParts: chatRelevanceNotice\(/);
+    // And with the source the selection reported, never a typed one.
+    expect(engine).toMatch(
+      /chatRelevanceNotice\(\s*CHAT_RETRIEVAL_ANCHOR_SHARE > 0 && retrieved\.anchorThrough !== null,\s*retrieved\.source,\s*\)/,
+    );
   });
 });

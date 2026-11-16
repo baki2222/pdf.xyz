@@ -317,6 +317,59 @@ function buildGrounding(extracted: ExtractedPdfText): {
   };
 }
 
+/**
+ * The relevance grounding for an over-budget grounded run, or null when
+ * retrieval leaves the run on main's prefix. May throw; the caller fails
+ * closed to main's prefix.
+ */
+function retrieveRelevance(
+  chunks: readonly PageChunk[],
+  options: ChatOptions,
+  pageCount: number,
+  totalChars: number,
+  documentPageCount: number,
+  maxChars: number,
+  select: typeof selectPages | undefined,
+): {
+  grounding: string;
+  window: TruncationWindow;
+  noticeParts: SelectionNoticeParts;
+} | null {
+  const context = options.context ?? [];
+  const lastUser = [...context].reverse().find((turn) => turn.role === "user");
+  const lastAssistant = [...context]
+    .reverse()
+    .find((turn) => turn.role === "assistant");
+  const retrieved = retrieveGrounding({
+    chunks,
+    question: options.question,
+    ...(lastUser ? { lastUserTurn: lastUser.content } : {}),
+    // The previous answer's citations, in the one citation grammar.
+    seedPages: lastAssistant
+      ? citedPagesIn(lastAssistant.content, pageCount)
+      : [],
+    separator: CHUNK_SEPARATOR,
+    maxChars,
+    listLength: noticeListLength,
+    ...(select ? { select } : {}),
+  });
+  if (retrieved.strategy !== "relevance") return null;
+  return {
+    grounding: retrieved.grounding,
+    window: describeSelection(
+      totalChars,
+      retrieved.grounding.length,
+      documentPageCount,
+      retrieved.pages,
+      retrieved.cutPage,
+    ),
+    noticeParts: chatRelevanceNotice(
+      CHAT_RETRIEVAL_ANCHOR_SHARE > 0 && retrieved.anchorThrough !== null,
+      retrieved.source,
+    ),
+  };
+}
+
 /** The honesty-critical system prompt: answer ONLY from the document; cite pages when grounded. */
 function buildSystemPrompt(
   grounding: string,
@@ -552,39 +605,31 @@ export async function runChatWithPdf(
   let window = prefixWindow;
   let noticeParts: SelectionNoticeParts | undefined;
   if (truncated && grounded) {
-    const context = options.context ?? [];
-    const lastUser = [...context]
-      .reverse()
-      .find((turn) => turn.role === "user");
-    const lastAssistant = [...context]
-      .reverse()
-      .find((turn) => turn.role === "assistant");
-    const retrieved = retrieveGrounding({
-      chunks,
-      question: options.question,
-      ...(lastUser ? { lastUserTurn: lastUser.content } : {}),
-      // The previous answer's citations, in the one citation grammar.
-      seedPages: lastAssistant
-        ? citedPagesIn(lastAssistant.content, extracted.pageCount)
-        : [],
-      separator: CHUNK_SEPARATOR,
-      maxChars,
-      listLength: noticeListLength,
-      ...(deps.selectPages ? { select: deps.selectPages } : {}),
-    });
-    if (retrieved.strategy === "relevance") {
-      selection = "relevance";
-      grounding = retrieved.grounding;
-      window = describeSelection(
+    // FAIL CLOSED: retrieval is an addition to main, never a dependency of
+    // it. A throw anywhere in it (the tokenizer, BM25, the selector, the
+    // window or notice it builds) leaves the run on main's exact prefix and
+    // window, so the request is main's bytes. Nothing is assigned until every
+    // step has succeeded, so a throw half-way cannot leave a relevance
+    // grounding beside a prefix window. Held by `requests-unchanged.test.ts`
+    // ("a throwing selector sends main's prefix request").
+    try {
+      const relevance = retrieveRelevance(
+        chunks,
+        options,
+        extracted.pageCount,
         groundingSource.length,
-        grounding.length,
         documentPageCount,
-        retrieved.pages,
-        retrieved.cutPage,
+        maxChars,
+        deps.selectPages,
       );
-      noticeParts = chatRelevanceNotice(
-        CHAT_RETRIEVAL_ANCHOR_SHARE > 0 && retrieved.anchorThrough !== null,
-      );
+      if (relevance) {
+        selection = "relevance";
+        grounding = relevance.grounding;
+        window = relevance.window;
+        noticeParts = relevance.noticeParts;
+      }
+    } catch {
+      // main's prefix, already in place above
     }
   }
 

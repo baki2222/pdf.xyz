@@ -96,7 +96,19 @@ export type PageSelection =
       cutLength: number | null;
       /** The last page of the unbroken run of opening chunks sent whole. */
       anchorThrough: number | null;
+      /** Why the pages past the opening run were sent; see {@link RelevanceSource}. */
+      source: RelevanceSource;
     };
+
+/**
+ * Where the candidate pages a relevance selection added came from, so a
+ * notice can say why they were sent without claiming more than happened:
+ * - `words`: every one shares the question's informative words;
+ * - `cited`: none does, every one was cited by the previous answer;
+ * - `mixed`: some of each (or, defensively, none was added at all).
+ * A page that is both cited and scored counts as `words`, which is true of it.
+ */
+export type RelevanceSource = "words" | "cited" | "mixed";
 
 export type SelectPagesInput = {
   chunks: readonly PageChunk[];
@@ -340,9 +352,19 @@ export function selectPages(input: SelectPagesInput): PageSelection {
 
   // 2. The candidates: cited pages, then pages by score.
   const candidates = [...new Set([...seeds, ...confident])];
+  const confidentSet = new Set(confident);
+  let addedByWords = false;
+  let addedByCitation = false;
+  const noteAdded = (page: number) => {
+    if (confidentSet.has(page)) addedByWords = true;
+    else addedByCitation = true;
+  };
   let candidateAdded = false;
   for (const page of candidates)
-    if (tryAdd(page, budget)) candidateAdded = true;
+    if (tryAdd(page, budget)) {
+      candidateAdded = true;
+      noteAdded(page);
+    }
 
   // 3. Nothing fit whole: cut the first candidate, if it would be the
   //    highest page sent (the notice says "the last of them cut mid-page").
@@ -364,6 +386,7 @@ export function selectPages(input: SelectPagesInput): PageSelection {
       selected.set(first, text);
       cutPage = first;
       cutLength = text.length;
+      noteAdded(first);
     }
   }
 
@@ -383,7 +406,20 @@ export function selectPages(input: SelectPagesInput): PageSelection {
     if (!selected.has(chunk.pageNumber) || chunk.pageNumber === cutPage) break;
     anchorThrough = chunk.pageNumber;
   }
-  return { strategy: "relevance", pages, cutPage, cutLength, anchorThrough };
+  const source: RelevanceSource =
+    addedByWords && !addedByCitation
+      ? "words"
+      : addedByCitation && !addedByWords
+        ? "cited"
+        : "mixed";
+  return {
+    strategy: "relevance",
+    pages,
+    cutPage,
+    cutLength,
+    anchorThrough,
+    source,
+  };
 }
 
 /** The pages whose chunk starts before `maxChars`: what main's prefix touches. */
@@ -413,6 +449,7 @@ export type RetrievedGrounding =
       cutPage: number | null;
       cutLength: number | null;
       anchorThrough: number | null;
+      source: RelevanceSource;
       /** The characters the page list costs, paid out of `maxChars`. */
       listLength: number;
     };
@@ -512,6 +549,7 @@ export function retrieveGrounding(
     cutPage: chosen.cutPage,
     cutLength: chosen.cutLength,
     anchorThrough: chosen.anchorThrough,
+    source: chosen.source,
     listLength: measured,
   };
 }

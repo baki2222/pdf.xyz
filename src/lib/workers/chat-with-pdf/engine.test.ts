@@ -732,10 +732,41 @@ describe("a question whose page lies past the prefix gets that page", () => {
     );
     expect(run.ok).toBe(true);
     if (!run.ok) return;
-    expect(documentBlock(provider.calls[0]!.system ?? "")).toContain(
-      "[Page 35]\n",
-    );
+    const system = provider.calls[0]!.system ?? "";
+    expect(documentBlock(system)).toContain("[Page 35]\n");
     expect(run.meta.selection).toBe("relevance");
+    // Page 35 came from the previous answer's citations alone: "And the one
+    // after?" shares no informative word with it, so the model is never told
+    // it was "chosen by the words they share with the question".
+    expect(system).not.toMatch(/words they share/);
+    expect(system).toMatch(
+      /of 40: the opening pages and pages the previous answer cited; other pages were not sent/,
+    );
+  });
+
+  it("names neither source alone when a cited page and a scored page are both sent", async () => {
+    const provider = providerReturning(SUCCESS("x"));
+    const run = await runChatWithPdf(
+      INPUT,
+      {
+        question: "What does the Zephyrine clause say?",
+        context: [
+          { role: "user", content: "What is the opening term?" },
+          { role: "assistant", content: "It is set out on [p.35]." },
+        ],
+      },
+      { extract: extractorForPages(PLANTED), provider, limits: CAP_3000 },
+    );
+    expect(run.ok && run.meta.selection).toBe("relevance");
+    const system = provider.calls[0]!.system ?? "";
+    const doc = documentBlock(system);
+    // Health: both sources really were sent, or the neutral arm is untested.
+    expect(doc).toMatch(/\[Page 30\]\n[^[]*Zephyrine/);
+    expect(doc).toContain("[Page 35]\n");
+    expect(system).not.toMatch(/words they share|previous answer cited/);
+    expect(system).toMatch(
+      /of 40: the opening pages and pages chosen for this question; other pages were not sent/,
+    );
   });
 
   it("the selector seam forced to prefix sends main's prefix", async () => {
