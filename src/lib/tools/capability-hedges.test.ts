@@ -1527,6 +1527,14 @@ describe("the docxTableWraps subject (backlog #28 slice 3, 2026-11-16)", () => {
    * lines of text, or as lines of text alone") describes outcomes and does
    * not read as a deferral of the capability.
    *
+   * Re-measured 2026-11-16 with PR-2's DEFINITE copy: the same seven
+   * entries, the rest of this file still green over them. The intro, the
+   * tables FAQ and PDF_TO_WORD_KEEPS now carry the definite sentence ("…
+   * stays in its row as one paragraph, except in a table's first column …"),
+   * reached by "stays in its row"; the two guide sentences carry "may stay
+   * in its row", reached both by wrap + Word + table and by "stay in its
+   * row".
+   *
    * Decided, not found: NO PDF to Excel or Extract Tables sentence is a
    * member. The PDF to Excel guide's "gives you two rows" (a wrapped cell in
    * a spreadsheet) and Extract Tables' "a cell that wraps in the first
