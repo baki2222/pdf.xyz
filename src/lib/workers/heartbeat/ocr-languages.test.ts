@@ -44,6 +44,7 @@ const BEAT: WorkerHeartbeat = {
     docxTableWraps: true,
     translateOcr: true,
     htmlZip: true,
+    chatRetrieval: true,
     translatePdfLanguages: [],
   },
   at: 1_700_000_000_000,

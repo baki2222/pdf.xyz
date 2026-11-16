@@ -354,3 +354,36 @@ describe("the beat publishes the value the proof produced", () => {
     });
   });
 });
+
+describe("the chatRetrieval entry is a proof, not a constant", () => {
+  /**
+   * Every other test here replaces each `prove` with a spy, so nothing in
+   * this file could see `chatRetrieval: { prove: () => true }` (mutation m6
+   * of the slice-3 brief). Two independent holds: the entry, CALLED, answers
+   * false on an image with no text extractor; and its source is a call to
+   * the function `retrieval-capability.ts` exports, with the env passed on.
+   */
+  it("answers false where this image has no pdftotext", async () => {
+    const value = await PROVED_CAPABILITIES.chatRetrieval.prove({
+      // An absolute override that does not exist: no extractor, whatever
+      // the host's PATH holds.
+      PDFXYZ_PDF_TEXT_BIN: "/nonexistent/pdfxyz-no-pdftotext",
+    });
+    expect(value).toBe(false);
+  });
+
+  it("is the call to provesChatRetrieval, imported from retrieval-capability", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/lib/workers/daemon/proved-capabilities.ts"),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /^import \{ provesChatRetrieval \} from "@\/lib\/workers\/chat-with-pdf\/retrieval-capability";$/m,
+    );
+    const entry = /^\s*chatRetrieval: \{([^}]*)\},?$/m.exec(source)?.[1] ?? "";
+    expect(entry, "no chatRetrieval entry in PROVED_CAPABILITIES").not.toBe("");
+    expect(entry).toMatch(
+      /prove: \(env\) => provesChatRetrieval\(env\), parse: bool/,
+    );
+  });
+});

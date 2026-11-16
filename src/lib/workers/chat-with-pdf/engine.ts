@@ -9,13 +9,23 @@ import { NO_SELECTABLE_TEXT_MESSAGE } from "@/lib/jobs/ai-no-text";
 import { citedPagesIn } from "@/lib/jobs/chat-citations";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import {
+  describeSelection,
   describeWindow,
   modelTruncationNotice,
   pageStartsFor,
   userTruncationNotice,
   type PageStart,
+  type SelectionNoticeParts,
   type TruncationWindow,
 } from "../ai/truncation";
+import { formatPageSpans, formatSpans } from "@/lib/pdf/page-spans";
+import { chatRelevanceNotice } from "./relevance-notice";
+import {
+  CHAT_RETRIEVAL_ANCHOR_SHARE,
+  retrieveGrounding,
+  type PageChunk,
+  type selectPages,
+} from "@/lib/pdf/page-retrieval";
 import {
   CHAT_MAX_CHARACTERS_PER_QUESTION,
   chatConversationCharacters,
@@ -108,6 +118,13 @@ export interface ChatWithPdfDeps {
   /** ISO timestamp source; defaults to the wall clock. Injected for deterministic tests. */
   now?: () => string;
   limits?: ChatWithPdfLimits;
+  /**
+   * The page selector. Production callers never pass it: it defaults to the
+   * real one. It exists so the capability proof and its controls can force
+   * "prefix" without `vi.mock`, which under `isolate:false` can leave a
+   * module cached bound to the stub for the next test file.
+   */
+  selectPages?: typeof selectPages;
 }
 
 /** Content-free metrics a successful run reports. Never carries document text or the answer body. */
@@ -133,8 +150,18 @@ export interface ChatWithPdfMeta {
   outputBytes: number;
   /** Character count of the extracted source text (a COUNT, never the text). */
   sourceCharacters: number;
-  /** True when the source exceeded `maxInputChars` and only a prefix was sent. */
+  /**
+   * True when the source exceeded the question's document budget and only
+   * part of it was sent: a prefix, or the pages chosen for the question
+   * (`selection === "relevance"`).
+   */
   truncated: boolean;
+  /**
+   * Which text was sent: all of it (`whole`), main's `slice(0, maxChars)`
+   * (`prefix`), or pages chosen for the question (`relevance`). Copied into
+   * the processor's flat meta so logs see it.
+   */
+  selection: "whole" | "prefix" | "relevance";
   /**
    * The user-facing sentence naming how far the window reached ("Only pages
    * 1–131 of 400 could be read…"), or `null` when nothing was cut.
@@ -222,11 +249,37 @@ export const DEFAULT_MAX_OUTPUT_TOKENS = 2000;
  */
 const DEFAULT_MAX_INPUT_CHARS = CHAT_MAX_CHARACTERS_PER_QUESTION;
 
+/** What joins two page chunks in the grounding. */
+const CHUNK_SEPARATOR = "\n\n";
+
+/**
+ * The characters a relevance notice spends naming its pages: the span list,
+ * plus the cut page's number when it says which page ends mid-page. Paid out
+ * of the question's document budget (brief D5), so the document block plus
+ * this list never exceeds what the route charged. The notice's FIXED words
+ * are instruction characters, held by the read-cap proof.
+ */
+function noticeListLength(
+  pages: readonly number[],
+  cutPage: number | null,
+): number {
+  return (
+    formatPageSpans(pages).text.length +
+    (cutPage !== null ? String(cutPage).length : 0)
+  );
+}
+
 /** Assemble the grounding text. When pages carry text, prefix each with a `[Page N]`
  * marker so the model can cite pages; otherwise fall back to the joined text (ungrounded). */
 function buildGrounding(extracted: ExtractedPdfText): {
   text: string;
   grounded: boolean;
+  /**
+   * The exact `[Page N]` chunks `text` joins with {@link CHUNK_SEPARATOR}.
+   * Retrieval assembles from THESE, so a relevance grounding carries
+   * byte-identical per-page text. Empty when ungrounded.
+   */
+  chunks: PageChunk[];
   /** Where each page's chunk starts in `text`, for the truncation disclosure. */
   pageStarts: PageStart[];
   /**
@@ -245,20 +298,75 @@ function buildGrounding(extracted: ExtractedPdfText): {
       text: `[Page ${page.pageNumber}]\n${page.text.trim()}`,
     }));
     return {
-      text: chunks.map((chunk) => chunk.text).join("\n\n"),
+      text: chunks.map((chunk) => chunk.text).join(CHUNK_SEPARATOR),
       grounded: true,
+      chunks,
       // Derived from the chunks actually joined, carrying each page's REAL
       // number — a page computed from a different assembly, or from an index,
       // would be confidently wrong in a sentence the user can go and check.
-      pageStarts: pageStartsFor(chunks, "\n\n"),
+      pageStarts: pageStartsFor(chunks, CHUNK_SEPARATOR),
       pageCount: extracted.pageCount,
     };
   }
   return {
     text: extracted.text.trim(),
     grounded: false,
+    chunks: [],
     pageStarts: [],
     pageCount: extracted.pageCount,
+  };
+}
+
+/**
+ * The relevance grounding for an over-budget grounded run, or null when
+ * retrieval leaves the run on main's prefix. May throw; the caller fails
+ * closed to main's prefix.
+ */
+function retrieveRelevance(
+  chunks: readonly PageChunk[],
+  options: ChatOptions,
+  pageCount: number,
+  totalChars: number,
+  documentPageCount: number,
+  maxChars: number,
+  select: typeof selectPages | undefined,
+): {
+  grounding: string;
+  window: TruncationWindow;
+  noticeParts: SelectionNoticeParts;
+} | null {
+  const context = options.context ?? [];
+  const lastUser = [...context].reverse().find((turn) => turn.role === "user");
+  const lastAssistant = [...context]
+    .reverse()
+    .find((turn) => turn.role === "assistant");
+  const retrieved = retrieveGrounding({
+    chunks,
+    question: options.question,
+    ...(lastUser ? { lastUserTurn: lastUser.content } : {}),
+    // The previous answer's citations, in the one citation grammar.
+    seedPages: lastAssistant
+      ? citedPagesIn(lastAssistant.content, pageCount)
+      : [],
+    separator: CHUNK_SEPARATOR,
+    maxChars,
+    listLength: noticeListLength,
+    ...(select ? { select } : {}),
+  });
+  if (retrieved.strategy !== "relevance") return null;
+  return {
+    grounding: retrieved.grounding,
+    window: describeSelection(
+      totalChars,
+      retrieved.grounding.length,
+      documentPageCount,
+      retrieved.pages,
+      retrieved.cutPage,
+    ),
+    noticeParts: chatRelevanceNotice(
+      CHAT_RETRIEVAL_ANCHOR_SHARE > 0 && retrieved.anchorThrough !== null,
+      retrieved.source,
+    ),
   };
 }
 
@@ -267,6 +375,8 @@ function buildSystemPrompt(
   grounding: string,
   grounded: boolean,
   window: TruncationWindow,
+  /** Present only on a relevance window: how its pages were chosen. */
+  selection?: SelectionNoticeParts,
 ): string {
   const parts = [
     "You are a careful document question-answering assistant for pdf.xyz.",
@@ -296,6 +406,9 @@ function buildSystemPrompt(
     (upTo) =>
       "If the answer is not in the text you were given, do NOT say the document does not contain it —\n" +
       `say that you can only see ${upTo} and the answer may appear later in the document.`,
+    // A relevance window is not a prefix: "may appear later" would be false
+    // of a page set with gaps, so it carries its own revocation.
+    selection,
   );
   if (notice) parts.push(notice);
   return parts.join("\n");
@@ -435,6 +548,7 @@ export async function runChatWithPdf(
   const {
     text: groundingSource,
     grounded,
+    chunks,
     pageStarts,
     pageCount: documentPageCount,
   } = buildGrounding(extracted);
@@ -472,16 +586,52 @@ export async function runChatWithPdf(
   );
   // One description of the window, shared by the prompt, the meta and the ZIP,
   // so the model and the user cannot be told different things about it.
-  const window = describeWindow(
+  const prefixWindow = describeWindow(
     groundingSource,
     pageStarts,
     documentPageCount,
     maxChars,
   );
-  const truncated = window.truncated;
-  const grounding = truncated
+  const truncated = prefixWindow.truncated;
+  // NEVER WORSE THAN MAIN, by construction (brief D3): the text fits, so the
+  // whole of it goes, exactly as main; ungrounded, or retrieval cannot add a
+  // page main's prefix lacks, so main's exact `slice(0, maxChars)` and main's
+  // window go. Only a selection that adds a page beyond the prefix changes
+  // the request (`requests-unchanged.test.ts` holds the rest to main's bytes).
+  let selection: ChatWithPdfMeta["selection"] = truncated ? "prefix" : "whole";
+  let grounding = truncated
     ? groundingSource.slice(0, maxChars)
     : groundingSource;
+  let window = prefixWindow;
+  let noticeParts: SelectionNoticeParts | undefined;
+  if (truncated && grounded) {
+    // FAIL CLOSED: retrieval is an addition to main, never a dependency of
+    // it. A throw anywhere in it (the tokenizer, BM25, the selector, the
+    // window or notice it builds) leaves the run on main's exact prefix and
+    // window, so the request is main's bytes. Nothing is assigned until every
+    // step has succeeded, so a throw half-way cannot leave a relevance
+    // grounding beside a prefix window. Held by `requests-unchanged.test.ts`
+    // ("a throwing selector sends main's prefix request").
+    try {
+      const relevance = retrieveRelevance(
+        chunks,
+        options,
+        extracted.pageCount,
+        groundingSource.length,
+        documentPageCount,
+        maxChars,
+        deps.selectPages,
+      );
+      if (relevance) {
+        selection = "relevance";
+        grounding = relevance.grounding;
+        window = relevance.window;
+        noticeParts = relevance.noticeParts;
+      }
+    } catch {
+      // main's prefix, already in place above
+    }
+  }
 
   const maxOutputTokens = clampOutputTokens(
     DEFAULT_MAX_OUTPUT_TOKENS,
@@ -497,14 +647,24 @@ export async function runChatWithPdf(
   ];
 
   const request = {
-    system: buildSystemPrompt(grounding, grounded, window),
+    system: buildSystemPrompt(grounding, grounded, window, noticeParts),
     messages,
     // The document is re-sent verbatim on every follow-up, so it is worth caching:
     // turn one pays a write premium and each later turn reads the span back at a
     // fraction of the price. This is the only AI tool that takes prior turns —
     // summarize, translate and ai-extract ask once per document and never return,
     // so caching there would pay the premium and never collect it.
-    cacheSystem: true,
+    //
+    // EXCEPT a relevance window (brief D2): its pages change with each
+    // question, so the span would be written and never read back. On OpenAI
+    // this changes nothing on the wire (`caching.test.ts` holds the body
+    // identical either way), and its automatic prefix cache still matches the
+    // stable head (the rules, then the anchor pages, which come first because
+    // pages go in page order). On Anthropic it avoids a write premium per
+    // question. The token ceiling counts cached and fresh input alike, so
+    // this cannot move it (held by `ai-spend-ceiling.test.ts`, "the token
+    // ceiling counts every input class at full weight").
+    cacheSystem: selection !== "relevance",
     maxOutputTokens,
     // Deterministic, factual question-answering: no creative sampling.
     temperature: 0,
@@ -526,6 +686,27 @@ export async function runChatWithPdf(
   if (!completion.ok)
     return mapProviderFailure(completion, window, provider.model);
 
+  // The call was billed whatever happens next. Built ONCE, here, ABOVE every
+  // branch that can still fail (rule 3: a failure shape written without the
+  // spend in mind reported 0 tokens to the spend hook for a paid call; the
+  // empty-answer and package-too-large branches did, until 2026-11-16).
+  const spent: AiUsageMeta | undefined = completion.usage
+    ? {
+        inputTokens: completion.usage.inputTokens,
+        outputTokens: completion.usage.outputTokens,
+        ...(completion.usage.cachedInputTokens !== undefined
+          ? { cachedInputTokens: completion.usage.cachedInputTokens }
+          : {}),
+        ...(completion.usage.cacheWriteInputTokens !== undefined
+          ? { cacheWriteInputTokens: completion.usage.cacheWriteInputTokens }
+          : {}),
+        // One provider call per job today. Chunked translation makes this N.
+        calls: 1,
+        model: completion.model,
+      }
+    : undefined;
+  const carry = { ...(spent ? { usage: spent } : {}), window };
+
   const answer = completion.text.trim();
   if (answer.length === 0) {
     return {
@@ -534,6 +715,7 @@ export async function runChatWithPdf(
       retryable: true,
       message:
         "The AI provider returned an empty answer, so no honest response could be produced. No answer was fabricated. Retrying may succeed.",
+      ...carry,
     };
   }
 
@@ -552,8 +734,18 @@ export async function runChatWithPdf(
     source: {
       pageCount: extracted.pageCount,
       characters: groundingSource.length,
-      truncatedToCharacters: truncated ? maxChars : null,
+      // Characters SENT: maxChars on a prefix (as before), the joined pages
+      // on a relevance window.
+      truncatedToCharacters: truncated ? window.charactersSent : null,
       truncationNotice: userTruncationNotice(window) || null,
+      ...(window.selection === "relevance"
+        ? {
+            selection: "relevance" as const,
+            pagesSent: (window.pagesSent ?? []).map(
+              ([a, b]) => [a, b] as [number, number],
+            ),
+          }
+        : {}),
     },
     answer: { characters: answer.length, citedPages },
     ...(completion.usage
@@ -584,6 +776,7 @@ export async function runChatWithPdf(
       kind: "failed",
       retryable: false,
       message: "The answer package exceeds the worker size limit.",
+      ...carry,
     };
   }
 
@@ -599,26 +792,7 @@ export async function runChatWithPdf(
       model: completion.model,
       // Token counts travel to the job record so the per-page cost of an AI run
       // is measurable after the fact. Absent when the provider did not report.
-      ...(completion.usage
-        ? {
-            usage: {
-              inputTokens: completion.usage.inputTokens,
-              outputTokens: completion.usage.outputTokens,
-              ...(completion.usage.cachedInputTokens !== undefined
-                ? { cachedInputTokens: completion.usage.cachedInputTokens }
-                : {}),
-              ...(completion.usage.cacheWriteInputTokens !== undefined
-                ? {
-                    cacheWriteInputTokens:
-                      completion.usage.cacheWriteInputTokens,
-                  }
-                : {}),
-              // One provider call per job today. Chunked translation makes this N.
-              calls: 1,
-              model: completion.model,
-            },
-          }
-        : {}),
+      ...(spent ? { usage: spent } : {}),
       pageCount: extracted.pageCount,
       questionCharacters: options.question.length,
       contextTurns: options.context?.length ?? 0,
@@ -629,6 +803,7 @@ export async function runChatWithPdf(
       outputBytes: output.byteLength,
       sourceCharacters: groundingSource.length,
       truncated,
+      selection,
       truncationNotice: userTruncationNotice(window) || null,
       window,
     },
@@ -654,6 +829,14 @@ interface ChatManifest {
     truncatedToCharacters: number | null;
     /** The page-named disclosure, or null when the whole document was read. */
     truncationNotice: string | null;
+    /**
+     * Present ONLY when pages were chosen for the question rather than sent
+     * as a prefix. ADDITIVE under the rule on `usage` below: the schema
+     * stays `pdfxyz.chat/v1`, and absent means a whole or prefix window.
+     */
+    selection?: "relevance";
+    /** The pages sent, as inclusive `[first, last]` spans. With `selection` only. */
+    pagesSent?: [number, number][];
   };
   answer: { characters: number; citedPages: number[] };
   /**
@@ -747,6 +930,11 @@ function renderReadme(manifest: ChatManifest): string {
   lines.push(
     `Grounding: ${manifest.grounded ? "page-level (with [p.N] citations)" : "selectable text (no page-level citations)"}`,
   );
+  if (manifest.source.selection === "relevance" && manifest.source.pagesSent) {
+    lines.push(
+      `Pages read: ${formatSpans(manifest.source.pagesSent)} of ${manifest.source.pageCount} (chosen for this question; pages not listed were not sent)`,
+    );
+  }
   lines.push("");
   lines.push("Contents:");
   lines.push(

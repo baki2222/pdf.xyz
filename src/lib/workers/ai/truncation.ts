@@ -28,8 +28,19 @@
  *     dense (legal/technical)      6,158 chars/page  ->   ~81 pages
  *
  * A dense 81-page contract is already at the cap. This is not an edge case.
+ *
+ * CHAT IS THE EXCEPTION since slice 3 (audit #30): when its page-labelled text
+ * does not fit, it may send pages chosen for the question instead of a prefix
+ * (`@/lib/pdf/page-retrieval`). That window is described by
+ * {@link describeSelection} and carries `selection: "relevance"` with the
+ * pages sent; both notices then name those pages and never "pages 1–N".
+ *
+ * BUNDLE: `truncation-notice.tsx` (`"use client"`) imports this module, so
+ * whatever it imports ships in every AI panel's chunk. It imports only the
+ * dependency-free `page-spans` leaf, never `page-retrieval`.
  */
 import type { AiWindowMeta } from "@/lib/jobs/ai-results";
+import { formatPageSpans, formatSpans } from "@/lib/pdf/page-spans";
 
 /**
  * What the model saw, in terms a person can act on.
@@ -156,6 +167,51 @@ export function describeWindow(
   };
 }
 
+/**
+ * Describe a window of pages chosen for the question (chat page retrieval).
+ * One function for the prompt, the manifest and the meta, so the three
+ * cannot disagree. `pages` are REAL page numbers; `cutPage`, when set, is the
+ * highest of them (the selector guarantees it, and the notices say "the last
+ * of them cut mid-page"). There is no prefix, so `lastCompletePage` is null.
+ */
+export function describeSelection(
+  totalChars: number,
+  sentChars: number,
+  totalPages: number,
+  pages: readonly number[],
+  cutPage: number | null,
+): TruncationWindow {
+  const { spans } = formatPageSpans(pages);
+  return {
+    truncated: true,
+    charactersSent: sentChars,
+    charactersTotal: totalChars,
+    totalPages,
+    lastCompletePage: null,
+    cutMidPage: cutPage !== null,
+    selection: "relevance",
+    pagesSent: spans,
+    pagesRead: spans.reduce((sum, [a, b]) => sum + b - a + 1, 0),
+  };
+}
+
+/** The relevance path of {@link modelTruncationNotice}, supplied by chat. */
+export interface SelectionNoticeParts {
+  /** How the pages were chosen, e.g. "the opening pages and pages chosen by …". */
+  chosenBy: string;
+  /** The revocation for a non-contiguous window ("the answer may appear later" is false). */
+  revocation: string;
+}
+
+/** The pages a relevance window names, or null when it carries no usable list. */
+function selectionSpans(
+  window: TruncationWindow,
+): readonly (readonly [number, number])[] | null {
+  if (window.selection !== "relevance") return null;
+  const spans = window.pagesSent;
+  return spans && spans.length > 0 ? spans : null;
+}
+
 /** Page starts for chunks joined by `separator`, preserving each page's number. */
 export function pageStartsFor(
   chunks: readonly { pageNumber: number; text: string }[],
@@ -192,12 +248,33 @@ export function pageStartsFor(
  *     about an answer it was never asked to give.
  *
  * `revocation` receives the bound phrase so it can name the pages itself.
+ *
+ * A RELEVANCE window (chat only) names its pages ("pages 1–3, 60 of 70") and,
+ * when the caller passes `selection`, says how they were chosen and uses the
+ * caller's relevance revocation instead. The prefix path is untouched by the
+ * third argument, byte for byte: summarize, translate and ai-extract never
+ * pass it and never produce a relevance window.
  */
 export function modelTruncationNotice(
   window: TruncationWindow,
   revocation: (upTo: string) => string,
+  selection?: SelectionNoticeParts,
 ): string {
   if (!window.truncated) return "";
+  const spans = selectionSpans(window);
+  if (spans) {
+    const covers = `pages ${formatSpans(spans)} of ${window.totalPages}`;
+    const last = spans[spans.length - 1]![1];
+    const cut = window.cutMidPage
+      ? ` The text of page ${last} ends mid-page.`
+      : "";
+    return [
+      "",
+      "IMPORTANT — YOU ARE SEEING ONLY PART OF THIS DOCUMENT.",
+      `The text above covers ${covers}${selection ? `: ${selection.chosenBy}` : ""}; other pages were not sent because of a length limit.${cut}`,
+      selection ? selection.revocation : revocation(covers),
+    ].join("\n");
+  }
   const upTo =
     window.lastCompletePage !== null
       ? `pages 1-${window.lastCompletePage} of ${window.totalPages}`
@@ -216,6 +293,24 @@ export function modelTruncationNotice(
 /** The one-line disclosure a UI shows beside the result, from `meta` alone. */
 export function userTruncationNotice(window: TruncationWindow): string {
   if (!window.truncated) return "";
+  // A relevance window is FACT ONLY: which pages were read, never why (the
+  // why is a claim about the worker's algorithm, made only where the worker's
+  // capability was observed). It never says "pages 1–N": page 60 is not part
+  // of the first part.
+  if (window.selection === "relevance") {
+    const lead = "This document is longer than one question can read, so";
+    const spans = selectionSpans(window);
+    if (!spans)
+      return `${lead} only some of its ${window.totalPages} pages were read.`;
+    const read = spans.reduce((sum, [a, b]) => sum + b - a + 1, 0);
+    const single = read === 1;
+    const fragment = window.cutMidPage
+      ? single
+        ? ", cut mid-page"
+        : ", the last of them cut mid-page"
+      : "";
+    return `${lead} ${read} of its ${window.totalPages} pages ${single ? "was" : "were"} read: ${single ? "page" : "pages"} ${formatSpans(spans)}${fragment}. Pages not listed were not sent.`;
+  }
   const upTo =
     window.lastCompletePage !== null
       ? `pages 1–${window.lastCompletePage} of ${window.totalPages}`

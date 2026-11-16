@@ -39,8 +39,11 @@ import {
 import {
   PER_CALL_PROCESSORS,
   PROOF_PAGE_COUNTS,
+  PROOF_PLANT,
   documentCharactersSent,
+  probesOf,
   providerCharactersSent,
+  providerRequestsSent,
   provesAiReadCap,
 } from "./read-cap-proof";
 
@@ -48,11 +51,9 @@ const WHOLE_RUN = Math.ceil(
   TRANSLATE_MAX_INPUT_CHARS * TRANSLATE_EXTRACTOR_HEADROOM,
 );
 
-/** Every body a tool is probed with: its minimal one, then the heavy ones. */
-function bodiesOf(tool: string): Record<string, unknown>[] {
-  const entry = PER_CALL_PROCESSORS[tool]!;
-  return [entry.options, ...entry.heavyOptions];
-}
+// Every body a tool is probed with is `probesOf(tool)` from the proof itself
+// (minimal, heavy, then planted heavy), so the test and the proof cannot ask
+// about different bodies.
 
 /** The route's price and read bound for `declared` characters and `options`. */
 function priceOf(
@@ -192,7 +193,7 @@ describe.each(perCallTools())(
       async (declared) => {
         // The composed chain: the route's own pricing -> the read bound it hands
         // the worker -> the processor -> the provider request, counted whole.
-        for (const options of bodiesOf(tool)) {
+        for (const { options, plant } of probesOf(tool)) {
           const priced = await priceOf(tool, declared, options);
           expect(
             priced.charge,
@@ -204,6 +205,7 @@ describe.each(perCallTools())(
               priced.delivery,
               options,
               pageCount,
+              plant,
             );
             expect(sent, "the run did not complete").not.toBeNull();
             expect(
@@ -225,13 +227,14 @@ describe("the instruction allowance the route charges", () => {
     let largest = 0;
     let runs = 0;
     for (const tool of perCallTools()) {
-      for (const options of bodiesOf(tool)) {
+      for (const { options, plant } of probesOf(tool)) {
         for (const pageCount of PROOF_PAGE_COUNTS) {
           const sent = await providerCharactersSent(
             tool,
             { characters: 400 },
             options,
             pageCount,
+            plant,
           );
           expect(sent).not.toBeNull();
           runs += 1;
@@ -258,6 +261,106 @@ describe("the instruction allowance the route charges", () => {
       `the route charges ${AI_PER_CALL_INSTRUCTION_CHARACTERS} for ${largest} ` +
         "characters of instructions: every run is overcharged",
     ).toBeLessThanOrEqual(largest * 3);
+  });
+});
+
+describe("chat's planted heavy body reaches the relevance branch, and stays inside the charge", () => {
+  /**
+   * The MARK document scores zero for the chat selector (U+2591 is not
+   * word-like), so every body above stays on main's prefix and the bound was
+   * never checked on a relevance window. The planted body names `zqprobe`,
+   * which the 300-page document carries on page 300 only. This holds that
+   * the branch RAN — so the bound below is not vacuous — and that what it
+   * sends is still inside what the route charged.
+   */
+  const entry = PER_CALL_PROCESSORS["chat-with-pdf"]!;
+  const planted = entry.plantedHeavyOptions ?? [];
+
+  it("health: chat has a planted heavy body, carrying far more than the minimal one", () => {
+    expect(planted.length).toBeGreaterThan(0);
+    for (const { options, plant } of planted) {
+      expect(plant).toBe(PROOF_PLANT);
+      expect(String(options.question)).toContain(PROOF_PLANT);
+      expect(optionCharacters(options)).toBeGreaterThan(
+        optionCharacters(entry.options) + 250,
+      );
+    }
+  });
+
+  it("on 300 pages the request carries [Page 300] with the plant in it — the relevance branch ran", async () => {
+    for (const { options, plant } of planted) {
+      const requests = await providerRequestsSent(
+        "chat-with-pdf",
+        { characters: 400 },
+        options,
+        300,
+        plant,
+      );
+      expect(requests, "the run did not complete").not.toBeNull();
+      const system = requests![0]!.system ?? "";
+      const span = system.slice(
+        system.indexOf("--- DOCUMENT START ---"),
+        system.indexOf("--- DOCUMENT END ---"),
+      );
+      const at = span.indexOf("[Page 300]");
+      expect(at, "page 300 was not sent").toBeGreaterThan(-1);
+      expect(span.slice(at)).toContain(PROOF_PLANT);
+      expect(system).toContain("The text above covers pages ");
+      expect(system).toContain(", 300 of 300");
+    }
+  });
+
+  it("CONTROL: the same body on 1 page stays on the prefix (page 1 is already in the window)", async () => {
+    for (const { options, plant } of planted) {
+      const requests = await providerRequestsSent(
+        "chat-with-pdf",
+        { characters: 400 },
+        options,
+        1,
+        plant,
+      );
+      expect(requests).not.toBeNull();
+      const system = requests![0]!.system ?? "";
+      expect(system).toContain("[Page 1]");
+      expect(system).not.toMatch(/The text above covers pages \d+(?:–|, )/);
+    }
+  });
+
+  it("CONTROL: the unplanted heavy body on 300 pages sends no [Page 300]", async () => {
+    const requests = await providerRequestsSent(
+      "chat-with-pdf",
+      { characters: 400 },
+      entry.heavyOptions[0],
+      300,
+    );
+    expect(requests).not.toBeNull();
+    expect(requests![0]!.system ?? "").not.toContain("[Page 300]");
+  });
+
+  it("the instruction figure the allowance guard measures, on THIS body by name, is within 2,000", async () => {
+    // The guard above counts `total − MARK − options`, so on a relevance
+    // window it also counts the notice's fixed words, the page list, the
+    // `[Page N]` markers and the plant itself as "instructions".
+    for (const { options, plant } of planted) {
+      const sent = await providerCharactersSent(
+        "chat-with-pdf",
+        { characters: 400 },
+        options,
+        300,
+        plant,
+      );
+      expect(sent).not.toBeNull();
+      const figure = sent!.total - sent!.document - optionCharacters(options);
+      // Measured 2026-11-16 at the slice-3 tip: 581 (the same body on one
+      // page, on the prefix, is 539; the unplanted heavy body on 300 pages,
+      // 576). Vitest swallows console output here, so the figure is in the
+      // message of every assertion instead.
+      const what = `chat planted heavy body, 300 pages, cap 400: instruction figure ${figure} (allowance ${AI_PER_CALL_INSTRUCTION_CHARACTERS})`;
+      expect(figure, what).toBeGreaterThan(0);
+      expect(figure, what).toBeLessThanOrEqual(
+        AI_PER_CALL_INSTRUCTION_CHARACTERS,
+      );
+    }
   });
 });
 

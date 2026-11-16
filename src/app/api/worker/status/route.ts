@@ -18,6 +18,7 @@ import {
 } from "@/lib/workers";
 import {
   liveWorkerRendersHtmlZip,
+  liveWorkerSelectsChatPages,
   liveWorkerTranslatesScans,
   readWorkerHeartbeatLiveness,
 } from "@/lib/workers/heartbeat";
@@ -100,6 +101,10 @@ export async function GET(request: Request): Promise<Response> {
   // Translate PDF's reflowed PDF (competitor audit #29 slice 1): the targets
   // the observed worker proved it prints. Trusted only from a fresh beat;
   // an older image publishes no key, which decodes to [] — no PDF offered.
+  // Chat pages chosen by the question (competitor audit wave 2 #30): the
+  // panel's sentence about how pages are chosen, only from a fresh beat that
+  // proves it. An older image publishes no key; absent is false.
+  const workerChatRetrieval = liveWorkerSelectsChatPages(liveness);
   const workerTranslatePdfLanguages = observed
     ? capabilities?.translatePdfLanguages
     : undefined;
@@ -119,6 +124,7 @@ export async function GET(request: Request): Promise<Response> {
         workerTranslateOcr,
         workerHtmlZip,
         workerTranslatePdfLanguages,
+        workerChatRetrieval,
       ),
     ),
   );

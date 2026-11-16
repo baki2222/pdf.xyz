@@ -244,6 +244,7 @@ function heartbeat(malwareScan: boolean): WorkerHeartbeat {
       docxTableWraps: true,
       translateOcr: true,
       htmlZip: true,
+      chatRetrieval: true,
       translatePdfLanguages: [],
     },
     at: Date.now(),

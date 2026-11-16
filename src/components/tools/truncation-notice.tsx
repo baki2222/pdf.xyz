@@ -18,6 +18,13 @@ import { userTruncationNotice } from "@/lib/workers/ai/truncation";
  * The sentence itself comes from `userTruncationNotice`, the same function the
  * packaged manifest uses, so the panel and the downloaded file cannot disagree
  * about how far the reading reached.
+ *
+ * For a chat run that sent pages chosen for the question (`selection:
+ * "relevance"`, slice 3) the same call names THOSE pages ("4 of its 70 pages
+ * were read: pages 1–3, 60") and never "pages 1–N", or, when the job record's
+ * page list was dropped as invalid, says only that some pages were read. It
+ * states which pages, never why: the why is a claim about the worker's
+ * algorithm, and this component renders for every worker image.
  */
 export function TruncationNotice({
   job,

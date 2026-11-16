@@ -37,6 +37,7 @@ const CAPS: HeartbeatCapabilities = {
   docxTableWraps: true,
   translateOcr: true,
   htmlZip: true,
+  chatRetrieval: true,
   translatePdfLanguages: [],
 };
 

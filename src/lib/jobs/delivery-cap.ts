@@ -386,7 +386,8 @@ export function aiReservationGiven(
   return {
     charge: Math.min(sent, fallback),
     // Characters only. The page bound is translate's exact half; a per-call
-    // engine reads a prefix of the joined text and has no page loop to stop.
+    // engine reads a prefix of the joined text, or for chat the pages chosen
+    // for the question, and has no page loop to stop.
     delivery: { characters: read },
   };
 }

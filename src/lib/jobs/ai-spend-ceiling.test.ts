@@ -28,6 +28,7 @@ import {
   AI_PRICE_SOURCE,
   AI_CEILING_REACHED_MESSAGE,
   aiCeilingBindsFirst,
+  aiSpendTokens,
 } from "./ai-spend-ceiling";
 import { SUMMARY_LENGTHS } from "./summarize-pdf";
 import { LENGTH_PLAN, runSummarize } from "@/lib/workers/summarize/engine";
@@ -483,5 +484,45 @@ describe("every AI engine sends at most the per-run output figure", () => {
         expect(call.maxOutputTokens, engine.label).toBe(lower);
       }
     }
+  });
+});
+
+describe("the token ceiling counts every input class at full weight", () => {
+  // Brief D2, test (g). Chat's relevance window sends `cacheSystem: false`,
+  // so it may lose cache reads that a prefix run would have collected. That
+  // can never move this ceiling ONLY because cached input counts exactly as
+  // much as fresh input here. The engine's comment said so; a comment is not
+  // a guard, so this is. If cached tokens are ever discounted, the D2 split
+  // needs a new argument, and this goes red first.
+  it("sums cached input with fresh input, unweighted", () => {
+    expect(aiSpendTokens({ inputTokens: 1_000, cachedInputTokens: 700 })).toBe(
+      1_700,
+    );
+    // The same total whichever way the provider splits it.
+    expect(aiSpendTokens({ inputTokens: 1_700 })).toBe(
+      aiSpendTokens({ inputTokens: 1_000, cachedInputTokens: 700 }),
+    );
+    expect(aiSpendTokens({ cachedInputTokens: 1_700 })).toBe(1_700);
+  });
+
+  it("sums cache-write input with fresh input, unweighted", () => {
+    expect(
+      aiSpendTokens({ inputTokens: 1_000, cacheWriteInputTokens: 300 }),
+    ).toBe(1_300);
+    expect(aiSpendTokens({ cacheWriteInputTokens: 1_300 })).toBe(
+      aiSpendTokens({ inputTokens: 1_300 }),
+    );
+  });
+
+  it("CONTROL: every class reaches the total (output included), and nothing reported is 0", () => {
+    expect(
+      aiSpendTokens({
+        inputTokens: 1,
+        outputTokens: 10,
+        cachedInputTokens: 100,
+        cacheWriteInputTokens: 1_000,
+      }),
+    ).toBe(1_111);
+    expect(aiSpendTokens({})).toBe(0);
   });
 });

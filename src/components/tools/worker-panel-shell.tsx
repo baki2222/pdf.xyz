@@ -8,6 +8,7 @@ import {
   useId,
   useMemo,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import type { LucideIcon } from "lucide-react";
@@ -241,6 +242,7 @@ function SpecRow({ icon: Icon, label, value }: SpecRowData) {
  */
 export function WorkerGate({
   reserve,
+  reserveStyle,
   job,
   run,
   off,
@@ -250,6 +252,12 @@ export function WorkerGate({
 }: {
   /** The slot's min-heights, per breakpoint (see `STATUS_SLOT` in each panel). */
   reserve: string;
+  /**
+   * An inline reserve that replaces `reserve` while set, for an optional
+   * line only some readers see (chat's page-selection line). Absent, the
+   * slot renders exactly as before: no style attribute.
+   */
+  reserveStyle?: CSSProperties;
   /** The run whose phases stamp the docket. */
   job: Pick<WorkerJob<{ ok: boolean }>, "events">;
   /** The Run control: `(available) => <WorkerRunButton disabled={!available || …}>`. */
@@ -266,7 +274,11 @@ export function WorkerGate({
   const { tool, phase, available, stages, retry, limited } = useWorkerPanel();
   const state = workerSlotState(phase, available);
   return (
-    <WorkerStatusSlot state={state} reserve={reserve}>
+    <WorkerStatusSlot
+      state={state}
+      reserve={reserve}
+      {...(reserveStyle ? { reserveStyle } : {})}
+    >
       <div className="flex flex-col gap-4">
         {run(available)}
         {jobStatus}

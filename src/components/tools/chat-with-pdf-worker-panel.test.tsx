@@ -661,6 +661,122 @@ describe("ChatWithPdfWorkerPanel — every answer carries its caveat", () => {
   });
 });
 
+describe("ChatWithPdfWorkerPanel — how a longer file's pages are chosen", () => {
+  /**
+   * Brief step 6 (audit #30, slice 3): the line describing page selection is
+   * a claim about ONE worker image's algorithm, so only an OBSERVED
+   * `chatRetrieval: true` may turn it on. `status.chatRetrieval` is already
+   * the observed predicate (status.ts folds `workerObserved` in), so the
+   * panel's job is to treat anything but `true` as silence. The ready-note
+   * (the day's allowance) is the health check: it proves the slot rendered
+   * its ready state, so an absent line is the gate, not a slot that never
+   * opened.
+   */
+  async function renderWith(status: WorkerStatus | null) {
+    measureChatDocument.mockResolvedValue({
+      kind: "counted",
+      count: MEASURED,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          status === null
+            ? { ok: false, status: 503, json: async () => ({}) }
+            : { ok: true, json: async () => status },
+        ),
+    );
+    const { aiDailyAllowanceNote } =
+      await import("@/lib/workers/ai-tool-availability");
+    const { chatRetrievalPanelLine, CHAT_RETRIEVAL_ANCHOR_SHARE } =
+      await import("@/lib/pdf/chat-retrieval-anchor");
+    render(<Panel />);
+    return {
+      line: chatRetrievalPanelLine(CHAT_RETRIEVAL_ANCHOR_SHARE),
+      ready: aiDailyAllowanceNote(chatTool.slug),
+    };
+  }
+
+  it("says it when the observed worker proves chatRetrieval", async () => {
+    const { line, ready } = await renderWith({ ...READY, chatRetrieval: true });
+    expect(await screen.findByText(ready)).toBeInTheDocument();
+    expect(screen.getByText(line)).toBeInTheDocument();
+    // The line brings its own reserve, inline (no new utility class: the
+    // shared stylesheet is at its ceiling), and only with the line.
+    const slot = document.querySelector('[data-slot="worker-status"]')!;
+    expect(slot.getAttribute("class")).toBe(MAIN_SLOT_CLASS);
+    expect(slot.getAttribute("style") ?? "").toMatch(/min-height:/);
+  });
+
+  /**
+   * The slot exactly as main rendered it (2026-11-16, origin/main): while
+   * the line is off, the page-selection line costs no reader any height.
+   */
+  const MAIN_SLOT_CLASS =
+    "grid grid-cols-1 content-start min-h-[28.5rem] sm:min-h-[20rem] lg:min-h-[22.5rem]";
+
+  for (const [name, status] of [
+    ["the key is absent (an older image)", READY],
+    ["the key is false", { ...READY, chatRetrieval: false }],
+  ] as const) {
+    it(`keeps main's slot, byte for byte, when ${name}`, async () => {
+      const { ready } = await renderWith(status);
+      expect(await screen.findByText(ready)).toBeInTheDocument();
+      const slot = document.querySelector('[data-slot="worker-status"]')!;
+      expect(slot.getAttribute("data-state")).toBe("run");
+      expect(slot.getAttribute("class")).toBe(MAIN_SLOT_CLASS);
+      expect(slot.hasAttribute("style")).toBe(false);
+    });
+  }
+
+  for (const [name, status] of [
+    ["the key is absent (an older image)", READY],
+    ["the key is false", { ...READY, chatRetrieval: false }],
+  ] as const) {
+    it(`says nothing when ${name}`, async () => {
+      const { line, ready } = await renderWith(status);
+      expect(await screen.findByText(ready)).toBeInTheDocument();
+      expect(screen.queryByText(line)).toBeNull();
+      expect(document.body.textContent).not.toMatch(/less common words/);
+    });
+  }
+
+  it("says nothing when the status cannot be read", async () => {
+    const { line } = await renderWith(null);
+    await screen.findByRole("textbox");
+    // Give the failed status fetch time to settle before reading absence.
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText(line)).toBeNull();
+    expect(document.body.textContent).not.toMatch(/less common words/);
+  });
+
+  it("the line follows the measured anchor share, both arms", async () => {
+    // A sentence typed for one outcome of the sweep would be a constant with
+    // no relationships (rule 3); this pins both outcomes and which one ships.
+    const { chatRetrievalPanelLine, CHAT_RETRIEVAL_ANCHOR_SHARE } =
+      await import("@/lib/pdf/chat-retrieval-anchor");
+    const anchored = chatRetrievalPanelLine(1 / 2);
+    const pure = chatRetrievalPanelLine(0);
+    expect(anchored).toBe(
+      "For a longer file, each question is sent the opening pages and the pages that share the most of its less common words.",
+    );
+    expect(pure).toBe(
+      "For a longer file, each question is sent the pages that share the most of its less common words, or the opening pages when none do.",
+    );
+    expect(chatRetrievalPanelLine(1 / 8)).toBe(anchored);
+    expect(chatRetrievalPanelLine(CHAT_RETRIEVAL_ANCHOR_SHARE)).toBe(
+      CHAT_RETRIEVAL_ANCHOR_SHARE > 0 ? anchored : pure,
+    );
+    // The selector reads the same number the panel does.
+    const retrieval = await import("@/lib/pdf/page-retrieval");
+    expect(retrieval.CHAT_RETRIEVAL_ANCHOR_SHARE).toBe(
+      CHAT_RETRIEVAL_ANCHOR_SHARE,
+    );
+  });
+});
+
 describe("ChatWithPdfWorkerPanel — what the job declares", () => {
   it("sends the extracted character count with its job, not nothing", async () => {
     // Review of 2026-09-28: the only panel-level assertion checked that the
