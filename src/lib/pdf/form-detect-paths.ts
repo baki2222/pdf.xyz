@@ -529,7 +529,11 @@ export function scanPaths(
     pushSeg([x0, y1], [x0, y0], plumb, stroked, filled, lum);
   };
 
-  /** The path's bounding box after the CTM, for a `W` waiting on it. */
+  /**
+   * The path's bounding box after the CTM, for a `W` waiting on it. When
+   * pdf.js's own box is not finite, from the points, in a loop: a spread
+   * of every point overflowed the call stack on a long clip path.
+   */
   const pathBox = (args: unknown[]): ClipBox | null => {
     const mm = asBox(args[2]);
     if (mm) return boxUnder(st.ctm, mm);
@@ -537,13 +541,15 @@ export function scanPaths(
     const data = Array.isArray(holder) ? holder[0] : undefined;
     if (!data || typeof (data as ArrayLike<number>).length !== "number")
       return null;
-    const pts = subPaths(data as ArrayLike<number>, st.ctm).flatMap(
-      (sp) => sp.pts,
-    );
-    if (pts.length === 0) return null;
-    const xs = pts.map((p) => p[0]);
-    const ys = pts.map((p) => p[1]);
-    return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    const box: ClipBox = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const sp of subPaths(data as ArrayLike<number>, st.ctm))
+      for (const [x, y] of sp.pts) {
+        box[0] = Math.min(box[0], x);
+        box[1] = Math.min(box[1], y);
+        box[2] = Math.max(box[2], x);
+        box[3] = Math.max(box[3], y);
+      }
+    return box[0] <= box[2] ? box : null;
   };
 
   /** Read one painted path; true when the primitive cap was reached. */

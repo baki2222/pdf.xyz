@@ -49,6 +49,11 @@ const Z = 4;
 type Op = [number, unknown[]];
 
 function path(paint: number, ...data: number[]): Op {
+  return pathOf(paint, data);
+}
+
+/** {@link path} for data too long to spread into a call. */
+function pathOf(paint: number, data: number[]): Op {
   return [OPS.constructPath, [paint, [new Float32Array(data)], null]];
 }
 
@@ -461,6 +466,19 @@ describe("scanPaths", () => {
         ]).segs;
       expect(at(600.4)).toHaveLength(1);
       expect(at(600.6)).toEqual([]);
+    });
+
+    // A clip whose bbox is not finite (a coordinate past float32's range)
+    // fell back to Math.min(...xs) over every point: 200,000 points threw
+    // "Maximum call stack size exceeded" on a main thread, and the page read
+    // as "unread" although it held a plain labelled line (review finding).
+    // A million here, because a worker thread's larger stack takes 200,000.
+    it("a clip of 1,000,000 points with no finite bbox is read, not thrown", () => {
+      const data = [M, 0, 0, L, 1e39, 0];
+      for (let k = 0; k < 1_000_000; k++) data.push(L, k % 600, (k * 7) % 780);
+      data.push(Z);
+      const r = scan([[OPS.clip, []], pathOf(OPS.endPath, data), line]);
+      expect(r.segs).toEqual([expect.objectContaining({ x0: 130, x1: 330 })]);
     });
   });
 
