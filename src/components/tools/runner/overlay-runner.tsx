@@ -237,7 +237,7 @@ function OverlayEditor({
             multiple={false}
             compact
             title="Drop the overlay PDF here, or"
-            hint="Its first page is applied to every page of your base PDF"
+            hint={overlayDropHint()}
           />
         )}
         {overlayError && <ErrorNote message={overlayError} />}
@@ -390,6 +390,25 @@ function OverlayEditor({
       </RunBar>
     </div>
   );
+}
+
+/**
+ * The overlay drop zone's hint, built from OVERLAY_PAGINGS so a new paging
+ * mode is named here the day the control offers it. WAS "Its first page is
+ * applied to every page of your base PDF": written before the paging modes
+ * and the page choice existed, and false of three of the four modes.
+ * `overlay-runner.test.tsx` reads the rendered hint and plants a mode;
+ * `stale-page-claims.test.ts` bans the old sentence's shape everywhere.
+ */
+export function overlayDropHint(
+  pagings: readonly { label: string }[] = OVERLAY_PAGINGS,
+): string {
+  const names = pagings.map((option) => `"${option.label}"`);
+  const list =
+    names.length <= 1
+      ? names.join("")
+      : `${names.slice(0, -1).join(", ")} or ${names.at(-1)}`;
+  return `A one-page overlay goes on every page, or only the pages you list. With more pages, you choose how they line up: ${list}.`;
 }
 
 function describeFit(fit: OverlayFit): string {

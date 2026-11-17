@@ -39,7 +39,15 @@
  * for every policy (`rateLimitErrorResult`), both allowance scopes, every
  * tool's catalogue entry, facts, intro, steps and FAQ (the FAQPage JSON-LD is
  * these), every guide, the site FAQ, /privacy's limit disclosure, the batch
- * copy and Translate's delivery notices. Each set has a size health check.
+ * copy and Translate's delivery notices, in both arms of the undeclared
+ * flag. Each set has a size health check.
+ *
+ * CORPUS MODULES are skipped by the source scan (merge with main after #351,
+ * which added `translate-page-choice-claims.ts`, holding shipped history
+ * verbatim): non-test files under src/lib that a test imports and nothing
+ * else under src, scripts or e2e does, DERIVED from the import graph. Every
+ * calendar-shaped string one exports must be a SHIPPED sentence, so the
+ * exclusion hides only history.
  */
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -183,6 +191,27 @@ const SHIPPED: readonly { commit: string; text: string }[] = [
     commit: "a04fd656",
     text: "one over 30,774 characters, the whole day's allowance, cannot be translated in a single day.",
   },
+  // The whole sentences, as served at 76af2dee (Translate slice 7, #351):
+  // the intro and the "How much of my PDF" fact, each followed there by the
+  // page-choice remedy. Kept by the merge, reworded by this branch.
+  {
+    commit: "76af2dee",
+    text: "The allowance is charged when the job is created, just after the upload: a document needing more than is left today is refused whole with nothing charged rather than half translated, and one over 30,774 characters, the whole day's allowance, cannot be translated in a single day.",
+  },
+  {
+    commit: "76af2dee",
+    text: "The text sent for translation is charged against the free daily allowance when the job is created, so a document needing more than is left today is refused before it runs, with nothing charged, rather than half translated; one over 30,774 characters, the whole day's allowance, cannot be translated in a single day.",
+  },
+  // The split-first versions those replaced (a04fd656 removed them), whole;
+  // they stand in `translate-page-choice-claims.ts` as history too.
+  {
+    commit: "0d655c18",
+    text: "The allowance is charged when the job is created, just after the upload: a document needing more than is left today is refused whole with nothing charged rather than half translated, and one over 30,774 characters, the whole day's allowance, has to be split into smaller files first.",
+  },
+  {
+    commit: "57f5cee0",
+    text: "The whole document is charged against the free daily allowance when the job is created, so a document needing more than is left today is refused before it runs, with nothing charged, rather than half translated; one over 30,774 characters, the whole day's allowance, has to be split into smaller files.",
+  },
   {
     commit: "8b24c50c",
     text: "The page checks the file for text before sending it, and when it finds none the question stops there and takes nothing from the day's allowance.",
@@ -224,6 +253,82 @@ function sourceFiles(): string[] {
   for (const root of ["app", "components", "lib"])
     walk(path.join(ROOT, "src", root));
   return out;
+}
+
+const resolveFile = (base: string): string | null => {
+  for (const candidate of [
+    base,
+    `${base}.ts`,
+    `${base}.tsx`,
+    path.join(base, "index.ts"),
+    path.join(base, "index.tsx"),
+  ]) {
+    try {
+      if (!/\.tsx?$/.test(candidate)) continue;
+      readFileSync(candidate);
+      return path.resolve(candidate);
+    } catch {
+      // next candidate
+    }
+  }
+  return null;
+};
+
+/** Every module `file` names in an import, re-export or dynamic import. */
+function importsOf(file: string): string[] {
+  const source = readFileSync(file, "utf8");
+  const out: string[] = [];
+  for (const m of source.matchAll(
+    /(?:\bfrom\s*|\bimport\s*\(\s*|^\s*import\s+)"([^"]+)"/gm,
+  )) {
+    const spec = m[1]!;
+    const base = spec.startsWith("@/")
+      ? path.join(ROOT, "src", spec.slice(2))
+      : spec.startsWith(".")
+        ? path.join(path.dirname(file), spec)
+        : null;
+    const resolved = base ? resolveFile(base) : null;
+    if (resolved) out.push(resolved);
+  }
+  return out;
+}
+
+/**
+ * CORPUS MODULES: non-test files under src/lib that some test imports and no
+ * non-test file under src imports (`translate-page-choice-claims.ts` and its
+ * kind). They hold shipped history verbatim for a guard to read, so they
+ * carry the very words banned here, and a reader cannot reach them. DERIVED
+ * from the import graph, never typed; what they hold is checked separately
+ * below (every calendar-shaped string in one is a SHIPPED sentence), so the
+ * exclusion cannot hide a reader-facing one.
+ */
+function corpusModules(files: readonly string[]): string[] {
+  const all: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === "node_modules") continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.(?:tsx?|mjs|js)$/.test(entry.name)) all.push(full);
+    }
+  };
+  // Importers: src, scripts (the worker's entry points and the probes'
+  // runners live there) and e2e, never only src (house rule 4).
+  for (const root of ["src", "scripts", "e2e"]) walk(path.join(ROOT, root));
+  const byProduct = new Set<string>();
+  const byTest = new Set<string>();
+  for (const file of all) {
+    const isTest =
+      /\.(?:test|spec)\./.test(file) || rel(file).startsWith("e2e/");
+    const into = isTest ? byTest : byProduct;
+    for (const target of importsOf(file)) into.add(target);
+  }
+  return files.filter((f) => {
+    const abs = path.resolve(f);
+    return (
+      rel(abs).startsWith("src/lib/") && byTest.has(abs) && !byProduct.has(abs)
+    );
+  });
 }
 
 const resolveAlias = (spec: string): string | null => {
@@ -398,30 +503,36 @@ function evaluatedSentences(): { where: string; text: string }[] {
     workerBatchEachFileSentence(),
     workerBatchJobsSentence(3),
   ]);
-  for (const bound of ["characters", "pages"] as const) {
-    add(
-      `delivery notice ${bound}`,
-      deliveryConsequence({
-        deliveredPages: 2,
-        withheldPages: 1,
-        boundBy: bound,
-      }),
-    );
-    for (const chosen of [null, [[2, 3]] as [number, number][]]) {
+  // Both arms of the undeclared flag (declared: the panel; undeclared: an
+  // API caller or an OCR scan), which pick different words.
+  for (const undeclared of [false, true])
+    for (const bound of ["characters", "pages"] as const) {
+      const arm = undeclared ? "undeclared" : "declared";
+      const limit = {
+        characters: 9,
+        pages: 2,
+        ...(undeclared ? { undeclared: true as const } : {}),
+      };
       add(
-        `package marker ${bound}`,
-        withheldPagesMarker([3], bound, { characters: 9, pages: 2 }, chosen),
+        `delivery notice ${arm} ${bound}`,
+        deliveryConsequence({
+          deliveredPages: 2,
+          withheldPages: 1,
+          boundBy: bound,
+          ...(undeclared ? { undeclared: true as const } : {}),
+        }),
       );
-      add(
-        `nothing deliverable ${bound}`,
-        nothingDeliverableMessage(
-          bound,
-          { characters: 9, pages: 2 },
-          chosen !== null,
-        ),
-      );
+      for (const chosen of [null, [[2, 3]] as [number, number][]]) {
+        add(
+          `package marker ${arm} ${bound}`,
+          withheldPagesMarker([3], bound, limit, chosen),
+        );
+        add(
+          `nothing deliverable ${arm} ${bound}`,
+          nothingDeliverableMessage(bound, limit, chosen !== null),
+        );
+      }
     }
-  }
   return out;
 }
 
@@ -465,7 +576,9 @@ describe("the ban list has a corpus in both directions", () => {
   });
 
   it("health: the corpus is the size it was built at", () => {
-    expect(SHIPPED.length).toBe(15);
+    // 15 at this branch's last commit; 19 after the merge with main after
+    // #351 (two slice-7 sentences, two split-first sentences they replaced).
+    expect(SHIPPED.length).toBe(19);
     expect(CALENDAR_SHAPES.length).toBe(6);
   });
 
@@ -499,6 +612,47 @@ describe("the ban list has a corpus in both directions", () => {
 
 describe("no reader-facing sentence names a calendar reset", () => {
   const files = sourceFiles();
+  const corpora = new Set(corpusModules(files).map(rel));
+
+  it("health: the corpus modules are derived, few, and hold only shipped history", async () => {
+    // Positive member: the module that made this exclusion necessary (main's
+    // Translate slice 7, #351). Bounded above, so a graph that stops
+    // resolving product imports, and so excludes nearly everything, fails
+    // here; bounded below, so one that stops resolving test imports does.
+    expect([...corpora]).toContain(
+      "src/lib/tools/translate-page-choice-claims.ts",
+    );
+    // 18 on 2026-11-17 (test-only fixtures, probes and claim corpora).
+    expect(corpora.size).toBeGreaterThanOrEqual(5);
+    expect(corpora.size).toBeLessThan(40);
+    // Negative members: modules the product imports are never excluded.
+    for (const product of [
+      "src/lib/tools/translate-page-choice.ts",
+      "src/lib/jobs/ai-allowance.ts",
+      "src/lib/tools/tool-facts.ts",
+    ])
+      expect(corpora.has(product), product).toBe(false);
+    // What they hold: every calendar-shaped string they export is a SHIPPED
+    // sentence (or contains one), so the exclusion hides history only.
+    const shipped = SHIPPED.map((s) => s.text);
+    const unlisted: string[] = [];
+    let strings = 0;
+    for (const file of corpora) {
+      const mod: unknown = await import(
+        /* @vite-ignore */ path.join(ROOT, file)
+      );
+      for (const text of stringsIn(mod)) {
+        strings += 1;
+        if (
+          shapesIn(text).length > 0 &&
+          !shipped.some((s) => text === s || text.includes(s))
+        )
+          unlisted.push(`${file}: ${text.slice(0, 160)}`);
+      }
+    }
+    expect(strings).toBeGreaterThan(10);
+    expect(unlisted).toEqual([]);
+  });
 
   it("health: the source walk contains the copy walk and every refusal builder", () => {
     expect(files.length).toBeGreaterThan(1000);
@@ -524,6 +678,7 @@ describe("no reader-facing sentence names a calendar reset", () => {
   it("in any source file, outside comments", () => {
     const found: string[] = [];
     for (const file of files) {
+      if (corpora.has(rel(file))) continue;
       const text = flattenForPhraseSearch(
         withoutComments(readFileSync(file, "utf8")),
       );
@@ -549,6 +704,13 @@ describe("no reader-facing sentence names a calendar reset", () => {
     expect(sentences.filter((s) => s.where.startsWith("429 for ")).length).toBe(
       allPolicies().length,
     );
+    // Both arms of the undeclared flag are members: each writes its own
+    // words for a characters-bound withhold.
+    const panel = (arm: string) =>
+      sentences.find((s) => s.where === `delivery notice ${arm} characters`)
+        ?.text ?? "";
+    expect(panel("declared")).toContain(WITHHELD_UNDERCOUNT_SENTENCE);
+    expect(panel("undeclared")).toMatch(/as a separate document\.$/);
     const found = sentences
       .filter(({ text }) => shapesIn(text).length > 0)
       .map(({ where, text }) => `${where}: ${text.slice(0, 160)}`);
