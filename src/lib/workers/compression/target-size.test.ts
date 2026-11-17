@@ -28,6 +28,7 @@ import {
   MAX_TARGET_BYTES,
   MIN_TARGET_BYTES,
   TARGET_SIZE_PRESETS,
+  batchTargetBytes,
 } from "@/lib/pdf/compress-target";
 import { DEEP_COMPRESSION_PRESETS } from "@/lib/pdf/offered-kinds";
 
@@ -540,5 +541,64 @@ describe("the composed chain: engine → processor → job record → browser", 
       expect(onRecord?.compression).toBeDefined();
       expect(onRecord?.compression).not.toHaveProperty("target");
     }
+  });
+});
+
+describe("a batch's Target size: the parser's own bounds (audit backlog #15)", () => {
+  // A batch weighs no file when it validates (each row is weighed on its own,
+  // `alreadyFits`), so its only bounds are the worker's. A size the batch
+  // allows and the parser refuses would fail EVERY row of the batch at the
+  // server; one the batch refuses and the parser allows holds a valid run.
+  // Found by mutation: dropping the ceiling from `batchTargetBytes` left every
+  // other test green.
+  const ceilingKb = MAX_TARGET_BYTES / KB;
+  const floorKb = MIN_TARGET_BYTES / KB;
+  const corpus = [
+    0,
+    1,
+    floorKb - 1,
+    floorKb,
+    floorKb + 1,
+    150,
+    ceilingKb - 1,
+    ceilingKb,
+    ceilingKb + 1,
+    9_999_999,
+  ];
+
+  it("allows a custom size exactly when the worker's parser accepts it", () => {
+    let accepted = 0;
+    let refused = 0;
+    for (const kb of corpus) {
+      const parser = parseCompressionOptions({
+        profile: "deep",
+        targetBytes: kb * KB,
+      }).ok;
+      const batch = batchTargetBytes("custom", String(kb));
+      expect({ kb, batch: batch !== "invalid" }).toEqual({
+        kb,
+        batch: parser,
+      });
+      if (parser) accepted++;
+      else refused++;
+    }
+    // Health check: the corpus straddles both bounds, so neither direction
+    // is vacuous.
+    expect(accepted).toBeGreaterThanOrEqual(4);
+    expect(refused).toBeGreaterThanOrEqual(4);
+    expect(batchTargetBytes("custom", String(ceilingKb))).toBe(
+      MAX_TARGET_BYTES,
+    );
+    expect(batchTargetBytes("custom", String(ceilingKb + 1))).toBe("invalid");
+  });
+
+  it("every preset is one the parser accepts, whatever the file", () => {
+    for (const p of TARGET_SIZE_PRESETS) {
+      expect(batchTargetBytes(p.bytes, "")).toBe(p.bytes);
+      expect(
+        parseCompressionOptions({ profile: "deep", targetBytes: p.bytes }).ok,
+      ).toBe(true);
+    }
+    expect(batchTargetBytes("none", "")).toBe(undefined);
   });
 });
