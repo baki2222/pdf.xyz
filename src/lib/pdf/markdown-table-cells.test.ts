@@ -26,9 +26,9 @@ import {
   type PDFFont,
 } from "pdf-lib";
 import {
+  blockRuns,
   markdownToPdf,
   parseMarkdownBlocks,
-  tableCellRuns,
   type MarkdownBlock,
 } from "./markdown-to-pdf";
 import { useNodeFontSource } from "@/tests/unicode-fonts";
@@ -415,7 +415,7 @@ describe("the runs a table keeps say exactly what its cells say", () => {
     let styled = 0;
     rows.forEach((row, r) =>
       row.forEach((cell, c) => {
-        const runs = tableCellRuns(table!, r, c);
+        const runs = blockRuns(table!, { row: r, column: c });
         if (!runs) return;
         styled++;
         expect(runs.map((run) => run.text).join(""), `${r}:${c}`).toBe(cell);
@@ -423,7 +423,9 @@ describe("the runs a table keeps say exactly what its cells say", () => {
     );
     // Health: the header's *head* and the six styled body cells.
     expect(styled).toBe(7);
-    expect(tableCellRuns(table!, 1, 0)).toBeUndefined();
+    expect(blockRuns(table!, { row: 1, column: 0 })).toBeUndefined();
+    // A table has no block-level runs: only its cells carry any.
+    expect(blockRuns(table!)).toBeUndefined();
   });
 });
 

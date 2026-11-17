@@ -1192,7 +1192,7 @@ const TABLE_CELL_RUNS = new WeakMap<
 >();
 
 /** The runs a table cell is drawn from, if it has styled ones. */
-export function tableCellRuns(
+function tableCellRuns(
   block: MarkdownBlock & { kind: "table" },
   row: number,
   column: number,
@@ -1200,10 +1200,18 @@ export function tableCellRuns(
   return TABLE_CELL_RUNS.get(block)?.get(row * block.header.length + column);
 }
 
-/** The runs {@link drawBlock} draws `block` from, if it has any. */
+/**
+ * The runs {@link drawBlock} draws `block` from, if it has any; for a table,
+ * the runs of the cell at `cell` (the header is row 0). One export for both,
+ * not a second one: this module is in the tool page's first load.
+ */
 export function blockRuns(
   block: MarkdownBlock,
+  cell?: { row: number; column: number },
 ): readonly InlineRun[] | undefined {
+  if (cell && block.kind === "table") {
+    return tableCellRuns(block, cell.row, cell.column);
+  }
   return BLOCK_RUNS.get(block);
 }
 
