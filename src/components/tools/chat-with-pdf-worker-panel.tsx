@@ -52,6 +52,7 @@ import { ChosenFileTarget } from "./chosen-file-target";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import { TruncationNotice } from "./truncation-notice";
+import { PlainCitedAnswer } from "./citation-buttons";
 import type { Job } from "@/lib/jobs/types";
 import { useStagedHandoff } from "./use-staged-handoff";
 import {
@@ -736,8 +737,8 @@ function Transcript({
             {entry.answer !== null ? (
               // The model's answer as shipped in the package — never a
               // paraphrase, and never anything the panel composed itself:
-              // formatted, with its page buttons, by the lazy views; as it is
-              // until they arrive.
+              // formatted, with its page buttons, by the lazy views; as it is,
+              // with the same buttons, until they arrive or if they never do.
               <>
                 {views ? (
                   <views.ChatAnswer
@@ -750,9 +751,15 @@ function Transcript({
                     }
                   />
                 ) : (
-                  <p className="text-muted text-sm leading-relaxed whitespace-pre-wrap">
-                    {entry.answer}
-                  </p>
+                  <PlainCitedAnswer
+                    answer={entry.answer}
+                    pageCount={doc?.pageCount ?? null}
+                    onOpen={
+                      doc !== null && entry.docToken === doc.token
+                        ? onOpen
+                        : null
+                    }
+                  />
                 )}
                 {views && <views.TextCutNote text={entry.answer} />}
                 {/* Under EVERY answer, and not conditional on citations: an

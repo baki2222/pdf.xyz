@@ -21,7 +21,6 @@ import {
   LINK_SCHEMES,
   MAX_DEPTH,
   MarkdownText,
-  headingLevel,
   parseInline,
   parseMarkdown,
   safeHref,
@@ -82,6 +81,9 @@ const FORMATTING = [
   "### Detail",
   "",
   "***Both*** and snake_case_name stay apart.",
+  "",
+  "The lease was signed in",
+  "2024. It renews each year.",
 ].join(LF);
 
 describe("formatted", () => {
@@ -106,6 +108,13 @@ describe("formatted", () => {
       ),
     ).toEqual(["paid by transfer", "late after five days"]);
     expect(root.querySelectorAll("ol")[1]!.getAttribute("start")).toBe("5");
+    // A wrapped line that starts with a year goes on with its paragraph: only
+    // a list starting at 1 ends one (review, 2026-11-18: this drew an
+    // <ol start="2024">).
+    expect(root.querySelectorAll("ol")).toHaveLength(2);
+    expect([...root.querySelectorAll("p")].map((p) => p.textContent)).toContain(
+      `The lease was signed in${LF}2024. It renews each year.`,
+    );
     const links = [...root.querySelectorAll("a")];
     expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
       ["link", "https://example.com/terms"],
@@ -142,6 +151,40 @@ describe("formatted", () => {
     expect(root.querySelectorAll("p")).toHaveLength(1);
     expect(root.textContent).toBe(text);
     expect(root.style.whiteSpace).toBe("pre-wrap");
+  });
+
+  it("only a list starting at 1, or a bullet with text, ends a paragraph", () => {
+    const cases: [string, string[], string[]][] = [
+      // [text, the paragraphs outside a list, the list items]
+      [`Text${LF}2024. continues`, [`Text${LF}2024. continues`], []],
+      [`Text${LF}2) continues`, [`Text${LF}2) continues`], []],
+      [`Text${LF}-`, [`Text${LF}-`], []],
+      [
+        `> Quoted${LF}2024. still quoted`,
+        [`Quoted${LF}2024. still quoted`],
+        [],
+      ],
+      // Positive controls: these do start a list.
+      [`Text${LF}1. first`, ["Text"], ["first"]],
+      [`Text${LF}- bullet`, ["Text"], ["bullet"]],
+      // A list's own items are numbered on, whatever the number.
+      [`1. a${LF}2. b${LF}3. c`, [], ["a", "b", "c"]],
+      [`7. a${LF}8. b`, [], ["a", "b"]],
+    ];
+    for (const [text, paragraphs, items] of cases) {
+      const root = draw(text);
+      const outside = [...root.querySelectorAll("p")].filter(
+        (p) => !p.closest("li"),
+      );
+      expect(
+        outside.map((p) => p.textContent),
+        text,
+      ).toEqual(paragraphs);
+      expect(
+        [...root.querySelectorAll("li")].map((li) => li.textContent),
+        text,
+      ).toEqual(items);
+    }
   });
 
   it("unclosed marks are shown as written", () => {
@@ -181,27 +224,61 @@ describe("headings continue the page's outline", () => {
       Number(h.tagName[1]),
     );
 
-  it("the shallowest heading is drawn at the base, deeper ones under it, never past h6", () => {
+  /**
+   * The property, as a function, so its positive control runs through it:
+   * under a heading of level `base - 1`, every heading is at least the base,
+   * at most h6, and never more than one level deeper than the one before it
+   * (axe heading-order), and the shallowest is the base.
+   */
+  function outlineGaps(got: number[], base: number): string[] {
+    const found: string[] = [];
+    let previous = base - 1;
+    for (const level of got) {
+      if (level > previous + 1) found.push(`h${level} after h${previous}`);
+      if (level < base || level > 6) found.push(`h${level} outside`);
+      previous = level;
+    }
+    if (got.length > 0 && Math.min(...got) !== base)
+      found.push(`shallowest h${Math.min(...got)}`);
+    return found;
+  }
+
+  it("the shallowest heading is drawn at the base, each deeper one level at a time, never past h6", () => {
     const cases: [string, number, number[]][] = [
       [`# A${LF}## B${LF}### C`, 3, [3, 4, 5]],
       [`# A${LF}## B${LF}### C`, 4, [4, 5, 6]],
-      [`## B${LF}### C${LF}###### F`, 4, [4, 5, 6]],
-      [`### C${LF}# A`, 3, [5, 3]],
+      // A level the model skipped is closed up (review, 2026-11-18: this
+      // drew h4 then h6 under the result card's h3, and axe's heading-order
+      // failed on the served page).
+      [`## Summary${LF}${LF}Text${LF}${LF}#### Details`, 4, [4, 5]],
+      [`# A${LF}### C${LF}###### F${LF}## B`, 3, [3, 4, 5, 4]],
+      // Two headings the model wrote at one depth stay at one level (a cap
+      // alone, over the shallowest-depth shift, drew these h4 then h5).
+      [`# A${LF}### C${LF}### C2`, 3, [3, 4, 4]],
+      // Past h6 the levels stay at h6 rather than skipping back in.
+      [`# A${LF}## B${LF}### C${LF}#### D`, 4, [4, 5, 6, 6]],
+      // INVERTED (review, 2026-11-18). This case once pinned [5, 3]: the
+      // text's first heading, its deepest, drew two levels under the
+      // outside heading. The first heading now starts at the base.
+      [`### C${LF}# A`, 3, [3, 3]],
+      [`### only${LF}# top`, 3, [3, 3]],
       [`- item${LF}  ## In a list`, 4, [4]],
+      [`> ### Quoted${LF}${LF}# Top${LF}## Under`, 3, [3, 3, 4]],
     ];
+    expect(cases.length).toBeGreaterThanOrEqual(10);
     for (const [text, base, want] of cases) {
       const got = levels(text, base);
       expect(got, text).toEqual(want);
-      // The property, as well as the examples.
-      expect(Math.min(...got)).toBe(base);
-      expect(Math.max(...got)).toBeLessThanOrEqual(6);
+      expect(outlineGaps(got, base), text).toEqual([]);
     }
   });
 
-  it("positive control: without the shift, ## under base 4 would be an h5", () => {
-    expect(headingLevel(2, 2, 4)).toBe(4);
-    expect(headingLevel(2, 1, 4)).toBe(5);
-    expect(headingLevel(6, 1, 4)).toBe(6);
+  it("positive control: the property catches a skipped level, a deep first heading and a heading above the base", () => {
+    // What the shallowest-depth shift drew for the cases above.
+    expect(outlineGaps([4, 6], 4)).toEqual(["h6 after h4"]);
+    expect(outlineGaps([5, 3], 3)).toEqual(["h5 after h2"]);
+    expect(outlineGaps([2, 3], 3)).toEqual(["h2 outside", "shallowest h2"]);
+    expect(outlineGaps([3, 4, 5], 3)).toEqual([]);
   });
 });
 
@@ -578,6 +655,16 @@ describe("the renderer is reached only through the lazy AI result chunk", () => 
   it("chat-answer is imported by the views only (no page loads it up front)", () => {
     expect(importers("chat-answer")).toEqual([
       "components/tools/ai-result-views.tsx",
+    ]);
+  });
+
+  it("the page buttons are first-load in the chat panel, so they work without the chunk", () => {
+    // Review, 2026-11-18: with ChatAnswer lazy, a refused chunk left the
+    // plain answer with no buttons. The panel draws PlainCitedAnswer until
+    // the chunk arrives (e2e/ai-markdown.spec.ts refuses it and presses one).
+    expect(importers("citation-buttons")).toEqual([
+      "components/tools/chat-answer.tsx",
+      "components/tools/chat-with-pdf-worker-panel.tsx",
     ]);
   });
 

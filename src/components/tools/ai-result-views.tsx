@@ -122,8 +122,9 @@ export function LongText({
 /**
  * Summarize PDF's Summary box: the model's Markdown drawn formatted, capped
  * like every long text. It sits in the result card under an h3, so the
- * summary's shallowest heading is an h4 (e2e/ai-results.spec.ts reads the
- * served page's outline). Copy summary and both downloads stay the source.
+ * summary's shallowest heading is an h4 (outlineBreaks in
+ * e2e/ai-markdown.spec.ts reads the served page's outline). Copy summary and
+ * both downloads stay the source.
  */
 export function SummaryBox({ text }: { text: string }) {
   return (

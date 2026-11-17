@@ -59,6 +59,8 @@ export type Block =
       rows: Inline[][][];
     };
 
+type HeadingBlock = Extract<Block, { t: "h" }>;
+
 /**
  * The address a link opens, or null. Only an address that STARTS with
  * `http://`, `https://` or `mailto:`, holds no space or control character
@@ -481,14 +483,25 @@ function listMarker(line: string): Marker | null {
   };
 }
 
-/** Does `line` start a block that ends a paragraph? */
-function interrupts(line: string): boolean {
-  return (
+/**
+ * Does `line` start a block that ends a paragraph? As CommonMark has it, a
+ * list item does only when it has text and, if numbered, starts at 1: a
+ * wrapped line such as "2024. was a good year" goes on with the paragraph
+ * (review, 2026-11-18). `anyItem` is for a list item's own lines, where a
+ * marker of any number starts the next item.
+ */
+function interrupts(line: string, anyItem = false): boolean {
+  if (
     heading(line) !== null ||
     fence(line) !== null ||
     isRule(line) ||
-    isQuote(line) ||
-    (indentOf(line) <= 3 && listMarker(line) !== null)
+    isQuote(line)
+  )
+    return true;
+  const m = indentOf(line) <= 3 ? listMarker(line) : null;
+  if (m === null) return false;
+  return (
+    anyItem || ((!m.ordered || m.start === 1) && !blank(line.slice(m.content)))
   );
 }
 
@@ -625,7 +638,7 @@ function parseBlocks(lines: string[], depth: number): Block[] {
           const ind = indentOf(l);
           if (ind > m.indent)
             body.push(dedent(l, Math.min(ind, at.contentCols)));
-          else if (!interrupts(l) && !blank(lines[i - 1]!))
+          else if (!interrupts(l, true) && !blank(lines[i - 1]!))
             body.push(l.trimStart());
           else break;
           i += 1;
@@ -694,15 +707,43 @@ export function parseMarkdown(text: string): Block[] {
   return parseBlocks(text.split(/\r\n?|\n/), 0);
 }
 
-/** The shallowest heading depth in the blocks, lists and quotes included. */
-function shallowest(blocks: Block[], found = 7): number {
+/** The headings in the order they are drawn, lists and quotes included. */
+function headingsIn(blocks: Block[], out: HeadingBlock[] = []): HeadingBlock[] {
   for (const b of blocks) {
-    if (b.t === "h") found = Math.min(found, b.depth);
-    else if (b.t === "quote") found = shallowest(b.c, found);
-    else if (b.t === "list")
-      for (const item of b.items) found = shallowest(item, found);
+    if (b.t === "h") out.push(b);
+    else if (b.t === "quote") headingsIn(b.c, out);
+    else if (b.t === "list") for (const item of b.items) headingsIn(item, out);
   }
-  return found;
+  return out;
+}
+
+/**
+ * The level each heading is drawn at, so the text continues the page's
+ * outline under a heading of level `base - 1` without a gap (axe
+ * heading-order; review, 2026-11-18: shifting by the shallowest depth alone
+ * kept the model's own gaps, so "##" then "####" drew h4 then h6).
+ *
+ * The depths the text uses, in rank order, are drawn at base, base + 1 and
+ * so on, at most h6; and no heading is drawn more than one level deeper than
+ * the heading before it (the first, than `base - 1`), so a text that opens
+ * with its deepest heading still starts at the base.
+ */
+export function headingLevels(
+  blocks: Block[],
+  base: number,
+): Map<HeadingBlock, number> {
+  const headings = headingsIn(blocks);
+  const ranks = [...new Set(headings.map((h) => h.depth))].sort(
+    (a, b) => a - b,
+  );
+  const levels = new Map<HeadingBlock, number>();
+  let previous = base - 1;
+  for (const h of headings) {
+    const level = Math.min(6, base + ranks.indexOf(h.depth), previous + 1);
+    levels.set(h, level);
+    previous = level;
+  }
+  return levels;
 }
 
 // ── Render ──────────────────────────────────────────────────────────────
@@ -710,15 +751,10 @@ function shallowest(blocks: Block[], found = 7): number {
 interface Ctx {
   /** The heading level the text's shallowest heading is drawn at. */
   base: number;
-  /** The text's shallowest heading depth. */
-  top: number;
+  /** The level each heading is drawn at (`headingLevels`). */
+  levels: Map<HeadingBlock, number>;
   /** How a run of text is drawn (Chat with PDF's page buttons); plain by default. */
   leaf: (text: string) => ReactNode;
-}
-
-/** The level a heading of `depth` is drawn at: shifted under `base`, at most h6. */
-export function headingLevel(depth: number, top: number, base: number) {
-  return Math.min(6, base + depth - top);
 }
 
 const TH = "text-muted px-4 py-2 text-left text-xs font-medium";
@@ -773,7 +809,7 @@ function renderBlock(b: Block, k: number, ctx: Ctx): ReactNode {
     case "p":
       return <p key={k}>{renderInline(b.c, ctx, false)}</p>;
     case "h": {
-      const level = headingLevel(b.depth, ctx.top, ctx.base);
+      const level = ctx.levels.get(b) ?? ctx.base;
       return createElement(
         `h${level}`,
         {
@@ -894,7 +930,8 @@ const plain = (text: string): ReactNode => text;
 /**
  * `text` drawn as formatted Markdown. `headingBase` is the level of the
  * heading the text sits under plus one, so its shallowest heading continues
- * the page's outline instead of breaking it; deeper ones follow, at most h6.
+ * the page's outline instead of breaking it; deeper ones follow one level at
+ * a time, at most h6 (`headingLevels`).
  */
 export function MarkdownText({
   text,
@@ -908,7 +945,10 @@ export function MarkdownText({
   className?: string;
 }) {
   const blocks = useMemo(() => parseMarkdown(text), [text]);
-  const top = shallowest(blocks);
+  const levels = useMemo(
+    () => headingLevels(blocks, headingBase),
+    [blocks, headingBase],
+  );
   return (
     <div
       data-chunk={AI_RESULT_CHUNK}
@@ -916,7 +956,7 @@ export function MarkdownText({
       className={className ?? "flex flex-col gap-3"}
       style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
     >
-      {renderBlocks(blocks, { base: headingBase, top, leaf })}
+      {renderBlocks(blocks, { base: headingBase, levels, leaf })}
     </div>
   );
 }

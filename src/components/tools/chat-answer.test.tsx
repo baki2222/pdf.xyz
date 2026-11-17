@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { citedPagesIn } from "@/lib/jobs/chat-citations";
 import { ChatAnswer, citationLabel } from "./chat-answer";
+import { PlainCitedAnswer } from "./citation-buttons";
 
 afterEach(cleanup);
 
@@ -151,5 +152,40 @@ describe("ChatAnswer", () => {
     expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual([
       "[p.2]",
     ]);
+  });
+});
+
+describe("PlainCitedAnswer (the panel's answer until the formatted one's chunk arrives)", () => {
+  it("draws the answer as written, with the same buttons as the formatted answer", () => {
+    const answer = `## Rent${NL}${NL}- Due on the **first** [p.2]${NL}- See [p.3, 5] and [p.9]`;
+    const onOpen = vi.fn();
+    const { container } = render(
+      <PlainCitedAnswer answer={answer} pageCount={5} onOpen={onOpen} />,
+    );
+    expect(container.textContent).toBe(answer);
+    expect(container.querySelectorAll("p")).toHaveLength(1);
+    const plain = screen.getAllByRole("button").map((b) => b.textContent);
+    expect(plain).toEqual(["[p.2]", "[p.3, 5]"]);
+    fireEvent.click(screen.getByRole("button", { name: /pages 3 and 5/ }));
+    expect(onOpen).toHaveBeenCalledWith(3);
+    cleanup();
+    render(<ChatAnswer answer={answer} pageCount={5} onOpen={() => {}} />);
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(
+      plain,
+    );
+  });
+
+  it("with no page count, or nothing to open, the plain answer is inert text", () => {
+    for (const props of [
+      { pageCount: null, onOpen: () => {} },
+      { pageCount: 5, onOpen: null },
+    ]) {
+      const { container, unmount } = render(
+        <PlainCitedAnswer answer={ANSWER} {...props} />,
+      );
+      expect(container.querySelectorAll("button")).toHaveLength(0);
+      expect(container.textContent).toBe(ANSWER);
+      unmount();
+    }
   });
 });

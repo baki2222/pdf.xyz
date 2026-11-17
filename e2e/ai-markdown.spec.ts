@@ -42,18 +42,23 @@ test.beforeEach(async ({ page }) => {
 /**
  * Every heading inside a formatted text, against the page's own outline: the
  * first is one level under the nearest heading before it outside the text,
- * and none is shallower than that or deeper than h6. Read in document order
- * from the served page, so the base each caller passes is checked where the
- * reader gets it.
+ * none is shallower than that or deeper than h6, and none is more than one
+ * level deeper than the heading before it (review, 2026-11-18: "##" then
+ * "####" drew h4 then h6, and only the first heading was checked). Read in
+ * document order from the served page, so the base each caller passes is
+ * checked where the reader gets it.
  */
 async function outlineBreaks(page: Page) {
   return page.evaluate(() => {
     const found: string[] = [];
     let outside = 1;
+    let previous = 1;
     let firstIn = new Set<Element>();
     for (const h of document.querySelectorAll("h1,h2,h3,h4,h5,h6")) {
       const level = Number(h.tagName[1]);
       const root = h.closest("[data-markdown]");
+      const after = previous;
+      previous = level;
       if (!root) {
         outside = level;
         continue;
@@ -64,8 +69,30 @@ async function outlineBreaks(page: Page) {
         if (level !== outside + 1) found.push(`first ${label}`);
       }
       if (level <= outside || level > 6) found.push(label);
+      if (level > after + 1) found.push(`${label} skips after h${after}`);
     }
     return found;
+  });
+}
+
+/** axe's heading-order rule (best practice, so not in `axeViolations`' tags). */
+async function headingOrder(page: Page) {
+  await axeViolations(page); // loads axe into the page
+  return page.evaluate(async () => {
+    const axe = (
+      window as unknown as {
+        axe: {
+          run: (
+            ctx: Document,
+            opts: object,
+          ) => Promise<{ violations: { id: string; nodes: unknown[] }[] }>;
+        };
+      }
+    ).axe;
+    const r = await axe.run(document, {
+      runOnly: { type: "rule", values: ["heading-order"] },
+    });
+    return r.violations.map((v) => `${v.id}: ${v.nodes.length}`);
   });
 }
 
@@ -162,6 +189,21 @@ test("Summarize PDF: the summary is formatted, its headings fit the outline, Cop
   expect(await axeViolations(page)).toEqual([]);
 });
 
+test("Summarize PDF: a heading level the model skipped is closed up on the page", async ({
+  page,
+}) => {
+  // The review's case (2026-11-18): this drew h4 then h6 under the card's h3.
+  const box = await summarize(
+    page,
+    ["## Summary", "", "Text", "", "#### Details"].join(LF),
+  );
+  await expect(box.locator("h4")).toHaveText("Summary");
+  await expect(box.locator("h5")).toHaveText("Details");
+  await expect(box.locator("h6")).toHaveCount(0);
+  expect(await outlineBreaks(page)).toEqual([]);
+  expect(await headingOrder(page)).toEqual([]);
+});
+
 const ANSWER = [
   "## Rent",
   "",
@@ -206,6 +248,42 @@ test("Chat with PDF: the answer is formatted, its page buttons work, Copy copies
   await page.waitForTimeout(200);
   await expectNoSidewaysScroll(page);
   expect(await axeViolations(page)).toEqual([]);
+});
+
+test("Chat with PDF: with the formatted answer's chunk refused, the plain answer keeps its page buttons", async ({
+  page,
+}) => {
+  // Refuse every script that carries the formatted answer (found by content,
+  // as lazy-chunks.test.ts finds it, not by a hashed name).
+  const refused: string[] = [];
+  await page.route("**/_next/static/chunks/**/*.js", async (route) => {
+    const response = await route.fetch();
+    const body = await response.text();
+    if (body.includes("data-markdown")) {
+      refused.push(route.request().url());
+      await route.abort();
+    } else await route.fulfill({ response, body });
+  });
+  const said = "Rent is due on the first [p.2].";
+  await mockChatWorker(page, "When is rent due?", said, [2]);
+  await askThreeFills(page, "When is rent due?");
+  await expect(page.getByText("Rent is due on the first")).toBeVisible({
+    timeout: 20_000,
+  });
+  // Health check: the chunk was asked for and refused, so nothing formatted.
+  expect(refused.length).toBeGreaterThanOrEqual(1);
+  await expect(page.locator("[data-markdown]")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Copy answer" })).toHaveCount(
+    0,
+  );
+  // The button is still there, and still opens its page.
+  const button = page.getByRole("button", { name: "Show page 2 of your PDF" });
+  await expect(button).toHaveText("[p.2]");
+  await button.click();
+  const dialog = page.getByRole("dialog");
+  await expect(
+    dialog.getByRole("heading", { name: "Page 2 of 3" }),
+  ).toBeVisible();
 });
 
 const HOSTILE = [
@@ -271,4 +349,31 @@ test("positive control: the inertness probe sees a script that runs and a javasc
     scripts: 1,
     onAttributes: ["onerror"],
   });
+});
+
+test("positive control: the outline probes see a skipped level inside a formatted text", async ({
+  page,
+}) => {
+  await page.goto("/tools/summarize-pdf");
+  // Outside React's tree (appended to the body, as the inertness control
+  // does), so a re-render cannot take it away: an h3, then a formatted
+  // text whose h4 is followed by an h6.
+  const injected = await page.evaluate(() => {
+    const outside = document.createElement("h3");
+    outside.textContent = "Result";
+    const root = document.createElement("div");
+    root.setAttribute("data-markdown", "");
+    const h4 = document.createElement("h4");
+    h4.textContent = "Summary";
+    const h6 = document.createElement("h6");
+    h6.textContent = "Details";
+    root.append(h4, h6);
+    document.body.append(outside, root);
+    return document.querySelectorAll("[data-markdown] h6").length === 1;
+  });
+  expect(injected).toBe(true);
+  expect(await outlineBreaks(page)).toEqual([
+    'H6 "Details" under h3 skips after h4',
+  ]);
+  expect(await headingOrder(page)).toEqual(["heading-order: 1"]);
 });
