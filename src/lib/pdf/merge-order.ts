@@ -56,13 +56,16 @@ export function sortMergeItems<
  * Merge PDF's page orders. "append" is the merge it always was: every file's
  * pages, one file after another. "alternate" takes one page from each file in
  * turn (`interleavePages`), for a fronts file and a backs file scanned apart.
+ * "pages" (2026-11-17) shows every page of every file in one grid, to be put
+ * in any order, turned or left out (`merge-pages.ts`).
  */
-export const MERGE_MODES = ["append", "alternate"] as const;
+export const MERGE_MODES = ["append", "alternate", "pages"] as const;
 export type MergeMode = (typeof MERGE_MODES)[number];
 
 export const MERGE_MODE_LABEL: Record<MergeMode, string> = {
   append: "One after another",
   alternate: "Alternate pages",
+  pages: "Arrange pages",
 };
 
 /**

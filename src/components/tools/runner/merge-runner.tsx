@@ -24,7 +24,7 @@ import {
   Plus,
   X,
 } from "lucide-react";
-import { getPageCount, mergePdfs } from "@/lib/pdf/engine";
+import { getPageRotations, mergePdfs } from "@/lib/pdf/engine";
 import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
 import { baseName, mergedOutputName, partitionPdfFiles } from "@/lib/pdf/files";
 import {
@@ -40,6 +40,7 @@ import { parsePageList } from "@/lib/pdf/ranges";
 import { causeOf, remedyFor, type RemedyInput } from "@/lib/pdf/remedies";
 import { naturalOrder, orderNote } from "@/lib/intent/defaults";
 import type { Thumbnail } from "@/lib/pdf/render-utils";
+import type { Rotation } from "@/lib/pdf/types";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import { NAME_WRAP } from "@/components/ui/name-wrap";
@@ -64,6 +65,15 @@ import {
   HandoffProblem,
 } from "./handoff-notice";
 import { useToolHandoff } from "./use-tool-handoff";
+import { LazyMergePageGrid } from "./merge-page-grid-lazy";
+import type { MergePage } from "./merge-pages-state";
+
+/** Arrange pages' list helpers, loaded with the mode, not with the page. */
+type ArrangeLib = typeof import("./merge-pages-state");
+
+/** Why the options that need one first page per file are greyed out. */
+const MIXED_NOTE =
+  "Your pages mix files, so a file no longer has one first page: a bookmark for each file, a contents page and blank pages after odd files are not offered. Keep each file's pages together to use them. Bookmarks already in your files are kept.";
 
 interface MergeItem {
   id: string;
@@ -71,6 +81,8 @@ interface MergeItem {
   size: number;
   bytes: Uint8Array;
   pageCount: number;
+  /** Each page's rotation as a viewer shows it; `pageCount` long. */
+  rotations: Rotation[];
   /** First-page preview; `null` until (or unless) it renders. */
   cover: Thumbnail | null;
   /** Where it came in the drop: "Keep drop order" sorts by this. */
@@ -148,6 +160,14 @@ export function MergeRunner() {
   // was), or one page from each file in turn.
   const [mode, setMode] = useState<MergeMode>("append");
   const alternate = mode === "alternate";
+  // Arrange pages: the one page list while the mode is on, and the list
+  // kept aside while a file-level mode is, so coming back restores it.
+  const [arrange, setArrange] = useState<ArrangeLib | null>(null);
+  const [pages, setPages] = useState<MergePage[] | null>(null);
+  const [stash, setStash] = useState<MergePage[] | null>(null);
+  // Pages boxes typed in page mode, by file id, until they are left.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const mixedNoteId = useId();
   const rangeIdBase = useId();
   // Files handed off from the workspace (merge collects many into one).
   const handoff = useToolHandoff("merge-pdf");
@@ -212,7 +232,10 @@ export function MergeRunner() {
           // Parsing here validates the PDF *before* merge: an encrypted or
           // corrupt file throws a typed, user-facing reason we can attribute
           // to this specific file rather than failing the whole merge later.
-          const pageCount = await getPageCount(bytes);
+          // The page count, and each page's rotation for Arrange pages, from
+          // the same one parse.
+          const rotations = await getPageRotations(bytes);
+          const pageCount = rotations.length;
           const id = `f${idRef.current++}`;
           setItems((prev) => [
             ...prev,
@@ -222,6 +245,7 @@ export function MergeRunner() {
               size: file.size,
               bytes,
               pageCount,
+              rotations,
               cover: null,
               seq: seqOf.get(file) ?? 0,
               modified: file.lastModified,
@@ -267,12 +291,12 @@ export function MergeRunner() {
     setOrdered(null);
     announce(`Moved ${name} to position ${to + 1} of ${items.length}.`);
   };
-  const removeAt = (index: number) =>
+  const removeId = (id: string) =>
     setItems((prev) => {
-      const removed = prev[index];
+      const removed = prev.find((item) => item.id === id);
       revokeCover(removed);
       if (removed) announce(`Removed ${removed.name}.`);
-      return prev.filter((_, i) => i !== index);
+      return prev.filter((item) => item.id !== id);
     });
 
   const startOver = () => {
@@ -289,18 +313,42 @@ export function MergeRunner() {
     setBlankAfterOdd(false);
     setFileNames(false);
     setMode("append");
+    setPages(null);
+    setStash(null);
+    setDrafts({});
   };
 
+  /** In page mode, a new file order regroups each file's pages together. */
+  const regroupTo = (sorted: MergeItem[]) => {
+    if (mode !== "pages" || !arrange) return false;
+    setPages((prev) =>
+      prev
+        ? arrange.regroup(
+            prev,
+            sorted.map((item) => item.id),
+          )
+        : prev,
+    );
+    return true;
+  };
+  const TOGETHER = " Each file's pages are together again.";
+
   const keepDropOrder = () => {
-    setItems((prev) => [...prev].sort((a, b) => a.seq - b.seq));
+    const sorted = [...items].sort((a, b) => a.seq - b.seq);
+    setItems(sorted);
+    const regrouped = regroupTo(sorted);
     setOrdered(null);
-    announce("Kept the order the files were dropped in.");
+    announce(
+      `Kept the order the files were dropped in.${regrouped ? TOGETHER : ""}`,
+    );
   };
 
   const sortBy = (sort: MergeSort) => {
-    setItems((prev) => sortMergeItems(prev, sort));
+    const sorted = sortMergeItems(items, sort);
+    setItems(sorted);
+    const regrouped = regroupTo(sorted);
     setOrdered(null);
-    announce(`Sorted ${MERGE_SORT_LABEL[sort]}.`);
+    announce(`Sorted ${MERGE_SORT_LABEL[sort]}.${regrouped ? TOGETHER : ""}`);
   };
 
   const setRange = (id: string, range: string) =>
@@ -313,7 +361,166 @@ export function MergeRunner() {
     );
 
   const selections = useMemo(() => items.map(selectionOf), [items]);
-  const selectionError = selections.some((s) => s.error !== null);
+  const fileSelectionError = selections.some((s) => s.error !== null);
+
+  // Page mode: a file added joins the end of the list, kept; a file removed
+  // takes its pages (and its thumbnails) with it.
+  useEffect(() => {
+    if (mode !== "pages" || !arrange) return;
+    setPages((prev) => {
+      if (!prev) return prev;
+      const ids = new Set(items.map((item) => item.id));
+      const listed = new Set(prev.map((p) => p.fileId));
+      if (ids.size === listed.size && [...ids].every((id) => listed.has(id)))
+        return prev;
+      return arrange.syncFiles(prev, items);
+    });
+  }, [items, mode, arrange]);
+
+  // What page mode derives from the one list: the file order (by first kept
+  // page), each file's Pages box, the page total and whether files mix.
+  const view =
+    mode === "pages" && pages && arrange ? { pages, lib: arrange } : null;
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const listItems: MergeItem[] = view
+    ? [
+        ...view.lib
+          .fileOrderOf(view.pages)
+          .flatMap((id) => (byId.has(id) ? [byId.get(id)!] : [])),
+        ...items.filter(
+          (item) => !view.pages.some((p) => p.fileId === item.id),
+        ),
+      ]
+    : items;
+  const interleaved = view ? view.lib.filesInterleave(view.pages) : false;
+  const draftErrors = new Map<string, string | null>(
+    items.map((item) => {
+      const draft = drafts[item.id];
+      return [
+        item.id,
+        draft === undefined
+          ? null
+          : selectionOf({ ...item, range: draft }).error,
+      ];
+    }),
+  );
+  const selectionError = view
+    ? [...draftErrors.values()].some((e) => e !== null)
+    : fileSelectionError;
+  const rangeOf = (item: MergeItem) =>
+    view
+      ? (drafts[item.id] ?? view.lib.rangeTextOf(view.pages, item.id))
+      : item.range;
+  const errorOf = (item: MergeItem) =>
+    view
+      ? (draftErrors.get(item.id) ?? null)
+      : (selections[items.indexOf(item)]?.error ?? null);
+
+  /** Typing in a Pages box: in page mode, flip which pages go in, in place. */
+  const onRangeChange = (item: MergeItem, text: string) => {
+    if (!view) {
+      setRange(item.id, text);
+      return;
+    }
+    setDrafts((prev) => ({ ...prev, [item.id]: text }));
+    const read = selectionOf({ ...item, range: text });
+    if (read.error === null)
+      setPages((prev) =>
+        prev ? view.lib.setFileKept(prev, item.id, read.pages) : prev,
+      );
+  };
+  /** Leaving a valid box shows the list's own text again (`3,1` is `1, 3`). */
+  const onRangeBlur = (item: MergeItem) => {
+    if (!view || (draftErrors.get(item.id) ?? null) !== null) return;
+    setDrafts((prev) => {
+      const next = { ...prev };
+      delete next[item.id];
+      return next;
+    });
+  };
+
+  const chooseMode = async (option: MergeMode) => {
+    if (option === mode) return;
+    if (option === "pages") {
+      if (fileSelectionError) return;
+      const lib = arrange ?? (await import("./merge-pages-state"));
+      const chosen = selections.map((s) => s.pages ?? undefined);
+      const next = stash
+        ? lib.applyRanges(lib.syncFiles(stash, items), items, chosen)
+        : lib.seedPages(
+            items,
+            mode === "alternate" ? "alternate" : "append",
+            chosen,
+            items.map((item) => item.reverse),
+          );
+      setArrange(() => lib);
+      setPages(next);
+      setStash(null);
+      setDrafts({});
+      setMode("pages");
+      return;
+    }
+    if (view) {
+      // File mode says what it can of the arrangement: the file order and
+      // each file's pages. Order inside a file, mixing and turns wait in the
+      // stash for the next visit.
+      const order = view.lib.fileOrderOf(view.pages);
+      const at = (id: string) => {
+        const i = order.indexOf(id);
+        return i < 0 ? order.length : i;
+      };
+      setItems((prev) =>
+        [...prev]
+          .sort((a, b) => at(a.id) - at(b.id))
+          .map((item) => ({
+            ...item,
+            range: drafts[item.id] ?? view.lib.rangeTextOf(view.pages, item.id),
+          })),
+      );
+      setStash(view.pages);
+      setPages(null);
+      setDrafts({});
+    }
+    setMode(option);
+  };
+
+  const updatePages = useCallback(
+    (change: (list: readonly MergePage[]) => MergePage[]) =>
+      setPages((prev) => (prev ? change(prev) : prev)),
+    [],
+  );
+  // "Reset to file order": the list as One after another would seed it,
+  // keeping each file's chosen pages.
+  const fileSeed = view
+    ? view.lib.seedPages(
+        listItems,
+        "append",
+        listItems.map((item) => {
+          const kept = view.lib.keptSetOf(view.pages, item.id);
+          return kept.length === item.pageCount ? undefined : kept;
+        }),
+      )
+    : null;
+  const gridFiles = useMemo(
+    () =>
+      items.map(({ id, name, bytes, pageCount }) => ({
+        id,
+        name,
+        bytes,
+        pageCount,
+      })),
+    [items],
+  );
+  // The options that need one first page per file are not offered while a
+  // file's pages are spread through the result.
+  const groupedOnly = alternate || interleaved;
+  // In a file-level mode: an arrangement waits that file mode cannot show.
+  const beyond =
+    mode !== "pages" &&
+    stash !== null &&
+    arrange !== null &&
+    arrange.arrangementBeyondFiles(stash);
+  const firstError = items.find((item) => errorOf(item) !== null);
 
   const onMerge = () =>
     run(async () => {
@@ -334,29 +541,38 @@ export function MergeRunner() {
       }
       let contentsPages = 0;
       let blankPages = 0;
+      // Arrange pages: the files in the order their first pages appear (the
+      // engine requires it) and the page order, turns included.
+      const payload = view ? view.lib.mergePayload(view.pages) : null;
+      const list = payload
+        ? payload.fileIds.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []))
+        : items;
       const bytes = await mergePdfs(
-        items.map((i) => i.bytes),
+        list.map((i) => i.bytes),
         {
           // The defaults are passed as nothing at all, so a merge with no
           // option changed is the merge it always was.
-          ...(selections.some((s) => s.pages)
-            ? { pages: selections.map((s) => s.pages ?? undefined) }
+          ...(payload
+            ? { order: payload.order }
+            : selections.some((s) => s.pages)
+              ? { pages: selections.map((s) => s.pages ?? undefined) }
+              : {}),
+          // An option greyed out while files mix is never sent.
+          ...(fileBookmarks && !groupedOnly
+            ? { fileBookmarks: list.map((i) => baseName(i.name)) }
             : {}),
-          ...(fileBookmarks
-            ? { fileBookmarks: items.map((i) => baseName(i.name)) }
-            : {}),
-          ...(contentsPage
+          ...(contentsPage && !groupedOnly
             ? {
-                contentsPage: items.map((i) => baseName(i.name)),
+                contentsPage: list.map((i) => baseName(i.name)),
                 onContentsPages: (n: number) => {
                   contentsPages = n;
                 },
               }
             : {}),
           ...(fileNames
-            ? { fileNames: items.map((i) => baseName(i.name)) }
+            ? { fileNames: list.map((i) => baseName(i.name)) }
             : {}),
-          ...(blankAfterOdd
+          ...(blankAfterOdd && !groupedOnly
             ? {
                 blankAfterOdd: true,
                 onBlankPages: (n: number) => {
@@ -369,10 +585,13 @@ export function MergeRunner() {
       return { bytes, contentsPages, blankPages };
     });
 
-  const totalPages = items.reduce(
-    (sum, item, i) => sum + (selections[i]?.pages?.length ?? item.pageCount),
-    0,
-  );
+  const totalPages = view
+    ? view.lib.keptPages(view.pages).length
+    : items.reduce(
+        (sum, item, i) =>
+          sum + (selections[i]?.pages?.length ?? item.pageCount),
+        0,
+      );
 
   // Pages the merge added beyond the files' own: contents and blank pads.
   const contentsCount = merged?.contentsPages ?? 0;
@@ -389,7 +608,10 @@ export function MergeRunner() {
         title="PDFs merged"
         summary={`${items.length} files combined into one PDF · ${outputPages} pages${added.length > 0 ? ` (${added.join(", ")})` : ""} · ${formatBytes(result.byteLength)}`}
         onReset={startOver}
-        output={outputFile(result, mergedOutputName(items.map((i) => i.name)))}
+        output={outputFile(
+          result,
+          mergedOutputName(listItems.map((i) => i.name)),
+        )}
         // The list and its order stay: clearing the result shows them again.
         onAdjust={reset}
         // Every page of every file, in one document — a re-count that
@@ -399,7 +621,10 @@ export function MergeRunner() {
         <button
           type="button"
           onClick={() =>
-            downloadBytes(result, mergedOutputName(items.map((i) => i.name)))
+            downloadBytes(
+              result,
+              mergedOutputName(listItems.map((i) => i.name)),
+            )
           }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
@@ -472,6 +697,9 @@ export function MergeRunner() {
             </button>
           ))}
         </span>
+        {view && (
+          <span className="text-muted">groups each file&apos;s pages</span>
+        )}
       </div>
       <div
         role="radiogroup"
@@ -480,25 +708,39 @@ export function MergeRunner() {
       >
         <span className="text-muted">Page order</span>
         <span className="border-line bg-wash rounded-ctl inline-flex flex-wrap gap-1 border p-1">
-          {MERGE_MODES.map((option) => (
-            <button
-              key={option}
-              type="button"
-              role="radio"
-              aria-checked={mode === option}
-              onClick={() => setMode(option)}
-              className={cn(
-                // 44 px tall: the phone pass measures every radio in the
-                // panel, and this one is a thumb's target on a phone.
-                "rounded-tag inline-flex h-11 items-center px-3 font-medium transition",
-                mode === option
-                  ? "bg-panel text-fg"
-                  : "text-muted hover:text-fg hover:bg-panel",
-              )}
-            >
-              {MERGE_MODE_LABEL[option]}
-            </button>
-          ))}
+          {MERGE_MODES.map((option) => {
+            // Arrange pages starts from what the boxes say: not while one
+            // of them says something that is not a page range.
+            const blocked = option === "pages" && !view && fileSelectionError;
+            return (
+              <button
+                key={option}
+                type="button"
+                role="radio"
+                aria-checked={mode === option}
+                aria-disabled={blocked || undefined}
+                title={blocked ? "Fix the page range above first." : undefined}
+                aria-describedby={
+                  blocked && firstError
+                    ? `${rangeIdBase}-${firstError.id}-error`
+                    : undefined
+                }
+                onClick={() => {
+                  if (!blocked) void chooseMode(option);
+                }}
+                className={cn(
+                  // 44 px tall: the phone pass measures every radio in the
+                  // panel, and this one is a thumb's target on a phone.
+                  "rounded-tag inline-flex h-11 items-center px-3 font-medium transition",
+                  mode === option
+                    ? "bg-panel text-fg"
+                    : "text-muted hover:text-fg hover:bg-panel",
+                )}
+              >
+                {MERGE_MODE_LABEL[option]}
+              </button>
+            );
+          })}
         </span>
         {alternate && (
           <span className="text-muted w-full">
@@ -507,12 +749,29 @@ export function MergeRunner() {
             Reverse page order on a backs file scanned last page first.
           </span>
         )}
+        {mode === "pages" && (
+          <span className="text-muted w-full">
+            Every page of every file in one grid. Drag a page anywhere, turn it,
+            or leave it out. The merged PDF follows the grid, left to right, top
+            to bottom.
+          </span>
+        )}
+        {beyond && (
+          <span className="text-muted w-full">
+            Your page arrangement is kept. Choose {MERGE_MODE_LABEL.pages} again
+            to use it.
+          </span>
+        )}
       </div>
       <RunnerSection
         title={`${items.length} file${items.length === 1 ? "" : "s"} · ${totalPages} pages`}
         aside={
           ordered ? (
             <OrderNote note={ordered} onKeep={keepDropOrder} />
+          ) : view ? (
+            <span className="text-muted text-xs">
+              Pages boxes choose which pages; the grid below sets their order.
+            </span>
           ) : (
             <span className="text-muted text-xs">
               Drag to reorder · top to bottom
@@ -522,14 +781,19 @@ export function MergeRunner() {
       >
         <ul
           role="list"
-          aria-label="PDFs to merge, in output order — drag a row or use its move buttons to reorder"
+          aria-label={
+            view
+              ? "PDFs to merge, in the order their first pages appear"
+              : "PDFs to merge, in output order — drag a row or use its move buttons to reorder"
+          }
           className="flex flex-col gap-2"
         >
-          {items.map((item, index) => (
+          {listItems.map((item, index) => (
             <li
               key={item.id}
               aria-label={`${item.name}, file ${index + 1} of ${items.length}, ${item.pageCount} page${item.pageCount === 1 ? "" : "s"}`}
-              draggable
+              // In page mode the order is the grid's: no row is dragged.
+              draggable={!view}
               onDragStart={() => setDragIndex(index)}
               onDragOver={(e) => {
                 e.preventDefault();
@@ -552,10 +816,12 @@ export function MergeRunner() {
                 dragIndex === index && "opacity-50",
               )}
             >
-              <GripVertical
-                className="text-muted size-4 shrink-0 cursor-grab"
-                aria-hidden
-              />
+              {!view && (
+                <GripVertical
+                  className="text-muted size-4 shrink-0 cursor-grab"
+                  aria-hidden
+                />
+              )}
               <span className="bg-wash text-muted rounded-tag tnum grid size-6 shrink-0 place-items-center text-xs font-semibold">
                 {index + 1}
               </span>
@@ -581,27 +847,31 @@ export function MergeRunner() {
                 </span>
               </span>
               <span className="tap-line flex shrink-0 items-center gap-1">
+                {!view && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => move(index, index - 1)}
+                      aria-disabled={index === 0 || undefined}
+                      aria-label={`Move ${item.name} up`}
+                      className="text-muted hover:bg-wash hover:text-fg rounded-ctl tap grid size-7 place-items-center transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
+                    >
+                      <ArrowUp className="size-4" aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => move(index, index + 1)}
+                      aria-disabled={index === items.length - 1 || undefined}
+                      aria-label={`Move ${item.name} down`}
+                      className="text-muted hover:bg-wash hover:text-fg rounded-ctl tap grid size-7 place-items-center transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
+                    >
+                      <ArrowDown className="size-4" aria-hidden />
+                    </button>
+                  </>
+                )}
                 <button
                   type="button"
-                  onClick={() => move(index, index - 1)}
-                  aria-disabled={index === 0 || undefined}
-                  aria-label={`Move ${item.name} up`}
-                  className="text-muted hover:bg-wash hover:text-fg rounded-ctl tap grid size-7 place-items-center transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
-                >
-                  <ArrowUp className="size-4" aria-hidden />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => move(index, index + 1)}
-                  aria-disabled={index === items.length - 1 || undefined}
-                  aria-label={`Move ${item.name} down`}
-                  className="text-muted hover:bg-wash hover:text-fg rounded-ctl tap grid size-7 place-items-center transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
-                >
-                  <ArrowDown className="size-4" aria-hidden />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => removeAt(index)}
+                  onClick={() => removeId(item.id)}
                   aria-label={`Remove ${item.name}`}
                   className="text-muted hover:bg-err/10 hover:text-err rounded-ctl tap grid size-7 place-items-center transition"
                 >
@@ -611,8 +881,10 @@ export function MergeRunner() {
               <PageSelection
                 id={`${rangeIdBase}-${item.id}`}
                 item={item}
-                error={selections[index]?.error ?? null}
-                onChange={(range) => setRange(item.id, range)}
+                value={rangeOf(item)}
+                error={errorOf(item)}
+                onChange={(range) => onRangeChange(item, range)}
+                onBlur={() => onRangeBlur(item)}
               />
               {alternate && (
                 <label className="text-muted flex w-full items-center gap-2 pl-7 text-xs sm:pl-28">
@@ -660,6 +932,23 @@ export function MergeRunner() {
         </ul>
       </RunnerSection>
 
+      {view && fileSeed && (
+        <RunnerSection title={MERGE_MODE_LABEL.pages}>
+          <LazyMergePageGrid
+            pages={view.pages}
+            files={gridFiles}
+            update={updatePages}
+            announce={announce}
+            onReset={() => {
+              setPages(fileSeed);
+              setDrafts({});
+              announce("Reset to file order.");
+            }}
+            resetDisabled={view.lib.samePages(view.pages, fileSeed)}
+          />
+        </RunnerSection>
+      )}
+
       <Dropzone
         pageTarget
         busy={busy}
@@ -674,11 +963,20 @@ export function MergeRunner() {
       {alternate ? (
         <p className="text-muted text-xs">
           With alternating pages a file no longer has one first page, so a
-          bookmark for each file and a contents page are not offered. Bookmarks
-          already in your files are kept.
+          bookmark for each file, a contents page, blank pages after odd files
+          and file names at the foot are not offered. Bookmarks already in your
+          files are kept.
         </p>
       ) : (
         <>
+          {/* Greyed out, not removed, while files mix: nothing jumps while a
+              page is dragged, and a tick comes back once the pages are
+              together again. Never sent while greyed out. */}
+          {interleaved && (
+            <p id={mixedNoteId} className="text-muted text-xs">
+              {MIXED_NOTE}
+            </p>
+          )}
           <label
             htmlFor={bookmarksId}
             className="text-fg flex items-start gap-2 text-sm"
@@ -686,8 +984,12 @@ export function MergeRunner() {
             <input
               id={bookmarksId}
               type="checkbox"
-              checked={fileBookmarks}
-              onChange={(e) => setFileBookmarks(e.target.checked)}
+              checked={fileBookmarks && !interleaved}
+              aria-disabled={interleaved || undefined}
+              aria-describedby={interleaved ? mixedNoteId : undefined}
+              onChange={(e) => {
+                if (!interleaved) setFileBookmarks(e.target.checked);
+              }}
               className="mt-0.5"
             />
             <span>
@@ -707,8 +1009,12 @@ export function MergeRunner() {
             <input
               id={contentsId}
               type="checkbox"
-              checked={contentsPage}
-              onChange={(e) => setContentsPage(e.target.checked)}
+              checked={contentsPage && !interleaved}
+              aria-disabled={interleaved || undefined}
+              aria-describedby={interleaved ? mixedNoteId : undefined}
+              onChange={(e) => {
+                if (!interleaved) setContentsPage(e.target.checked);
+              }}
               className="mt-0.5"
             />
             <span>
@@ -728,8 +1034,12 @@ export function MergeRunner() {
             <input
               id={blankId}
               type="checkbox"
-              checked={blankAfterOdd}
-              onChange={(e) => setBlankAfterOdd(e.target.checked)}
+              checked={blankAfterOdd && !interleaved}
+              aria-disabled={interleaved || undefined}
+              aria-describedby={interleaved ? mixedNoteId : undefined}
+              onChange={(e) => {
+                if (!interleaved) setBlankAfterOdd(e.target.checked);
+              }}
               className="mt-0.5"
             />
             <span>
@@ -773,7 +1083,9 @@ export function MergeRunner() {
             <Layers className="text-accent size-3.5" aria-hidden />
             {alternate
               ? "Pages alternate between the files shown above."
-              : "Files are combined in the order shown above."}
+              : view
+                ? "Pages are combined in the order of the grid above."
+                : "Files are combined in the order shown above."}
           </p>
           <RunReason
             reason={
@@ -814,13 +1126,18 @@ export function MergeRunner() {
 function PageSelection({
   id,
   item,
+  value,
   error,
   onChange,
+  onBlur,
 }: {
   id: string;
   item: MergeItem;
+  /** The box's text: the file's range, or in page mode the list's own. */
+  value: string;
   error: string | null;
   onChange: (range: string) => void;
+  onBlur: () => void;
 }) {
   return (
     <div className="flex w-full flex-col gap-1 pl-7 sm:pl-28">
@@ -831,8 +1148,9 @@ function PageSelection({
         <input
           id={id}
           type="text"
-          value={item.range}
+          value={value}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
           placeholder={`All (1-${item.pageCount})`}
           spellCheck={false}
           aria-label={`Pages of ${item.name} to merge, e.g. 1-3, 5 — empty for all`}

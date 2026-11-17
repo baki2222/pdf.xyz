@@ -43,6 +43,7 @@ import { getToolInputKind } from "@/lib/jobs/tool-capability";
 import { HYBRID_SUMMARY } from "./processing";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import { STAMP_POSITIONS } from "@/lib/pdf/stamp";
+import { MERGE_MODE_LABEL } from "@/lib/pdf/merge-order";
 import {
   XLSX_CELL_BREAK_PHRASE,
   XLSX_MERGE_CAVEAT,
@@ -583,7 +584,15 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     {
       label: "Ordering",
       value:
-        "Drag files to reorder before merging, use each row's move buttons, or sort by name — the output follows top to bottom.",
+        "Drag files to reorder before merging, use each row's move buttons, sort by name, or arrange single pages across files in one grid. By default the output follows the list top to bottom.",
+    },
+    {
+      // MERGE_MODE_LABEL.pages; merge-pages.ts, read back page by page from
+      // the saved file by merge-pages.test.ts and from the download by
+      // merge-runner.test.tsx.
+      label: MERGE_MODE_LABEL.pages,
+      value:
+        "Optional: every page of every file in one grid, to drag into any order, even between pages of another file, turn, or leave out. A bookmark for each file, a contents page and blank pages after odd files stay on offer while each file's pages sit together.",
     },
     {
       // MERGE_MODE_LABEL.alternate; merge-alternate.ts, read back page by
