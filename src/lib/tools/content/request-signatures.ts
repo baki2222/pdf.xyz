@@ -69,8 +69,14 @@ import {
  *    page or gives it to another signer. Boxes are owned by a signer row's
  *    stable id: a box whose row is blank, or a signer left with no box, blocks
  *    Prepare in words. Geometry is @/lib/signatures/request-layout (min 24 x 12
- *    pt, clamped to the page, 4 decimals). A label goes to manifest.json only:
- *    inside the PDF each box is still named Signer<N>-<Type>-<k>. The message,
+ *    pt, clamped to the page, 4 decimals). A label goes to manifest.json, to
+ *    README.txt under its signer ("     <name> label: <label>") and, since
+ *    2026-11-17, into the PDF as the field's /TU (UTF-16BE text string, on the
+ *    field and its widget, because pdf.js reads only the widget); the field
+ *    name is still Signer<N>-<Type>-<k>. Until 2026-11-17 this said "A label
+ *    goes to manifest.json only". The FAQ conditions the tooltip on the
+ *    README list because both tiers restart at once and an older worker
+ *    writes neither (claims-vs-capability.test.ts pins both). The message,
  *    title and labels have C0 controls turned into spaces by the client's
  *    options builder (requestSignaturesJobOptions), and the panel measures that
  *    exact object against JOB_LIMITS.maxOptionsBytes (8 KB) and blocks Prepare
@@ -197,7 +203,7 @@ const content: ToolContent = {
     },
     {
       q: "How do signers fill in their boxes?",
-      a: `Fields are named after their owner and type, such as Signer1-Signature-1, Signer1-Initials-1, Signer1-Date-1 and Signer1-Text-1. A label you give a box, up to ${MAX_FIELD_LABEL_CHARS} characters, is written into manifest.json only, so inside the PDF a Name box is still called Signer1-Text-1. The date box is blank text, not a date stamp. Fill Forms on pdf.xyz types into them in the browser without uploading, but refuses letters outside the standard PDF fonts' Western European set, and its Flatten after filling option bakes every field into the page, so a signer who ticks it also wipes out the still-empty boxes of every other signer.`,
+      a: `Fields are named after their owner and type, such as Signer1-Signature-1, Signer1-Initials-1, Signer1-Date-1 and Signer1-Text-1, and the names stay that way. A label you give a box, up to ${MAX_FIELD_LABEL_CHARS} characters, is recorded in manifest.json. If README.txt lists your labels under each signer, prepared.pdf carries them too, as each box's tooltip, which many PDF viewers, Firefox among them, show when you point at the box. The date box is blank text, not a date stamp. Fill Forms on pdf.xyz types into them in the browser without uploading, but refuses letters outside the standard PDF fonts' Western European set, and its Flatten after filling option bakes every field into the page, so a signer who ticks it also wipes out the still-empty boxes of every other signer.`,
     },
     {
       q: "Can I move the boxes or add more?",
