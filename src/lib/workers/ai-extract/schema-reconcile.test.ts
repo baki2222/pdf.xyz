@@ -97,6 +97,9 @@ describe("schema mode reconciles the reply with the request", () => {
       missingKeys: [],
       renamedKeys: {},
       extraKeys: [],
+      // This fake provider never reports a constrained reply, so the
+      // manifest says the fields were asked for in words only.
+      replyFormat: "prompt",
     });
     expect(pkg.md).not.toContain("not returned by the model");
   });

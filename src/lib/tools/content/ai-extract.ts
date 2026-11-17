@@ -79,6 +79,12 @@ import {
  *    non-JSON reply is `internal_error`, retryable, and the executor REQUEUES a
  *    retryable failure while attempts remain; only the last attempt's failure
  *    reaches the page (job.error.message, "Retrying may succeed.").
+ *    EXCEPT (2026-11-17): a schema-mode reply produced under structured output
+ *    (engine `extractionSchemaFor`, `jsonSchemaApplied`) that is still not a
+ *    usable object fails once, not retried (STRICT_REPLY_UNUSABLE). The FAQ's
+ *    "can put the job back" stays true of every other non-JSON reply; it says
+ *    nothing about structured output, so no claim here waits on the worker
+ *    image (the web tier does not know which worker runs a job).
  *  - src/lib/workers/ai/truncation.ts — userTruncationNotice names "pages 1–N"
  *    only when a whole page was read and the page table indexes the text;
  *    otherwise it says "the first part of this N-page document".

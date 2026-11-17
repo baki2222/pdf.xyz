@@ -22,6 +22,11 @@
  *    endpoint, org id, or any secret value.
  */
 
+import {
+  structuredSchemaProblem,
+  type AiJsonSchema,
+} from "./structured-output";
+
 /** A single conversational turn handed to a provider. `content` is plain text. */
 export interface AiMessage {
   role: "user" | "assistant";
@@ -58,6 +63,20 @@ export interface AiCompletionRequest {
    * adapter decides what, if anything, to put on the wire.
    */
   cacheSystem?: boolean;
+  /**
+   * Constrain the reply to this JSON Schema (structured output), on top of
+   * whatever the prompt asks for. Absent ⇒ the request is exactly what it was
+   * before this field existed, byte for byte, for every adapter.
+   *
+   * Each adapter puts its own wire shape on the request (OpenAI
+   * `response_format` with `strict: true`; Anthropic `output_config.format`),
+   * both carrying the strict form from `./structured-output`. A model that
+   * rejects the parameter gets ONE retry without it; the success then says so
+   * through {@link AiCompletionSuccess.jsonSchemaApplied}, because a caller
+   * deciding whether a bad reply is worth a paid retry must know which kind of
+   * reply it holds.
+   */
+  jsonSchema?: AiJsonSchema;
 }
 
 /**
@@ -148,6 +167,13 @@ export interface AiCompletionSuccess {
   model: string;
   /** Token accounting when the provider reported it; omitted otherwise. */
   usage?: AiUsage;
+  /**
+   * Present (and true) only when the reply was produced UNDER the request's
+   * `jsonSchema` — the parameter was on the wire of the attempt that
+   * succeeded. Absent when no schema was asked for, and absent when the model
+   * refused the parameter and the adapter fell back to the prompt alone.
+   */
+  jsonSchemaApplied?: true;
 }
 
 export interface AiCompletionFailure {
@@ -282,6 +308,14 @@ export function validateCompletionRequest(
       request.temperature > 1)
   ) {
     return { ok: false, reason: "temperature must be a number in [0, 1]." };
+  }
+  if (request.jsonSchema !== undefined) {
+    const problem = structuredSchemaProblem(request.jsonSchema);
+    if (problem !== null)
+      return {
+        ok: false,
+        reason: "jsonSchema is outside the structured-output subset.",
+      };
   }
   return { ok: true };
 }
