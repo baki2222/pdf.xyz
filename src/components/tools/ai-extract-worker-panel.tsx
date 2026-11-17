@@ -65,6 +65,7 @@ import {
 } from "./worker-panel-shell";
 
 type AiResultViews = typeof import("./ai-result-views");
+type SchemaViews = typeof import("./ai-extract-schemas");
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot` and
@@ -177,6 +178,17 @@ function AiExtractBuilder({
       ? prompt.trim().length > 0
       : namedFields.length > 0 && duplicates.size === 0;
   const fieldIds = useId();
+  // Saved schemas (competitor audit #16): a chunk of its own, fetched when
+  // the disclosure is opened (or pointed at), never with the page.
+  const [schemasOpen, setSchemasOpen] = useState(false);
+  const [schemaViews, setSchemaViews] = useState<SchemaViews | null>(null);
+  const schemasId = useId();
+  const fetchSchemaViews = useCallback(() => {
+    void import("./ai-extract-schemas").then(
+      (views) => setSchemaViews(views),
+      () => {},
+    );
+  }, []);
   const canRun = file != null && !busy && requestReady;
 
   const start = useCallback(async () => {
@@ -396,6 +408,30 @@ function AiExtractBuilder({
             <Plus className="size-3.5" aria-hidden />
             Add field
           </button>
+          <button
+            type="button"
+            aria-expanded={schemasOpen}
+            aria-controls={schemasId}
+            onPointerEnter={fetchSchemaViews}
+            onClick={() => {
+              fetchSchemaViews();
+              setSchemasOpen((was) => !was);
+            }}
+            className="text-muted hover:text-fg tap-y self-start text-sm font-medium underline-offset-4 transition hover:underline"
+          >
+            Saved schemas
+          </button>
+          <div id={schemasId} hidden={!schemasOpen}>
+            {/* Kept mounted once fetched, so closing it loses nothing. */}
+            {schemaViews ? (
+              <schemaViews.AiExtractSchemas
+                fields={fields}
+                onLoad={setFields}
+              />
+            ) : (
+              schemasOpen && <p className="text-muted text-xs">Loading…</p>
+            )}
+          </div>
         </div>
       )}
 

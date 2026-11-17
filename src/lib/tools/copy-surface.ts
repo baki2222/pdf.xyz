@@ -170,6 +170,10 @@ export function copyFiles(): string[] {
     // to the picker's hook.
     path.join(ROOT, "src", "lib", "jobs", "ocr-start-copy.ts"),
     path.join(ROOT, "src", "lib", "jobs", "pdf-security.ts"),
+    // AI Data Extraction's saved schemas (2026-11-17, competitor audit
+    // #16): what a refused name, save or schema file says. Walked from its
+    // first file.
+    path.join(ROOT, "src", "lib", "jobs", "ai-extract-schemas.ts"),
     // AI Data Extraction's option parser (2026-11-17), moved out of
     // ai-extract.ts so the panel's first load does not carry it: the
     // refusals a job and a schema file share. Walked from its first day.
