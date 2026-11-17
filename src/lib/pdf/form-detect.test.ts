@@ -546,12 +546,19 @@ describe("square-checkbox", () => {
   // Rect a `re` would have given.
   describe("a square drawn as four separate lines", () => {
     // In drawing order, each edge its own `m l S`, as the finding drew it.
-    const edges = (dTop = 0, dRight = 0): CardSeg[] => [
-      hseg(72, 84, 500),
-      vseg(84 + dRight, 500, 512),
-      hseg(84, 72, 512 + dTop),
-      vseg(72, 512, 500),
-    ];
+    // `off` moves one corner coordinate of one edge: left x and bottom end,
+    // right x and both ends, top's two ends and its y (the bottom edge is
+    // what the others are compared with).
+    type Corner = "lx" | "ly0" | "rx" | "ry0" | "ry1" | "tx0" | "tx1" | "ty";
+    const edges = (off: Partial<Record<Corner, number>> = {}): CardSeg[] => {
+      const d = (k: Corner) => off[k] ?? 0;
+      return [
+        hseg(72, 84, 500),
+        vseg(84 + d("rx"), 500 + d("ry0"), 512 + d("ry1")),
+        hseg(84 + d("tx1"), 72 + d("tx0"), 512 + d("ty")),
+        vseg(72 + d("lx"), 512, 500 + d("ly0")),
+      ];
+    };
     const four = (e: CardSeg[], label = true) =>
       pg({
         segs: e,
@@ -569,11 +576,32 @@ describe("square-checkbox", () => {
       ]);
     });
 
-    it("JOIN_EPS: corners 0.5 pt apart still meet, 0.6 pt apart do not", () => {
-      expect(props(four(edges(0.5)))).toHaveLength(1);
-      expect(props(four(edges(0.6)))).toEqual([]);
-      expect(props(four(edges(0, 0.5)))).toHaveLength(1);
-      expect(props(four(edges(0, 0.6)))).toEqual([]);
+    // Only the top's y and the right's x were moved here once, so each of
+    // the other six corner comparisons could be deleted with everything
+    // green, and a square was then joined from edges 1 pt apart at a corner
+    // (review finding). Every one of the eight is moved now, both ways.
+    it("JOIN_EPS: each corner coordinate may be 0.5 pt off, not 0.6", () => {
+      const corners: Corner[] = [
+        "lx",
+        "ly0",
+        "rx",
+        "ry0",
+        "ry1",
+        "tx0",
+        "tx1",
+        "ty",
+      ];
+      for (const k of corners)
+        for (const s of [1, -1]) {
+          expect(
+            props(four(edges({ [k]: 0.5 * s }))),
+            `${k} ${0.5 * s}`,
+          ).toHaveLength(1);
+          expect(
+            props(four(edges({ [k]: 0.6 * s }))),
+            `${k} ${0.6 * s}`,
+          ).toEqual([]);
+        }
     });
 
     it("three of the four edges are not a square", () => {
