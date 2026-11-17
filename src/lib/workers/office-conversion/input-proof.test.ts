@@ -30,6 +30,7 @@ import { LibreOfficeRunError } from "./errors";
 import { officeContentRefusal, SIGNED_OFFICE_INPUTS } from "./input-content";
 import {
   fileNameHeaderVerdict,
+  fileNameSpecOk,
   runOfficeInputProof,
   type CsvFileNameCase,
   type OfficeInputProofDeps,
@@ -678,5 +679,18 @@ describe("the file name in a CSV's header (production, 2026-11-17)", () => {
     expect(fileNameHeaderVerdict(nfd, String.fromCodePoint(0x401)).shows).toBe(
       true,
     );
+  });
+
+  it("the deployment spec's verdict needs the stem AND no input (review 2026-11-18)", () => {
+    // The stem the deployment proof uploads, so this is its case, not a lookalike.
+    const { stem } = CSV_FILE_NAME_CASES.find(
+      (c) => c.label === "Cyrillic stem",
+    )!;
+    expect(fileNameSpecOk(`${stem}\nrows`, stem)).toBe(true);
+    // Each half alone is not enough.
+    expect(fileNameSpecOk(`${stem} input\nrows`, stem)).toBe(false);
+    expect(fileNameSpecOk(`${stem}\nIn put rows`, stem)).toBe(false);
+    expect(fileNameSpecOk("input\nrows", stem)).toBe(false);
+    expect(fileNameSpecOk("rows", stem)).toBe(false);
   });
 });

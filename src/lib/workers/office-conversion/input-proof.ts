@@ -135,6 +135,17 @@ export function fileNameHeaderVerdict(
 }
 
 /**
+ * The deployment proof's verdict on a CSV's PDF (`scripts/worker-prove-tools.ts`):
+ * its stem printed AND "input" nowhere. ADDED 2026-11-18 (review): the spec
+ * combined the two halves inline, and dropping the "never input" half left
+ * every test green, so the combination lives here, under a test.
+ */
+export function fileNameSpecOk(text: string, stem: string): boolean {
+  const v = fileNameHeaderVerdict(text, stem);
+  return v.shows && !v.showsInput;
+}
+
+/**
  * A CSV full of values LibreOffice can reformat (a date, a fraction, a
  * percentage, scientific notation, a leading zero), for the default-import
  * comparison in the header. ADDED 2026-11-17 (review).

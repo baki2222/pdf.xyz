@@ -107,6 +107,7 @@ import {
 } from "@/tests/csv-charset-fixtures";
 import {
   fileNameHeaderVerdict,
+  fileNameSpecOk,
   type CsvCharsetCase,
   type CsvChoiceCase,
 } from "@/lib/workers/office-conversion/input-proof";
@@ -1954,9 +1955,10 @@ const SPECS: ProofSpec[] = [
     want: "its file name's stem in the header, never input",
     verify: async (bytes) => {
       const { stem } = fileNameCase("Cyrillic stem");
-      const v = fileNameHeaderVerdict(await pdfPlainText(bytes), stem);
+      const text = await pdfPlainText(bytes);
+      const v = fileNameHeaderVerdict(text, stem);
       return {
-        ok: v.shows && !v.showsInput,
+        ok: fileNameSpecOk(text, stem),
         detail: `stem ${v.shows ? "printed" : "NOT printed"}, "input" ${v.showsInput ? "PRINTED" : "nowhere"}`,
       };
     },
