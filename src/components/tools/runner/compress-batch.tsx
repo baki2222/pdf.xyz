@@ -260,6 +260,7 @@ export async function compressBatchFileDeep(
         ? batchTargetAlreadyFits(
             asked,
             keepOriginal ? bytes.byteLength : output.byteLength,
+            keepOriginal,
           )
         : undefined;
   const level = options.imageQuality ?? DEFAULT_IMAGE_QUALITY;

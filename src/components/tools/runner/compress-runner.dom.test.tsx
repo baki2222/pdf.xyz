@@ -1666,9 +1666,16 @@ describe(
       );
       expect(bigLine).toHaveAttribute("data-target-met", "true");
       const smallRow = rowOf("small.pdf");
+      // This played worker's copy of the small file is no smaller, so the
+      // file ships as it came in. Until review of 4f590499 this line pinned
+      // the row "your file, unchanged · Already fits your 200 KB target, so
+      // it was compressed at your Quality setting." (it was not compressed);
+      // inverted, not deleted.
+      expect(smallRow).toHaveTextContent(/your file, unchanged/);
       expect(smallRow).toHaveTextContent(
-        batchTargetAlreadyFits(200 * KB, small.byteLength).text,
+        batchTargetAlreadyFits(200 * KB, small.byteLength, true).text,
       );
+      expect(smallRow).not.toHaveTextContent(/compressed at your Quality/);
       // Never told it met a target it was not sent.
       expect(smallRow).not.toHaveTextContent(/under your 200 KB target/);
       // This worker read the level, and its record says so: no warning.
@@ -1880,6 +1887,47 @@ describe(
       expect(line).toHaveAttribute("data-target-met", "false");
       expect(line).toHaveTextContent(/above it\.$/);
       expect(row).not.toHaveTextContent(/^.*Already fits/);
+    });
+
+    it("a file that fit and came back unchanged is not said to be compressed", async () => {
+      const KB = 1024;
+      // The server's copy is bigger, so (no Grayscale) the original ships.
+      const { jobs } = answerWithLocalWorker(async () =>
+        colourImagePdf({ components: 3, size: 8, pad: (260 * KB) / 4 }),
+      );
+      const small = await colourImagePdf({
+        components: 3,
+        size: 8,
+        pad: (150 * KB) / 4,
+      });
+      expect(small.byteLength).toBeLessThanOrEqual(200 * KB);
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [asFile(small, "a.pdf"), asFile(small, "b.pdf")]);
+      fireEvent.click(
+        await screen.findByRole(
+          "radio",
+          { name: /compress images on our server/i },
+          { timeout: 10_000 },
+        ),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "200 KB" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: /compress 2 pdfs on our server/i }),
+      );
+      await screen.findByText(/batch complete/i, {}, { timeout: 10_000 });
+      expect(jobs).toHaveLength(2);
+      expect(jobs.every((o) => o.targetBytes === undefined)).toBe(true);
+      const row = within(
+        screen.getByRole("list", { name: /files in this batch/i }),
+      )
+        .getByText("a.pdf")
+        .closest("li")!;
+      // Health check: this row is the kept original.
+      expect(row).toHaveTextContent(/your file, unchanged/);
+      const line = within(row).getByText(/200 KB target/);
+      expect(line).toHaveAttribute("data-target-met", "true");
+      expect(line).toHaveTextContent(/^Already fits your 200 KB target\.$/);
+      expect(row).not.toHaveTextContent(/compressed/i);
     });
   },
 );

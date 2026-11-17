@@ -42,13 +42,19 @@ export const BATCH_TARGET_NOTE =
 /**
  * A batch row whose file already fit the target, so it was sent without it.
  * `met` and the words are read from the file the row hands back: a Grayscale
- * copy always ships, and can come back bigger than the file that fit.
+ * copy always ships, and can come back bigger than the file that fit. When
+ * the row hands back the file as it came in (`unchanged`: our copy was no
+ * smaller), nothing was compressed, so the words claim nothing of the kind.
  */
 export function batchTargetAlreadyFits(
   targetBytes: number,
   deliveredBytes: number,
+  unchanged = false,
 ): { met: boolean; text: string } {
   const target = targetLabel(targetBytes);
+  if (unchanged && deliveredBytes <= targetBytes) {
+    return { met: true, text: `Already fits your ${target} target.` };
+  }
   if (deliveredBytes <= targetBytes) {
     return {
       met: true,
