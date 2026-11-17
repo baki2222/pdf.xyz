@@ -1139,27 +1139,52 @@ function underSignOff(
   );
 }
 
-/** Squares in a row of {@link DETECT.COMB_MIN} or more equal, adjoining ones. */
+/**
+ * Squares in a row of {@link DETECT.COMB_MIN} or more equal, adjoining ones.
+ * The next square in a row is looked up by its lower-left corner (cells
+ * COMB_EPS wide, so it is in a neighbour of the last one's lower-right):
+ * scanning the whole list for it made a page of graph-paper cells quadratic.
+ */
 function combSquares(squares: CardRect[]): Set<CardRect> {
   const eps = DETECT.COMB_EPS;
   const comb = new Set<CardRect>();
   const sorted = [...squares].sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0);
+  const rank = new Map(sorted.map((s, i) => [s, i]));
+  const cell = (x: number, y: number) =>
+    `${Math.round(x / eps)}|${Math.round(y / eps)}`;
+  const byCorner = new Map<string, CardRect[]>();
+  for (const s of sorted) {
+    const k = cell(s.x0, s.y0);
+    const list = byCorner.get(k);
+    if (list) list.push(s);
+    else byCorner.set(k, [s]);
+  }
   const used = new Set<CardRect>();
   for (const start of sorted) {
     if (used.has(start)) continue;
     const row = [start];
+    const inRow = new Set(row);
     let last = start;
     for (;;) {
-      const next = sorted.find(
-        (s) =>
-          !row.includes(s) &&
-          Math.abs(s.y0 - last.y0) <= eps &&
-          Math.abs(s.y1 - last.y1) <= eps &&
-          Math.abs(s.x1 - s.x0 - (last.x1 - last.x0)) <= eps &&
-          Math.abs(s.x0 - last.x1) <= eps,
-      );
+      // The first in sorted order, as a scan of `sorted` would find it.
+      let next: CardRect | undefined;
+      const cx = Math.round(last.x1 / eps);
+      const cy = Math.round(last.y0 / eps);
+      for (const dx of [-1, 0, 1])
+        for (const dy of [-1, 0, 1])
+          for (const s of byCorner.get(`${cx + dx}|${cy + dy}`) ?? [])
+            if (
+              !inRow.has(s) &&
+              Math.abs(s.y0 - last.y0) <= eps &&
+              Math.abs(s.y1 - last.y1) <= eps &&
+              Math.abs(s.x1 - s.x0 - (last.x1 - last.x0)) <= eps &&
+              Math.abs(s.x0 - last.x1) <= eps &&
+              (!next || rank.get(s)! < rank.get(next)!)
+            )
+              next = s;
       if (!next) break;
       row.push(next);
+      inRow.add(next);
       last = next;
     }
     row.forEach((s) => used.add(s));

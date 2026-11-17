@@ -1120,6 +1120,23 @@ describe("exclusions, each at its boundary", () => {
     );
   });
 
+  // Each next square in a row was found by scanning the whole sorted list
+  // from its start: a page of graph-paper cells under the primitive cap took
+  // 3.4 s (review finding). The next square is now looked up by its corner.
+  it("a grid of 12,500 small squares is read as combs in linear time", () => {
+    const rects: CardRect[] = [];
+    for (let r = 0; r < 125; r++)
+      for (let k = 0; k < 100; k++)
+        rects.push(rect(5 + 6 * k, 5 + 6 * r, 6, 6));
+    const t0 = performance.now();
+    const res = run(pg({ rects }));
+    const ms = performance.now() - t0;
+    expect(res.excluded).toHaveLength(12_500);
+    expect(res.excluded.every((e) => e.rule === "comb")).toBe(true);
+    // Measured before: about 1.2 s; after: under 100 ms.
+    expect(ms).toBeLessThan(400);
+  });
+
   it("a filled square is a bullet", () => {
     const p = pg({
       rects: [rect(72, 600, 8, 8, { filled: true, stroked: false })],
