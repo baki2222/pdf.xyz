@@ -38,6 +38,8 @@ export interface DragHandle {
   onToggle: () => void;
   /** Arrow/Home/End/Enter/Escape handling while focused. */
   onKeyDown: (event: React.KeyboardEvent) => void;
+  /** For a board with one roving tab stop (Merge PDF's page grid). */
+  tabIndex?: number;
 }
 
 /**
@@ -209,6 +211,7 @@ export function PageTile({
           aria-label={dragHandle.label}
           aria-pressed={dragHandle.grabbed}
           aria-roledescription="Draggable page"
+          tabIndex={dragHandle.tabIndex}
           onKeyDown={dragHandle.onKeyDown}
           onClick={(e) => {
             e.stopPropagation();
