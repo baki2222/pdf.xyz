@@ -6,10 +6,13 @@
  *
  * WHY. The start-up proof (`./ocr-owner-capability`, the heartbeat's
  * `ocrOwnerPassword`) stands both processes in with recorders: it proves the
- * runner's order and argv, not what qpdf 11 writes for them. Whether qpdf's
- * named `--owner-password`, with no `--user-password`, really leaves the
- * open password EMPTY, writes AES-256, and sets each restriction switch,
- * only the real qpdf can answer.
+ * runner's order and argv, not what qpdf 11 writes for them. Whether qpdf
+ * accepts the argv at all, leaves the open password EMPTY, writes AES-256,
+ * and sets each restriction switch, only the real qpdf can answer. It did
+ * not, the first time (2026-11-18): the runner used the named
+ * `--owner-password=` / `--bits=` options, which the image's qpdf 11.3.0
+ * refuses, and this proof failed 5/8 while every unit test and the
+ * start-up probe passed. The argv is now the positional form.
  *
  * For each restricted input (built in the image by its own qpdf from a
  * scanned page, with a positional argv that is NOT the runner's, plus the

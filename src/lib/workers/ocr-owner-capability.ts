@@ -30,7 +30,9 @@
  *   (1) the owner password: delivered, OCRmyPDF saw NO /Encrypt, and qpdf
  *       ran twice, only as `qpdf @<at-file>` (the password on no command
  *       line), first `--password=<owner> --decrypt`, then `--encrypt` with
- *       `--owner-password=<owner> --bits=256` and the grant's switches,
+ *       the positional operands (an empty user password, `<owner>`, `256`;
+ *       qpdf 11.3.0 in the image refuses the named options) and the grant's
+ *       switches,
  *       written out here as literals: `--print=low --modify-other=n
  *       --extract=n --annotate=y --form=y --assemble=n`;
  *   (2) a wrong password: `unprocessable_entity`, not retryable, with the
@@ -373,16 +375,25 @@ export async function provesOcrOwnerPassword(
       decrypt[1] !== "--decrypt"
     )
       return false;
+    // Positional: the EMPTY user password, the owner password, the key
+    // length (2026-11-18: the named `--owner-password=` form this probe first
+    // required is refused by the image's qpdf 11.3.0, so the probe passed
+    // with recorders while every real job failed).
     const expected = [
       "--encrypt",
-      `--owner-password=${PROBE_OWNER_PASSWORD}`,
-      "--bits=256",
+      "",
+      PROBE_OWNER_PASSWORD,
+      "256",
       ...PROBE_GRANT_SWITCHES,
       "--",
     ];
     if (encrypt?.slice(0, expected.length).join("\n") !== expected.join("\n"))
       return false;
-    if (encrypt.some((line) => line.startsWith("--user-password")))
+    if (
+      encrypt.some((line) =>
+        /^--(?:owner-password|user-password|bits)=/.test(line),
+      )
+    )
       return false;
 
     // (2) A wrong password: refused, nothing started.

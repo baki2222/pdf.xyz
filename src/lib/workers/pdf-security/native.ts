@@ -286,12 +286,17 @@ const yn = (allowed: boolean): "y" | "n" => (allowed ? "y" : "n");
  * Build the qpdf argument vector that encrypts a PDF with an owner password,
  * NO open password, AES-256 (R6), and every restriction switch stated
  * explicitly from `grant` — so the copy is restricted exactly as the grant
- * says, whatever qpdf's defaults are. qpdf 11's named `--owner-password`
- * and `--bits` replace the positional operands, so no empty user-password
- * line ever reaches the at-file: an omitted `--user-password` is the empty
- * one, and the OCR runner reads the output back (opens with no password,
- * the typed one is its owner password, the grant matches) before it
- * delivers anything.
+ * says, whatever qpdf's defaults are. The operands are POSITIONAL (user
+ * password, owner password, key length), the same form `protectArgs` ships:
+ * the user password is the empty string, which the at-file carries as an
+ * empty line. 2026-11-18: the first version used the named
+ * `--owner-password=` / `--bits=` options, and the production image's qpdf
+ * (11.3.0) refuses them ("unrecognized argument … encryption options must
+ * be terminated with --"), so every restricted-PDF OCR job was refused. The
+ * fake qpdf in the unit tests accepted them; `pnpm worker:ocr-owner-proof`
+ * in the image (container.yml) is what found it. The OCR runner reads the
+ * output back (opens with no password, the typed one is its owner
+ * password, the grant matches) before it delivers anything.
  *
  * `--accessibility` is not written: qpdf ignores it for AES-256, and PDF
  * 2.0 (whose AES-256 this is) deprecates the bit and has writers set it.
@@ -304,8 +309,9 @@ export function ownerOnlyEncryptArgs(
   const g = opts.grant;
   return [
     "--encrypt",
-    `--owner-password=${opts.ownerPassword}`,
-    "--bits=256",
+    "",
+    opts.ownerPassword,
+    "256",
     `--print=${g.print}`,
     `--modify-other=${yn(g.modify)}`,
     `--extract=${yn(g.copy)}`,

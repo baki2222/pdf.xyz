@@ -594,13 +594,21 @@ describe("createNativeQpdfRunner — encryptOwnerOnly (OCR PDF, backlog #11)", (
     assemble: false,
   };
 
-  it("builds an owner-only AES-256 vector with every switch stated, and no user password", () => {
+  // INVERTED 2026-11-18. This case first pinned the named form
+  // (`--owner-password=OWN`, `--bits=256`) and passed, because the fake
+  // qpdf accepts anything. The production image's qpdf 11.3.0 refuses the
+  // named options, so every restricted-PDF OCR job was refused; the in-image
+  // `worker:ocr-owner-proof` found it (5/8). The vector is now the
+  // positional form `protectArgs` already ships: empty user password, owner
+  // password, key length.
+  it("builds an owner-only AES-256 vector with every switch stated, and an empty user password", () => {
     expect(
       ownerOnlyEncryptArgs("/in", "/out", { ownerPassword: "OWN", grant }),
     ).toEqual([
       "--encrypt",
-      "--owner-password=OWN",
-      "--bits=256",
+      "",
+      "OWN",
+      "256",
       "--print=low",
       "--modify-other=n",
       "--extract=n",
@@ -649,9 +657,41 @@ describe("createNativeQpdfRunner — encryptOwnerOnly (OCR PDF, backlog #11)", (
     const argfile = [...writes.entries()].find(([p]) =>
       p.endsWith("qpdf.args"),
     );
-    expect(new TextDecoder().decode(argfile![1]).split("\n")).toContain(
-      "--owner-password=OWN-SENTINEL",
-    );
+    // The at-file carries the empty user password as an EMPTY LINE right
+    // after --encrypt, then the owner password, then the key length (qpdf
+    // 11.3.0 in the image reads an empty at-file line as an empty argument;
+    // checked 2026-11-18 with `qpdf --show-encryption` on its output).
+    const lines = new TextDecoder().decode(argfile![1]).split("\n");
+    const at = lines.indexOf("--encrypt");
+    expect(lines.slice(at, at + 4)).toEqual([
+      "--encrypt",
+      "",
+      "OWN-SENTINEL",
+      "256",
+    ]);
+  });
+
+  it("uses no qpdf option the production image's qpdf (11.3.0) refuses", () => {
+    // A tripwire beside the real bound (`worker:ocr-owner-proof` in the image,
+    // run by container.yml): the named encryption options are newer than the
+    // image's qpdf, which answers "unrecognized argument" for them. Derived:
+    // every argv builder this module exports, over both grant values.
+    const NAMED = /^--(?:owner-password|user-password|bits)=/;
+    const vectors = [
+      ownerOnlyEncryptArgs("i", "o", { ownerPassword: "x", grant }),
+      ownerOnlyEncryptArgs("i", "o", {
+        ownerPassword: "x",
+        grant: { ...grant, print: "none", modify: true, copy: true },
+      }),
+    ];
+    expect(vectors.flat().length).toBeGreaterThan(10);
+    expect(vectors.flat().filter((a) => NAMED.test(a))).toEqual([]);
+    // Positive control: the vector that shipped first is caught.
+    expect(
+      ["--encrypt", "--owner-password=x", "--bits=256"].filter((a) =>
+        NAMED.test(a),
+      ),
+    ).toHaveLength(2);
   });
 
   it("accepts exit 3 and throws on 2, a timeout, or output that is not a PDF", async () => {
