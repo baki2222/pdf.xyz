@@ -225,7 +225,17 @@ export function addField(
   owner: number,
   page: number,
   frame: FrameSize,
+  /**
+   * The clearance, points, when the sheet as drawn needs more than
+   * {@link CLEARANCE_PT} (a phone draws a page smaller, so 24 CSS px is more
+   * points); never less than it.
+   */
+  clearancePt?: number,
 ): LayoutField[] {
+  const clear = Math.max(
+    CLEARANCE_PT,
+    Number.isFinite(clearancePt) ? clearancePt! : 0,
+  );
   const p = PRESETS[preset];
   const width = p.width / frame.width;
   const height = p.height / frame.height;
@@ -247,8 +257,8 @@ export function addField(
   // at least CLEARANCE_PT, overlap: a box drawn small on screen is still a
   // 24 px target there, and a new one must not land on another's target.
   const span = (f: LayoutField) => {
-    const w = Math.max(f.width, CLEARANCE_PT / frame.width);
-    const h = Math.max(f.height, CLEARANCE_PT / frame.height);
+    const w = Math.max(f.width, clear / frame.width);
+    const h = Math.max(f.height, clear / frame.height);
     const cx = f.x + f.width / 2;
     const cy = f.y + f.height / 2;
     return { l: cx - w / 2, r: cx + w / 2, b: cy - h / 2, t: cy + h / 2 };

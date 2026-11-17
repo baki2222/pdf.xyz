@@ -1,7 +1,7 @@
 "use client";
 
 import { usePickRefusal } from "@/components/tools/use-pick";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Download,
   PenLine,
@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
+  MAX_REQUEST_FIELDS,
   MAX_REQUEST_MESSAGE_CHARS,
   MAX_REQUEST_SIGNERS,
   MAX_REQUEST_TITLE_CHARS,
@@ -112,6 +113,9 @@ const loadEditor = () => import("./request-field-editor");
 
 const TOO_LONG =
   "This request is too long to send. Shorten the message or the labels, or remove some boxes.";
+
+const tooManyBoxes = (count: number) =>
+  `A request can hold up to ${MAX_REQUEST_FIELDS} boxes, and this one has ${count}. Remove ${count - MAX_REQUEST_FIELDS} to send it.`;
 
 export function RequestSignaturesWorkerPanel({ tool }: { tool: Tool }) {
   const pickRefuse = usePickRefusal(tool);
@@ -237,14 +241,36 @@ export function RequestBuilder({
   const [editor, setEditor] = useState<EditorModule | null>(null);
   const [custom, setCustom] = useState<LayoutField[] | null>(null);
   const [shownPage, setShownPage] = useState(1);
+  // The undo slot. `signers` only when the change removed a signer row: a box
+  // Remove or Start over never touched the rows, so Undo must not put back
+  // rows edited since (review 2026-11-17: a corrected email was undone with
+  // a box). `given` is the set as it stood, so Undo restores it with the
+  // layout and a restored custom layout does not hand out a second box.
   const [undo, setUndo] = useState<{
-    signers: SignerDraft[];
+    signers?: SignerDraft[];
     custom: LayoutField[] | null;
+    given: Set<number>;
     note: string;
   } | null>(null);
   // Owners already given a box while customised: a signer who removed all of
   // theirs is not handed a new one behind their back.
   const given = useRef(new Set<number>());
+  // A removed signer row takes its bin with it; focus goes to a bin that is
+  // still there (the row before), never to <body>.
+  const signerListRef = useRef<HTMLDivElement | null>(null);
+  const focusSignerBin = useRef<number | null>(null);
+  useEffect(() => {
+    const index = focusSignerBin.current;
+    if (index === null) return;
+    focusSignerBin.current = null;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    const bins = signerListRef.current?.querySelectorAll<HTMLButtonElement>(
+      "button[data-signer-bin]",
+    );
+    if (!bins || bins.length === 0) return;
+    bins[Math.min(index, bins.length - 1)]!.focus();
+  });
   const job = useWorkerJob<RequestSignaturesWorkerResult>({
     tool: "request-signatures",
     resume: (id, controls) =>
@@ -323,9 +349,15 @@ export function RequestBuilder({
       ).byteLength,
     [cleanSigners, fields, routing, title, message],
   );
+  // The box count is checked here too, not only by the Add buttons: any
+  // route that grows the layout (a signer's starter box) is held to the
+  // worker's own limit before anything is uploaded.
   const blockedBy = invalidRows
     ? null
-    : (custom && editor?.layoutProblem(custom, rows, ownerIndex)) ||
+    : (fields.length > MAX_REQUEST_FIELDS
+        ? tooManyBoxes(fields.length)
+        : null) ||
+      (custom && editor?.layoutProblem(custom, rows, ownerIndex)) ||
       (optionBytes > JOB_LIMITS.maxOptionsBytes ? TOO_LONG : null);
   const canRun =
     file != null &&
@@ -340,15 +372,32 @@ export function RequestBuilder({
   const changeLayout = (
     next: LayoutField[] | null,
     change: { say: string; undoable?: boolean },
-    prior: SignerDraft[] = signers,
+    prior?: SignerDraft[],
   ) => {
     setUndo(
-      change.undoable ? { signers: prior, custom, note: change.say } : null,
+      change.undoable
+        ? {
+            ...(prior ? { signers: prior } : {}),
+            custom,
+            given: new Set(given.current),
+            note: change.say,
+          }
+        : null,
     );
     if (next) for (const f of next) given.current.add(f.owner);
     else given.current.clear();
     setCustom(next);
     if (change.say) announceOutcome(change.say);
+  };
+
+  /** Undo the last undoable change: the rows only when it removed one. */
+  const undoLast = () => {
+    if (!undo) return;
+    if (undo.signers) setSigners(undo.signers);
+    given.current = new Set(undo.given);
+    setCustom(undo.custom);
+    setUndo(null);
+    announceOutcome("Undone.");
   };
 
   // Read the picked PDF in the browser (nothing is uploaded) for its page count
@@ -415,6 +464,9 @@ export function RequestBuilder({
       custom &&
       editor &&
       frame &&
+      // Never past the worker's box limit: a full layout leaves the signer
+      // with no box, which `layoutProblem` then blocks Prepare on in words.
+      custom.length < MAX_REQUEST_FIELDS &&
       !given.current.has(row.id) &&
       (row.name.trim() || row.email.trim()) &&
       !signerRowProblem(row)
@@ -422,6 +474,9 @@ export function RequestBuilder({
       changeLayout(editor.addStarterField(custom, row.id, shownPage, frame), {
         say: `Added a Signature box for signer ${index + 1} on page ${shownPage}`,
       });
+    // An edit to a row ends Undo's reach, so Undo can never take the edit
+    // back with it (a blur that only marks the row touched changes nothing).
+    else if ("name" in patch || "email" in patch) setUndo(null);
   };
   const addSigner = () => {
     if (signers.length >= MAX_REQUEST_SIGNERS) return;
@@ -429,11 +484,13 @@ export function RequestBuilder({
       ...signers,
       { id: nextSignerId.current++, name: "", email: "" },
     ]);
+    setUndo(null);
   };
   const removeSigner = (index: number) => {
     if (signers.length <= 1) return;
     const gone = signers[index]!;
     setSigners(signers.filter((_, i) => i !== index));
+    focusSignerBin.current = Math.max(0, index - 1);
     const theirs = custom?.filter((f) => f.owner === gone.id).length ?? 0;
     if (custom && theirs > 0)
       changeLayout(
@@ -444,6 +501,7 @@ export function RequestBuilder({
         },
         signers,
       );
+    else setUndo(null);
   };
 
   const start = useCallback(async () => {
@@ -532,7 +590,7 @@ export function RequestBuilder({
       {/* The verdict's own sentence; ErrorNote adds the link to Unlock PDF. */}
       {lock !== null && <ErrorNote message={lock} />}
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2" ref={signerListRef}>
         <div className="flex items-center justify-between">
           <span className="text-faint kicker inline-flex items-center gap-1.5">
             <Users className="size-3.5" aria-hidden />
@@ -587,7 +645,8 @@ export function RequestBuilder({
                 onClick={() => removeSigner(index)}
                 aria-disabled={signers.length <= 1 || undefined}
                 aria-label={`Remove signer ${index + 1}`}
-                className="text-muted hover:text-err rounded-ctl shrink-0 p-1.5 transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
+                data-signer-bin=""
+                className="text-muted hover:text-err rounded-ctl tap shrink-0 p-1.5 transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
               >
                 <Trash2 className="size-4" aria-hidden />
               </button>
@@ -706,16 +765,7 @@ export function RequestBuilder({
               shownPage={shownPage}
               onShownPage={setShownPage}
               note={undo?.note ?? null}
-              onUndo={
-                undo
-                  ? () => {
-                      setSigners(undo.signers);
-                      setCustom(undo.custom);
-                      setUndo(null);
-                      announceOutcome("Undone.");
-                    }
-                  : null
-              }
+              onUndo={undo ? undoLast : null}
             />
           ) : (
             // Still, in the page's own shape, while the editor's chunk arrives.

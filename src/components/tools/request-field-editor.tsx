@@ -82,6 +82,15 @@ const PRESET_WORD: Record<PresetKey, string> = {
 /** A pointer must travel this far (CSS px) before a press becomes a drag. */
 const DRAG_THRESHOLD_PX = 4;
 
+/**
+ * The least on-screen extent (CSS px) a new box keeps clear about each box:
+ * a box's button is grown to 24 px (WCAG 2.5.8), and on a touch screen the
+ * selected box's resize handle is 44 px (`tap`) centred on its corner, so
+ * there it is that handle plus a margin.
+ */
+const POINTER_CLEAR_PX = 24;
+const TOUCH_CLEAR_PX = 48;
+
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
 function boxesPhrase(numbers: number[]): string {
@@ -173,6 +182,16 @@ export function RequestFieldEditor({
   const [selected, setSelected] = useState<number | null>(null);
   const [forId, setForId] = useState<number | null>(null);
   const focusNext = useRef<number | null>(null);
+  const undoRowRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLOListElement | null>(null);
+  // Where focus goes once the next render lands, for a control that removes
+  // itself when pressed (Undo, Start over, a list row's bin).
+  const pendingFocus = useRef<
+    | { kind: "restored"; before: Set<number> }
+    | { kind: "undo" }
+    | { kind: "row"; id: number | null }
+    | null
+  >(null);
   // Tab follows the page top to bottom; during a drag the order is frozen,
   // since moving a node in the DOM would drop its pointer capture.
   const [frozen, setFrozen] = useState<number[] | null>(null);
@@ -222,6 +241,33 @@ export function RequestFieldEditor({
     box.focus();
   });
 
+  useEffect(() => {
+    const want = pendingFocus.current;
+    if (!want) return;
+    pendingFocus.current = null;
+    const firstAdd = () =>
+      addRowRef.current?.querySelector<HTMLButtonElement>("button");
+    let target: HTMLElement | null | undefined = null;
+    if (want.kind === "undo") {
+      target = undoRowRef.current?.querySelector<HTMLButtonElement>("button");
+    } else if (want.kind === "restored") {
+      const back = drawn.find((f) => !want.before.has(f.id)) ?? drawn[0];
+      target = back
+        ? sheetRef.current?.querySelector<HTMLElement>(
+            `[data-box-id="${back.id}"]`,
+          )
+        : firstAdd();
+    } else {
+      target =
+        want.id === null
+          ? firstAdd()
+          : listRef.current?.querySelector<HTMLElement>(
+              `[data-box-row="${want.id}"] [data-box-bin]`,
+            );
+    }
+    (target ?? firstAdd())?.focus();
+  });
+
   const replace = (next: LayoutField, say = "") =>
     onCustom(
       layout.map((f) => (f.id === next.id ? next : f)),
@@ -235,7 +281,23 @@ export function RequestFieldEditor({
 
   const add = (preset: PresetKey) => {
     if (full || owner === null) return;
-    const next = addField(layout, preset, owner, shown, frame);
+    // The clearance a new box keeps, in points of THIS sheet as drawn: each
+    // box's button is at least 24 CSS px, and the selected box's resize
+    // handle is 44 px on a touch screen, so on a phone a fixed 40 pt let two
+    // buttons overlap (review 2026-11-17, axe target-size at 375 px).
+    const width = sheetRef.current?.getBoundingClientRect().width ?? 0;
+    const coarse =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(pointer: coarse)").matches;
+    const clearPx = coarse ? TOUCH_CLEAR_PX : POINTER_CLEAR_PX;
+    const next = addField(
+      layout,
+      preset,
+      owner,
+      shown,
+      frame,
+      width > 0 ? clearPx / (width / frame.width) : undefined,
+    );
     const made = next[next.length - 1]!;
     setSelected(made.id);
     onCustom(next, {
@@ -243,7 +305,7 @@ export function RequestFieldEditor({
     });
   };
 
-  const remove = (f: LayoutField) => {
+  const remove = (f: LayoutField, from: "sheet" | "list" = "sheet") => {
     const here = readingOrder(layout.filter((o) => o.page === f.page));
     const after = here[here.findIndex((o) => o.id === f.id) + 1];
     setSelected(after?.id ?? null);
@@ -251,7 +313,13 @@ export function RequestFieldEditor({
       layout.filter((o) => o.id !== f.id),
       { say: `Removed ${boxName(f)}`, undoable: true },
     );
-    if (after && f.page === shown) focusNext.current = after.id;
+    if (from === "list") {
+      // Pressed in the list: focus stays in the list, on the next row's bin
+      // (the one before when it was the last), or Add a box when none is left.
+      const at = listed.findIndex((o) => o.id === f.id);
+      const stay = listed[at + 1] ?? listed[at - 1];
+      pendingFocus.current = { kind: "row", id: stay?.id ?? null };
+    } else if (after && f.page === shown) focusNext.current = after.id;
     else addRowRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
   };
 
@@ -278,12 +346,15 @@ export function RequestFieldEditor({
             option no longer apply.
           </p>
           <ChipButton
-            onClick={() =>
+            onClick={() => {
+              // Start over removes its own button: focus goes to the Undo
+              // chip that now shows.
+              pendingFocus.current = { kind: "undo" };
               onCustom(null, {
                 say: "Started over: the boxes are back where they began.",
                 undoable: true,
-              })
-            }
+              });
+            }}
           >
             Start over
           </ChipButton>
@@ -380,9 +451,23 @@ export function RequestFieldEditor({
       </figure>
 
       {note && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2" ref={undoRowRef}>
           <p className="text-muted flex-1 text-xs">{note}</p>
-          {onUndo && <ChipButton onClick={onUndo}>Undo</ChipButton>}
+          {onUndo && (
+            <ChipButton
+              onClick={() => {
+                // Undo removes its own chip: focus goes to a box it put
+                // back, else the first box on the sheet, else Add a box.
+                pendingFocus.current = {
+                  kind: "restored",
+                  before: new Set(layout.map((f) => f.id)),
+                };
+                onUndo();
+              }}
+            >
+              Undo
+            </ChipButton>
+          )}
         </div>
       )}
 
@@ -421,7 +506,7 @@ export function RequestFieldEditor({
         <span className="text-faint kicker">
           Boxes ({layout.length} of {MAX_REQUEST_FIELDS})
         </span>
-        <ol className="flex flex-col gap-2">
+        <ol className="flex flex-col gap-2" ref={listRef}>
           {listed.map((f, i) => {
             const n = i + 1;
             const num = numberOf(f.owner);
@@ -432,9 +517,12 @@ export function RequestFieldEditor({
                 data-box-row={f.id}
                 className="flex flex-wrap items-center gap-2 text-xs"
               >
+                {/* The number in the panel's own text colour (the signer
+                    colours reach 4.5:1 on the white sheet only, not on a
+                    dark panel); the coloured border is the second cue. */}
                 <span
-                  className="rounded-tag grid size-6 shrink-0 place-items-center border text-xs font-semibold"
-                  style={{ color: colour, borderColor: colour }}
+                  className="text-fg rounded-tag grid size-6 shrink-0 place-items-center border text-xs font-semibold"
+                  style={{ borderColor: colour }}
                   aria-hidden
                 >
                   {num || "?"}
@@ -497,9 +585,10 @@ export function RequestFieldEditor({
                 </button>
                 <button
                   type="button"
-                  onClick={() => remove(f)}
+                  onClick={() => remove(f, "list")}
                   aria-label={`Remove box ${n}, ${boxName(f)}`}
-                  className="text-muted hover:text-err rounded-ctl shrink-0 p-1.5 transition"
+                  data-box-bin=""
+                  className="text-muted hover:text-err rounded-ctl tap shrink-0 p-1.5 transition"
                 >
                   <Trash2 className="size-4" aria-hidden />
                 </button>
@@ -654,6 +743,14 @@ function FieldBox({
         onPointerMove={move}
         onPointerUp={end}
         onPointerCancel={cancel}
+        // Enter and Space press the toggle (a click with no pointer, detail
+        // 0): select, or deselect when selected, so the resize handle is
+        // reachable from the keyboard alone. A pointer press already
+        // selected the box on pointerdown, so its click only keeps it so.
+        onClick={(event) => {
+          if (event.detail === 0 && selected) onDeselect();
+          else onSelect();
+        }}
         onKeyDown={(event) => {
           const step = event.shiftKey ? STEP_BIG_PT : STEP_PT;
           const by: Record<string, [number, number]> = {

@@ -100,3 +100,55 @@ test("a finger drags a box; handles and add buttons are 44 px, boxes 24 px; the 
   expectSentAsSeen(sent[0]!.options.fields, seen, 3);
   expect(unanswered).toEqual([]);
 });
+
+// Review 2026-11-17: Initials then Date on a phone overlapped their 24 px
+// buttons (axe target-size), because new boxes were spaced by a fixed 40 pt
+// and a phone draws a page smaller. The first test ran axe before any box
+// was added, so it never saw this.
+test("two boxes added back to back keep their buttons and the resize handle apart; axe stays clean", async ({
+  page,
+}) => {
+  const { unanswered } = await mockSignatureWorker(page);
+  const sheet = await openWithPdf(page);
+  await sheet.scrollIntoViewIfNeeded();
+  await page.getByRole("button", { name: "Initials", exact: true }).click();
+  await page.getByRole("button", { name: "Date", exact: true }).click();
+  const buttons = await sheet.locator("button[data-box-id]").all();
+  expect(buttons.length).toBe(4);
+  const rects = await Promise.all(
+    buttons.map(async (b) => (await b.boundingBox())!),
+  );
+  const handle = (await sheet.locator("[data-resize-handle]").boundingBox())!;
+  const apart = (
+    a: { x: number; y: number; width: number; height: number },
+    b: { x: number; y: number; width: number; height: number },
+  ) =>
+    a.x + a.width <= b.x + 0.5 ||
+    b.x + b.width <= a.x + 0.5 ||
+    a.y + a.height <= b.y + 0.5 ||
+    b.y + b.height <= a.y + 0.5;
+  for (let i = 0; i < rects.length; i += 1)
+    for (let j = i + 1; j < rects.length; j += 1)
+      expect(apart(rects[i]!, rects[j]!), `buttons ${i} and ${j}`).toBe(true);
+  // The new Date box is selected; its 44 px handle reaches no other button.
+  const selected = await sheet
+    .locator('button[data-box-id][aria-pressed="true"]')
+    .getAttribute("data-box-id");
+  for (const [i, b] of buttons.entries()) {
+    if ((await b.getAttribute("data-box-id")) === selected) continue;
+    expect(apart(handle, rects[i]!), `handle and button ${i}`).toBe(true);
+  }
+  // The list's bins and the signer row's bin are 44 px on touch, like Show.
+  const bins = [
+    ...(await page.getByRole("button", { name: /^Remove box \d+,/ }).all()),
+    page.getByRole("button", { name: "Remove signer 1" }),
+  ];
+  expect(bins.length).toBe(5);
+  for (const bin of bins) {
+    const r = (await bin.boundingBox())!;
+    expect(r.width).toBeGreaterThanOrEqual(44 - 0.01);
+    expect(r.height).toBeGreaterThanOrEqual(44 - 0.01);
+  }
+  expect(await axeViolations(page)).toEqual([]);
+  expect(unanswered).toEqual([]);
+});

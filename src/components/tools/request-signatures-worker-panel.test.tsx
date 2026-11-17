@@ -763,6 +763,185 @@ describe("RequestBuilder placement (audit #21)", { timeout: 30_000 }, () => {
     expect(runButton()).toHaveAttribute("aria-disabled", "true");
   });
 
+  // Review findings, 2026-11-17. Each reproduces the reviewer's exact sequence.
+  it(`${MAX_REQUEST_FIELDS} boxes, then a signer completed: no starter box past the limit; Prepare blocked in words`, async () => {
+    const sheet = await ready(1);
+    const sig = () => screen.getByRole("button", { name: "Signature" });
+    while (
+      screen.queryByText(
+        `Boxes (${MAX_REQUEST_FIELDS} of ${MAX_REQUEST_FIELDS})`,
+      ) === null
+    )
+      fireEvent.click(sig());
+    fireEvent.click(screen.getByRole("button", { name: /Add signer/ }));
+    fireEvent.change(screen.getByLabelText("Signer 2 name"), {
+      target: { value: "Cy Valid" },
+    });
+    fireEvent.change(screen.getByLabelText("Signer 2 email"), {
+      target: { value: "cy@example.com" },
+    });
+    // Was "Boxes (51 of 50)" with Prepare enabled; the worker refused it.
+    expect(
+      screen.getByText(
+        `Boxes (${MAX_REQUEST_FIELDS} of ${MAX_REQUEST_FIELDS})`,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Signer 2 has no box to fill in. Add one for them."),
+    ).toBeInTheDocument();
+    expect(runButton()).toHaveAttribute("aria-disabled", "true");
+    expect(boxes(sheet).length).toBeLessThanOrEqual(MAX_REQUEST_FIELDS);
+  });
+
+  it("Undo never reaches past a later signer edit: the edit and the added row survive", async () => {
+    const sheet = await ready(1);
+    const sig = box(/Signature box, page 1/);
+    sig.focus();
+    fireEvent.keyDown(sig, { key: "Delete" });
+    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Signer 1 email"), {
+      target: { value: "ada@corrected.example" },
+    });
+    // Was: Undo still offered, and it put back the old email and one row.
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    // And Add signer alone ends it too.
+    const date0 = box(/Date box, page 1/);
+    fireEvent.click(screen.getByRole("button", { name: "Text" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /^Remove box \d+, Signer 1 Text box/,
+      }),
+    );
+    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+    expect(date0).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Add signer/ }));
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    expect(screen.getByLabelText("Signer 1 email")).toHaveValue(
+      "ada@corrected.example",
+    );
+    expect(screen.getByLabelText("Signer 2 name")).toBeInTheDocument();
+    expect(boxes(sheet)).toHaveLength(1);
+    // Control: a blur that only marks the row touched keeps Undo.
+    const date = box(/Date box, page 1/);
+    date.focus();
+    fireEvent.keyDown(date, { key: "Delete" });
+    fireEvent.blur(screen.getByLabelText("Signer 1 email"));
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(boxes(sheet)).toHaveLength(1);
+  });
+
+  it("Undo of a box Remove restores only the boxes; Undo of a signer removal restores the row", async () => {
+    const sheet = await ready(1);
+    fireEvent.click(screen.getByRole("button", { name: /Add signer/ }));
+    fireEvent.change(screen.getByLabelText("Signer 2 name"), {
+      target: { value: "Bob Builder" },
+    });
+    fireEvent.change(screen.getByLabelText("Signer 2 email"), {
+      target: { value: "bob@example.com" },
+    });
+    await waitFor(() => expect(boxes(sheet)).toHaveLength(4));
+    fireEvent.keyDown(box(/Signer 1, Ada Lovelace, Signature box/), {
+      key: "ArrowRight",
+    });
+    const bin2 = screen.getByRole("button", { name: "Remove signer 2" });
+    bin2.focus();
+    fireEvent.click(bin2);
+    expect(boxes(sheet)).toHaveLength(2);
+    // The last row's bin is gone: focus is on a bin still there.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Remove signer 1" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(boxes(sheet)).toHaveLength(4);
+    expect(screen.getByLabelText("Signer 2 email")).toHaveValue(
+      "bob@example.com",
+    );
+  });
+
+  it("Start over, then Undo, then a signer edit: no extra box is handed out", async () => {
+    const sheet = await ready(1);
+    fireEvent.keyDown(box(/Signature box, page 1/), { key: "ArrowRight" });
+    fireEvent.click(screen.getByRole("button", { name: "Start over" }));
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(boxes(sheet)).toHaveLength(2);
+    fireEvent.change(screen.getByLabelText("Signer 1 name"), {
+      target: { value: "Ada King" },
+    });
+    // Was 3 boxes, and ["signature", "date", "signature"] sent.
+    expect(boxes(sheet)).toHaveLength(2);
+    const body = await prepare();
+    expect(body.options.fields.map((f) => f.type)).toEqual([
+      "signature",
+      "date",
+    ]);
+  });
+
+  it("keyboard only: Enter/Space on a box presses its toggle, so the resize handle is reachable without a pointer", async () => {
+    await ready(1);
+    const handleName = "Resize Signer 1 Signature box";
+    let sig = box(/Signature box, page 1/);
+    sig.focus();
+    // A keyboard press of a button is a click with detail 0.
+    fireEvent.click(sig, { detail: 0 });
+    sig = box(/Signature box, page 1/);
+    expect(sig).toHaveAttribute("aria-pressed", "true");
+    const handle = screen.getByRole("button", { name: handleName });
+    handle.focus();
+    const before = drawnOf(sig);
+    fireEvent.keyDown(handle, { key: "ArrowRight", shiftKey: true });
+    expect(drawnOf(box(/Signature box, page 1/)).width).toBeGreaterThan(
+      before.width,
+    );
+    // Pressed again from the keyboard, the toggle releases.
+    fireEvent.click(box(/Signature box, page 1/), { detail: 0 });
+    expect(box(/Signature box, page 1/)).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.queryByRole("button", { name: handleName })).toBeNull();
+  });
+
+  it("focus: Undo lands on the box it restored, Start over on Undo, a list bin on the next row's bin", async () => {
+    await ready(1);
+    const sig = box(/Signature box, page 1/);
+    sig.focus();
+    fireEvent.keyDown(sig, { key: "Delete" });
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() =>
+      expect(document.activeElement?.getAttribute("aria-label")).toMatch(
+        /Signature box, page 1/,
+      ),
+    );
+    fireEvent.keyDown(box(/Signature box, page 1/), { key: "ArrowLeft" });
+    fireEvent.click(screen.getByRole("button", { name: "Start over" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Undo" }),
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Text" }));
+    const bins = () =>
+      screen.getAllByRole("button", { name: /^Remove box \d+,/ });
+    expect(bins()).toHaveLength(3);
+    fireEvent.click(bins()[0]!);
+    await waitFor(() => expect(document.activeElement).toBe(bins()[0]));
+    // The last row's bin: focus goes to the row before.
+    fireEvent.click(bins()[1]!);
+    await waitFor(() => expect(document.activeElement).toBe(bins()[0]));
+    fireEvent.click(bins()[0]!);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Signature" }),
+      ),
+    );
+    // The list's signer badge is drawn in the panel's text colour.
+    fireEvent.click(screen.getByRole("button", { name: "Date" }));
+    const row = document.querySelector<HTMLElement>("[data-box-row]")!;
+    const badge = row.querySelector<HTMLElement>("span[aria-hidden]")!;
+    expect(badge.className).toContain("text-fg");
+    expect(badge.style.color).toBe("");
+  });
+
   it("message: line breaks are sent as spaces, blank is not sent, counted and capped", async () => {
     await ready(1);
     const area = screen.getByLabelText(/Message to signers/);

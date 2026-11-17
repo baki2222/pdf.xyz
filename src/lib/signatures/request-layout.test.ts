@@ -202,6 +202,57 @@ describe("every box an operation produces is one the worker accepts", () => {
     expect(Math.abs(steps - Math.round(steps))).toBeLessThan(0.01);
     expect(((layout[0]!.y - layout[1]!.y) * 792) / 12).toBeCloseTo(steps, 1);
   });
+
+  it("a larger clearance (a phone's 48 px in points) keeps the grown targets apart; a smaller one never goes under 40 pt", () => {
+    const frame = FRAMES[1]!.frame;
+    // A Letter page drawn 343 px wide: 48 px is 85.6 pt.
+    const clear = 48 / (343 / frame.width);
+    const grown = (f: LayoutField, c: number) => {
+      const w = Math.max(f.width, c / frame.width);
+      const h = Math.max(f.height, c / frame.height);
+      const cx = f.x + f.width / 2;
+      const cy = f.y + f.height / 2;
+      return [cx - w / 2, cx + w / 2, cy - h / 2, cy + h / 2] as const;
+    };
+    const overlaps = (a: LayoutField, b: LayoutField, c: number) => {
+      const [al, ar, ab, at] = grown(a, c);
+      const [bl, br, bb, bt] = grown(b, c);
+      return (
+        al < br - 1e-9 && bl < ar - 1e-9 && ab < bt - 1e-9 && bb < at - 1e-9
+      );
+    };
+    const wide = addField(
+      addField([], "initials", 1, 1, frame, clear),
+      "date",
+      1,
+      1,
+      frame,
+      clear,
+    );
+    expect(overlaps(wide[0]!, wide[1]!, clear)).toBe(false);
+    // Positive control: the default 40 pt leaves these two inside 85.6 pt
+    // of each other, the overlap axe saw on a 375 px phone.
+    const narrow = addField(
+      addField([], "initials", 1, 1, frame),
+      "date",
+      1,
+      1,
+      frame,
+    );
+    expect(overlaps(narrow[0]!, narrow[1]!, clear)).toBe(true);
+    // A clearance under 40 pt (or not a number) is the default's.
+    for (const less of [10, Number.NaN])
+      expect(
+        addField(
+          addField([], "initials", 1, 1, frame),
+          "date",
+          1,
+          1,
+          frame,
+          less,
+        ),
+      ).toEqual(narrow);
+  });
 });
 
 describe("the starting layout is signatureBlockFields, one definition", () => {
