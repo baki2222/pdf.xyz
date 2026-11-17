@@ -651,11 +651,16 @@ describe("exclusions, each at its boundary", () => {
         text: [txt("Co:", 2, y, { width: 18 })],
         segs: [hseg(30, 30 + len, y)],
       });
-    const edge = DETECT.BAND_EDGE * H;
-    expect(firstRule(at(edge - 0.1, 0.7 * W + 0.1))).toBe("page-band");
-    expect(props(at(edge, 0.7 * W + 0.1))).toHaveLength(1);
-    expect(props(at(edge - 0.1, 0.7 * W))).toHaveLength(1);
-    expect(firstRule(at(H - edge + 0.1, 0.7 * W + 0.1))).toBe("page-band");
+    // Literals from the brief, not DETECT.BAND_EDGE x H: a boundary computed
+    // from the constant moves with it and cannot fail (review finding;
+    // mutants 0.08 -> 0.16 and -> 0.04 both stayed green that way).
+    // 0.08 x 792 = 63.36, and the top band starts at 792 - 63.36 = 728.64.
+    const wide = 0.7 * W + 0.1;
+    expect(firstRule(at(63.2, wide))).toBe("page-band");
+    expect(props(at(63.4, wide))).toHaveLength(1);
+    expect(props(at(63.2, 0.7 * W))).toHaveLength(1);
+    expect(firstRule(at(728.8, wide))).toBe("page-band");
+    expect(props(at(728.5, wide))).toHaveLength(1);
   });
 
   it("BAND_REPEAT_EPS / BAND_REPEAT_PAGES: the same band line on another page", () => {
