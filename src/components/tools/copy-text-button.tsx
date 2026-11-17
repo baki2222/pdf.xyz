@@ -32,6 +32,7 @@ export function CopyTextButton({
   label,
   size = "lg",
   className,
+  failed = COPY_STATUS.failed,
 }: {
   text: string;
   /** The button's visible name, e.g. "Copy text". */
@@ -39,6 +40,11 @@ export function CopyTextButton({
   size?: "md" | "lg";
   /** Extra classes for the button (layout only, e.g. width). */
   className?: string;
+  /**
+   * What a refusal says, when "select the text above" would not be true: the
+   * text is not on the page (Copy JSON), or the page shows only part of it.
+   */
+  failed?: string;
 }) {
   const [state, setState] = useState<CopyState>("idle");
   const timer = useRef<number | null>(null);
@@ -85,7 +91,11 @@ export function CopyTextButton({
           is announced. Not role="status": the result panel's own notes
           (PDF to Text's empty-pages note) are THE status of a result. */}
       <p aria-live="polite" className="text-muted text-xs">
-        {state === "idle" ? "" : COPY_STATUS[state]}
+        {state === "idle"
+          ? ""
+          : state === "failed"
+            ? failed
+            : COPY_STATUS.copied}
       </p>
     </div>
   );

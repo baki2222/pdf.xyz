@@ -23,6 +23,8 @@ import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { assembleExtraction } from "@/lib/pdf/text";
 import { COPY_STATUS } from "../copy-text-button";
+import { PAGE_TEXT_LIMIT } from "../ai-result-limits";
+import { COPY_FAILED_CUT } from "../ai-result-views";
 import { PdfToTextRunner } from "./pdf-to-text-runner";
 
 afterEach(() => {
@@ -53,11 +55,11 @@ async function twoPagePdf(): Promise<File> {
 
 const PAGES = ["Invoice 1042\nTotal due: 120.00", "Thank you for your order."];
 
-async function extractedRunner() {
+async function extractedRunner(pages: readonly string[] = PAGES) {
   const extract = async () =>
     assembleExtraction(
       2,
-      PAGES.map((text, i) => ({
+      pages.map((text, i) => ({
         pageNumber: i + 1,
         text,
         characterCount: text.length,
@@ -115,5 +117,67 @@ describe("PDF to Text copies the whole extracted text with one press", () => {
       expect(screen.getByText(COPY_STATUS.failed)).toBeTruthy(),
     );
     expect(screen.queryByText(COPY_STATUS.copied)).toBeNull();
+  }, 30_000);
+});
+
+/**
+ * Competitor audit #16 (2026-11-17): a whole book's text is not put in the
+ * DOM. The box draws the first PAGE_TEXT_LIMIT characters and says so; Copy
+ * text still copies EVERY character, the tail included.
+ */
+describe("PDF to Text caps the box, never the copy", () => {
+  // Page 2 runs past the cap and ends in a marker the box must not hold.
+  const TAIL = "END-OF-THE-WHOLE-TEXT";
+  const LONG = [
+    "Opening page.",
+    `${"word ".repeat(PAGE_TEXT_LIMIT / 4)}${TAIL}`,
+  ];
+
+  it("the box holds the first characters, the note says so, and Copy text copies all", async () => {
+    const writeText = vi.fn(async (_text: string) => {});
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    const extract = await extractedRunner(LONG);
+    const whole = (await extract()).text;
+    // Health check: the fixture is past the cap, and its tail is past it too.
+    expect(whole.length).toBeGreaterThan(PAGE_TEXT_LIMIT);
+    expect(whole.indexOf(TAIL)).toBeGreaterThan(PAGE_TEXT_LIMIT);
+
+    const box = document.querySelector<HTMLElement>("[data-long-text]");
+    expect(box?.dataset.longText).toBe("cut");
+    expect(box!.textContent!.length).toBe(PAGE_TEXT_LIMIT);
+    expect(box!.textContent).not.toContain(TAIL);
+    // Positive control: the start of the text IS in the box.
+    expect(box!.textContent!.startsWith("Opening page.")).toBe(true);
+    expect(
+      screen.getByText(
+        /^Only the first 50,000 of [\d,]+ characters are shown here\. Copying or downloading gives you all of it\.$/,
+      ),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy text" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(writeText.mock.calls[0]![0]).toBe(whole);
+    expect(writeText.mock.calls[0]![0]).toContain(TAIL);
+  }, 30_000);
+
+  it("a refusal on a cut box does not say to select the text above", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      configurable: true,
+    });
+    await extractedRunner(LONG);
+    fireEvent.click(screen.getByRole("button", { name: "Copy text" }));
+    await waitFor(() => expect(screen.getByText(COPY_FAILED_CUT)).toBeTruthy());
+    expect(screen.queryByText(COPY_STATUS.failed)).toBeNull();
+  }, 30_000);
+
+  it("a short text is whole in the box, with no note", async () => {
+    await extractedRunner();
+    const box = document.querySelector<HTMLElement>("[data-long-text]");
+    expect(box?.dataset.longText).toBe("whole");
+    expect(screen.queryByText(/^Only the first/)).toBeNull();
   }, 30_000);
 });

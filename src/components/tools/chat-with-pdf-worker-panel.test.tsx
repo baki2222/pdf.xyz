@@ -36,7 +36,9 @@ import { runWorkerChatWithPdf as realRunWorkerChatWithPdf } from "@/lib/workers/
 import type { AiProvider } from "@/lib/workers/ai/provider";
 import { runChatWithPdf } from "@/lib/workers/chat-with-pdf/engine";
 import { resetTelemetry } from "@/lib/telemetry/track";
+import { chatAnswerOutputName } from "@/lib/jobs/chat-with-pdf";
 import { ChatWithPdfWorkerPanel } from "./chat-with-pdf-worker-panel";
+import { PAGE_TEXT_LIMIT } from "./ai-result-limits";
 import { pageImageDeps } from "./runner/use-page-image";
 
 // The job driver and the document measurement are handed to the panel as
@@ -1209,5 +1211,130 @@ describe("ChatWithPdfWorkerPanel — a citation shows its page", () => {
       { role: "user", content: "Q" },
       { role: "assistant", content: "Rent is due [p.2]." },
     ]);
+  });
+});
+
+/**
+ * Competitor audit #16 (2026-11-17): every answer can be copied, and the whole
+ * conversation copied or saved as Markdown, from the transcript the page
+ * holds, with no request. The answers come out of REAL engine packages, the
+ * clipboard is read where it is written, and the .md is the Blob saved.
+ */
+describe("ChatWithPdfWorkerPanel: copy and save the conversation", () => {
+  const ZIP = chatAnswerOutputName("invoice.pdf");
+  /** A line feed, built from its code point (house rule). */
+  const NL = String.fromCharCode(10);
+
+  async function answerAs(question: string, answer: string) {
+    return {
+      ...(await workerSuccess(question, answer)),
+      artifact: { filename: ZIP, url: "blob:answer" },
+    };
+  }
+
+  function clipboard() {
+    const writeText = vi.fn(async (_text: string) => {});
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    return writeText;
+  }
+
+  it("Copy answer, Copy conversation and the .md carry every exchange, and send nothing", async () => {
+    const first = "What is the total?";
+    const second = "When is it due?";
+    const a1 = "The total is $1,240.00 [p.1].";
+    const a2 = "It is due on 30 June 2026 [p.1].";
+    stubStatus();
+    const writeText = clipboard();
+    runWorkerChatWithPdf
+      .mockImplementationOnce(() => answerAs(first, a1))
+      .mockImplementationOnce(() => answerAs(second, a2));
+    render(<Panel />);
+    await screen.findByRole("textbox");
+    await ask(first);
+    await screen.findByText(shownAnswer(a1));
+    await ask(second);
+    await screen.findByText(shownAnswer(a2));
+
+    const copies = await screen.findAllByRole("button", {
+      name: "Copy answer",
+    });
+    expect(copies).toHaveLength(2);
+    const fetches = vi.mocked(fetch).mock.calls.length;
+    fireEvent.click(copies[1]!);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(a2));
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy conversation" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2));
+    expect(writeText.mock.calls[1]![0]).toBe(
+      [
+        `Q: ${first}`,
+        "",
+        `A: ${a1}`,
+        "Cited pages: [p.1]",
+        "",
+        `Q: ${second}`,
+        "",
+        `A: ${a2}`,
+        "Cited pages: [p.1]",
+      ].join(NL),
+    );
+
+    let saved: Blob | null = null;
+    vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+      saved = blob as Blob;
+      return "blob:md";
+    });
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const names: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      names.push(this.download);
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Download conversation (.md)" }),
+    );
+    await waitFor(() => expect(names).toEqual(["invoice-conversation.md"]));
+    expect(await saved!.text()).toBe(
+      [
+        "# Chat with PDF: invoice",
+        "## Question 1",
+        first,
+        "**Answer**",
+        a1,
+        "Cited pages: [p.1]",
+        "## Question 2",
+        second,
+        "**Answer**",
+        a2,
+        "Cited pages: [p.1]",
+      ].join(NL + NL) + NL,
+    );
+    // Built from the page: none of the three presses made a request.
+    expect(vi.mocked(fetch).mock.calls.length).toBe(fetches);
+  });
+
+  it("a very long answer is capped on the page and copied whole", async () => {
+    const tail = "END-OF-THE-ANSWER";
+    const long = `${"word ".repeat(PAGE_TEXT_LIMIT / 4)}${tail}`;
+    // Health check: the answer is past the cap, and so is its tail.
+    expect(long.indexOf(tail)).toBeGreaterThan(PAGE_TEXT_LIMIT);
+    stubStatus();
+    const writeText = clipboard();
+    runWorkerChatWithPdf.mockImplementationOnce(() => answerAs("Q", long));
+    render(<Panel />);
+    await screen.findByRole("textbox");
+    await ask("Q");
+    const note = await screen.findByText(
+      /^Only the first 50,000 of [\d,]+ characters are shown here\./,
+    );
+    const shown = screen.getByText(shownAnswer(long.slice(0, PAGE_TEXT_LIMIT)));
+    expect(shown.textContent).not.toContain(tail);
+    expect(note).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Copy answer" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(long));
   });
 });

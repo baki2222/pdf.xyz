@@ -103,19 +103,40 @@ export function extractionCsv(data: unknown): string | null {
   return rows ? CSV_BOM + toCsv(rows) : null;
 }
 
-/** extraction.json read from the package, as a CSV; `null` when there is none. */
-export async function readExtractionCsv(
+/** extraction.json as read from a package, and its table when it has one. */
+export interface ExtractionRead {
+  /** The parsed extraction.json, exactly as the package holds it. */
+  data: unknown;
+  /** {@link extractionRows} of it: `null` when it has no table shape. */
+  rows: string[][] | null;
+}
+
+/**
+ * extraction.json read from the package; `null` when there is none, or it is
+ * not JSON. The ONE reader: the CSV, the TSV, the workbook and the table on
+ * the page all start here, so they cannot disagree about the rows.
+ */
+export async function readExtraction(
   output: Uint8Array,
-): Promise<string | null> {
+): Promise<ExtractionRead | null> {
   try {
     const { default: JSZip } = await import("jszip");
     const zip = await JSZip.loadAsync(output);
     const entry = zip.file(AI_EXTRACT_PACKAGE_FILES.json);
     if (!entry) return null;
-    return extractionCsv(JSON.parse(await entry.async("string")) as unknown);
+    const data = JSON.parse(await entry.async("string")) as unknown;
+    return { data, rows: extractionRows(data) };
   } catch {
     return null;
   }
+}
+
+/** extraction.json read from the package, as a CSV; `null` when there is none. */
+export async function readExtractionCsv(
+  output: Uint8Array,
+): Promise<string | null> {
+  const read = await readExtraction(output);
+  return read ? extractionCsv(read.data) : null;
 }
 
 /** `invoice-extraction.zip` becomes `invoice-extraction.csv`. */
