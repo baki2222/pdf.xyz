@@ -34,8 +34,10 @@ import {
 } from "@/lib/pdf/create-forms";
 import {
   FIELD_TYPE_BUTTON_LABELS,
+  FIELD_TYPE_LABELS,
   NEW_FIELD_TYPES,
 } from "@/lib/pdf/offered-kinds";
+import { fieldBoxes } from "@/lib/pdf/field-boxes";
 import { downloadBytes } from "@/lib/pdf/browser";
 import Link from "next/link";
 import { EDITOR_FIELD_LABEL } from "@/lib/pdf/editor/model";
@@ -84,6 +86,15 @@ type ContextState =
   | { status: "error"; message: string }
   | { status: "ready"; context: NewFormContext };
 
+/**
+ * The page preview's chunk (backlog #17): requested WITH the PDF read, so it
+ * costs no round trip of its own and no page pays for it before a file is
+ * added. The builder works without it: the numbers are the source.
+ */
+type PreviewModule = typeof import("./create-forms-preview");
+type PreviewState = PreviewModule | "loading" | "failed";
+const loadPreview = () => import("./create-forms-preview");
+
 function FormBuilderStage({
   pdf,
   onReset,
@@ -93,6 +104,23 @@ function FormBuilderStage({
 }) {
   // Keyed by file upstream, so this remounts (fresh "loading") for each PDF.
   const [state, setState] = useState<ContextState>({ status: "loading" });
+  const [preview, setPreview] = useState<PreviewState>("loading");
+
+  useEffect(() => {
+    if (preview !== "loading") return;
+    let alive = true;
+    loadPreview().then(
+      (mod) => {
+        if (alive) setPreview(mod);
+      },
+      () => {
+        if (alive) setPreview("failed");
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [preview]);
 
   useEffect(() => {
     let alive = true;
@@ -129,7 +157,15 @@ function FormBuilderStage({
     );
   }
 
-  return <FormBuilder pdf={pdf} context={state.context} onReset={onReset} />;
+  return (
+    <FormBuilder
+      pdf={pdf}
+      context={state.context}
+      onReset={onReset}
+      preview={preview}
+      onRetryPreview={() => setPreview("loading")}
+    />
+  );
 }
 
 /* ------------------------------------------------------------------ *
@@ -313,10 +349,14 @@ function FormBuilder({
   pdf,
   context,
   onReset,
+  preview,
+  onRetryPreview,
 }: {
   pdf: LoadedPdf;
   context: NewFormContext;
   onReset: () => void;
+  preview: PreviewState;
+  onRetryPreview: () => void;
 }) {
   const { busy, error, result, run, reset } = useAsyncRun<CreateFormResult>();
   const counter = useRef(1);
@@ -347,10 +387,23 @@ function FormBuilder({
   }, [errors]);
   const formErrors = errorsByIndex.get(-1) ?? [];
 
+  // The card the preview shows the page of. Pressing or focusing a card
+  // selects it, and so does pressing its box on the preview.
+  const [selectedId, setSelectedId] = useState<string | null>("f1");
+  const selected = drafts.find((d) => d.id === selectedId) ?? drafts[0] ?? null;
+  const shownPage =
+    selected &&
+    Number.isInteger(selected.page) &&
+    selected.page >= 1 &&
+    selected.page <= context.pageCount
+      ? selected.page
+      : 1;
+
   const addField = () => {
     counter.current += 1;
     const n = counter.current;
     setDrafts((prev) => [...prev, makeDraft(`f${n}`, n, firstPage)]);
+    setSelectedId(`f${n}`);
   };
   const removeField = (id: string) =>
     setDrafts((prev) => prev.filter((d) => d.id !== id));
@@ -404,6 +457,61 @@ function FormBuilder({
       <CoordinateHelp context={context} />
 
       <RunnerSection
+        title="Page preview"
+        aside={
+          selected ? (
+            <span className="text-muted text-xs">
+              Showing page {shownPage}, where{" "}
+              {selected.name.trim() || "the unnamed field"} is
+            </span>
+          ) : undefined
+        }
+      >
+        {typeof preview === "object" ? (
+          <preview.CreateFormsPreview
+            bytes={pdf.bytes}
+            page={shownPage}
+            pageCount={context.pageCount}
+            size={
+              context.pageSizes[shownPage - 1] ?? { width: 612, height: 792 }
+            }
+            fields={drafts
+              .map((d, i) => ({ d, spec: specs[i]! }))
+              .filter(({ d }) => d.page === shownPage)
+              .map(({ d, spec }) => ({
+                id: d.id,
+                name: d.name,
+                type: d.type,
+                kind: FIELD_TYPE_LABELS[d.type],
+                x: d.x,
+                y: d.y,
+                boxes: fieldBoxes(spec),
+              }))}
+            selectedId={selected?.id ?? null}
+            onSelect={setSelectedId}
+            onMove={(id, at) => updateField(id, at)}
+          />
+        ) : preview === "failed" ? (
+          <ErrorNote
+            message="The page preview didn't load. You can still place every field with the numbers on its card."
+            action={
+              <button
+                type="button"
+                onClick={onRetryPreview}
+                className="font-semibold underline underline-offset-2"
+              >
+                Try again
+              </button>
+            }
+          />
+        ) : (
+          <p className="text-muted inline-flex items-center gap-2 text-sm">
+            <Spinner /> Loading the page preview…
+          </p>
+        )}
+      </RunnerSection>
+
+      <RunnerSection
         title="Form fields"
         aside={
           <span className="text-muted text-xs">
@@ -416,6 +524,8 @@ function FormBuilder({
             <FieldCard
               key={draft.id}
               draft={draft}
+              selected={draft.id === selected?.id}
+              onSelect={() => setSelectedId(draft.id)}
               context={context}
               errors={errorsByIndex.get(index) ?? []}
               onChange={(patch) => updateField(draft.id, patch)}
@@ -504,8 +614,9 @@ function CoordinateHelp({ context }: { context: NewFormContext }) {
             : ""}
         </span>
         <span className="text-muted">
-          This adds classic fillable AcroForm fields by coordinates. Prefer to
-          drag fields into place on the page, or need a{" "}
+          Type the numbers on a field&apos;s card, or set X and Y on the page
+          preview: click where the field&apos;s bottom-left corner should go,
+          drag its box, or use the arrow keys. Need a{" "}
           {EDITOR_FIELD_LABEL.signature.toLowerCase()}?{" "}
           <Link
             href={`/tools/${EDIT_PDF.slug}`}
@@ -513,7 +624,7 @@ function CoordinateHelp({ context }: { context: NewFormContext }) {
           >
             {EDIT_PDF.name}
           </Link>{" "}
-          does both under {EDITOR_FORMS_GROUP}, in your browser too.
+          adds one under {EDITOR_FORMS_GROUP}, in your browser too.
           {context.existingNames.length > 0
             ? ` This PDF already has ${context.existingNames.length} field${
                 context.existingNames.length === 1 ? "" : "s"
@@ -537,12 +648,17 @@ const INPUT_CLASS = `${INPUT_BASE} text-sm`;
 
 function FieldCard({
   draft,
+  selected,
+  onSelect,
   context,
   errors,
   onChange,
   onRemove,
 }: {
   draft: FieldDraft;
+  /** The card whose page the preview shows (outlined in the accent). */
+  selected: boolean;
+  onSelect: () => void;
   context: NewFormContext;
   errors: string[];
   onChange: (patch: Partial<FieldDraft>) => void;
@@ -559,7 +675,13 @@ function FieldCard({
     : `Page ${draft.page} · out of range`;
 
   return (
-    <div className="border-line bg-wash rounded-panel flex flex-col gap-4 border p-4 sm:p-5">
+    <div
+      data-field-card={draft.id}
+      className="border-line bg-wash rounded-panel flex flex-col gap-4 border p-4 sm:p-5"
+      style={selected ? { borderColor: "var(--color-accent)" } : undefined}
+      onFocusCapture={onSelect}
+      onPointerDownCapture={onSelect}
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <SegmentedControl
           label="Field type"

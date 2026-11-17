@@ -42,6 +42,17 @@ import { rasterScaleForDpi } from "@/lib/pdf/pdf-to-image";
  *    strips / \ ? % * : | " < > from the base name;
  *  - no network call on the runner path (no fetch, no analytics in the runner,
  *    runner-kit, single-pdf-runner or use-single-pdf).
+ *
+ * The page preview, read from the code on 2026-11-17 (backlog #17):
+ * create-forms-preview.tsx draws the selected card's page (rendered as
+ * displayed, so after any rotation and crop) with every field on that page
+ * drawn from its card's numbers through the engine's own `fieldBoxes` (a
+ * radio group as its whole downward stack). A click on the page sets the
+ * selected field's X and Y to its bottom-left corner there, a box can be
+ * dragged, and a selected box moves 1 pt per arrow key, 10 pt with Shift;
+ * each writes whole points back to the card (`placeAt`, which keeps every
+ * box on the page). Width and height are typed only. The preview chunk loads
+ * with the PDF read; if it fails, the cards still work (the runner says so).
  */
 const tool = getToolBySlug("create-forms");
 const maxMb = tool ? toolFileCeilingMb(tool) : null;
@@ -77,9 +88,9 @@ const content: ToolContent = {
     "Add text boxes, checkboxes, dropdowns, radio groups and lists to a PDF by page coordinates. Real AcroForm fields, built in your browser with no upload.",
 
   intro: [
-    "Create Fillable Forms turns a flat PDF, such as a printed-style application or checklist, into one people can type into. You describe each field in a card: its type, a unique name, the page it sits on, and its box in whole PDF points measured from the page's bottom-left corner. Each card shows the width and height of the page it points at, and the Page box only accepts pages the document has.",
+    "Create Fillable Forms turns a flat PDF, such as a printed-style application or checklist, into one people can type into. You describe each field in a card: its type, a unique name, the page it sits on, and its box in whole PDF points measured from the page's bottom-left corner. Each card shows the width and height of the page it points at, and the Page box only accepts pages the document has. A preview of the page shows every field's box where its numbers put it: click the page to move a field's bottom-left corner there, drag a box, or nudge it with the arrow keys, and its X and Y change to match. Width and height are typed on the card.",
     "The output is a classic AcroForm, the form type PDF readers with form support can fill. Text fields can carry pre-filled text, a character limit and multiple lines; checkboxes can start ticked; dropdowns can accept free typing, and lists can accept several selections; dropdowns, lists and radio groups take their choices one per line. Existing pages and AcroForm fields are kept, and new names are checked against the old ones first.",
-    `Your browser does the whole build: the PDF is read from your device, the fields are written into it in memory, and the result is saved to your device without a copy going to pdf.xyz. PDFs up to ${maxMb} MB are accepted.${betaSentence} This builder has no canvas for dragging fields into place and no ${SIGNATURE_FIELD.toLowerCase()} type: ${EDIT_PDF.name} does both with the field tools in its ${EDITOR_FORMS_GROUP} group, also in your browser. There is no font, border or colour styling and no XFA output; if the source carries an XFA layer, for instance a hybrid AcroForm-and-XFA form, the saved copy drops that layer and keeps only its AcroForm fields. A password-protected PDF is refused until you unlock it.`,
+    `Your browser does the whole build: the PDF is read from your device, the fields are written into it in memory, and the result is saved to your device without a copy going to pdf.xyz. PDFs up to ${maxMb} MB are accepted.${betaSentence} This builder has no ${SIGNATURE_FIELD.toLowerCase()} type: ${EDIT_PDF.name} adds one with the field tools in its ${EDITOR_FORMS_GROUP} group, also in your browser. There is no font, border or colour styling and no XFA output; if the source carries an XFA layer, for instance a hybrid AcroForm-and-XFA form, the saved copy drops that layer and keeps only its AcroForm fields. A password-protected PDF is refused until you unlock it.`,
   ],
 
   useCases: [
@@ -104,11 +115,11 @@ const content: ToolContent = {
   steps: [
     {
       title: "Open the flat PDF",
-      body: "Drag it into the drop box, or use browse to pick it. The builder reads it, shows page one's size in points and how many form fields the file already has, and starts you with one Text field card.",
+      body: "Drag it into the drop box, or use browse to pick it. The builder reads it, shows page one's size in points and how many form fields the file already has, and starts you with one Text field card and a preview of the page it is on.",
     },
     {
       title: "Set up each field",
-      body: "Pick Text, Checkbox, Dropdown, Radio or List, fill in Field name, then Page, X, Y, Width and Height. Choice fields take options one per line, with an optional default.",
+      body: "Pick Text, Checkbox, Dropdown, Radio or List, fill in Field name, then Page, X, Y, Width and Height. Instead of typing X and Y, you can click the page preview where the field's bottom-left corner belongs, or drag its box. Choice fields take options one per line, with an optional default.",
     },
     {
       title: "Add the rest and clear any warnings",
@@ -123,7 +134,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Which X and Y should I type for a field?",
-      a: `Coordinates are PDF points, ${POINTS_PER_INCH} to the inch, counted from the bottom-left corner: X grows to the right and Y grows upward. X and Y mark the field's lower-left corner, so a field near the top of the page needs a Y of roughly the page height the card displays minus the field's own height.`,
+      a: `Coordinates are PDF points, ${POINTS_PER_INCH} to the inch, counted from the bottom-left corner: X grows to the right and Y grows upward. X and Y mark the field's lower-left corner, so a field near the top of the page needs a Y of roughly the page height the card displays minus the field's own height. You can also skip the arithmetic: click the page preview where that corner should go, and the card fills in X and Y.`,
     },
     {
       q: "How are radio buttons laid out?",
@@ -134,8 +145,8 @@ const content: ToolContent = {
       a: "No. The fields are added by code running in your browser tab and the file is saved straight to your device, so pdf.xyz never receives the document or what you type into the cards.",
     },
     {
-      q: "Can I style the fields or drag them into place?",
-      a: `Not here: fields come in one plain default style, with no choice of font, colour or border, and are placed by the numbers on each card. ${EDIT_PDF.name} lets you drag out text fields, checkboxes, dropdowns, radio groups and a ${SIGNATURE_FIELD.toLowerCase()} straight onto the page with the field tools in its ${EDITOR_FORMS_GROUP} group, saved as real form fields, and it also runs in your browser.`,
+      q: "Can I drag fields into place or style them?",
+      a: `You can move a field on the page preview: drag its box, click where its bottom-left corner should go, or select it and use the arrow keys. Each move changes the X and Y on its card, and the form is built from those numbers, so the saved field sits where the preview showed it. Width and height are typed on the card. Fields come in one plain default style, with no choice of font, colour or border. For a ${SIGNATURE_FIELD.toLowerCase()}, use ${EDIT_PDF.name}: the field tools in its ${EDITOR_FORMS_GROUP} group drag one onto the page, saved as a real form field, and it also runs in your browser.`,
     },
     {
       q: "Why was a default value or a dropdown or list option refused for its characters?",

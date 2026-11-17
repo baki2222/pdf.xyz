@@ -36,6 +36,7 @@ import { COMPARE_VIEWER_CHUNK } from "@/components/tools/runner/compare/compare-
 import { COMPARE_OVERLAY_CHUNK } from "@/components/tools/runner/compare/compare-overlay";
 import { COMPARE_REDLINE_CHUNK } from "@/components/tools/runner/compare/redline-html";
 import { REQUEST_FIELD_EDITOR_CHUNK } from "@/components/tools/request-field-editor";
+import { CREATE_FORMS_PREVIEW_CHUNK } from "@/components/tools/runner/create-forms-preview";
 import { RESULT_ENDING_CHUNK } from "@/components/intent/result-ending-chunk";
 import { DROP_ENGINE_MARK } from "@/lib/intent/drop-engine";
 import { tools } from "@/lib/tools";
@@ -376,6 +377,16 @@ const OUR_LAZY: LazyLibrary[] = [
     what: "Request Signatures' placement editor",
     marker: REQUEST_FIELD_EDITOR_CHUNK,
     why: "fetched when a PDF is picked on Request Signatures",
+    allowedAtLoad: {},
+  },
+  // Create Fillable Forms' page preview (backlog #17, 2026-11-17): the
+  // selected card's page with every field drawn on it, click, drag and
+  // arrow-key placement, and its geometry (`form-preview.ts`). The runner
+  // requests it WITH the PDF read, and the cards work without it.
+  {
+    what: "Create Fillable Forms' page preview",
+    marker: CREATE_FORMS_PREVIEW_CHUNK,
+    why: "fetched when a PDF is opened on Create Fillable Forms",
     allowedAtLoad: {},
   },
   // Sign PDF's handwriting faces (audit sign-pdf#1, 2026-11-09). As first
