@@ -346,6 +346,17 @@ export function copyFiles(): string[] {
       "office-conversion",
       "sheet-layout.ts",
     ),
+    // Excel to PDF's CSV Delimiter and Character set: the select labels,
+    // their choices, the hint under them and the worker's refusals
+    // (2026-11-17, competitor audit #18), drawn by the Office panel.
+    path.join(
+      ROOT,
+      "src",
+      "lib",
+      "workers",
+      "office-conversion",
+      "csv-import.ts",
+    ),
     // PDF to PDF/A's level picker: its label and each level's hint
     // (2026-11-08, audit pdf-to-pdfa#1), drawn by the panel and the page.
     path.join(ROOT, "src", "lib", "workers", "pdf-archive", "levels.ts"),

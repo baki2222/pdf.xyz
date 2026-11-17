@@ -35,9 +35,11 @@ import { COMPARE_RESULT_CHUNK } from "@/components/tools/runner/compare/compare-
 import { COMPARE_VIEWER_CHUNK } from "@/components/tools/runner/compare/compare-viewer";
 import { COMPARE_OVERLAY_CHUNK } from "@/components/tools/runner/compare/compare-overlay";
 import { COMPARE_REDLINE_CHUNK } from "@/components/tools/runner/compare/redline-html";
+import { TABLE_PREVIEW_CHUNK } from "@/components/tools/table-extract-preview";
 import { REQUEST_FIELD_EDITOR_CHUNK } from "@/components/tools/request-field-editor";
 import { CREATE_FORMS_PREVIEW_CHUNK } from "@/components/tools/runner/create-forms-preview";
 import { RESULT_ENDING_CHUNK } from "@/components/intent/result-ending-chunk";
+import { AI_RESULT_CHUNK } from "@/components/tools/ai-result-chunk";
 import { DROP_ENGINE_MARK } from "@/lib/intent/drop-engine";
 import { tools } from "@/lib/tools";
 import { SEARCH_ENGINE_CHUNK } from "@/lib/tools/search-tools";
@@ -339,6 +341,18 @@ const OUR_LAZY: LazyLibrary[] = [
   // tell it apart from the comparison's chunk (that one is lazy too, so a
   // static import would still pass); "Compare PDF's page view is a chunk of
   // its own" below does.
+  // The AI results on the page (competitor audit #4 and #16, 2026-11-17):
+  // AI Data Extraction's table, CSV, XLSX and copies (with the package reader
+  // and the workbook writer), Chat with PDF's Copy answer and conversation
+  // copy and Markdown, and the capped long-text box PDF to Text, Summarize
+  // PDF and Chat with PDF draw long text in. Fetched with the result, and by
+  // PDF to Text beside its extraction.
+  {
+    what: "the AI result views",
+    marker: AI_RESULT_CHUNK,
+    why: "AI Data Extraction and Summarize PDF fetch it as they read the result, Chat with PDF as a question is asked, PDF to Text beside its extraction; a visit that never gets a result never downloads it",
+    allowedAtLoad: {},
+  },
   {
     what: "Compare PDF's page view",
     marker: COMPARE_VIEWER_CHUNK,
@@ -365,6 +379,18 @@ const OUR_LAZY: LazyLibrary[] = [
     what: "Compare PDF's HTML redline",
     marker: COMPARE_REDLINE_CHUNK,
     why: "the comparison fetches it when Download redline (HTML) is pressed or pointed at; a run that never downloads it never fetches it",
+    allowedAtLoad: {},
+  },
+  // Extract Tables' result preview (competitor audit #22, 2026-11-17): the
+  // first rows of each table, read from the downloaded ZIP with JSZip and a
+  // CSV reader. Its own chunk behind the panel's `next/dynamic`, fetched
+  // when a result arrives. The panel is lazy too, so this entry alone would
+  // pass a static import from it; "Extract Tables' preview is a chunk of its
+  // own" below does not.
+  {
+    what: "Extract Tables' result preview",
+    marker: TABLE_PREVIEW_CHUNK,
+    why: "the Extract Tables panel fetches it when a result arrives; a visit that never runs a job never downloads it",
     allowedAtLoad: {},
   },
   // Request Signatures' placement editor (audit #21, 2026-11-17): the sheet
@@ -1356,6 +1382,42 @@ describe("Compare PDF's redline is a chunk of its own", () => {
       fetch.gz,
       `the redline's fetch is ${fetch.gz.toFixed(2)} KB gz over ${fetch.counted.map((f) => path.basename(f)).join(", ")}`,
     ).toBeLessThanOrEqual(COMPARE_REDLINE_FETCH_GZ_KB);
+  });
+});
+
+/**
+ * Extract Tables' preview (competitor audit #22, 2026-11-17) is fetched with
+ * a result, not with the panel: the panel's chunk (found by the ready
+ * sentence its findings module renders) carries neither the preview nor
+ * JSZip, and the preview's chunk is loaded by the panel's chunk alone.
+ */
+describe("Extract Tables' preview is a chunk of its own", () => {
+  const built = existsSync(path.join(NEXT_DIR, "server", "app"));
+  /** The panel's own ready sentence (`table-extract-findings.tsx`). */
+  const PANEL = "a ZIP of CSV files plus a combined Excel workbook.";
+  const JSZIP = "Corrupted zip : CRC32 mismatch";
+
+  it("is not the panel's chunk, the panel's chunk has no JSZip, and only the panel loads it", () => {
+    if (!built) return;
+    const all = walkJs(CHUNKS_DIR);
+    const idOf = (f: string) => /^(\d+)[-.]/.exec(path.basename(f))?.[1];
+    const preview = all.filter((f) => read(f).includes(TABLE_PREVIEW_CHUNK));
+    const panel = all.filter((f) => read(f).includes(PANEL));
+    // Health: each is found, once.
+    expect(preview).toHaveLength(1);
+    expect(panel).toHaveLength(1);
+    expect(path.resolve(preview[0]!)).not.toBe(path.resolve(panel[0]!));
+    expect(read(panel[0]!).includes(JSZIP)).toBe(false);
+    // Positive control for the JSZip marker: some chunk carries it.
+    expect(all.some((f) => read(f).includes(JSZIP))).toBe(true);
+    const id = idOf(preview[0]!)!;
+    expect(id).toBeTruthy();
+    const importers = all.filter((f) =>
+      loadersOf([f]).some((ids) => ids.includes(id)),
+    );
+    expect(importers.map((f) => path.basename(f))).toEqual([
+      path.basename(panel[0]!),
+    ]);
   });
 });
 

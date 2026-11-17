@@ -100,8 +100,19 @@ import {
   xlsxProofFile,
 } from "@/tests/office-sheet-proof-fixtures";
 import { OFFICE_INPUT_FIXTURES, odsWith } from "@/tests/office-input-fixtures";
-import { CSV_CHARSET_CASES } from "@/tests/csv-charset-fixtures";
-import type { CsvCharsetCase } from "@/lib/workers/office-conversion/input-proof";
+import {
+  CSV_CHARSET_CASES,
+  CSV_CHOICE_CASES,
+} from "@/tests/csv-charset-fixtures";
+import type {
+  CsvCharsetCase,
+  CsvChoiceCase,
+} from "@/lib/workers/office-conversion/input-proof";
+import {
+  CSV_CHARSET_OPTION,
+  CSV_DELIMITER_OPTION,
+  type CsvImportChoice,
+} from "@/lib/workers/office-conversion/csv-import";
 import { drmBook, epub3Book } from "@/tests/epub-fixtures";
 import { epub3Verdict, readEpubPdf } from "@/lib/workers/epub/proof";
 import { lockedOdfFixtures } from "@/tests/locked-odf";
@@ -694,6 +705,49 @@ async function pdfPageTexts(bytes: Buffer): Promise<string[]> {
 const RUN_STARTED = new Date();
 /** Worker and operator clocks are not one clock; the stamp has no seconds. */
 const CLOCK_SLACK_MS = 5 * 60_000;
+
+/** One of the CSV choice cases the in-image proof converts too. */
+function csvChoiceCase(label: string): CsvChoiceCase {
+  const found = CSV_CHOICE_CASES.find((c) => c.label === label);
+  if (!found) throw new Error(`no ${label} CSV choice case`);
+  return found;
+}
+
+/** The job's option bag for a choice: Auto is the key left out. */
+function csvChoiceOptions(choice: CsvImportChoice): Record<string, unknown> {
+  return {
+    ...(choice.delimiter ? { [CSV_DELIMITER_OPTION]: choice.delimiter } : {}),
+    ...(choice.charset ? { [CSV_CHARSET_OPTION]: choice.charset } : {}),
+  };
+}
+
+/**
+ * A CSV choice case at the deployment (competitor audit #18): the case's
+ * first RIGHT choice must read as intended, and, as its positive control,
+ * the same file with its first WRONG choice must come out wrong, so the
+ * check can fail (a judge that passes anything fails the control).
+ */
+function csvChoiceSpecs(label: string): ProofSpec[] {
+  const c = csvChoiceCase(label);
+  const spec = (choice: CsvImportChoice, right: boolean): ProofSpec => ({
+    tool: "excel-to-pdf",
+    label: `excel-to-pdf (csv ${label}, ${right ? "chosen" : "control: wrong choice"})`,
+    make: async () => Buffer.from(c.build()),
+    name: c.name,
+    type: "text/csv",
+    options: csvChoiceOptions(choice),
+    expect: isPdf,
+    want: right ? c.want : "the file read the wrong way",
+    verify: async (bytes) => {
+      const read = c.reads(await pdfPlainText(bytes));
+      return {
+        ok: read === right,
+        detail: read ? `read as intended: ${c.want}` : "not read as intended",
+      };
+    },
+  });
+  return [spec(c.right[0]!, true), spec(c.wrong[0]!, false)];
+}
 
 /** One of the CSV charset cases the in-image proof converts too. */
 function csvCase(encoding: CsvCharsetCase["encoding"]): CsvCharsetCase {
@@ -1871,6 +1925,15 @@ const SPECS: ProofSpec[] = [
       };
     },
   },
+  // A semicolon CSV and a Windows-1251 Cyrillic CSV with the Delimiter and
+  // Character set chosen (competitor audit #18), each beside the same file
+  // with the wrong choice, which must come out wrong. A worker image from
+  // before the choices drops both keys, so the semicolon file prints as one
+  // column and the Cyrillic one as Western letters, and the chosen specs
+  // FAIL; its job API refuses them first unless the heartbeat proves
+  // `csvImportOptions`.
+  ...csvChoiceSpecs("semicolon"),
+  ...csvChoiceSpecs("windows-1251"),
   // Orientation and "Fit all columns on the page width" (audit
   // excel-to-pdf#1, wave 3): a 40 x 400 sheet with no page setup of its own.
   // The verdict reads every page box (A4 landscape) and each page's text

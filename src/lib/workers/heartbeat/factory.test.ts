@@ -130,6 +130,7 @@ describe("createHeartbeatPublisher", () => {
         translateReadingOrder: true,
         translatePageMap: true,
         translatePageRange: true,
+        csvImportOptions: true,
       },
       deps: { client: fake, now: () => 1_000 },
     });
@@ -183,6 +184,7 @@ describe("createHeartbeatReader / readWorkerHeartbeatLiveness", () => {
             translateReadingOrder: true,
             translatePageMap: true,
             translatePageRange: true,
+            csvImportOptions: true,
           },
           at: now,
         }),

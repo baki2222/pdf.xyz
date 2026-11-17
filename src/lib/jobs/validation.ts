@@ -25,6 +25,7 @@ import { HTML_RENDER_TOOLS } from "@/lib/workers/html-render/tools";
 // Leaves with no imports: the parsers the worker runs again before it
 // converts, so creation and the worker cannot disagree.
 import { parseSheetLayout } from "@/lib/workers/office-conversion/sheet-layout";
+import { parseCsvImportChoice } from "@/lib/workers/office-conversion/csv-import";
 import { parsePdfALevel } from "@/lib/workers/pdf-archive/levels";
 import { parseHtmlZipEntryOption } from "@/lib/workers/html-render/zip-config";
 
@@ -404,6 +405,8 @@ export function parseCreateJobRequest(
   if (tool.slug === "excel-to-pdf") {
     const layout = parseSheetLayout(options);
     if (!layout.ok) return unprocessable(layout.message, "options");
+    const csv = parseCsvImportChoice(options);
+    if (!csv.ok) return unprocessable(csv.message, csv.field);
   }
   if (tool.slug === "pdf-to-pdfa") {
     const level = parsePdfALevel(options);
