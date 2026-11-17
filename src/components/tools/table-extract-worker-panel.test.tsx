@@ -548,7 +548,7 @@ describe("Extract Tables page — says what the result card says", () => {
       await import("@/lib/tools/content/extract-tables");
     const page = JSON.stringify(content);
     const { TABLE_PREVIEW_ROWS, MAX_PREVIEW_TABLES } =
-      await import("@/lib/jobs/extract-tables-options");
+      await import("@/lib/jobs/table-preview-limits");
     expect(page).toContain(
       `a preview shows the first ${TABLE_PREVIEW_ROWS} rows of each table`,
     );

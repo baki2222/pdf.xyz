@@ -1,9 +1,8 @@
 import JSZip from "jszip";
 import {
-  COMBINED_CSV_NAME,
   MAX_PREVIEW_TABLES,
   TABLE_PREVIEW_ROWS,
-} from "@/lib/jobs/extract-tables-options";
+} from "@/lib/jobs/table-preview-limits";
 
 /**
  * The first rows of each table Extract Tables found, read IN THE BROWSER from
@@ -19,14 +18,18 @@ import {
  *
  * The archive's layout is the engine's (`buildTablesZip`):
  * `table-1.csv` … `table-N.csv` and `tables.xlsx` with sheets named
- * "Table N (pP)", or, combined, one {@link COMBINED_CSV_NAME}. The page of
- * each table is read from those sheet names, the only place the archive
- * records it. `table-extract-preview.test.ts` builds its ZIPs with the real
- * engine, so a renamed file or sheet fails there, not here.
+ * "Table N (pP)", or, combined, one other CSV (`tables.csv`) and a workbook
+ * of one sheet. The page of each table is read from those sheet names, the
+ * only place the archive records it, and the combined sheet's name from the
+ * workbook too: this module imports nothing from
+ * `@/lib/jobs/extract-tables-options`, which is in the page's first load, so
+ * its lazy chunk adds no second importer to it. `table-extract-preview.test.ts`
+ * builds its ZIPs with the real engine and checks the names against that
+ * module, so a renamed file or sheet fails there, not here.
  *
  * How many rows and tables are shown ({@link TABLE_PREVIEW_ROWS},
- * {@link MAX_PREVIEW_TABLES}) is defined in the options leaf, which the tool
- * page quotes.
+ * {@link MAX_PREVIEW_TABLES}) lives in `@/lib/jobs/table-preview-limits`,
+ * which the tool page quotes.
  */
 
 /** Characters a cell shows before it is cut and ends with an ellipsis. */
@@ -40,6 +43,8 @@ export interface TablePreview {
   file: string;
   /** 1-based table number in the ZIP; null for the combined CSV. */
   table: number | null;
+  /** The combined CSV's sheet name in the workbook; null otherwise. */
+  sheet: string | null;
   /** The page the table came from, when the workbook says; else null. */
   page: number | null;
   /** The first {@link TABLE_PREVIEW_ROWS} rows, each padded to {@link columns}. */
@@ -134,21 +139,29 @@ function unescapeXml(value: string): string {
 }
 
 /** Table number → page, from `tables.xlsx`'s sheet names; empty if unread. */
-async function pagesFromWorkbook(zip: JSZip): Promise<Map<number, number>> {
+function pagesFromSheets(names: readonly string[]): Map<number, number> {
   const pages = new Map<number, number>();
+  for (const sheet of names) {
+    const name = SHEET_PAGE.exec(sheet);
+    if (name) pages.set(Number(name[1]), Number(name[2]));
+  }
+  return pages;
+}
+
+/** `tables.xlsx`'s sheet names, in workbook order; empty if unread. */
+async function sheetNames(zip: JSZip): Promise<string[]> {
   const book = zip.file("tables.xlsx");
-  if (!book) return pages;
+  if (!book) return [];
   try {
     const inner = await JSZip.loadAsync(await book.async("uint8array"));
     const xml = await inner.file("xl/workbook.xml")?.async("string");
-    for (const m of (xml ?? "").matchAll(/<sheet\b[^>]*\bname="([^"]*)"/g)) {
-      const name = SHEET_PAGE.exec(unescapeXml(m[1]!));
-      if (name) pages.set(Number(name[1]), Number(name[2]));
-    }
+    return [...(xml ?? "").matchAll(/<sheet\b[^>]*\bname="([^"]*)"/g)].map(
+      (m) => unescapeXml(m[1]!),
+    );
   } catch {
-    // No pages, then: the preview still shows the tables.
+    // No names, then: the preview still shows the tables.
+    return [];
   }
-  return pages;
 }
 
 /**
@@ -183,26 +196,40 @@ export async function readTablePreview(
     file: string,
     table: number | null,
     page: number | null,
+    sheet: string | null = null,
   ): Promise<TablePreview> => {
     const grid = parseCsv(await zip.file(file)!.async("string"));
-    return { file, table, page, ...previewRows(grid), totalRows: grid.length };
-  };
-  if (zip.file(COMBINED_CSV_NAME)) {
     return {
-      tables: [await read(COMBINED_CSV_NAME, null, null)],
+      file,
+      table,
+      sheet,
+      page,
+      ...previewRows(grid),
+      totalRows: grid.length,
+    };
+  };
+  const csvs = Object.values(zip.files)
+    .filter((f) => !f.dir && /\.csv$/i.test(f.name))
+    .map((f) => f.name)
+    .sort();
+  const numbers = csvs
+    .map((name) => TABLE_FILE.exec(name))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map((m) => Number(m[1]))
+    .sort((a, b) => a - b);
+  const names = await sheetNames(zip);
+  // A CSV but no numbered one: the combined layout, one CSV for every table.
+  if (numbers.length === 0 && csvs.length > 0) {
+    const sheet = names.length === 1 ? names[0]! : null;
+    return {
+      tables: [await read(csvs[0]!, null, null, sheet)],
       tableFiles: 1,
       perPage: false,
       pagesWithTables: 0,
       combined: true,
     };
   }
-  const numbers = Object.values(zip.files)
-    .filter((f) => !f.dir)
-    .map((f) => TABLE_FILE.exec(f.name))
-    .filter((m): m is RegExpExecArray => m !== null)
-    .map((m) => Number(m[1]))
-    .sort((a, b) => a - b);
-  const pages = await pagesFromWorkbook(zip);
+  const pages = pagesFromSheets(names);
   const { picked, perPage } = pickPreviewTables(numbers, pages);
   const tables: TablePreview[] = [];
   for (const n of picked)

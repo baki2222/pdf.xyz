@@ -4,9 +4,11 @@ import {
   COMBINE_TABLES_LABEL,
   COMBINED_CSV_NAME,
   COMBINED_SHEET_NAME,
+} from "@/lib/jobs/extract-tables-options";
+import {
   MAX_PREVIEW_TABLES,
   TABLE_PREVIEW_ROWS,
-} from "@/lib/jobs/extract-tables-options";
+} from "@/lib/jobs/table-preview-limits";
 import {
   WORD_OCR_LABEL,
   XLSX_NUMBER_EXAMPLES,

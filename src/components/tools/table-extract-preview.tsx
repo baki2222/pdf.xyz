@@ -2,10 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useId, useState } from "react";
-import {
-  COMBINED_SHEET_NAME,
-  MAX_PREVIEW_TABLES,
-} from "@/lib/jobs/extract-tables-options";
+import { MAX_PREVIEW_TABLES } from "@/lib/jobs/table-preview-limits";
 import {
   readTablePreview,
   type TablePreview,
@@ -19,7 +16,9 @@ import {
  *
  * Its own chunk, behind the panel's `next/dynamic`: fetched when a result
  * arrives, never with the page. `lazy-chunks.test.ts` holds it there by
- * {@link TABLE_PREVIEW_CHUNK}, which only this view renders.
+ * {@link TABLE_PREVIEW_CHUNK}, which only this view renders. It imports
+ * nothing from `@/lib/jobs/extract-tables-options` (in the page's first
+ * load): the combined sheet's name is read from the ZIP's workbook.
  */
 export const TABLE_PREVIEW_CHUNK = "pdfxyz:lazy:table-preview";
 
@@ -38,7 +37,7 @@ export function rowsNote(shown: number, total: number): string {
 export function previewCaption(table: TablePreview): string {
   const name =
     table.table === null
-      ? COMBINED_SHEET_NAME
+      ? (table.sheet ?? table.file)
       : `Table ${table.table}${table.page === null ? "" : `, page ${table.page}`}`;
   return table.totalRows === 0
     ? `${name}: this table is empty.`

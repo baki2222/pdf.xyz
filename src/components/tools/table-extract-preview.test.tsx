@@ -12,7 +12,7 @@ import { buildTablesZip } from "@/lib/workers/table-extract/engine";
 import {
   MAX_PREVIEW_TABLES,
   TABLE_PREVIEW_ROWS,
-} from "@/lib/jobs/extract-tables-options";
+} from "@/lib/jobs/table-preview-limits";
 import TableExtractPreview, {
   noTablesPreviewSentence,
   previewSelectionNote,

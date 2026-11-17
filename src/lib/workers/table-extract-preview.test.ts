@@ -26,9 +26,12 @@ import { createTableExtractProcessor } from "@/lib/workers/processor/table-extra
 import { sanitizeJobResults } from "@/lib/jobs/results";
 import {
   COMBINED_CSV_NAME,
+  COMBINED_SHEET_NAME,
+} from "@/lib/jobs/extract-tables-options";
+import {
   MAX_PREVIEW_TABLES,
   TABLE_PREVIEW_ROWS,
-} from "@/lib/jobs/extract-tables-options";
+} from "@/lib/jobs/table-preview-limits";
 import {
   MAX_PREVIEW_CELL_CHARS,
   parseCsv,
@@ -116,6 +119,9 @@ describe("readTablePreview - over the engine's own archive", () => {
     expect(set.combined).toBe(true);
     expect(set.tableFiles).toBe(1);
     expect(set.tables.map((t) => t.file)).toEqual(entries);
+    // The names the reader derives from the archive are the engine's own.
+    expect(set.tables[0]!.file).toBe(COMBINED_CSV_NAME);
+    expect(set.tables[0]!.sheet).toBe(COMBINED_SHEET_NAME);
     const stacked = combineTables(TABLES);
     expect(set.tables[0]!.totalRows).toBe(stacked.length);
     expect(set.tables[0]!.rows).toEqual(
@@ -187,6 +193,20 @@ describe("readTablePreview - over the engine's own archive", () => {
     expect(set.tables.map((t) => [t.table, t.page])).toEqual(
       Array.from({ length: MAX_PREVIEW_TABLES }, (_, i) => [i + 1, null]),
     );
+  });
+
+  it("combined without its workbook: still the one CSV, and no sheet name made up", async () => {
+    const zip = await JSZip.loadAsync(
+      await buildTablesZip(TABLES, { combine: true }),
+    );
+    zip.remove("tables.xlsx");
+    const set = await readTablePreview(
+      await zip.generateAsync({ type: "uint8array" }),
+    );
+    expect(set.combined).toBe(true);
+    expect(set.tables.map((t) => [t.file, t.sheet])).toEqual([
+      [COMBINED_CSV_NAME, null],
+    ]);
   });
 
   it("a broken ZIP is refused, not read as empty", async () => {

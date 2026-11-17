@@ -5,7 +5,7 @@ import { fileInput, makePdfBytes, waitForHydration } from "./helpers";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
 import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
 import { buildTablesZip } from "../src/lib/workers/table-extract/engine";
-import { TABLE_PREVIEW_ROWS } from "../src/lib/jobs/extract-tables-options";
+import { TABLE_PREVIEW_ROWS } from "../src/lib/jobs/table-preview-limits";
 
 /**
  * Extract Tables' result preview (competitor audit #22, 2026-11-17) through
