@@ -1,13 +1,9 @@
 "use client";
 
-import { useId, useState, type FormEvent } from "react";
-import { LockOpen } from "lucide-react";
 import type { PdfPermissions } from "@/lib/jobs/pdf-permissions";
-import { restrictedLabels } from "@/lib/jobs/pdf-permission-labels";
 import { readFileBytes } from "@/lib/pdf/browser";
 import { GRAYSCALE_PASSWORD_LABEL } from "@/lib/pdf/grayscale-password-label";
-import { buttonVariants } from "@/components/ui/button";
-import { ErrorNote, Spinner } from "./runner-kit";
+import { PasswordField, withheldWords } from "./password-field";
 import type { LoadedPdf } from "./use-single-pdf";
 
 /**
@@ -21,7 +17,8 @@ import type { LoadedPdf } from "./use-single-pdf";
  * The grayscale copy has no encryption, so a password that does not entitle
  * the person to drop the author's restrictions is refused with the reason
  * (`./grayscale-unlock`). Sentences are constants, pinned by
- * `grayscale-password.test.tsx`.
+ * `grayscale-password.test.tsx`. The form itself is `./password-field`,
+ * shared with the owner-password field of five other tools.
  */
 
 export { GRAYSCALE_PASSWORD_LABEL };
@@ -45,14 +42,7 @@ export const GRAYSCALE_UNSUPPORTED =
 export const GRAYSCALE_OPENED_NOTE =
   "Opened with its password, here in your browser. The grayscale copy is a new file without a password or encryption.";
 
-/** "changing the document and adding comments" — the grants withheld. */
-export function withheldWords(permissions: PdfPermissions): string {
-  const words = restrictedLabels(permissions).map(
-    (label) => label.charAt(0).toLowerCase() + label.slice(1),
-  );
-  if (words.length <= 1) return words[0] ?? "";
-  return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
-}
+export { withheldWords };
 
 export function grayscaleWithheldMessage(permissions: PdfPermissions): string {
   return `This PDF's author doesn't allow ${withheldWords(permissions)}. The grayscale copy is a new file without encryption, so it can't keep those restrictions: it needs the owner password.`;
@@ -68,19 +58,7 @@ export function GrayscalePassword({
   opensWithoutPassword?: boolean;
   onOpened: (pdf: LoadedPdf) => void;
 }) {
-  const id = useId();
-  const [password, setPassword] = useState("");
-  const [checking, setChecking] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!password || checking) return;
-    const typed = password;
-    // Cleared before the check returns: the field never holds it after.
-    setPassword("");
-    setChecking(true);
-    setProblem(null);
+  const check = async (typed: string): Promise<string | null> => {
     try {
       const [{ unlockForGrayscale }, bytes] = await Promise.all([
         import("./grayscale-unlock"),
@@ -89,65 +67,29 @@ export function GrayscalePassword({
       const result = await unlockForGrayscale(file, bytes, typed);
       if (result.kind === "opened") {
         onOpened(result.pdf);
-        return;
+        return null;
       }
-      setProblem(
-        result.kind === "wrong-password"
-          ? GRAYSCALE_WRONG_PASSWORD
-          : result.kind === "withheld"
-            ? grayscaleWithheldMessage(result.permissions)
-            : GRAYSCALE_UNSUPPORTED,
-      );
+      return result.kind === "wrong-password"
+        ? GRAYSCALE_WRONG_PASSWORD
+        : result.kind === "withheld"
+          ? grayscaleWithheldMessage(result.permissions)
+          : GRAYSCALE_UNSUPPORTED;
     } catch {
-      setProblem(GRAYSCALE_UNSUPPORTED);
-    } finally {
-      setChecking(false);
+      return GRAYSCALE_UNSUPPORTED;
     }
   };
 
   return (
-    <form
-      onSubmit={submit}
-      data-grayscale-password=""
-      className="border-line bg-panel rounded-panel flex flex-col gap-3 border px-4 py-3.5"
-    >
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <label htmlFor={`${id}-pw`} className="text-fg text-sm font-medium">
-            {GRAYSCALE_PASSWORD_LABEL}
-          </label>
-          <input
-            id={`${id}-pw`}
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            value={password}
-            onChange={(e) => {
-              setPassword(e.target.value);
-              setProblem(null);
-            }}
-            aria-describedby={`${id}-hint`}
-            aria-invalid={problem !== null || undefined}
-            className="border-line bg-canvas text-fg rounded-ctl h-11 w-full border px-3 text-sm"
-          />
-        </div>
-        <button
-          type="submit"
-          // aria-disabled, not disabled: the button stays in the focus order
-          // while it checks (see `RunButton`).
-          aria-disabled={!password || checking || undefined}
-          className={buttonVariants({ variant: "secondary", size: "md" })}
-        >
-          {checking ? <Spinner /> : <LockOpen className="size-4" aria-hidden />}
-          {checking ? "Checking…" : "Open with password"}
-        </button>
-      </div>
-      <p id={`${id}-hint`} className="text-muted text-xs">
-        {opensWithoutPassword
+    <PasswordField
+      label={GRAYSCALE_PASSWORD_LABEL}
+      hint={
+        opensWithoutPassword
           ? GRAYSCALE_OWNER_PASSWORD_HINT
-          : GRAYSCALE_PASSWORD_HINT}
-      </p>
-      {problem && <ErrorNote message={problem} />}
-    </form>
+          : GRAYSCALE_PASSWORD_HINT
+      }
+      button="Open with password"
+      check={check}
+      marker="data-grayscale-password"
+    />
   );
 }

@@ -50,7 +50,11 @@ import {
   LOCKED_PDF_COPY,
   RESTRICTED_OPENERS,
 } from "@/lib/pdf/encryption";
-import { RESTRICTED_EDITORS_LEFT_OUT } from "@/tests/restricted-openers-left-out";
+import {
+  OWNER_PASSWORD_LEFT_OUT,
+  RESTRICTED_EDITORS_LEFT_OUT,
+} from "@/tests/restricted-openers-left-out";
+import { OWNER_PASSWORD_TOOLS } from "@/lib/pdf/owner-password-copy";
 import { runnerModuleOf } from "@/tests/tool-panel-modules";
 
 const RUNNER_DIR = "src/components/tools/runner";
@@ -397,4 +401,95 @@ describe("encryption claims on tool pages match the runner's reader", () => {
       ).toEqual([]);
     });
   }
+});
+
+/**
+ * Competitor-audit backlog #11: a runner that REFUSES a restricted PDF either
+ * offers the owner-password field under the refusal, or is listed with a
+ * reason (`OWNER_PASSWORD_LEFT_OUT`). The set is DERIVED, never typed: every
+ * catalogue tool that takes a PDF, whose page mounts an in-browser runner
+ * that either refuses a restricted file (`restrictedFileMeets`) or asks one
+ * of the author's grants (`./restricted-grant`, refused when withheld).
+ */
+// `./owner-password-pdf` is the single-file runners' door to it (review
+// 2026-11-17 moved their part of the field out of their first load).
+const OFFERS_FIELD =
+  /["']\.\/(?:owner-password|owner-password-pdf|grayscale-password)["']/;
+
+function refusesRestricted(slug: string): boolean {
+  const meets = restrictedFileMeets(slug);
+  if (meets === "refuses") return true;
+  return (
+    meets === "opens-protected" &&
+    runnerSource(slug)!.includes('from "./restricted-grant"')
+  );
+}
+
+describe("every runner that refuses a restricted PDF offers the owner password, or says why not", () => {
+  const takesPdf = tools.filter((t) => t.accept.includes("PDF"));
+  const refusing = takesPdf.filter((t) => refusesRestricted(t.slug));
+  const offering = refusing
+    .filter((t) => OFFERS_FIELD.test(runnerSource(t.slug)!))
+    .map((t) => t.slug)
+    .sort();
+  const leftOut = OWNER_PASSWORD_LEFT_OUT.map((r) => r.slug).sort();
+
+  it("health check: the set is the size of the refusing runners, both ways", () => {
+    // Bounded: a derivation that collapsed would pass vacuously, one that
+    // swelled would fail for the wrong reason.
+    expect(refusing.length).toBeGreaterThan(15);
+    expect(refusing.length).toBeLessThan(40);
+    expect(offering).toEqual([
+      "extract-images",
+      "extract-pages",
+      "grayscale-pdf",
+      "merge-pdf",
+      "remove-pages",
+      "rotate-pdf",
+    ]);
+    // The field's own list of tools is the offering set minus Grayscale,
+    // whose field came first (`grayscale-password.tsx`, the same form).
+    expect([...OWNER_PASSWORD_TOOLS].sort()).toEqual(
+      offering.filter((s) => s !== "grayscale-pdf"),
+    );
+    for (const { why } of OWNER_PASSWORD_LEFT_OUT)
+      expect(why.length).toBeGreaterThan(40);
+  });
+
+  it("POSITIVE CONTROL: the predicate sees a runner without the field, and the left-out list cannot hide one that has it", () => {
+    const merge = runnerSource("merge-pdf")!;
+    expect(OFFERS_FIELD.test(merge)).toBe(true);
+    // The import removed: the same source no longer offers it.
+    // The imports removed (every one): the same source no longer offers it.
+    const stripped = merge.replace(
+      new RegExp(OFFERS_FIELD.source, "g"),
+      '"./elsewhere"',
+    );
+    expect(stripped).not.toBe(merge);
+    expect(OFFERS_FIELD.test(stripped)).toBe(false);
+    // A typical refusing runner, as the catalogue mounts it.
+    expect(OFFERS_FIELD.test(runnerSource("split-pdf")!)).toBe(false);
+    expect(refusesRestricted("split-pdf")).toBe(true);
+    // The grant tools are refusers too, though they open the file.
+    expect(refusesRestricted("rotate-pdf")).toBe(true);
+    // A pdf.js reader opens a restricted file: not a refuser.
+    expect(refusesRestricted("pdf-to-text")).toBe(false);
+  });
+
+  it("each refusing runner: the field, or a row with a reason, and no row for a tool that does not need one", () => {
+    const missing = refusing
+      .map((t) => t.slug)
+      .filter((s) => !offering.includes(s) && !leftOut.includes(s))
+      .sort();
+    expect(missing, "refuses a restricted PDF, no field, no reason").toEqual(
+      [],
+    );
+    const stale = leftOut.filter(
+      (s) => !refusing.some((t) => t.slug === s) || offering.includes(s),
+    );
+    expect(
+      stale,
+      "listed as left out, but offers the field or no longer refuses",
+    ).toEqual([]);
+  });
 });

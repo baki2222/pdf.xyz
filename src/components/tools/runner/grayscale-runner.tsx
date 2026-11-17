@@ -96,12 +96,15 @@ export function GrayscaleRunner() {
       toolName="Grayscale PDF"
       errorAside={(error) =>
         error.kind === "encrypted" ? (
-          <GrayscalePassword
-            key={`${error.file.name}:${error.file.size}:${error.file.lastModified}`}
-            file={error.file}
-            opensWithoutPassword={error.verdict === "opens-without-password"}
-            onOpened={setUnlocked}
-          />
+          <>
+            <ErrorNote message={error.message} cause={error} />
+            <GrayscalePassword
+              key={`${error.file.name}:${error.file.size}:${error.file.lastModified}`}
+              file={error.file}
+              opensWithoutPassword={error.verdict === "opens-without-password"}
+              onOpened={setUnlocked}
+            />
+          </>
         ) : null
       }
     >

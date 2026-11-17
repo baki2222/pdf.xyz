@@ -209,7 +209,10 @@ export class StandardSecurityHandler {
     readonly params: EncryptParams,
     private readonly fileKey: Uint8Array,
     readonly authenticatedAs: Authenticated,
-    /** /P after the /Perms cross-check (R5/R6): never more than /P grants. */
+    /**
+     * /P after the /Perms cross-check (R5/R6): never more than /P grants,
+     * and nothing at all when /Perms does not verify.
+     */
     readonly effectiveP: number,
   ) {}
 
@@ -282,7 +285,13 @@ export class StandardSecurityHandler {
       key = await aesCbcDecryptNoPad(ik, ZERO_IV, ue.subarray(0, 32));
     }
     if (!key) return null;
-    let effectiveP = params.p;
+    // FAIL CLOSED (review 2026-11-17): /P is not encrypted, so anyone can
+    // raise it by editing the file; /Perms is the author's grant sealed
+    // with the file key. Until then a /Perms that was missing, short, or
+    // did not decrypt to "adb" left /P trusted as written — so a raised /P
+    // plus a broken /Perms let the OPEN password lift restrictions the
+    // author set. Now a grant that cannot be verified grants nothing.
+    let effectiveP = 0;
     if (params.perms && params.perms.length >= 16) {
       const perms = await aesCbcDecryptNoPad(
         key,

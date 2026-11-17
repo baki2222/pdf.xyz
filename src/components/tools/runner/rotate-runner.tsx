@@ -44,6 +44,7 @@ import {
 } from "./single-pdf-runner";
 import { usePdfThumbnails } from "./use-pdf-thumbnails";
 import type { LoadedPdf } from "./use-single-pdf";
+import type { ToolGrant } from "@/lib/pdf/security/open-with-password";
 import {
   RestrictedGrantNote,
   RestrictedGrantRefusal,
@@ -68,14 +69,51 @@ const RotateBatch = dynamic(
 const batch = (props: SinglePdfBatch) => <RotateBatch {...props} />;
 
 /**
+ * The owner-password field, its refusal and the opened file's note
+ * (`./owner-password-pdf`, over `./owner-password`), fetched only when a
+ * refusal draws or the field has opened a file.
+ */
+const OwnerPdfRefusal = dynamic(() =>
+  import("./owner-password-pdf").then((m) => m.OwnerPdfRefusal),
+);
+const OwnedPdf = dynamic(() =>
+  import("./owner-password-pdf").then((m) => m.OwnedPdf),
+);
+
+/**
+ * Rotation lifts nothing — it is written under the author's encryption —
+ * so the password that opens a file serves when its author grants it.
+ */
+const ROTATE_GRANT: ToolGrant = {
+  key: "assemble",
+  allows: (pdf) => grantAllows(pdf, "assemble"),
+};
+
+/**
  * A PDF its author restricted opens here when the author grants page
  * assembly (/P bit 11, which names rotation): the rotation is saved under
  * the author's own encryption. Withheld, the tool says which permission and
  * that the owner password lifts it (`./restricted-grant`). Refused at
  * upload, with the editing-restrictions message, until 2026-11-08. That is
  * the single-file editor; the batch refuses a restricted file on its row.
+ *
+ * Withheld — or a file that needs a password to open — the refusal carries
+ * the owner-password field (competitor-audit backlog #11). The owner
+ * password unlocks the file's `protection`, and the rotation is STILL
+ * written under the author's encryption (`ProtectedPdf.saveChanges`): the
+ * rotated copy keeps the author's passwords, permissions and encryption.
+ * Since nothing is lifted, the password that only OPENS a file serves too
+ * when its author grants rotation (`ROTATE_GRANT`, the same `grantAllows`
+ * gate as below); otherwise it is refused naming that one permission.
  */
 export function RotateRunner() {
+  const [owned, setOwned] = useState<LoadedPdf | null>(null);
+  if (owned)
+    return (
+      <OwnedPdf pdf={owned} tool="rotate-pdf" toolName="Rotate PDF">
+        <RotateEditor pdf={owned} onReset={() => setOwned(null)} />
+      </OwnedPdf>
+    );
   return (
     <SinglePdfRunner
       hint="One or more PDFs · rotate any or all pages"
@@ -83,10 +121,25 @@ export function RotateRunner() {
       handoffSlug="rotate-pdf"
       toolName="Rotate PDF"
       openProtected
+      errorAside={(error) =>
+        error.kind === "encrypted" ? (
+          <OwnerPdfRefusal
+            error={error}
+            tool="rotate-pdf"
+            grant={ROTATE_GRANT}
+            onOpened={setOwned}
+          />
+        ) : null
+      }
     >
       {(pdf, reset) =>
         pdf.protection && !grantAllows(pdf.protection, "assemble") ? (
-          <RestrictedGrantRefusal pdf={pdf} grant="assemble" onReset={reset} />
+          <RestrictedGrantRefusal
+            pdf={pdf}
+            grant="assemble"
+            onReset={reset}
+            onOpened={setOwned}
+          />
         ) : (
           <RotateEditor pdf={pdf} onReset={reset} />
         )
@@ -190,7 +243,9 @@ function RotateEditor({
   return (
     <div className="flex flex-col gap-5">
       <FileHeader pdf={pdf} />
-      {protection && <RestrictedGrantNote grant="assemble" />}
+      {protection && !protection.unlocked && (
+        <RestrictedGrantNote grant="assemble" />
+      )}
 
       <RunnerSection
         title="Rotate"

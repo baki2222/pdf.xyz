@@ -1,9 +1,6 @@
 import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
-import {
-  hasRestrictions,
-  type PdfPermissions,
-} from "@/lib/jobs/pdf-permissions";
-import { openWithPassword } from "@/lib/pdf/security/open-with-password";
+import type { PdfPermissions } from "@/lib/jobs/pdf-permissions";
+import { openForCopy } from "@/lib/pdf/security/open-with-password";
 import { readPageBoard, type LoadedPdf } from "./use-single-pdf";
 
 /**
@@ -31,11 +28,9 @@ export async function unlockForGrayscale(
   bytes: Uint8Array,
   password: string,
 ): Promise<GrayscaleUnlock> {
-  const result = await openWithPassword(bytes, password);
-  if (result.kind === "wrong-password") return result;
-  if (result.kind === "unsupported") return { kind: "unsupported" };
-  if (result.as !== "owner" && hasRestrictions(result.permissions))
-    return { kind: "withheld", permissions: result.permissions };
+  // The owner's rule, decided once for every tool (`openForCopy`).
+  const result = await openForCopy(bytes, password);
+  if (result.kind !== "opened") return result;
   try {
     const { pageCount, rotations } = await readPageBoard(
       result.plain,

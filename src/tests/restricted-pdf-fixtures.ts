@@ -187,3 +187,63 @@ export const SIGNED_RESTRICTED_FIXTURE: GrantFixture = {
   objectStreams: false,
   pageCount: 2,
 };
+
+/**
+ * The OWNER-PASSWORD fixtures (`make-owner.py`, pypdf over `grant-base.pdf`,
+ * 2026-11-17): two pages and the 8 x 8 picture, withholding copying, page
+ * assembly, changes, comments and form filling (/P −1340) — the RC4 file
+ * {@link NO_ASSEMBLE_COPY_FIXTURE}'s grant in the AES ciphers. For the
+ * owner-password field of Merge PDF, Extract Pages, Delete Pages, Rotate PDF
+ * and Extract Images (`owner-password-matrix.test.ts`, `e2e/owner-password.spec.ts`).
+ */
+export const AES128_NO_GRANT_FIXTURE: GrantFixture = {
+  file: "pypdf-r4-aes128-no-grant.pdf",
+  producer: "pypdf",
+  v: 4,
+  r: 4,
+  owner: "owner-aes128-test",
+  permissions: [4, 512, 2048],
+  objectStreams: false,
+  pageCount: 2,
+};
+
+export const AES256_NO_GRANT_FIXTURE: GrantFixture = {
+  file: "pypdf-r6-aes256-no-grant.pdf",
+  producer: "pypdf",
+  v: 5,
+  r: 6,
+  owner: "owner-aes256-test",
+  permissions: [4, 512, 2048],
+  objectStreams: false,
+  pageCount: 2,
+};
+
+/** Needs its open password ({@link FIXTURE_OPEN_PASSWORD}) AND withholds. */
+export const AES256_BOTH_PASSWORDS_FIXTURE: GrantFixture = {
+  file: "pypdf-r6-aes256-both-passwords.pdf",
+  producer: "pypdf",
+  v: 5,
+  r: 6,
+  owner: "owner-both-test",
+  permissions: [4, 512, 2048],
+  objectStreams: false,
+  pageCount: 2,
+};
+
+/**
+ * An EMPTY owner password (and no open password), added 2026-11-17 by
+ * review: anyone opens it "as owner" without typing anything, and that is
+ * not a person proving it, so its restrictions stay (`openForCopy` reads
+ * `ProtectedPdf.unlocked`, never `as === "owner"`). Written alone by
+ * `make-owner.py --only`.
+ */
+export const AES256_EMPTY_OWNER_FIXTURE: GrantFixture = {
+  file: "pypdf-r6-aes256-empty-owner.pdf",
+  producer: "pypdf",
+  v: 5,
+  r: 6,
+  owner: "",
+  permissions: [4, 512, 2048],
+  objectStreams: false,
+  pageCount: 2,
+};

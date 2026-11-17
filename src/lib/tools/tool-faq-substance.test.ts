@@ -481,7 +481,16 @@ describe("merge, split and extract answer what their engines do", () => {
         /await getPageCount\(bytes\)[\s\S]{0,900}setRejections/,
       );
       const served = answer(tool.slug, /password-protected/);
-      expect(served).toMatch(/^Not while they are locked\./);
+      // INVERTED 2026-11-17 (competitor-audit backlog #11), history kept:
+      // this pinned "Not while they are locked." — true until the refusal
+      // row carried the owner-password field. The file is still turned
+      // away when it is added; the owner password typed under it adds it
+      // (`owner-password-runners.test.tsx` drives it), and the runner must
+      // offer that field for the answer to say so.
+      expect(served).toMatch(/^Yes, with the owner password\./);
+      expect(served).toMatch(/turned away when you add it/);
+      expect(served).toContain("Owner password field");
+      expect(src).toMatch(/import\("\.\/owner-password"\)/);
       expect(served).toContain("Unlock PDF");
     }
   });
