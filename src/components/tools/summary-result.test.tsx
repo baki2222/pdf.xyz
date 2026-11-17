@@ -28,6 +28,7 @@ import { summaryOutputName } from "@/lib/jobs/summarize-pdf";
 import { MAX_DISPLAY_FILENAME_LENGTH } from "@/lib/jobs/filenames";
 import { COPY_STATUS } from "./copy-text-button";
 import { SummaryResultBody } from "./summarize-worker-panel";
+import { PAGE_TEXT_LIMIT } from "./ai-result-limits";
 
 const SUMMARY =
   "The lease runs for three years.\n\n- Rent is due on the first.\n- Notice is ninety days.";
@@ -258,5 +259,41 @@ describe("Summarize PDF result — the summary is on the page", () => {
     expect(screen.queryByRole("region", { name: "Summary" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Copy summary" })).toBeNull();
     expect(screen.queryByText(/read it below/)).toBeNull();
+  });
+});
+
+/**
+ * Competitor audit #16 (2026-11-17): the Summary box draws at most
+ * PAGE_TEXT_LIMIT characters; Copy summary and the TXT still carry all of it.
+ */
+describe("Summary box caps the page, never the copy", () => {
+  it("a summary past the cap is cut in the box, said so, and copied and saved whole", async () => {
+    const tail = "END-OF-THE-SUMMARY";
+    const long = `${"word ".repeat(PAGE_TEXT_LIMIT / 4)}${tail}`;
+    const writeText = vi.fn(async (_text: string) => {});
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    const pkg = await realPackage(long);
+    const whole = await entry(pkg, SUMMARY_PACKAGE_FILES.text);
+    // Health check: what the worker wrote is past the cap, tail and all.
+    expect(whole.indexOf(tail)).toBeGreaterThan(PAGE_TEXT_LIMIT);
+    const { blobs } = catchDownloads();
+    render(<SummaryResultBody output={pkg} filename={ZIP} />);
+    const box = await screen.findByRole("region", { name: "Summary" });
+    expect(box.textContent!.length).toBe(PAGE_TEXT_LIMIT);
+    expect(box.textContent).not.toContain(tail);
+    expect(
+      screen.getByText(
+        /^Only the first 50,000 of [\d,]+ characters are shown here\./,
+      ),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Copy summary" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(writeText.mock.calls[0]![0]).toContain(tail);
+    fireEvent.click(screen.getByRole("button", { name: "Download TXT" }));
+    await waitFor(() => expect(blobs).toHaveLength(1));
+    expect(await blobs[0]!.text()).toContain(tail);
   });
 });

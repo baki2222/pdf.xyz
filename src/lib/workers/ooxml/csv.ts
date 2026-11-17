@@ -33,14 +33,34 @@ const FORMULA_LEAD = new Set<string>([...CSV_FORMULA_LEADS, "\t", "\r"]);
  * text cells are inline strings.
  */
 function csvCell(value: string): string {
-  const neutralised =
-    FORMULA_LEAD.has(value.charAt(0)) &&
-    value !== "-" &&
-    !parseSheetNumber(value);
+  const neutralised = formulaLed(value);
   const text = neutralised ? `'${value}` : value;
   return neutralised || /[",\r\n]/.test(text)
     ? `"${text.replace(/"/g, '""')}"`
     : text;
+}
+
+/**
+ * Whether a cell would open as a live formula, by the rule {@link csvCell}
+ * documents. ONE predicate for the CSV and the TSV, so a fix to either is a
+ * fix to both.
+ */
+function formulaLed(value: string): boolean {
+  return (
+    FORMULA_LEAD.has(value.charAt(0)) &&
+    value !== "-" &&
+    !parseSheetNumber(value)
+  );
+}
+
+/**
+ * A tab-separated cell: neutralised exactly as {@link csvCell} is, and
+ * quoted only when it holds a tab, a line break or a quote, the shape
+ * Excel, LibreOffice and Google Sheets read back as ONE cell on paste.
+ */
+function tsvCell(value: string): string {
+  const text = formulaLed(value) ? `'${value}` : value;
+  return /["\t\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 /**
@@ -50,4 +70,13 @@ function csvCell(value: string): string {
  */
 export function toCsv(rows: string[][]): string {
   return rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+}
+
+/**
+ * Rows as tab-separated text, for pasting into a spreadsheet (AI Data
+ * Extraction's "Copy as table", built in the browser): CRLF between rows, no
+ * trailing CRLF, formula-leading cells neutralised as in {@link toCsv}.
+ */
+export function toTsv(rows: string[][]): string {
+  return rows.map((row) => row.map(tsvCell).join("\t")).join("\r\n");
 }
