@@ -351,3 +351,126 @@ for (const tool of ["rotate-pdf", "extract-images"] as const)
     expect(guard.pageErrors).toEqual([]);
     expect(guard.cspViolations()).toEqual([]);
   });
+
+/**
+ * The seam of this field and Merge PDF's Arrange pages (merged 2026-11-17):
+ * each was proven alone. The file needs BOTH passwords, so its encrypted
+ * bytes draw nothing in pdf.js without one; every thumbnail of it below is
+ * the decrypted copy the field handed the list. Its pages are then woven
+ * between another file's and turned, and the download is read back here:
+ * the order, the turn, no /Encrypt, and its own text in clear.
+ */
+test("merge-pdf - an owner-opened file in Arrange pages: drawn, woven in, turned and merged as shown", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const guard = attachConsoleGuard(page);
+  const both = FIXTURES.find((f) => f.open !== "")!;
+  const plain = await PDFDocument.create();
+  for (const w of [300, 400]) plain.addPage([w, 500]);
+  await page.goto("/tools/merge-pdf");
+  const input = fileInput(page);
+  await waitForHydration(input);
+  await input.setInputFiles([
+    {
+      name: "first.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from(await plain.save()),
+    },
+    {
+      name: "locked.pdf",
+      mimeType: "application/pdf",
+      buffer: read(both.file),
+    },
+  ]);
+  const field = page.getByLabel(OWNER_PASSWORD_LABEL, { exact: true });
+  await expect(field).toBeVisible({ timeout: 20_000 });
+  await submit(page, both.owner, true);
+  await expect(page.locator('[data-owner-opened="merge-pdf"]')).toBeVisible({
+    timeout: 20_000,
+  });
+
+  await page.getByRole("radio", { name: "Arrange pages" }).click();
+  const grid = page.getByRole("list", { name: /^Pages of every file/ });
+  await expect(grid).toBeVisible();
+  const tile = (file: string, n: number) =>
+    grid.getByRole("listitem", {
+      name: new RegExp(`^Page ${n} of ${file.replace(".", "\.")},`),
+    });
+  // Health check: four tiles; then each of the opened file's pages is drawn,
+  // and so is the plain file's (the positive control for "drawn at all").
+  await expect(grid.locator('[role="listitem"]')).toHaveCount(4);
+  for (const [file, n] of [
+    ["first.pdf", 1],
+    ["locked.pdf", 1],
+    ["locked.pdf", 2],
+  ] as const)
+    await expect(tile(file, n).locator("img"), `${file} p${n}`).toHaveCount(1, {
+      timeout: 20_000,
+    });
+
+  // f1 f2 l1 l2 -> f1 l1 f2 l2, l1 turned a quarter right.
+  await page
+    .getByRole("button", { name: "Move page 1 of locked.pdf earlier" })
+    .click();
+  await page
+    .getByRole("button", { name: "Rotate page 1 of locked.pdf right" })
+    .click();
+  await expect(tile("locked.pdf", 1)).toHaveAttribute(
+    "aria-label",
+    /page 2 of 4 in the merged PDF/,
+  );
+
+  const merge = page.getByRole("button", { name: /^merge/i });
+  await expect(merge).toBeEnabled({ timeout: 20_000 });
+  await merge.click();
+  const buf = await captureDownload(
+    page,
+    page.getByRole("button", { name: /download merged pdf/i }),
+  );
+  // pdf-lib refuses any /Encrypt: loading it proves there is none.
+  const doc = await PDFDocument.load(new Uint8Array(buf));
+  expect(
+    doc
+      .getPages()
+      .map((p) => [Math.round(p.getSize().width), p.getRotation().angle]),
+  ).toEqual([
+    [300, 0],
+    [612, 90],
+    [400, 0],
+    [612, 0],
+  ]);
+  const out = await viewer(buf, "");
+  expect(out.encrypted).toBe(false);
+  expect(out.rotations).toEqual([0, 90, 0, 0]);
+  // locked.pdf's text, in clear: its page 1 second, its page 2 last.
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = pdfjs.getDocument({
+    data: new Uint8Array(buf),
+    useWorkerFetch: false,
+    disableFontFace: true,
+    ...PDFJS_DOCUMENT_DEFAULTS,
+  });
+  try {
+    const read2 = await task.promise;
+    const texts: string[] = [];
+    for (let i = 1; i <= read2.numPages; i += 1) {
+      const content = await (await read2.getPage(i)).getTextContent();
+      texts.push(
+        content.items.map((it) => ("str" in it ? it.str : "")).join(""),
+      );
+    }
+    // Page 1 of the fixture draws the line alone, its page 2 adds "page 2";
+    // the plain file's pages draw nothing.
+    expect(texts).toEqual([
+      "",
+      "RESTRICTED-GRANT-FIXTURE",
+      "",
+      "RESTRICTED-GRANT-FIXTURE page 2",
+    ]);
+  } finally {
+    await task.destroy();
+  }
+  expect(guard.pageErrors).toEqual([]);
+  expect(guard.cspViolations()).toEqual([]);
+});
