@@ -17,9 +17,19 @@ import { signatureRequestDeps } from "./native";
 import { runSignatureRequest } from "./engine";
 import {
   MAX_REQUEST_SIGNERS,
+  REQUEST_SIGNATURE_FIELD_TYPES,
   signatureBlockFields,
   type SignatureRequestOptions,
 } from "@/lib/jobs/request-signatures";
+import { readPdfFrames } from "@/lib/pdf/page-frame";
+import {
+  addField,
+  moveField,
+  resizeField,
+  toRequestFields,
+  type FrameSize,
+  type LayoutField,
+} from "@/lib/signatures/request-layout";
 import {
   PDF_ENCRYPTED_UNKNOWN_MESSAGE,
   PDF_NEEDS_PASSWORD_MESSAGE,
@@ -497,6 +507,204 @@ describe("request-signatures fields as a viewer displays them", () => {
     expect(checked).toBe(ROTATIONS.length * BOX_SHAPES.length * fields.length);
     expect(fields.length).toBe(MAX_REQUEST_SIGNERS * 2);
   });
+});
+
+/**
+ * Two pages of one shape (`shapedPage`'s boxes and rotation on each), for a
+ * layout that spans pages.
+ */
+async function shapedTwoPages(
+  rotation: number,
+  shape: (typeof BOX_SHAPES)[number],
+): Promise<Uint8Array> {
+  const one = await PDFDocument.load(await shapedPage(rotation, shape));
+  const doc = await PDFDocument.create();
+  const [a, b] = await doc.copyPages(one, [0, 0]);
+  doc.addPage(a!);
+  doc.addPage(b!);
+  return doc.save();
+}
+
+/**
+ * The placement editor's corpus (audit #21, 2026-11-17): boxes a reader can
+ * produce with `@/lib/signatures/request-layout` — pushed into all four
+ * corners, every type, a labelled Name box and a labelled resized Text box,
+ * on two pages, for two signers — through the real engine and read back by
+ * pdf.js on every rotation and box shape. The scratch round trip that
+ * justified the editor's coordinate model (24 fields, worst edge 0.5 pt),
+ * made permanent.
+ */
+function editorLayout(frames: readonly FrameSize[]) {
+  const [p1, p2] = frames as [FrameSize, FrameSize];
+  let layout: LayoutField[] = [];
+  const push = (
+    preset: Parameters<typeof addField>[1],
+    owner: number,
+    page: 1 | 2,
+    dx: number,
+    dy: number,
+  ) => {
+    const frame = page === 1 ? p1 : p2;
+    layout = addField(layout, preset, owner, page, frame);
+    const last = layout.length - 1;
+    layout[last] = moveField(layout[last]!, dx, dy, frame);
+  };
+  push("signature", 1, 1, -1, -1); // bottom-left
+  push("initials", 1, 1, 1, 1); // top-right
+  push("name", 2, 1, -1, 1); // top-left, labelled Name
+  push("date", 2, 2, 1, -1); // bottom-right, page 2
+  push("text", 1, 2, 0.1, 0.2); // off-centre, page 2
+  const last = layout.length - 1;
+  layout[last] = {
+    ...resizeField(layout[last]!, 0.1, 0.05, p2),
+    label: "Notes",
+  };
+  return toRequestFields(
+    layout,
+    new Map([
+      [1, 0],
+      [2, 1],
+    ]),
+  );
+}
+
+describe("request-signatures: boxes the placement editor makes land where it drew them", () => {
+  it("every corner, type, label and page, on every rotation and box shape, within 1 pt, upright, no fill", async () => {
+    const lib = await pdfjs();
+    const signers = [
+      { name: "Ada Lovelace", email: "ada@example.com" },
+      { name: "Alan Turing", email: "alan@example.com" },
+    ];
+    let checked = 0;
+    let fieldsPerRun = 0;
+    const seenRotations = new Set<number>();
+    for (const rotation of ROTATIONS) {
+      for (const shape of BOX_SHAPES) {
+        const where = `rotate ${rotation}, ${shape.label}`;
+        const input = await shapedTwoPages(rotation, shape);
+        const read = await readPdfFrames(input);
+        expect(read?.frames.length, where).toBe(2);
+        const fields = editorLayout(read!.frames);
+        fieldsPerRun = fields.length;
+        // Health: the corpus is what it says — every type, two pages, labels.
+        expect(new Set(fields.map((f) => f.type))).toEqual(
+          new Set(REQUEST_SIGNATURE_FIELD_TYPES),
+        );
+        expect(new Set(fields.map((f) => f.page))).toEqual(new Set([1, 2]));
+        expect(fields.some((f) => f.x === 0 && f.y === 0)).toBe(true);
+        expect(
+          fields.some(
+            (f) =>
+              Math.abs(f.x + f.width - 1) < 1e-3 &&
+              Math.abs(f.y + f.height - 1) < 1e-3,
+          ),
+        ).toBe(true);
+        // …and differs from the starting block (a no-op editor would not).
+        expect(fields).not.toEqual(signatureBlockFields(2, 1, true));
+
+        const run = await runSignatureRequest(
+          input,
+          { signers, fields, routing: "parallel", deliver: false },
+          signatureRequestDeps(),
+        );
+        expect(run.ok, where).toBe(true);
+        if (!run.ok) continue;
+        const zip = await JSZip.loadAsync(run.output);
+        const preparedBytes = await zip
+          .file("prepared.pdf")!
+          .async("uint8array");
+        const manifest = JSON.parse(
+          await zip.file("manifest.json")!.async("string"),
+        ) as {
+          fields: {
+            name: string;
+            page: number;
+            label?: string;
+            rect: (typeof fields)[number];
+          }[];
+        };
+        expect(manifest.fields.length, where).toBe(fields.length);
+        expect(
+          manifest.fields.map((f) => f.label ?? null),
+          `${where}: labels in the manifest`,
+        ).toEqual(fields.map((f) => f.label ?? null));
+
+        const task = lib.getDocument({
+          data: preparedBytes.slice(),
+          useSystemFonts: false,
+          verbosity: 0,
+        });
+        const doc = await task.promise;
+        for (const pageNumber of [1, 2]) {
+          const page = await doc.getPage(pageNumber);
+          const viewport = page.getViewport({ scale: 1 });
+          seenRotations.add(page.rotate);
+          const annotations = (await page.getAnnotations()) as {
+            fieldName?: string;
+            rect: [number, number, number, number];
+            rotation: number;
+            backgroundColor: unknown;
+          }[];
+          const byName = new Map(annotations.map((a) => [a.fieldName, a]));
+          const [a, b, c, d, e, f] = viewport.transform as number[];
+          const toView = (x: number, y: number) => [
+            a! * x + c! * y + e!,
+            b! * x + d! * y + f!,
+          ];
+          for (const field of manifest.fields.filter(
+            (m) => m.page === pageNumber,
+          )) {
+            const ann = byName.get(field.name);
+            expect(
+              ann,
+              `${where}: ${field.name} on page ${pageNumber}`,
+            ).toBeDefined();
+            if (!ann) continue;
+            const [p0x, p0y] = toView(ann.rect[0], ann.rect[1]);
+            const [p1x, p1y] = toView(ann.rect[2], ann.rect[3]);
+            const seen = {
+              left: Math.min(p0x!, p1x!),
+              right: Math.max(p0x!, p1x!),
+              top: Math.min(p0y!, p1y!),
+              bottom: Math.max(p0y!, p1y!),
+            };
+            const r = field.rect;
+            const want = {
+              left: r.x * viewport.width,
+              right: (r.x + r.width) * viewport.width,
+              top: (1 - r.y - r.height) * viewport.height,
+              bottom: (1 - r.y) * viewport.height,
+            };
+            for (const edge of ["left", "right", "top", "bottom"] as const)
+              expect(
+                Math.abs(seen[edge] - want[edge]),
+                `${where}: ${field.name} ${edge} is ${seen[edge].toFixed(1)}, requested ${want[edge].toFixed(1)}`,
+              ).toBeLessThanOrEqual(1);
+            expect(ann.rotation, `${where}: ${field.name} upright`).toBe(
+              page.rotate,
+            );
+            expect(
+              ann.backgroundColor,
+              `${where}: ${field.name} /BG`,
+            ).toBeNull();
+            checked += 1;
+          }
+        }
+        await task.destroy();
+
+        const prepared = await PDFDocument.load(preparedBytes);
+        for (const field of prepared.getForm().getFields())
+          for (const widget of field.acroField.getWidgets())
+            expect(
+              FILL_OPERATOR.test(appearanceText(widget)),
+              `${where}: ${field.getName()} appearance fills an area`,
+            ).toBe(false);
+      }
+    }
+    expect([...seenRotations].sort((x, y) => x - y)).toEqual(ROTATIONS);
+    expect(fieldsPerRun).toBe(5);
+    expect(checked).toBe(ROTATIONS.length * BOX_SHAPES.length * fieldsPerRun);
+  }, 60_000);
 });
 
 /**
