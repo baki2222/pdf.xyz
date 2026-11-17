@@ -1007,7 +1007,10 @@ export const RUNNER_MID_RUN_FETCHES: Readonly<
   grayscale: ["image-decoder", "character-map"],
   redact: ["image-decoder", "character-map"],
   "fill-forms": [],
-  "create-forms": [],
+  // The page preview draws the selected card's page through pdf.js
+  // (backlog #17, 2026-11-17): an image decoder or a character map when a
+  // page needs one.
+  "create-forms": ["image-decoder", "character-map"],
   annotate: ["image-decoder", "character-map", "drawing-font"],
   edit: ["image-decoder", "character-map", "drawing-font"],
   "extract-images": [],

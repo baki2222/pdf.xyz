@@ -40,8 +40,11 @@ import { rasterScaleForDpi } from "@/lib/pdf/pdf-to-image";
  *  - loadPdf (src/lib/pdf/engine.ts) refuses encrypted input;
  *  - download name: createdFormOutputName → outputName(name, "form"), which
  *    strips / \ ? % * : | " < > from the base name;
- *  - no network call on the runner path (no fetch, no analytics in the runner,
- *    runner-kit, single-pdf-runner or use-single-pdf).
+ *  - nothing is SENT on the runner path (no upload, no analytics in the
+ *    runner, runner-kit, single-pdf-runner or use-single-pdf). Since the page
+ *    preview (2026-11-17) pdf.js may DOWNLOAD an image decoder or a character
+ *    map from our origin to draw a page; the offline answer names both
+ *    (`RUNNER_MID_RUN_FETCHES`, held to the call graph by offline-answer.test.ts).
  *
  * The page preview, read from the code on 2026-11-17 (backlog #17):
  * create-forms-preview.tsx draws the selected card's page (rendered as
