@@ -171,7 +171,13 @@ export function PageZoomDialog({
             <X className="size-4" aria-hidden />
           </button>
         </div>
-        <div className="bg-wash rounded-panel grid min-h-0 flex-1 place-items-center overflow-auto p-3">
+        {/* Named by the heading and focusable, so a keyboard can scroll a
+            page that does not fit (axe scrollable-region-focusable). */}
+        <section
+          aria-labelledby={headingId}
+          tabIndex={0}
+          className="bg-wash rounded-panel focus-visible:ring-ok/50 grid min-h-0 flex-1 place-items-center overflow-auto p-3 outline-none focus-visible:ring-2"
+        >
           {place?.blank ? (
             <BlankSheet size={place.blank} rotation={place.rotation} />
           ) : image ? (
@@ -190,7 +196,7 @@ export function PageZoomDialog({
               className="bg-canvas rounded-sheet aspect-[1/1.414] h-[60vh] max-w-full"
             />
           )}
-        </div>
+        </section>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <ChipButton onClick={() => go(index - 1)} disabled={index === 0}>

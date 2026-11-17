@@ -452,9 +452,15 @@ export function ComparePdfEditor({
             // No text was compared: the report is a few lines saying why,
             // and the pages can still be overlaid.
             <>
-              <div className="border-line text-fg bg-canvas rounded-panel max-h-80 overflow-auto border p-4 font-mono text-xs leading-5 whitespace-pre-wrap">
+              {/* Focusable and named so a keyboard can scroll it (axe
+                  scrollable-region-focusable). */}
+              <section
+                aria-label="Comparison report"
+                tabIndex={0}
+                className="border-line text-fg bg-canvas rounded-panel focus-visible:ring-ok/50 max-h-80 overflow-auto border p-4 font-mono text-xs leading-5 whitespace-pre-wrap outline-none focus-visible:ring-2"
+              >
                 {result.report}
-              </div>
+              </section>
               {done && <done.mod.CompareVisualRoute pages={done} />}
             </>
           )}
