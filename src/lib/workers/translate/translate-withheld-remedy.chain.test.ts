@@ -200,6 +200,10 @@ describe("a characters-bound withhold: the old remedy, run", () => {
       deliveredPages: 2,
       withheldPages: 1,
       boundBy: "characters",
+      // The engine's positive flag for a declared job (review, 2026-11-17):
+      // a result without it, as every older worker writes, keeps the old
+      // remedy in the panel.
+      counted: true,
     });
     expect(provider.calls.length).toBeGreaterThan(0);
   });
@@ -271,7 +275,6 @@ describe("CONTROL: a job that declared NOTHING keeps the separate-document remed
       deliveredPages: 8,
       withheldPages: 12,
       boundBy: "characters",
-      undeclared: true,
     });
 
     const md = await translationMd(first.result.output);
@@ -335,6 +338,7 @@ describe("the package and the panel say ONE sentence for the characters bound", 
       deliveredPages: 2,
       withheldPages: 1,
       boundBy: "characters",
+      counted: true,
     });
     const whole = withheldPagesMarker(
       [3],

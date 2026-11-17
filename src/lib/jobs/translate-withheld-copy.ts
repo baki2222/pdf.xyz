@@ -25,8 +25,11 @@
  * direct API caller, or a panel scan sent for OCR) reserved the flat
  * fallback: nothing was counted, so this sentence is false of it, and the
  * remaining pages sent as another document get a fresh fallback and are
- * translated. Both surfaces branch on the cap's `undeclared` flag and keep
- * the separate-document remedy for that job; the chain test runs it.
+ * translated. The package branches on the cap's `undeclared` flag; the panel
+ * on the result's POSITIVE `counted` flag, so a result from an older worker
+ * (which has neither, and whose package keeps the old remedy) is not worded
+ * as a declared job. Both keep the separate-document remedy for that job;
+ * the chain test runs it.
  *
  * The PAGE bound keeps its own remedies, which do work: a page count the
  * browser declares is exact (pdf.js and the worker agree on pages), so the

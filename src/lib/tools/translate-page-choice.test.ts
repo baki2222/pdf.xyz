@@ -341,7 +341,8 @@ const SPLIT_SHIPPED: readonly { at: string; sentence: string }[] = [
         boundBy: "characters",
         deliveredPages: 1,
         withheldPages: 1,
-        undeclared: true,
+        // No `counted` flag: an undeclared job's result, and any result an
+        // older worker wrote (review, 2026-11-17).
       }),
       /separate document/,
     ),

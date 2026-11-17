@@ -1201,7 +1201,11 @@ export async function runTranslate(
               deliveredPages: translatedPages.length,
               withheldPages: withheld.pages.length,
               boundBy: capped!.boundBy!,
-              ...(limit.undeclared ? { undeclared: true as const } : {}),
+              // Positive, so a result without it (any older worker's) keeps
+              // the panel's separate-document remedy (`AiDeliveryMeta.counted`).
+              ...(capped!.boundBy === "characters" && !limit.undeclared
+                ? { counted: true as const }
+                : {}),
             },
           }
         : {}),

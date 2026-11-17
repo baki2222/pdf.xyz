@@ -31,6 +31,14 @@ import { WITHHELD_UNDERCOUNT_SENTENCE } from "@/lib/jobs/translate-withheld-copy
  * A job that declared no count (a scan sent for OCR) reserved a flat amount,
  * and another document gets another one, so it keeps that remedy.
  *
+ * THE UNDERCOUNT SENTENCE NEEDS A POSITIVE FLAG (review, 2026-11-17). The web
+ * tier auto-deploys and the worker image is built by hand, so this panel
+ * meets results from a worker older than itself. Such a result carries no
+ * flag, and its package says "as a separate document"; reading the missing
+ * flag as "declared" told every such job, scans included, that more text was
+ * found than was counted. Only `delivery.counted === true`, which only a
+ * worker that writes the new marker sets, picks the new sentence.
+ *
  * ── COMPUTED FROM THE JOB RECORD, NOT FROM THE MODEL'S WORDS ────────────────
  *
  * Same reason as `TruncationNotice`: the counts come from the record the worker
@@ -67,8 +75,8 @@ export function deliverySummary(delivery: AiDeliveryMeta): string {
 export function deliveryConsequence(delivery: AiDeliveryMeta): string {
   return delivery.boundBy === "characters"
     ? "The remaining pages held more text than this job's free daily allowance reserved for it, so they were left untranslated rather than cut short. They are marked in place in the package. " +
-        (delivery.undeclared
-          ? "Translate them as a separate document."
-          : WITHHELD_UNDERCOUNT_SENTENCE)
+        (delivery.counted
+          ? WITHHELD_UNDERCOUNT_SENTENCE
+          : "Translate them as a separate document.")
     : "The document held more pages of text than were declared for it, so the remainder was left untranslated. They are marked in place in the package. Upload it again to translate the rest.";
 }

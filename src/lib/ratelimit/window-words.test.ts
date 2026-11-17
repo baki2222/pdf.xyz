@@ -519,7 +519,8 @@ function evaluatedSentences(): { where: string; text: string }[] {
           deliveredPages: 2,
           withheldPages: 1,
           boundBy: bound,
-          ...(undeclared ? { undeclared: true as const } : {}),
+          // The result's flag is positive (review, 2026-11-17).
+          ...(undeclared ? {} : { counted: true as const }),
         }),
       );
       for (const chosen of [null, [[2, 3]] as [number, number][]]) {

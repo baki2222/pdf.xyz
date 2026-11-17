@@ -209,7 +209,8 @@ describe("no per-job notice offers choosing pages", () => {
           boundBy,
           deliveredPages: 2,
           withheldPages: 2,
-          ...(arm === "undeclared" ? { undeclared: true as const } : {}),
+          // The panel reads the result's POSITIVE flag (review, 2026-11-17).
+          ...(arm === "declared" ? { counted: true as const } : {}),
         }),
       })),
     ]);
@@ -257,6 +258,7 @@ describe("no per-job notice offers choosing pages", () => {
       boundBy: "characters",
       deliveredPages: 2,
       withheldPages: 1,
+      counted: true,
     });
     expect(declaredMarker).toContain(WITHHELD_UNDERCOUNT_SENTENCE);
     expect(declaredPanel.endsWith(WITHHELD_UNDERCOUNT_SENTENCE)).toBe(true);
@@ -273,7 +275,6 @@ describe("no per-job notice offers choosing pages", () => {
       boundBy: "characters",
       deliveredPages: 2,
       withheldPages: 1,
-      undeclared: true,
     });
     expect(undeclaredMarker).toContain(SEPARATE_DOCUMENT);
     expect(undeclaredPanel).toMatch(/\bas a separate document\.$/);
