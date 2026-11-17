@@ -68,7 +68,9 @@ import {
  *    field null), extraction.md, manifest.json (missing/renamed/extra keys) and
  *    README.txt. No CSV is in the ZIP; since 2026-11-07 the panel's Download
  *    CSV builds one in the browser from extraction.json
- *    (src/lib/workers/ai-extract-package.ts, AI_EXTRACT_CSV_SHAPE).
+ *    (src/lib/workers/ai-extract-package.ts, AI_EXTRACT_CSV_SHAPE), and since
+ *    2026-11-17 the page shows the rows as a table with Download XLSX, Copy
+ *    as table and Copy JSON (src/components/tools/ai-result-views.tsx).
  *    extraction.md is a Field | Value table (a numbered list for a list
  *    reply), a null shown as AI_EXTRACT_NULL_CELL (a null inside a list as
  *    "_(null)_"), a dropped field as "_(not returned by the model)_", and
@@ -200,7 +202,7 @@ const content: ToolContent = {
     },
     {
       q: "What is inside the ZIP I download, and can I get CSV or Excel?",
-      a: `The ZIP holds five files. model-output.json is the model's JSON reply as it was returned. extraction.json holds the same data. With a field schema, it lists every field you asked for, in your order and under your names, and a key the model respelled is mapped back to your name. ${AI_EXTRACT_UNRETURNED_NULL} With a prompt, it is the reply as given. extraction.md lays the data out as a Field and Value table, or as a numbered list if the reply is a list. ${AI_EXTRACT_NULL_CELL_LEGEND} It marks a requested field the model never returned as not returned by the model, and lists any keys you did not ask for in a separate table. manifest.json records the provider, the model, your prompt or schema, the page and character counts, any cut, and which fields were missing, respelled or extra. README.txt describes the package. The ZIP holds no CSV, but when the data is an object or a list of objects, a Download CSV button beside the ZIP saves one, built by the page from extraction.json without another AI run: ${AI_EXTRACT_CSV_SHAPE}. ${AI_EXTRACT_NULL_CSV_LEGEND} There is no Excel workbook, though Excel opens the CSV. For tables laid out in rows and columns in the PDF itself, Extract Tables writes one CSV per table plus an Excel workbook.`,
+      a: `The ZIP holds five files. model-output.json is the model's JSON reply as it was returned. extraction.json holds the same data. With a field schema, it lists every field you asked for, in your order and under your names, and a key the model respelled is mapped back to your name. ${AI_EXTRACT_UNRETURNED_NULL} With a prompt, it is the reply as given. extraction.md lays the data out as a Field and Value table, or as a numbered list if the reply is a list. ${AI_EXTRACT_NULL_CELL_LEGEND} It marks a requested field the model never returned as not returned by the model, and lists any keys you did not ask for in a separate table. manifest.json records the provider, the model, your prompt or schema, the page and character counts, any cut, and which fields were missing, respelled or extra. README.txt describes the package. The ZIP holds no CSV or workbook, but when the data is an object or a list of objects, the page shows it as a table and builds both from extraction.json without another AI run: Download CSV and Download XLSX beside the ZIP save them, and Copy as table puts the same rows on your clipboard, ready to paste into a spreadsheet. The CSV has ${AI_EXTRACT_CSV_SHAPE}. ${AI_EXTRACT_NULL_CSV_LEGEND} Copy JSON copies extraction.json itself. For tables laid out in rows and columns in the PDF itself, Extract Tables writes one CSV per table plus an Excel workbook.`,
     },
     {
       q: "Is my document sent to an AI company, and is it used for training?",
