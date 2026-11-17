@@ -179,6 +179,20 @@ export function useWorkerJob<R extends { ok: boolean }>(config: {
     });
   }, [tool]);
 
+  // A run does not outlive its panel. Unmounted mid-run — the reader moved
+  // to another page — nothing can show the result, yet the poll went on
+  // reading `/api/jobs/<id>` for up to two minutes, and on success cleared
+  // the saved id, so the finished job could not even be offered back.
+  // Aborted here, the run ends as `execute` handles any abort: the saved id
+  // is kept (offered back on return) and no DELETE is sent — the job keeps
+  // running on the server, which is what a reader who only navigated meant.
+  useEffect(
+    () => () => {
+      controller.current?.abort();
+    },
+    [],
+  );
+
   const execute = useCallback(
     async (
       work: (controls: WorkerJobControls) => Promise<Outcome<R>>,

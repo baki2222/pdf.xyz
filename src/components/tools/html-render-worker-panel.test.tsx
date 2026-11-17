@@ -71,6 +71,32 @@ afterEach(() => {
 });
 
 /**
+ * The network these tests run against: the worker's status for the status
+ * check, and a REFUSAL for `POST /api/jobs`.
+ *
+ * Until 2026-11-17 every request was answered with the status, job creation
+ * included. A status is not a job: it has no `jobId` and no terminal
+ * `status`, so each run these tests start went on polling
+ * `/api/jobs/undefined` — after the test, after the file — through the next
+ * file's fetch stub, for up to 150 reads. `worker-batch-handoff.dom.test.tsx`
+ * failed on those requests whenever it shared a thread with this file.
+ * Refused, the run ends where it started; the tests here read only what the
+ * panel SENT. `src/tests/poll-leak-guard.ts` fails any file that leaves a
+ * loop running.
+ */
+function readyFetch(status: WorkerStatus = READY) {
+  return vi.fn(async (url: string) =>
+    url === "/api/jobs"
+      ? {
+          ok: false,
+          status: 400,
+          json: async () => ({ error: "Refused by the test: no job is made." }),
+        }
+      : { ok: true, status: 200, json: async () => status },
+  );
+}
+
+/**
  * A chosen file whose contents arrive only when the test says so, so the
  * moment the scan runs is the test's, not the scheduler's.
  */
@@ -100,10 +126,7 @@ function heldFile(html: string, name = "report.html") {
 }
 
 async function pick(html: string | File, name = "report.html") {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
-  );
+  vi.stubGlobal("fetch", readyFetch());
   render(
     <InToolPage tool={htmlTool}>
       <HtmlRenderWorkerPanel tool={htmlTool} />
@@ -177,10 +200,7 @@ describe("HtmlRenderWorkerPanel — linked files the upload does not carry", () 
   });
 
   it("states the one-file limit before any file is chosen, while no ZIP is offered", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
-    );
+    vi.stubGlobal("fetch", readyFetch());
     render(
       <InToolPage tool={htmlTool}>
         <HtmlRenderWorkerPanel tool={htmlTool} />
@@ -201,13 +221,7 @@ describe("HtmlRenderWorkerPanel — linked files the upload does not carry", () 
    * ZIP. For a ZIP that is false: its files are uploaded and served.
    */
   it("while a ZIP is offered, the note keeps the one-file advice to an HTML file and says a ZIP's files are served", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ ...READY, htmlZip: true }),
-      }),
-    );
+    vi.stubGlobal("fetch", readyFetch({ ...READY, htmlZip: true }));
     render(
       <InToolPage tool={htmlTool}>
         <HtmlRenderWorkerPanel tool={htmlTool} />
@@ -241,10 +255,7 @@ describe("HtmlRenderWorkerPanel — the address field is named", () => {
   const urlTool = getToolBySlug("webpage-to-pdf")!;
 
   async function mountUrl() {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
-    );
+    vi.stubGlobal("fetch", readyFetch());
     render(
       <InToolPage tool={urlTool}>
         <HtmlRenderWorkerPanel tool={urlTool} />
@@ -273,10 +284,7 @@ describe("HtmlRenderWorkerPanel — the address field is named", () => {
   });
 
   it("control: the HTML upload mode has no address field to name", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
-    );
+    vi.stubGlobal("fetch", readyFetch());
     render(
       <InToolPage tool={htmlTool}>
         <HtmlRenderWorkerPanel tool={htmlTool} />
@@ -299,9 +307,7 @@ describe("HtmlRenderWorkerPanel — the address is fixed or explained before any
   let fetchMock: ReturnType<typeof vi.fn>;
 
   async function mountUrl() {
-    fetchMock = vi
-      .fn()
-      .mockResolvedValue({ ok: true, json: async () => READY });
+    fetchMock = readyFetch();
     vi.stubGlobal("fetch", fetchMock);
     render(
       <InToolPage tool={urlTool}>
@@ -397,9 +403,7 @@ describe("HtmlRenderWorkerPanel — Webpage to PDF capture options", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   async function mountUrl() {
-    fetchMock = vi
-      .fn()
-      .mockResolvedValue({ ok: true, json: async () => READY });
+    fetchMock = readyFetch();
     vi.stubGlobal("fetch", fetchMock);
     render(
       <InToolPage tool={urlTool}>
@@ -505,10 +509,7 @@ describe("HtmlRenderWorkerPanel — Webpage to PDF capture options", () => {
   });
 
   it("control: HTML to PDF has no Capture group", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
-    );
+    vi.stubGlobal("fetch", readyFetch());
     render(
       <InToolPage tool={htmlTool}>
         <HtmlRenderWorkerPanel tool={htmlTool} />

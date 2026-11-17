@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { afterEach, beforeEach } from "vitest";
+import { afterAll, afterEach, beforeEach } from "vitest";
 import { cleanup } from "@testing-library/react";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
@@ -9,6 +9,7 @@ import { discloseKeyingForTests } from "@/lib/ratelimit/config";
 import { resetWorkerStatusForTests } from "@/components/tools/use-worker-status";
 import { observeClassesForTests } from "@/lib/utils";
 import { droppedClasses } from "./class-conflicts";
+import { assertNoPollLeft } from "./poll-leak-guard";
 import {
   setPdfjsForAccessSource,
   type PdfjsForAccess,
@@ -91,4 +92,11 @@ afterEach(() => {
 // its own clock).
 beforeEach(() => {
   resetWorkerStatusForTests({ sleep: () => Promise.resolve() });
+});
+
+// A worker poll loop a file leaves running polls through the NEXT file's
+// fetch stub (`./poll-leak-guard.ts` has the case that found it). Checked
+// once per file, after its last test, so the red names the file that leaked.
+afterAll(async () => {
+  await assertNoPollLeft();
 });
