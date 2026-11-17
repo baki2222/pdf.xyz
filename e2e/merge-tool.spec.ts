@@ -547,7 +547,9 @@ test("merge page mode: drag, keyboard move, rotate and leave out across files", 
   // View a page larger: the dialog names the page, its file and its place.
   await page.getByRole("button", { name: "View page 1 larger" }).click();
   await expect(
-    page.getByRole("dialog", { name: "Page 3 of beta.pdf, position 1 of 6" }),
+    page.getByRole("dialog", {
+      name: "Page 3 of beta.pdf, page 1 of 5 in the merged PDF",
+    }),
   ).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);

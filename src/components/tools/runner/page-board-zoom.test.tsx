@@ -415,17 +415,17 @@ describe("Merge PDF, Arrange pages across files", () => {
     const opener = screen.getByRole("button", { name: zoomLabel(2) });
     const { dialog, width } = await openZoom(
       opener,
-      "Page 1 of beta.pdf, position 2 of 4",
+      "Page 1 of beta.pdf, page 2 of 4 in the merged PDF",
     );
     // beta's page 1 (201 x 200), turned: drawn as wide as it was tall.
     expect(width).toBe(zoomWidth(200, 201));
     fireEvent.click(within(dialog).getByRole("button", { name: /next page/i }));
     const next = await screen.findByRole("dialog", {
-      name: "Page 2 of alpha.pdf, position 3 of 4",
+      name: "Page 2 of alpha.pdf, page 3 of 4 in the merged PDF",
     });
     const img = await within(next).findByRole(
       "img",
-      { name: "Page 2 of alpha.pdf, position 3 of 4" },
+      { name: "Page 2 of alpha.pdf, page 3 of 4 in the merged PDF" },
       { timeout: 10_000 },
     );
     // alpha's page 2 (102 wide), from alpha's bytes, not beta's.
@@ -442,4 +442,55 @@ describe("Merge PDF, Arrange pages across files", () => {
       }),
     ).toBeInTheDocument();
   }, 30_000);
+
+  // Re-review of 2026-11-17: once a page was left out, the dialog counted
+  // every slot ("position 4 of 6") while the tile and the merged PDF counted
+  // kept pages ("page 3 of 5"), and a left-out page's dialog never said so.
+  // The relationship is pinned, not the string: the dialog's name IS the
+  // tile's name, for every tile, left out or kept.
+  it("names each page as its tile does, a left-out page included", async () => {
+    const kind = getRunnerKind("merge-pdf");
+    expect(kind, "the registry no longer maps merge-pdf").toBeTruthy();
+    const { container } = render(
+      withAppRouter(<ToolRunner kind={kind!} slug="merge-pdf" />),
+    );
+    await runnerMounted(container);
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    fireEvent.change(input!, {
+      target: {
+        files: [
+          new File([(await pagesPdf(3)).slice()], "alpha.pdf", {
+            type: "application/pdf",
+          }),
+          new File([(await pagesPdf(2)).slice()], "beta.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    await screen.findAllByText("beta.pdf");
+    fireEvent.click(screen.getByRole("radio", { name: "Arrange pages" }));
+    const grid = await screen.findByRole(
+      "list",
+      { name: /^Pages of every file/ },
+      { timeout: 10_000 },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Leave out page 2 of alpha\.pdf/ }),
+    );
+    const tiles = within(grid).getAllByRole("listitem");
+    const names = tiles.map((t) => t.getAttribute("aria-label") ?? "");
+    // Health check: five tiles, one of them left out, so the counts differ.
+    expect(names).toHaveLength(5);
+    expect(names[1]).toBe("Page 2 of alpha.pdf, left out");
+    expect(names[2]).toBe("Page 3 of alpha.pdf, page 2 of 4 in the merged PDF");
+    for (const [i, name] of names.entries()) {
+      const opener = within(tiles[i]!).getByRole("button", {
+        name: zoomLabel(i + 1),
+      });
+      await openZoom(opener, name);
+      await closeBack(opener);
+    }
+  }, 60_000);
 });

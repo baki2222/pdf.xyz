@@ -159,8 +159,8 @@ const MergeTile = memo(function MergeTile({
   const { key } = page;
   const label = `Page ${page.pageIndex + 1} of ${fileName}`;
   const name = `page ${page.pageIndex + 1} of ${fileName}`;
-  const placed = at ? `page ${at} of ${keptCount} in the merged PDF` : null;
-  const where = placed ? `${label}, ${placed}` : `${label}, left out`;
+  const placed = placeText(at, keptCount);
+  const where = `${label}, ${placed}`;
   const tab = active ? 0 : -1;
   return (
     <PageTile
@@ -197,7 +197,7 @@ const MergeTile = memo(function MergeTile({
         tabIndex: tab,
         label: grabbed
           ? `${where}. Grabbed: arrow keys move, Enter drops, Escape puts it back.`
-          : `Reorder ${name}, ${placed ?? "left out"}. Press Enter or Space to grab.`,
+          : `Reorder ${name}, ${placed}. Press Enter or Space to grab.`,
         onToggle: () => h.toggleGrab(key),
         onKeyDown: (e) => h.handleKey(key, e),
       }}
@@ -539,9 +539,11 @@ export function MergePageGrid({
               rotation: p.rotation,
               bytes: file?.bytes,
               label: `Page ${p.pageIndex + 1} of ${file?.name ?? "a file"}`,
+              // As its tile says it: kept pages counted, not every slot.
+              where: placeText(merged.get(p.key), keptCount),
             };
           }),
-    [zoomKey, pages, fileOf],
+    [zoomKey, pages, fileOf, merged, keptCount],
   );
   const zoomFile = zoomIndex >= 0 ? fileOf.get(pages[zoomIndex]!.fileId) : null;
 
@@ -618,6 +620,14 @@ export function MergePageGrid({
 }
 
 const EMPTY: readonly number[] = [];
+
+/**
+ * Where a page sits, as its tile and its zoom dialog both say it: its page
+ * in the merged PDF (left-out pages not counted), or "left out".
+ */
+function placeText(at: number | undefined, keptCount: number): string {
+  return at ? `page ${at} of ${keptCount} in the merged PDF` : "left out";
+}
 
 /**
  * Off-screen tiles skip layout and paint (a 300-page merge stays quick);

@@ -45,6 +45,12 @@ export interface BoardPage {
    */
   bytes?: Uint8Array;
   label?: string;
+  /**
+   * Where the page is, in the board's own words, in place of "position N of
+   * M": Merge PDF counts only the pages that go in ("page 3 of 5 in the
+   * merged PDF", or "left out"), so its tile and this heading agree.
+   */
+  where?: string;
 }
 
 export interface PageZoomDialogProps {
@@ -96,7 +102,7 @@ export function PageZoomDialog({
     place ? place.rotation : rotations?.[index],
   );
   const imageName = place
-    ? `${place.blank ? "Blank page" : (place.label ?? `Page ${place.sourceIndex + 1}`)}, position ${index + 1} of ${count}`
+    ? `${place.blank ? "Blank page" : (place.label ?? `Page ${place.sourceIndex + 1}`)}, ${place.where ?? `position ${index + 1} of ${count}`}`
     : `Page ${index + 1}`;
   const closeRef = useRef(onClose);
   useEffect(() => {
