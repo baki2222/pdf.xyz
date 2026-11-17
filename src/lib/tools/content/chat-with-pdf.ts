@@ -11,6 +11,7 @@ import {
   AI_PER_CALL_RUNS_PER_DAY_AT_LEAST,
   AI_PER_CALL_RUN_CEILING,
 } from "@/lib/jobs/ai-allowance";
+import { AI_CEILING_PAUSE } from "@/lib/jobs/ai-spend-ceiling";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { getToolBySlug } from "@/lib/tools";
 import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
@@ -211,7 +212,7 @@ const content: ToolContent = {
     },
     {
       q: "Why does it say my PDF has no text to answer from?",
-      a: `The file is most likely a scan or image-only PDF, so there is no selectable text to answer from. The page checks the file for text before sending it, and when it finds none the question stops there and takes nothing from the day's allowance. A file the page cannot open is sent on to our server, and if our server finds no text in it either, that refusal comes after the question has been charged. Run it through ${OCR_TOOL}, pressing the document's language under Languages, then ask the OCR'd copy; answers are only as good as the recognised text.`,
+      a: `The file is most likely a scan or image-only PDF, so there is no selectable text to answer from. The page checks the file for text before sending it, and when it finds none the question stops there and takes nothing from the daily allowance. A file the page cannot open is sent on to our server, and if our server finds no text in it either, that refusal comes after the question has been charged. Run it through ${OCR_TOOL}, pressing the document's language under Languages, then ask the OCR'd copy; answers are only as good as the recognised text.`,
     },
     {
       q: "What if the answer is in a part of the document it did not read?",
@@ -223,7 +224,7 @@ const content: ToolContent = {
     },
     {
       q: "How many questions can I ask in a day?",
-      a: `Each question is paid for out of ${AI_ALLOWANCE_CLAUSE}, which every AI tool draws on, not this tool alone. ${AI_ALLOWANCE_WHO_SHARES} Every question, follow-ups included, is a run of its own, and one question never costs more than ${RUN_CEILING} characters of that pool, whether the PDF is one page or a thousand. That makes at least ${QUESTIONS_PHRASE} a day if nothing else has used the pool. Apart from that, a service-wide daily limit on AI processing can pause every AI tool until the next day.`,
+      a: `Each question is paid for out of ${AI_ALLOWANCE_CLAUSE}, which every AI tool draws on, not this tool alone. ${AI_ALLOWANCE_WHO_SHARES} Every question, follow-ups included, is a run of its own, and one question never costs more than ${RUN_CEILING} characters of that pool, whether the PDF is one page or a thousand. That makes at least ${QUESTIONS_PHRASE} a day if nothing else has used the pool. Apart from that, a service-wide daily limit on AI processing can pause every AI tool ${AI_CEILING_PAUSE}.`,
     },
     {
       q: "Does the AI provider train on my PDF or keep a copy?",

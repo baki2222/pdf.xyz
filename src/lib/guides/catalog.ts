@@ -37,7 +37,10 @@ import {
   TRANSLATE_OCR_SCOPE,
   TRANSLATE_SCAN_ROUTE,
 } from "@/lib/jobs/translate-ocr";
-import { aiAllowanceFactFor } from "@/lib/jobs/ai-allowance";
+import {
+  AI_ALLOWANCE_REFUSED_WHOLE,
+  aiAllowanceFactFor,
+} from "@/lib/jobs/ai-allowance";
 import {
   DEFAULT_SUMMARY_FORMAT,
   DEFAULT_SUMMARY_LENGTH,
@@ -2307,7 +2310,7 @@ export const guides: Guide[] = [
           // exists; the tool page's FAQ was corrected on 2026-10-07 and this
           // guide was not), and the page-choice remedy joined beside the
           // true sentence after `translatePageRange` was observed live.
-          `Two limits still apply. A single page holding more text than one pass can carry cannot be translated at all — it is skipped, and the result says so in place, right where that page was. And the amount translated in a day is bounded by the free allowance. ${aiAllowanceFactFor("translate-pdf")} A document needing more than the allowance has left is refused before it runs, with nothing charged, rather than half translated. ${TRANSLATE_OVER_ALLOWANCE_REMEDY} ${TRANSLATE_PAGES_NEED_TEXT} ${TRANSLATE_ONLY_CHOSEN_PAGES} Files themselves are capped at ${ceilingMb("translate-pdf")} MB.`,
+          `Two limits still apply. A single page holding more text than one pass can carry cannot be translated at all — it is skipped, and the result says so in place, right where that page was. And the amount translated in a day is bounded by the free allowance. ${aiAllowanceFactFor("translate-pdf")} ${AI_ALLOWANCE_REFUSED_WHOLE.charAt(0).toUpperCase()}${AI_ALLOWANCE_REFUSED_WHOLE.slice(1)} is refused before it runs, with nothing charged, rather than half translated. ${TRANSLATE_OVER_ALLOWANCE_REMEDY} ${TRANSLATE_PAGES_NEED_TEXT} ${TRANSLATE_ONLY_CHOSEN_PAGES} Files themselves are capped at ${ceilingMb("translate-pdf")} MB.`,
         ],
       },
       {

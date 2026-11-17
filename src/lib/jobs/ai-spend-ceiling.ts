@@ -146,6 +146,10 @@ export function aiSpendTokens(usage: {
  * It says what is true, whose problem it is, and that it is temporary. The shape
  * is the worker-not-ready path's: a real reason, no blame, no invented ETA.
  *
+ * "TOMORROW" WAS AN INVENTED ETA (2026-11-17): it said "Please try again
+ * tomorrow" over a window that is fixed from its first spend, not the
+ * calendar. It says "later" now; see {@link AI_CEILING_PAUSE}.
+ *
  * WHOSE ALLOWANCE, TWICE WRONG. It said "not on your file or your account" — on
  * a product with no accounts. The fix (2026-10-09) said "not a problem with your
  * file or your own allowance", the shape the allowance guard bans: the limiter
@@ -163,7 +167,21 @@ export function aiSpendTokens(usage: {
  * reads this string for a scope the limiter does not key by.
  */
 export const AI_CEILING_REACHED_MESSAGE =
-  "AI features are temporarily unavailable — the service has reached its daily processing limit. This is a limit on our side — not a problem with your file, and not the free daily AI allowance. Please try again tomorrow; every other PDF tool is unaffected.";
+  "AI features are temporarily unavailable — the service has reached its daily processing limit. This is a limit on our side — not a problem with your file, and not the free daily AI allowance. Please try again later; every other PDF tool is unaffected.";
+
+/**
+ * How long the ceiling can pause AI, as the tool pages' FAQ answers say it —
+ * one clause, so Summarize, Chat and Extract cannot drift apart.
+ *
+ * The ceiling is `ai.spend`, a FIXED window of one day stamped at the first
+ * spend after the last one expired (`ratelimit/redis.ts`), not a calendar
+ * day. So the pause ends at most a day after it begins, and it ends at
+ * whatever time of day that is. The three answers said "until the next day"
+ * (2026-08-21 to 2026-11-17), and the refusal above said "Please try again
+ * tomorrow": both name a calendar reset the limiter does not make.
+ * `ratelimit/window-words.test.ts` holds this clause to the policy's window.
+ */
+export const AI_CEILING_PAUSE = "for up to a day";
 
 /* ------------------------------------------------------------------ *
  *  The OTHER ceiling — the one outside this system.

@@ -68,6 +68,7 @@ import {
   DEFAULT_RETENTION,
   deliveryCapFor,
   parseCreateJobRequest,
+  readDeliveryCap,
   type Job,
   type JobDeliveryCap,
 } from "@/lib/jobs";
@@ -159,11 +160,20 @@ describe("a declaration on the wire becomes the cap the job runs under", () => {
     // The direct-API path: it has bytes, not extracted text. It pays the
     // maximum and is capped at the maximum — the same number in both roles, so
     // "you get what you reserved" holds for a caller that cannot count.
+    // Flagged `undeclared` (2026-11-17): a withhold then keeps the
+    // separate-document remedy, which only an uncounted job can use.
     expect(capFromWire({})).toEqual({
       characters: Math.ceil(
         TRANSLATE_MAX_INPUT_CHARS * TRANSLATE_EXTRACTOR_HEADROOM,
       ),
+      undeclared: true,
     });
+  });
+
+  it("CONTROL: a declared count carries no undeclared flag", () => {
+    expect("undeclared" in capFromWire({ declaredCharacters: 1_000 })).toBe(
+      false,
+    );
   });
 
   it("leaves the page bound absent rather than zero when it is not declared", () => {
@@ -553,5 +563,25 @@ describe("every queue that stores a submission stores its cap", () => {
         `${file} stores a submission's options and not its delivery cap — every job it queues would be uncapped`,
       ).toBe(true);
     }
+  });
+});
+
+describe("the worker's re-read keeps the undeclared flag (2026-11-17)", () => {
+  // `readDeliveryCap` rebuilds the cap field by field, so a field it does not
+  // name is dropped silently, and a withhold of an undeclared job would then
+  // be worded for a declared one.
+  it("an undeclared cap survives the queue's JSON with its flag", () => {
+    const cap = deliveryCapFor({}, LIMITS);
+    expect(cap.undeclared).toBe(true);
+    expect(readDeliveryCap(JSON.parse(JSON.stringify(cap)))).toEqual({
+      ok: true,
+      cap,
+    });
+  });
+
+  it("fails closed on a flag that is not true", () => {
+    expect(readDeliveryCap({ characters: 10, undeclared: "yes" }).ok).toBe(
+      false,
+    );
   });
 });
