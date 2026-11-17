@@ -101,6 +101,24 @@ describe("scanPaths", () => {
     expect(r.rects).toHaveLength(1);
   });
 
+  // A fill closes every subpath (PDF 32000-1 8.5.3.3), so `m l l l f` with
+  // no `h` paints a box. Read as three filled edges, it was dropped with no
+  // exclusion recorded (review finding; corpus P17).
+  it("reads a filled `m l l l` with no `h` as a Rect: the fill closes it", () => {
+    const bar = [M, 130, 599.6, L, 330, 599.6, L, 330, 600.4, L, 130, 600.4];
+    for (const paint of [OPS.fill, OPS.eoFill, OPS.fillStroke]) {
+      const r = scan([path(paint, ...bar)]);
+      expect(r.rects, `paint op ${paint}`).toEqual([
+        expect.objectContaining({ x0: 130, x1: 330, filled: true }),
+      ]);
+      expect(r.segs).toEqual([]);
+    }
+    // A stroke does not close it: three edges, no box.
+    const open = scan([path(OPS.stroke, ...bar)]);
+    expect(open.rects).toEqual([]);
+    expect(open.segs).toHaveLength(3);
+  });
+
   it("gives several Rects for several `re` in one paint operator", () => {
     const r = scan([
       path(

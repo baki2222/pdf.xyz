@@ -573,7 +573,8 @@ export function scanPaths(
     const across = (dx: number, dy: number) =>
       strokeAcross(st.ctm, st.lineWidth, dx, dy);
     for (const sp of subPaths(data as ArrayLike<number>, st.ctm)) {
-      const r = asRect(sp);
+      // A fill closes every subpath, `h` or not (PDF 32000-1 8.5.3.3).
+      const r = asRect(filled ? { ...sp, closed: true } : sp);
       if (r) {
         // Its level edges and its plumb edges.
         pushRect(r, across(1, 0), across(0, 1), stroked, filled, lum);

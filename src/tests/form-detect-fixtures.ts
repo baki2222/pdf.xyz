@@ -773,6 +773,22 @@ export const DETECT_CASES: readonly DetectCase[] = [
   },
 
   {
+    id: "P17",
+    kind: "positive",
+    note: "P5's thin filled bar drawn as `m l l l f`, no `h`: the fill closes it",
+    build: () =>
+      addressWith("130 599.6 m 330 599.6 l 330 600.4 l 130 600.4 l f"),
+    expect: [
+      {
+        rule: "labelled-rule",
+        type: "text",
+        label: "Address",
+        page: 1,
+        box: ruleBox(P4.x0, P4.x1, P4.y, 12),
+      },
+    ],
+  },
+  {
     id: "P16",
     kind: "positive",
     note: "P4's line inside a form XObject whose /BBox holds all of it: clipping keeps it",
