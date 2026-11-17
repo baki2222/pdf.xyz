@@ -6,6 +6,7 @@ import {
   applyRanges,
   arrangementBeyondFiles,
   canLeaveOut,
+  enterPages,
   fileOrderOf,
   fileSeedOf,
   filesInterleave,
@@ -14,12 +15,13 @@ import {
   moveKeyTo,
   rangeTextOf,
   regroup,
-  resumePages,
+  resumesStash,
   rotateKey,
   samePages,
   seedPages,
   setFileKept,
   setKeptKey,
+  stashOnLeave,
   syncFiles,
   type MergePage,
   type PageFile,
@@ -227,10 +229,12 @@ describe("Arrange pages: what the engine is given", () => {
   });
 });
 
-describe("resumePages: Arrange pages chosen again", () => {
+describe("enterPages: Arrange pages chosen again", () => {
   const a = file("a", 3);
   const b = file("b", 2);
   const keys = (list: MergePage[]) => list.map((p) => p.key);
+  const resumePages = (...args: Parameters<typeof enterPages>) =>
+    enterPages(...args).pages;
 
   it("a stash file mode could say in full is reseeded from the mode left", () => {
     const stash = seedPages([a, b], "append");
@@ -261,6 +265,62 @@ describe("resumePages: Arrange pages chosen again", () => {
     expect(keys(resumePages(stash, [a, b], "append", [], []))).toEqual(
       keys(stash),
     );
+  });
+
+  it("a fresh seed is reported as the seed; a resumed stash is not", () => {
+    const fresh = enterPages(null, [a, b], "alternate", [], [false, true]);
+    expect(fresh.seed).toBe(fresh.pages);
+    const stash = rotateKey(seedPages([a, b], "append"), "a:1", 90);
+    expect(enterPages(stash, [a, b], "append", [], []).seed).toBeNull();
+  });
+});
+
+// Re-review of 2026-11-17: the stash was kept on its SHAPE (an Alternate seed
+// interleaves, so `arrangementBeyondFiles` said yes) instead of on the user
+// having changed anything. The property is the change.
+describe("stashOnLeave: only a grid the user changed is kept aside", () => {
+  const a = file("a", 3);
+  const b = file("b", 3);
+
+  it.each([
+    ["Alternate", [false, false]],
+    ["Alternate with Reverse", [false, true]],
+  ] as const)(
+    "an untouched %s seed is not kept, though it is beyond file mode",
+    (_label, reverse) => {
+      const { pages, seed } = enterPages(
+        null,
+        [a, b],
+        "alternate",
+        [],
+        [...reverse],
+      );
+      // Health check: the shape alone WOULD have resumed it.
+      expect(resumesStash(pages)).toBe(true);
+      expect(stashOnLeave(pages, seed)).toBeNull();
+    },
+  );
+
+  it("CONTROL: one turn, one move or one page left out is kept", () => {
+    const { pages, seed } = enterPages(null, [a, b], "alternate", [], []);
+    for (const changed of [
+      rotateKey(pages, "a:1", 90),
+      moveKeyTo(pages, "b:2", 0),
+      setKeptKey(pages, "a:2", false),
+    ])
+      expect(stashOnLeave(changed, seed)).toEqual(changed);
+  });
+
+  it("a change undone (back to the seed) keeps nothing", () => {
+    const { pages, seed } = enterPages(null, [a, b], "append", [], []);
+    const back = rotateKey(rotateKey(pages, "a:1", 90), "a:1", -90);
+    expect(stashOnLeave(back, seed)).toBeNull();
+  });
+
+  it("a resumed stash left untouched is still the user's, so it is kept", () => {
+    const stash = rotateKey(seedPages([a, b], "append"), "a:1", 90);
+    const { pages, seed } = enterPages(stash, [a, b], "append", [], []);
+    expect(stashOnLeave(pages, seed)).toEqual(pages);
   });
 });
 

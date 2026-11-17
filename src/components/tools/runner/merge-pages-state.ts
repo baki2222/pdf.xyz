@@ -302,31 +302,62 @@ export function mergePayload(pages: readonly MergePage[]): {
 }
 
 /**
- * Arrange pages chosen again after a file-level mode (review of 2026-11-17).
- * The list kept aside is used only while it says something file mode cannot
- * (`arrangementBeyondFiles`): then the Pages boxes apply, and so does the
- * file order chosen meanwhile, unless files interleave (an order of files
- * cannot say where mixed pages go; the runner says so on screen). Otherwise
- * the list is seeded afresh from the mode being left, exactly as on a first
- * visit, so the untouched grid merges what that mode merged.
+ * True when a list kept aside is one to come back to: it says something file
+ * mode cannot (`arrangementBeyondFiles`). The runner shows its "kept" note on
+ * this same predicate, so the note and the grid that comes back agree.
  */
-export function resumePages(
+export function resumesStash(
+  stash: readonly MergePage[] | null,
+): stash is readonly MergePage[] {
+  return stash !== null && arrangementBeyondFiles(stash);
+}
+
+/**
+ * Arrange pages chosen again after a file-level mode (review of 2026-11-17).
+ * The list kept aside is used only while `resumesStash`: then the Pages boxes
+ * apply, and so does the file order chosen meanwhile, unless files
+ * interleave (an order of files cannot say where mixed pages go; the runner
+ * says so on screen). Otherwise the list is seeded afresh from the mode
+ * being left, exactly as on a first visit, so the untouched grid merges what
+ * that mode merged. `seed` is that fresh list, or null when the stash was
+ * resumed: what `stashOnLeave` compares against.
+ */
+export function enterPages(
   stash: readonly MergePage[] | null,
   files: readonly PageFile[],
   mode: SeedMode,
   selections: readonly PageSelection[],
   reverse: readonly boolean[],
-): MergePage[] {
-  if (stash && arrangementBeyondFiles(stash)) {
+): { pages: MergePage[]; seed: MergePage[] | null } {
+  if (resumesStash(stash)) {
     const list = applyRanges(syncFiles(stash, files), files, selections);
-    return filesInterleave(list)
-      ? list
-      : regroup(
-          list,
-          files.map((f) => f.id),
-        );
+    return {
+      pages: filesInterleave(list)
+        ? list
+        : regroup(
+            list,
+            files.map((f) => f.id),
+          ),
+      seed: null,
+    };
   }
-  return seedPages(files, mode, selections, reverse);
+  const pages = seedPages(files, mode, selections, reverse);
+  return { pages, seed: pages };
+}
+
+/**
+ * Leaving page mode: what to keep aside for the next visit. Kept only when
+ * the user CHANGED something since the grid was seeded (re-review of
+ * 2026-11-17). The property is the change, not the list's shape: an
+ * Alternate seed interleaves files without anyone having arranged anything,
+ * and keeping it made One after another come back in Alternate order under a
+ * "kept" note. A resumed stash (`seed` null) is the user's own, so it stays.
+ */
+export function stashOnLeave(
+  pages: readonly MergePage[],
+  seed: readonly MergePage[] | null,
+): MergePage[] | null {
+  return seed !== null && samePages(pages, seed) ? null : pages.slice();
 }
 
 /**

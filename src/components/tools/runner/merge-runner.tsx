@@ -165,6 +165,9 @@ export function MergeRunner() {
   const [arrange, setArrange] = useState<ArrangeLib | null>(null);
   const [pages, setPages] = useState<MergePage[] | null>(null);
   const [stash, setStash] = useState<MergePage[] | null>(null);
+  // The grid as freshly seeded on entry (null when a stash was resumed):
+  // leaving untouched keeps nothing aside.
+  const [seed, setSeed] = useState<MergePage[] | null>(null);
   // Pages boxes typed in page mode, by file id, until they are left.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   // What one Sort or Reset in page mode threw away, while it is undoable.
@@ -320,6 +323,7 @@ export function MergeRunner() {
     setMode("append");
     setPages(null);
     setStash(null);
+    setSeed(null);
     setDrafts({});
     setUndo(null);
   };
@@ -456,7 +460,7 @@ export function MergeRunner() {
     if (option === "pages") {
       if (fileSelectionError) return;
       const lib = arrange ?? (await import("./merge-pages-state"));
-      const next = lib.resumePages(
+      const next = lib.enterPages(
         stash,
         items,
         mode === "alternate" ? "alternate" : "append",
@@ -464,7 +468,8 @@ export function MergeRunner() {
         items.map((item) => item.reverse),
       );
       setArrange(() => lib);
-      setPages(next);
+      setPages(next.pages);
+      setSeed(next.seed);
       setStash(null);
       setDrafts({});
       setMode("pages");
@@ -472,7 +477,8 @@ export function MergeRunner() {
     }
     if (view) {
       setItems((prev) => view.lib.fileModeItems(view.pages, prev, drafts));
-      setStash(view.pages);
+      setStash(view.lib.stashOnLeave(view.pages, seed));
+      setSeed(null);
       setPages(null);
       setDrafts({});
       setUndo(null);
@@ -508,10 +514,7 @@ export function MergeRunner() {
   const groupedOnly = alternate || interleaved;
   // In a file-level mode: an arrangement waits that file mode cannot show.
   const beyond =
-    mode !== "pages" &&
-    stash !== null &&
-    arrange !== null &&
-    arrange.arrangementBeyondFiles(stash);
+    mode !== "pages" && arrange !== null && arrange.resumesStash(stash);
   // ...and its pages mix files, so the file order chosen here cannot apply.
   const stashMixed = beyond && arrange.filesInterleave(stash);
   const firstError = items.find((item) => errorOf(item) !== null);

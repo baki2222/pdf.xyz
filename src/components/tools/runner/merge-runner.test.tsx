@@ -560,6 +560,69 @@ describe("merge-pdf: Arrange pages chosen again follows what was set in between"
     expect((await downloaded()).widths).toEqual([11, 21, 12, 22, 13]);
   }, 30_000);
 
+  // Re-review of 2026-11-17: an Alternate seed visited and left untouched was
+  // kept aside as if the user had mixed it, because it interleaves. The grid
+  // then came back in Alternate order from One after another, under a "kept"
+  // note for an arrangement nobody made.
+  it.each([
+    ["", false],
+    [", with Reverse page order", true],
+  ])(
+    "an untouched Alternate grid is not kept: One after another then seeds its own%s",
+    async (_label, reverse) => {
+      await mountWith([
+        pdfFile(await pdfOfWidths([11, 12, 13]), "alpha.pdf"),
+        pdfFile(await pdfOfWidths([21, 22, 23]), "beta.pdf"),
+      ]);
+      fireEvent.click(screen.getByRole("radio", { name: "Alternate pages" }));
+      if (reverse)
+        fireEvent.click(
+          screen.getByRole("checkbox", {
+            name: "Reverse the page order of beta.pdf",
+          }),
+        );
+      await arrangePages();
+      // Health check: the grid really is the mixed Alternate seed.
+      expect(tileNames().map((n) => n.split(",")[0])[1]).toBe(
+        reverse ? "Page 3 of beta.pdf" : "Page 1 of beta.pdf",
+      );
+      fireEvent.click(screen.getByRole("radio", { name: "One after another" }));
+      expect(screen.queryByText(/Your page arrangement is kept\./)).toBeNull();
+      await arrangePages();
+      expect(tileNames().map((n) => n.split(",")[0])).toEqual([
+        "Page 1 of alpha.pdf",
+        "Page 2 of alpha.pdf",
+        "Page 3 of alpha.pdf",
+        "Page 1 of beta.pdf",
+        "Page 2 of beta.pdf",
+        "Page 3 of beta.pdf",
+      ]);
+      await mergeAndRead();
+      expect((await downloaded()).widths).toEqual([11, 12, 13, 21, 22, 23]);
+    },
+    30_000,
+  );
+
+  it("CONTROL: a touched Alternate grid is kept, under the note", async () => {
+    await mountWith([
+      pdfFile(await pdfOfWidths([11, 12, 13]), "alpha.pdf"),
+      pdfFile(await pdfOfWidths([21, 22, 23]), "beta.pdf"),
+    ]);
+    fireEvent.click(screen.getByRole("radio", { name: "Alternate pages" }));
+    await arrangePages();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Rotate page 2 of alpha.pdf right" }),
+    );
+    fireEvent.click(screen.getByRole("radio", { name: "One after another" }));
+    expect(screen.getByText(/Your page arrangement is kept\./)).toBeTruthy();
+    await arrangePages();
+    await mergeAndRead();
+    expect(await downloaded()).toEqual({
+      widths: [11, 21, 12, 22, 13, 23],
+      turns: [0, 0, 90, 0, 0, 0],
+    });
+  }, 30_000);
+
   it("a turned page is kept, and the new file order applies while files stay together", async () => {
     await mountWith([
       pdfFile(await pdfOfWidths([11, 12, 13]), "alpha.pdf"),
