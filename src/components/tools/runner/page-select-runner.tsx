@@ -38,15 +38,9 @@ import {
   toggleIndex,
 } from "./selection";
 import { PageTile, TileAction } from "./page-tile";
-import {
-  FileHeader,
-  SignedInputNotice,
-  SinglePdfRunner,
-} from "./single-pdf-runner";
+import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { usePdfThumbnails } from "./use-pdf-thumbnails";
-import { readPageBoard, type LoadedPdf } from "./use-single-pdf";
-import type { OwnerOpened } from "./owner-unlock";
-import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
+import type { LoadedPdf } from "./use-single-pdf";
 
 type Mode = "extract" | "delete";
 
@@ -122,14 +116,15 @@ export const PAGE_SELECT_TOOLS = {
 } as const satisfies Record<Mode, { slug: string; name: string }>;
 
 /**
- * The owner-password field and its note (`./owner-password`), fetched only
- * when an encrypted file has been refused, or the owner password opened one.
+ * The owner-password field, its refusal and the opened file's note
+ * (`./owner-password-pdf`, over `./owner-password`), fetched only when an
+ * encrypted file has been refused, or the field opened one.
  */
-const OwnerPasswordField = dynamic(() =>
-  import("./owner-password").then((m) => m.OwnerPasswordField),
+const OwnerPdfRefusal = dynamic(() =>
+  import("./owner-password-pdf").then((m) => m.OwnerPdfRefusal),
 );
-const OwnerOpenedNote = dynamic(() =>
-  import("./owner-password").then((m) => m.OwnerOpenedNote),
+const OwnedPdf = dynamic(() =>
+  import("./owner-password-pdf").then((m) => m.OwnedPdf),
 );
 
 /**
@@ -137,54 +132,35 @@ const OwnerOpenedNote = dynamic(() =>
  * owner-password field (competitor-audit backlog #11). The extracted or
  * remaining pages are a NEW file with no encryption, so only the owner
  * password may open it here (`openForCopy`): the open password of a file
- * whose author restricts it, or none, is refused with the reason.
+ * whose author restricts it, or none, is refused with the reason. The open
+ * password of a file whose author restricts NOTHING opens it, and the new
+ * PDF drops that password: no restriction is lifted, as in Grayscale PDF.
  */
 export function PageSelectRunner({ mode }: { mode: Mode }) {
   const config = CONFIG[mode];
   const { slug: handoffSlug, name: toolName } = PAGE_SELECT_TOOLS[mode];
   const [owned, setOwned] = useState<LoadedPdf | null>(null);
-  // The owner password opened a refused file: its page board is read here,
-  // with what this page already loaded (`./owner-unlock` imports none of it).
-  const adoptOwned = async ({ file, plain, protection }: OwnerOpened) => {
-    const { pageCount, rotations } = await readPageBoard(plain, "pdf-lib");
-    setOwned({
-      file,
-      bytes: plain,
-      pageCount,
-      rotations,
-      digitalSignatures: countDigitalSignatures(plain),
-      protection,
-    });
-  };
   if (owned)
     return (
-      <div className="flex flex-col gap-4">
-        {owned.protection?.unlocked && <OwnerOpenedNote tool={handoffSlug} />}
-        {owned.digitalSignatures > 0 && (
-          <SignedInputNotice
-            count={owned.digitalSignatures}
-            toolName={toolName}
-          />
-        )}
+      <OwnedPdf pdf={owned} tool={handoffSlug} toolName={toolName}>
         <PageSelectEditor
           pdf={owned}
           onReset={() => setOwned(null)}
           config={config}
         />
-      </div>
+      </OwnedPdf>
     );
   return (
     <SinglePdfRunner
       hint={config.emptyHint}
       handoffSlug={handoffSlug}
       toolName={toolName}
-      errorAside={(error) =>
+      refusal={(error) =>
         error.kind === "encrypted" ? (
-          <OwnerPasswordField
-            key={`${error.file.name}:${error.file.size}:${error.file.lastModified}`}
-            file={error.file}
+          <OwnerPdfRefusal
+            error={error}
             tool={handoffSlug}
-            onOpened={adoptOwned}
+            onOpened={setOwned}
           />
         ) : null
       }

@@ -99,6 +99,7 @@ export function SinglePdfRunner({
   prepare,
   openProtected = false,
   errorAside,
+  refusal,
   signedNotice,
   batch,
 }: {
@@ -130,6 +131,11 @@ export function SinglePdfRunner({
   openProtected?: boolean;
   /** Drawn under a refusal — Grayscale PDF's password field. */
   errorAside?: (error: SinglePdfError) => ReactNode;
+  /**
+   * Drawn INSTEAD of the refusal when it returns one (not null): the
+   * owner-password field's own wording of it, which points at the field.
+   */
+  refusal?: (error: SinglePdfError) => ReactNode;
   /**
    * A tool that KEEPS existing signatures for some files says so in its own
    * words (the editor appends to a signed file, `editor/editor-session`);
@@ -268,8 +274,13 @@ export function SinglePdfRunner({
           hint={hint}
         />
       )}
-      {error && <ErrorNote message={error.message} cause={error} />}
-      {error && errorAside?.(error)}
+      {error &&
+        (refusal?.(error) ?? (
+          <>
+            <ErrorNote message={error.message} cause={error} />
+            {errorAside?.(error)}
+          </>
+        ))}
     </div>
   );
 }

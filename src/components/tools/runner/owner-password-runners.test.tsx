@@ -23,6 +23,7 @@ import {
   AES256_NO_GRANT_FIXTURE,
   FIXTURE_OPEN_PASSWORD,
   NO_ASSEMBLE_COPY_FIXTURE,
+  OPEN_PASSWORD_RESTRICTED_FIXTURE,
   RESTRICTED_FIXTURE_DIR,
   readRestrictedFixture,
   type GrantFixture,
@@ -35,6 +36,9 @@ import {
   OWNER_OPENED_NOTE,
   OWNER_PASSWORD_HINT,
   OWNER_WRONG_PASSWORD,
+  PASSWORD_OPENED_NOTE,
+  ownerRefusalMessage,
+  ownerWithheldMessage,
 } from "./owner-password";
 
 /**
@@ -46,8 +50,8 @@ import {
  *
  * THE RULE: only the owner password opens the file here. The open password
  * of a file whose author restricts it is refused with the reason; a wrong
- * one says it is not the owner password; with none, the refusal is today's,
- * plus the field. And the password goes nowhere: not into storage, not over
+ * one says it is not the owner password; with none, the refusal points at
+ * the field. And the password goes nowhere: not into storage, not over
  * the network, not left in the field.
  */
 
@@ -186,9 +190,13 @@ async function ownerOpens(slug: OwnerPasswordTool, fixture: GrantFixture) {
   await submit(field, "not-the-owner-password");
   await screen.findByText(OWNER_WRONG_PASSWORD, undefined, { timeout: 15_000 });
   await submit(field, fixture.owner);
-  await screen.findByText(OWNER_OPENED_NOTE[slug], undefined, {
+  const note = await screen.findByText(OWNER_OPENED_NOTE[slug], undefined, {
     timeout: 15_000,
   });
+  // The form is gone; the focus is on what replaced it, not on <body>.
+  await waitFor(() =>
+    expect(document.activeElement).toBe(note.closest("[data-owner-opened]")),
+  );
 }
 
 const FIXTURES = [AES256_NO_GRANT_FIXTURE, NO_ASSEMBLE_COPY_FIXTURE] as const;
@@ -257,10 +265,26 @@ describe("the owner password, typed under a restricted file's refusal", () => {
         slug,
         slug === "merge-pdf" ? [pdfFile(PLAIN, "first.pdf"), locked] : [locked],
       );
+      // INVERTED 2026-11-17 (review): this pinned PDF_NEEDS_PASSWORD_MESSAGE
+      // ("Remove the password with Unlock PDF first, then try again") over
+      // a field that says to type the owner password here. The refusal now
+      // points at the field; the tool-wide sentence is gone from the page.
       expect(
-        screen.getAllByText(PDF_NEEDS_PASSWORD_MESSAGE, { exact: false })
-          .length,
+        screen.getAllByText(
+          ownerRefusalMessage(
+            slug,
+            "needs-password",
+            slug === "merge-pdf" ? "both.pdf" : undefined,
+          ),
+          { exact: false },
+        ).length,
       ).toBeGreaterThan(0);
+      expect(
+        screen.queryAllByText(PDF_NEEDS_PASSWORD_MESSAGE, { exact: false }),
+      ).toEqual([]);
+      // The field is not inside a live region: a wrong password announces
+      // its own error, not the whole refusal again.
+      expect(field.closest("[role=alert]")).toBeNull();
       await submit(field, FIXTURE_OPEN_PASSWORD);
       await screen.findByText(
         /That password opens this PDF, but it is not the owner password/,
@@ -273,6 +297,65 @@ describe("the owner password, typed under a restricted file's refusal", () => {
         timeout: 15_000,
       });
     }, 60_000);
+
+  for (const slug of ["rotate-pdf", "extract-images"] as const)
+    it(`${slug}: the OPEN password serves when the author grants what the tool does; nothing is lifted`, async () => {
+      const fixture = OPEN_PASSWORD_RESTRICTED_FIXTURE; // grants 1024 and 16
+      const original = readRestrictedFixture(fixture.file);
+      const field = await mount(slug, [pdfFile(original, "granted.pdf")]);
+      await submit(field, FIXTURE_OPEN_PASSWORD);
+      const note = await screen.findByText(
+        PASSWORD_OPENED_NOTE[slug],
+        undefined,
+        { timeout: 15_000 },
+      );
+      await waitFor(() =>
+        expect(document.activeElement).toBe(
+          note.closest("[data-owner-opened]"),
+        ),
+      );
+      if (slug === "rotate-pdf") {
+        fireEvent.click(screen.getByRole("button", { name: /^right$/i }));
+        await run(/apply rotation/i);
+        const out = await download(/download rotated pdf/i);
+        expect(out.subarray(0, original.length)).toEqual(original);
+        await expect(PDFDocument.load(out)).rejects.toThrow();
+        const read = await viewer(out, FIXTURE_OPEN_PASSWORD);
+        expect(read.permissions).toEqual(fixture.permissions);
+        expect(read.rotations).toEqual([90, 90]);
+      } else {
+        await run(/^extract images$/i);
+        const out = await download(/^download image$/i);
+        expect([...out.subarray(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+      }
+    }, 60_000);
+
+  it("the withheld message keeps labels that hold their own 'and' or 'or' apart", () => {
+    const words = ownerWithheldMessage({
+      print: true,
+      copy: false,
+      modify: false,
+      annotate: false,
+      fillForms: false,
+      accessibility: true,
+      assemble: false,
+    });
+    expect(words).toContain(
+      "copying text and images; changing the document; adding comments and annotations; filling in forms; and inserting, rotating or deleting pages",
+    );
+    // No such label: the plain list.
+    expect(
+      ownerWithheldMessage({
+        print: false,
+        copy: true,
+        modify: false,
+        annotate: true,
+        fillForms: true,
+        accessibility: true,
+        assemble: true,
+      }),
+    ).toContain("printing and changing the document");
+  });
 
   it("the password goes nowhere: no storage write, no request, nothing left in a field", async () => {
     await ownerOpens("rotate-pdf", AES256_NO_GRANT_FIXTURE);

@@ -26,7 +26,8 @@ import {
  *    copying, page assembly and changes;
  *  - an AES-256 file with BOTH passwords (open "open-test").
  *
- * For each tool and file: no password → today's refusal, plus the field;
+ * For each tool and file: no password → a refusal that points at the
+ * field (never "Unlock PDF first, then try again" over it), and the field;
  * a wrong password → "not this PDF's owner password"; the open password →
  * still refused, with the reason (for a file with no open password there is
  * nothing to type, and the button stays unavailable); the owner password →
@@ -221,15 +222,24 @@ for (const tool of TOOLS)
       page.on("request", (r) => requests.push(r.url() + (r.postData() ?? "")));
       const field = await open(page, tool, fixture);
 
-      // No password: today's refusal, and the field under it.
+      // No password: the refusal, worded for the field under it.
       await expect(field).toBeVisible({ timeout: 20_000 });
       const refusal =
         fixture.open !== ""
-          ? PDF_NEEDS_PASSWORD_MESSAGE
+          ? /is password-protected\. Type its owner password below to use it here\./
           : tool === "rotate-pdf" || tool === "extract-images"
-            ? /author doesn't allow/
-            : PDF_RESTRICTED_MESSAGE;
+            ? /author doesn't allow .+ Type the owner password below/
+            : /has editing restrictions set by its author\. Type the owner password that set them below/;
       await expect(page.getByText(refusal).first()).toBeVisible();
+      // INVERTED 2026-11-17 (review): the tool-wide sentences said to
+      // remove the password with Unlock PDF first; over the field they are
+      // gone.
+      for (const old of [PDF_NEEDS_PASSWORD_MESSAGE, PDF_RESTRICTED_MESSAGE])
+        await expect(page.getByText(old)).toHaveCount(0);
+      // The field is outside every live region.
+      expect(
+        await field.evaluate((el) => el.closest("[role=alert]") === null),
+      ).toBe(true);
       const button = page.getByRole("button", { name: OWNER_PASSWORD_BUTTON });
       await expect(button).toHaveAttribute("aria-disabled", "true");
 
@@ -258,9 +268,10 @@ for (const tool of TOOLS)
 
       // The owner password: the tool runs, and the output is right.
       await submit(page, fixture.owner, true);
-      await expect(page.locator(`[data-owner-opened="${tool}"]`)).toBeVisible({
-        timeout: 20_000,
-      });
+      const opened = page.locator(`[data-owner-opened="${tool}"]`);
+      await expect(opened).toBeVisible({ timeout: 20_000 });
+      // The form went with the refusal; the focus is on the note, not <body>.
+      await expect(opened).toBeFocused();
       await finish(page, tool, fixture);
 
       // No password left the page.
@@ -273,3 +284,36 @@ for (const tool of TOOLS)
       expect(guard.pageErrors).toEqual([]);
       expect(guard.cspViolations()).toEqual([]);
     });
+
+/**
+ * Rotate PDF writes back under the author's encryption and Extract Images
+ * writes no PDF, so neither lifts anything: the password that only OPENS a
+ * file serves when its author grants what the tool does (review
+ * 2026-11-17). `pypdf-r3-open-password-restricted.pdf` grants page assembly
+ * (1024) and copying (16).
+ */
+const GRANTING: Fixture = {
+  file: "pypdf-r3-open-password-restricted.pdf",
+  owner: "owner-openrestr-test",
+  open: "open-test",
+  cipher: "RC4-128, open password, grants rotation and copying",
+  permissions: [4, 16, 512, 1024, 2048],
+};
+
+for (const tool of ["rotate-pdf", "extract-images"] as const)
+  test(`${tool} - ${GRANTING.cipher}: the open password serves, and nothing is lifted`, async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    const guard = attachConsoleGuard(page);
+    const field = await open(page, tool, GRANTING);
+    await expect(field).toBeVisible({ timeout: 20_000 });
+    await submit(page, GRANTING.open, true);
+    const opened = page.locator(`[data-owner-opened="${tool}"]`);
+    await expect(opened).toBeVisible({ timeout: 20_000 });
+    await expect(opened).toHaveText(/^Opened with its password, here/);
+    await expect(opened).toBeFocused();
+    await finish(page, tool, GRANTING);
+    expect(guard.pageErrors).toEqual([]);
+    expect(guard.cspViolations()).toEqual([]);
+  });

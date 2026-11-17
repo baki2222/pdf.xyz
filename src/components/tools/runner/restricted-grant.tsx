@@ -8,7 +8,6 @@ import { buttonVariants } from "@/components/ui/button";
 import { ErrorNote } from "./runner-kit";
 import { FileHeader } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
-import type { OwnerOpened } from "./owner-unlock";
 
 /**
  * A restricted PDF (it opens without a password; its author set an owner
@@ -19,7 +18,7 @@ import type { OwnerOpened } from "./owner-unlock";
  * it. Nothing here lifts a restriction without the owner password.
  *
  * WITHHELD, the refusal carries the owner-password field
- * (`./owner-password`, loaded with `next/dynamic` only when this refusal
+ * (`./owner-password-pdf`, loaded with `next/dynamic` only when this refusal
  * draws; competitor-audit backlog #11). Until 2026-11-17 it ended "Unlock
  * PDF removes the restrictions with that password." — an upload, for a
  * password the browser can check; Unlock PDF is now the alternative, for
@@ -74,8 +73,8 @@ export function RestrictedGrantNote({ grant }: { grant: RestrictedGrant }) {
 }
 
 /** The field, fetched only when a refusal below draws. */
-const OwnerPasswordField = dynamic(() =>
-  import("./owner-password").then((m) => m.OwnerPasswordField),
+const OwnerPdfField = dynamic(() =>
+  import("./owner-password-pdf").then((m) => m.OwnerPdfField),
 );
 
 /**
@@ -92,15 +91,16 @@ export function RestrictedGrantRefusal({
   grant: RestrictedGrant;
   onReset: () => void;
   /** The owner password opened it: the file, unlocked. */
-  onOpened: (opened: OwnerOpened) => Promise<void>;
+  onOpened: (pdf: LoadedPdf) => void;
 }) {
   return (
     <div data-restricted-withheld={grant} className="flex flex-col gap-4">
       <FileHeader pdf={pdf} />
       <ErrorNote message={WITHHELD_MESSAGE[grant]} />
-      <OwnerPasswordField
+      <OwnerPdfField
         file={pdf.file}
         tool={grant === "assemble" ? "rotate-pdf" : "extract-images"}
+        grant={{ key: grant, allows: (p) => grantAllows(p, grant) }}
         onOpened={onOpened}
       />
       <div>

@@ -38,14 +38,12 @@ import {
 import { PageTile, TileAction } from "./page-tile";
 import {
   FileHeader,
-  SignedInputNotice,
   SinglePdfRunner,
   type SinglePdfBatch,
 } from "./single-pdf-runner";
 import { usePdfThumbnails } from "./use-pdf-thumbnails";
-import { readPageBoard, type LoadedPdf } from "./use-single-pdf";
-import type { OwnerOpened } from "./owner-unlock";
-import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
+import type { LoadedPdf } from "./use-single-pdf";
+import type { ToolGrant } from "@/lib/pdf/security/open-with-password";
 import {
   RestrictedGrantNote,
   RestrictedGrantRefusal,
@@ -70,15 +68,25 @@ const RotateBatch = dynamic(
 const batch = (props: SinglePdfBatch) => <RotateBatch {...props} />;
 
 /**
- * The owner-password field and its note (`./owner-password`), fetched only
- * when a refusal draws or the owner password has opened a file.
+ * The owner-password field, its refusal and the opened file's note
+ * (`./owner-password-pdf`, over `./owner-password`), fetched only when a
+ * refusal draws or the field has opened a file.
  */
-const OwnerPasswordField = dynamic(() =>
-  import("./owner-password").then((m) => m.OwnerPasswordField),
+const OwnerPdfRefusal = dynamic(() =>
+  import("./owner-password-pdf").then((m) => m.OwnerPdfRefusal),
 );
-const OwnerOpenedNote = dynamic(() =>
-  import("./owner-password").then((m) => m.OwnerOpenedNote),
+const OwnedPdf = dynamic(() =>
+  import("./owner-password-pdf").then((m) => m.OwnedPdf),
 );
+
+/**
+ * Rotation lifts nothing — it is written under the author's encryption —
+ * so the password that opens a file serves when its author grants it.
+ */
+const ROTATE_GRANT: ToolGrant = {
+  key: "assemble",
+  allows: (pdf) => grantAllows(pdf, "assemble"),
+};
 
 /**
  * A PDF its author restricted opens here when the author grants page
@@ -93,34 +101,17 @@ const OwnerOpenedNote = dynamic(() =>
  * password unlocks the file's `protection`, and the rotation is STILL
  * written under the author's encryption (`ProtectedPdf.saveChanges`): the
  * rotated copy keeps the author's passwords, permissions and encryption.
+ * Since nothing is lifted, the password that only OPENS a file serves too
+ * when its author grants rotation (`ROTATE_GRANT`, the same `grantAllows`
+ * gate as below); otherwise it is refused naming that one permission.
  */
 export function RotateRunner() {
   const [owned, setOwned] = useState<LoadedPdf | null>(null);
-  // The owner password opened a refused file: its page board is read here,
-  // with what this page already loaded (`./owner-unlock` imports none of it).
-  const adoptOwned = async ({ file, plain, protection }: OwnerOpened) => {
-    const { pageCount, rotations } = await readPageBoard(plain, "pdf-lib");
-    setOwned({
-      file,
-      bytes: plain,
-      pageCount,
-      rotations,
-      digitalSignatures: countDigitalSignatures(plain),
-      protection,
-    });
-  };
   if (owned)
     return (
-      <div className="flex flex-col gap-4">
-        {owned.protection?.unlocked && <OwnerOpenedNote tool="rotate-pdf" />}
-        {owned.digitalSignatures > 0 && (
-          <SignedInputNotice
-            count={owned.digitalSignatures}
-            toolName="Rotate PDF"
-          />
-        )}
+      <OwnedPdf pdf={owned} tool="rotate-pdf" toolName="Rotate PDF">
         <RotateEditor pdf={owned} onReset={() => setOwned(null)} />
-      </div>
+      </OwnedPdf>
     );
   return (
     <SinglePdfRunner
@@ -129,13 +120,13 @@ export function RotateRunner() {
       handoffSlug="rotate-pdf"
       toolName="Rotate PDF"
       openProtected
-      errorAside={(error) =>
+      refusal={(error) =>
         error.kind === "encrypted" ? (
-          <OwnerPasswordField
-            key={`${error.file.name}:${error.file.size}:${error.file.lastModified}`}
-            file={error.file}
+          <OwnerPdfRefusal
+            error={error}
             tool="rotate-pdf"
-            onOpened={adoptOwned}
+            grant={ROTATE_GRANT}
+            onOpened={setOwned}
           />
         ) : null
       }
@@ -146,7 +137,7 @@ export function RotateRunner() {
             pdf={pdf}
             grant="assemble"
             onReset={reset}
-            onOpened={adoptOwned}
+            onOpened={setOwned}
           />
         ) : (
           <RotateEditor pdf={pdf} onReset={reset} />

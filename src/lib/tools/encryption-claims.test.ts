@@ -411,7 +411,10 @@ describe("encryption claims on tool pages match the runner's reader", () => {
  * that either refuses a restricted file (`restrictedFileMeets`) or asks one
  * of the author's grants (`./restricted-grant`, refused when withheld).
  */
-const OFFERS_FIELD = /["']\.\/(?:owner-password|grayscale-password)["']/;
+// `./owner-password-pdf` is the single-file runners' door to it (review
+// 2026-11-17 moved their part of the field out of their first load).
+const OFFERS_FIELD =
+  /["']\.\/(?:owner-password|owner-password-pdf|grayscale-password)["']/;
 
 function refusesRestricted(slug: string): boolean {
   const meets = restrictedFileMeets(slug);

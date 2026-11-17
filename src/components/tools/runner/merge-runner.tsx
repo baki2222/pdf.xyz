@@ -114,10 +114,11 @@ interface Rejection {
  * when an encrypted file has been refused (competitor-audit backlog #11).
  * The merged PDF is a NEW file with no encryption, so only the owner
  * password may add a restricted file to it (`openForCopy`); the open
- * password of a file whose author restricts it, or none, is refused.
+ * password of a file whose author restricts it, or none, is refused. The
+ * refusal and its field are drawn OUTSIDE the warning box's live region.
  */
-const OwnerPasswordField = dynamic(() =>
-  import("./owner-password").then((m) => m.OwnerPasswordField),
+const OwnerRefusal = dynamic(() =>
+  import("./owner-password").then((m) => m.OwnerRefusal),
 );
 const OwnerOpenedNote = dynamic(() =>
   import("./owner-password").then((m) => m.OwnerOpenedNote),
@@ -126,8 +127,11 @@ const OwnerOpenedNote = dynamic(() =>
 export function MergeRunner() {
   const [items, setItems] = useState<MergeItem[]>([]);
   const [rejections, setRejections] = useState<Rejection[]>([]);
-  // A file the owner password opened is in the list: say what that means.
-  const [ownerOpened, setOwnerOpened] = useState(false);
+  // The field opened a file: say how, and what the merged PDF keeps. `n`
+  // draws the note afresh, so it takes the focus each time.
+  const [opened, setOpened] = useState<{ n: number; owner: boolean } | null>(
+    null,
+  );
   const [loading, setLoading] = useState(0);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
@@ -291,7 +295,10 @@ export function MergeRunner() {
           reverse: false,
         },
       ]);
-      if (protection.unlocked) setOwnerOpened(true);
+      setOpened((prev) => ({
+        n: (prev?.n ?? 0) + 1,
+        owner: protection.unlocked,
+      }));
       attachCover(id, plain);
       announce(`Added ${file.name}.`);
     },
@@ -336,7 +343,7 @@ export function MergeRunner() {
     reset();
     setItems([]);
     setRejections([]);
-    setOwnerOpened(false);
+    setOpened(null);
     setDragIndex(null);
     setOverIndex(null);
     setOrdered(null);
@@ -468,12 +475,29 @@ export function MergeRunner() {
 
   const rejectionsPanel = (
     <>
-      {ownerOpened && <OwnerOpenedNote tool="merge-pdf" />}
+      {opened && (
+        <OwnerOpenedNote key={opened.n} tool="merge-pdf" owner={opened.owner} />
+      )}
       <RejectionsNote
-        rejections={rejections}
-        onDismiss={() => setRejections([])}
-        onOwnerOpened={adoptOwned}
+        rejections={rejections.filter((r) => !r.file)}
+        onDismiss={() => setRejections((prev) => prev.filter((r) => r.file))}
       />
+      {rejections.map(
+        (r, i) =>
+          r.file && (
+            <OwnerRefusal
+              key={`${r.name}-${i}`}
+              file={r.file}
+              verdict={r.cause?.verdict}
+              subject={r.name}
+              tool="merge-pdf"
+              onOpened={(o) => adoptOwned(r, o)}
+              onDismiss={() =>
+                setRejections((prev) => prev.filter((x) => x !== r))
+              }
+            />
+          ),
+      )}
     </>
   );
 
@@ -923,11 +947,9 @@ function PageSelection({
 function RejectionsNote({
   rejections,
   onDismiss,
-  onOwnerOpened,
 }: {
   rejections: Rejection[];
   onDismiss: () => void;
-  onOwnerOpened: (rejected: Rejection, opened: OwnerOpened) => Promise<void>;
 }) {
   if (rejections.length === 0) return null;
   return (
@@ -969,15 +991,6 @@ function RejectionsNote({
                   </Link>{" "}
                   {remedy.why}.
                 </>
-              )}
-              {r.file && (
-                <div className="mt-2">
-                  <OwnerPasswordField
-                    file={r.file}
-                    tool="merge-pdf"
-                    onOpened={(opened) => onOwnerOpened(r, opened)}
-                  />
-                </div>
               )}
             </li>
           );

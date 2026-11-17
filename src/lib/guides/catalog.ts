@@ -3725,7 +3725,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I extract images from a password-protected PDF?",
-        answer: `With its owner password, yes. A PDF that needs a password to open is refused with an Owner password field under the message, and its owner password opens it here, in your browser; ${nameOf("unlock-pdf")} can remove the password instead, on a secure server. A PDF that opens without a password but whose author restricted it opens here when its author allows copying its content, and its images are read in your browser; if the author withholds that, the owner password, typed in the same field, lifts it.`,
+        answer: `With its owner password, yes. A PDF that needs a password to open is refused with an Owner password field under the message, and its owner password opens it here, in your browser, as does the password that opens it when its author allows copying its content; ${nameOf("unlock-pdf")} can remove the password instead, on a secure server. A PDF that opens without a password but whose author restricted it opens here when its author allows copying its content, and its images are read in your browser; if the author withholds that, the owner password, typed in the same field, lifts it.`,
       },
     ],
     published: "2026-10-29",
@@ -5107,7 +5107,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Why won't my PDF open?",
-        answer: `The message on screen names the cause. A file over ${ceilingMb("extract-pages")} MB is too large. An encrypted PDF, even one that only restricts printing or copying, opens here with its owner password, typed in the Owner password field under the message and checked in your browser; Unlock PDF can instead make a decrypted copy you can bring back here. Unlike this tool, Unlock PDF runs on our secure server rather than in your browser.`,
+        answer: `The message on screen names the cause. A file over ${ceilingMb("extract-pages")} MB is too large. An encrypted PDF, even one that only restricts printing or copying, opens here with its owner password, typed in the Owner password field under the message and checked in your browser (the password that opens it works too when its author set no restrictions); Unlock PDF can instead make a decrypted copy you can bring back here. Unlike this tool, Unlock PDF runs on our secure server rather than in your browser.`,
       },
     ],
     published: "2026-10-31",

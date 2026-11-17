@@ -37,9 +37,8 @@ import {
   SinglePdfRunner,
   type SinglePdfBatch,
 } from "./single-pdf-runner";
-import { readPageBoard, type LoadedPdf } from "./use-single-pdf";
-import type { OwnerOpened } from "./owner-unlock";
-import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
+import type { LoadedPdf } from "./use-single-pdf";
+import type { ToolGrant } from "@/lib/pdf/security/open-with-password";
 import { useZipDownload } from "./use-zip-download";
 import {
   RestrictedGrantNote,
@@ -85,31 +84,21 @@ const batch = (props: SinglePdfBatch) => <ExtractImagesBatch {...props} />;
  * Withheld — or a file that needs a password to open — the refusal carries
  * the owner-password field (competitor-audit backlog #11): the owner
  * password lifts the grant here, in the browser, and the PDF itself is
- * still not changed.
+ * still not changed. Nothing is lifted, so the password that only OPENS a
+ * file serves when its author allows copying (`IMAGES_GRANT`).
  */
 export function ExtractImagesRunner() {
   const [owned, setOwned] = useState<LoadedPdf | null>(null);
-  // The owner password opened a refused file: its page board is read here,
-  // with what this page already loaded (`./owner-unlock` imports none of it).
-  const adoptOwned = async ({ file, plain, protection }: OwnerOpened) => {
-    const { pageCount, rotations } = await readPageBoard(plain, "pdf-lib");
-    setOwned({
-      file,
-      bytes: plain,
-      pageCount,
-      rotations,
-      digitalSignatures: countDigitalSignatures(plain),
-      protection,
-    });
-  };
   if (owned)
     return (
-      <div className="flex flex-col gap-4">
-        {owned.protection?.unlocked && (
-          <OwnerOpenedNote tool="extract-images" />
-        )}
+      <OwnedPdf
+        pdf={owned}
+        tool="extract-images"
+        toolName="Extract Images"
+        writesPdf={false}
+      >
         <ExtractImagesEditor pdf={owned} onReset={() => setOwned(null)} />
-      </div>
+      </OwnedPdf>
     );
   return (
     <SinglePdfRunner
@@ -119,13 +108,13 @@ export function ExtractImagesRunner() {
       toolName="Extract Images"
       writesPdf={false}
       openProtected
-      errorAside={(error) =>
+      refusal={(error) =>
         error.kind === "encrypted" ? (
-          <OwnerPasswordField
-            key={`${error.file.name}:${error.file.size}:${error.file.lastModified}`}
-            file={error.file}
+          <OwnerPdfRefusal
+            error={error}
             tool="extract-images"
-            onOpened={adoptOwned}
+            grant={IMAGES_GRANT}
+            onOpened={setOwned}
           />
         ) : null
       }
@@ -136,7 +125,7 @@ export function ExtractImagesRunner() {
             pdf={pdf}
             grant="copy"
             onReset={reset}
-            onOpened={adoptOwned}
+            onOpened={setOwned}
           />
         ) : (
           <ExtractImagesEditor pdf={pdf} onReset={reset} />
@@ -147,15 +136,25 @@ export function ExtractImagesRunner() {
 }
 
 /**
- * The owner-password field and its note (`./owner-password`), fetched only
- * when a refusal draws or the owner password has opened a file.
+ * The owner-password field, its refusal and the opened file's note
+ * (`./owner-password-pdf`, over `./owner-password`), fetched only when a
+ * refusal draws or the field has opened a file.
  */
-const OwnerPasswordField = dynamic(() =>
-  import("./owner-password").then((m) => m.OwnerPasswordField),
+const OwnerPdfRefusal = dynamic(() =>
+  import("./owner-password-pdf").then((m) => m.OwnerPdfRefusal),
 );
-const OwnerOpenedNote = dynamic(() =>
-  import("./owner-password").then((m) => m.OwnerOpenedNote),
+const OwnedPdf = dynamic(() =>
+  import("./owner-password-pdf").then((m) => m.OwnedPdf),
 );
+
+/**
+ * Reading the images changes nothing in the PDF, so the password that opens
+ * a file serves when its author allows copying its content.
+ */
+const IMAGES_GRANT: ToolGrant = {
+  key: "copy",
+  allows: (pdf) => grantAllows(pdf, "copy"),
+};
 
 export interface Extraction extends ExtractImagesResult {
   /** Sum of extracted image bytes. */

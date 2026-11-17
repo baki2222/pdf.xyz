@@ -99,11 +99,22 @@ export function PasswordField({
   );
 }
 
-/** "changing the document and adding comments" — the grants withheld. */
+/**
+ * "changing the document and adding comments" — the grants withheld. When
+ * a label holds its own "and" or "or" ("copying text and images",
+ * "inserting, rotating or deleting pages"), commas cannot tell its words
+ * from the list's, so the items are split by semicolons and the last joined
+ * by "; and" (review 2026-11-17: "filling in forms and inserting, rotating
+ * or deleting pages" read as one item).
+ */
 export function withheldWords(permissions: PdfPermissions): string {
   const words = restrictedLabels(permissions).map(
     (label) => label.charAt(0).toLowerCase() + label.slice(1),
   );
   if (words.length <= 1) return words[0] ?? "";
-  return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+  const last = words[words.length - 1]!;
+  const rest = words.slice(0, -1);
+  if (words.some((w) => / (?:and|or) /.test(w)))
+    return `${rest.join("; ")}; and ${last}`;
+  return `${rest.join(", ")} and ${last}`;
 }
