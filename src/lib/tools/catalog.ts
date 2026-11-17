@@ -447,11 +447,17 @@ export const tools: Tool[] = [
     name: "Markdown to PDF",
     tagline: "Beautiful PDFs from Markdown.",
     description:
-      // Block kinds the renderer actually implements (MarkdownBlock in
-      // src/lib/pdf/markdown-to-pdf.ts): heading, paragraph, list-item, quote,
-      // code. There is no table kind — a GFM table falls through to a
-      // paragraph — so this must not promise one.
-      `Convert Markdown into a styled PDF — headings, lists, quotes, and code fences, typeset right in your browser from sources up to ${MAX_SOURCE_MB} MB. The file stays on your device.`,
+      // WAS "headings, lists, quotes, and code fences", under a comment that
+      // said there was no table kind. Both went stale: GFM tables and rules
+      // joined MARKDOWN_BLOCK_KINDS (L09), and bold, italics, backtick code
+      // and clickable links joined with markdown-runs.ts (audit
+      // markdown-to-pdf#6). Not promised, because not always drawn: a working
+      // link inside a table cell (it prints only), and bold or italics at
+      // all — a document with one character outside Western European text
+      // is set in one Noto face with no bold or oblique (unicode-font.ts
+      // `embedDrawingFont`; no font pack has a bold weight).
+      // stale-page-claims.test.ts runs the parser for each claim here.
+      `Turn Markdown into a styled PDF in your browser: headings, lists, quotes, code and tables. Web links open when clicked, except in tables. Up to ${MAX_SOURCE_MB} MB.`,
     category: "convert-to",
     icon: "markdown",
     // Client, not hybrid: the only implementation is the in-browser runner
@@ -533,8 +539,13 @@ export const tools: Tool[] = [
     // named here is one the engine makes, and every one it makes is named —
     // checked on a decoded XLSX by claims-vs-capability.test.ts.
     tagline: "A PDF's text, line by line, in a sheet.",
+    // CHANGED 2026-11-17: said "A PDF’s selectable text", and nothing about
+    // scans, since 2026-11-08 (audit pdf-to-excel#2) when the panel's OCR
+    // switch began reading a scan in the same job. "kept in their column"
+    // was dropped for the serp ceiling; the breaks named are still every
+    // break the engine makes.
     description:
-      "A PDF’s selectable text in an XLSX sheet: a row per line, cells split at tabs and wide gaps and kept in their column. For tables, use Extract Tables.",
+      "A PDF’s text in an XLSX sheet: a row per line, cells split at tabs and wide gaps. For a scan, tick “Recognise text in scans (OCR)”. For tables, use Extract Tables.",
     category: "convert-from",
     icon: "excel",
     processing: "server",
@@ -672,8 +683,15 @@ export const tools: Tool[] = [
     // worker-tool-answers.test.ts holds that page clear of.
     cardSummary:
       "Find the tables in a PDF's text and save them as spreadsheets.",
+    // CHANGED 2026-11-17: ended "Scanned PDFs need OCR first.", stale since
+    // the panel's OCR switch ran OCR in the same job (2026-11-08, audit
+    // extract-tables#3). Like PDF to Word's, it names the switch by its label
+    // (written out, not imported, for the same chunk reason), and
+    // stale-page-claims.test.ts holds the two equal for every panel that
+    // renders the switch. The switch is always on the panel; when our server
+    // cannot run OCR, the panel itself says so under it.
     description:
-      "Detect aligned tables inside a PDF's selectable text and export them to clean CSV files plus a combined Excel workbook. Scanned PDFs need OCR first.",
+      "Detect aligned tables in a PDF’s text and export them to CSV files plus an Excel workbook. For a scan, tick “Recognise text in scans (OCR)”.",
     category: "convert-from",
     icon: "table",
     processing: "server",

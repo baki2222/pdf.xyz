@@ -32,7 +32,8 @@ import {
 } from "@/lib/ratelimit/guard";
 import { clearRateLimitProviderForTests } from "@/lib/ratelimit/provider";
 import { getToolBySlug } from "@/lib/tools";
-import { pageFaq } from "./page-copy";
+import { pageFaq, pageIntro } from "./page-copy";
+import { guides } from "@/lib/guides";
 import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
 import { CHAT_MAX_CHARACTERS_PER_QUESTION } from "@/lib/jobs/chat-with-pdf";
 import {
@@ -347,6 +348,78 @@ describe("the published ceiling describes a pass, not a document", () => {
     // The bound the delivery cap DID create, and its marker.
     expect(answer).toMatch(/more text or more pages than the job reserved/);
     expect(answer).toMatch(/says so in place/);
+  });
+
+  /**
+   * Added 2026-11-17 (audit #29 slice 7). The test above read ONE surface,
+   * the tool page's FAQ, and named it, so the translate guide kept the same
+   * false sentence for six weeks after it was banned there: "A document
+   * longer than the allowance covers is translated as far as the allowance
+   * reaches, with the rest marked in place" (sections[1]), "it is translated
+   * as far as the allowance reaches, and the untranslated remainder is
+   * marked in place" (faq[0]) and "the run translates as far as the
+   * allowance reaches, with the rest marked in place" (faq[4]). Found when
+   * slice 7 put the page-choice remedy beside them. The surfaces are now
+   * DERIVED: the tool page and every guide whose primary tool it is, every
+   * sentence a reader gets.
+   */
+  it("no served Translate surface says a document over the allowance is translated in part", () => {
+    const GUIDE_SHIPPED = [
+      `A document longer than the allowance covers is translated as far as the allowance reaches, with the rest marked in place and the reason named ${String.fromCharCode(0x2014)} nothing stops silently.`,
+      "If a document needs more than the allowance has left, it is translated as far as the allowance reaches, and the untranslated remainder is marked in place with the reason named.",
+      "And the free daily allowance: the run translates as far as the allowance reaches, with the rest marked in place and the reason named.",
+    ];
+    const PARTIALS = [
+      /\btranslat\w* as far as the allowance reaches\b/i,
+      /\ballowance\b[^.]*\b(?:rest|remainder) (?:is )?marked\b/i,
+    ];
+    const partial = (text: string) => PARTIALS.some((p) => p.test(text));
+    // Both directions over what shipped (house rule 1).
+    for (const s of GUIDE_SHIPPED) expect(partial(s), s).toBe(true);
+    for (const p of PARTIALS)
+      expect(
+        GUIDE_SHIPPED.some((s) => p.test(s)),
+        `${p} catches nothing that shipped`,
+      ).toBe(true);
+    const tool = getToolBySlug("translate-pdf")!;
+    const texts: { at: string; text: string }[] = [
+      ...pageIntro(tool).map((text, i) => ({ at: `intro[${i}]`, text })),
+      ...pageFaq(tool).flatMap((f, i) => [
+        { at: `faq[${i}].question`, text: f.question },
+        { at: `faq[${i}].answer`, text: f.answer },
+      ]),
+    ];
+    const primary = guides.filter((g) => g.tools[0] === tool.slug);
+    expect(primary.map((g) => g.slug)).toContain("how-to-translate-a-pdf");
+    for (const g of primary)
+      texts.push(
+        ...g.intro.map((text, i) => ({ at: `${g.slug} intro[${i}]`, text })),
+        ...g.steps.map((text, i) => ({ at: `${g.slug} steps[${i}]`, text })),
+        ...g.sections.flatMap((sec, i) =>
+          sec.body.map((text, j) => ({
+            at: `${g.slug} sections[${i}].body[${j}]`,
+            text,
+          })),
+        ),
+        ...g.faq.map((f, i) => ({ at: `${g.slug} faq[${i}]`, text: f.answer })),
+      );
+    // Health: the tool page and the guide, measured 2026-11-17.
+    expect(texts.length).toBeGreaterThan(30);
+    const offenders = texts
+      .filter(({ text }) => partial(text))
+      .map(({ at, text }) => `${at}: ${text}`);
+    expect(offenders).toEqual([]);
+    // Positive control, through the same predicate and the same set.
+    const planted = [...texts, { at: "planted", text: GUIDE_SHIPPED[0]! }];
+    expect(planted.filter(({ text }) => partial(text)).length).toBe(1);
+    // And the guide states the refusal instead.
+    const guideText = primary
+      .flatMap((g) => [
+        ...g.sections.flatMap((sec) => sec.body),
+        ...g.faq.map((f) => f.answer),
+      ])
+      .join(" ");
+    expect(guideText).toMatch(/refused before it runs, with nothing charged/);
   });
 
   describe("licence: the allowance refuses a translation whole", () => {

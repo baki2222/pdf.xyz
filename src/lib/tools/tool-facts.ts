@@ -174,6 +174,10 @@ import { tools } from "./catalog";
 import { STICKY_STAYS_COMMENT } from "@/lib/pdf/editor/sticky";
 import { toolFileCeilingMb } from "./file-ceilings";
 import type { Tool } from "./types";
+import {
+  TRANSLATE_OVER_ALLOWANCE_REMEDY,
+  TRANSLATE_PAGES_NEED_TEXT,
+} from "./translate-page-choice";
 
 /* ------------------------------------------------------------------ *
  *  Owned constants the runners import back, so fact and behavior agree.
@@ -450,13 +454,17 @@ const MARKDOWN_BLOCK_PHRASE: Record<MarkdownBlockKind, string> = {
  * read off PDF_LINK_SCHEMES. The review of that change found "opens when
  * clicked" said with no scope: a link in a table cell still only prints
  * (markdown-runs.test.ts reads no annotation for it), so the sentence says
- * "outside table cells".
+ * "outside table cells". Until the review of 2026-11-17 the faces sentence had
+ * no scope either; one character outside Western European text sets the whole
+ * PDF in one Noto face (the page's own FAQ says so), so it is scoped too.
+ * stale-page-claims.test.ts bans the unscoped shape and reads the faces from
+ * the PDF on both sides of the line.
  */
 export const MARKDOWN_SYNTAX_FACT = (() => {
   const names = MARKDOWN_BLOCK_KINDS.map((k) => MARKDOWN_BLOCK_PHRASE[k]);
   const list = `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
   const schemes = PDF_LINK_SCHEMES.map((s) => s.slice(0, -1));
-  return `${list[0]!.toUpperCase()}${list.slice(1)}. In paragraphs, list items and quotes, bold, italics and backtick code are set in their own faces. A link keeps its address in parentheses, and outside table cells it opens when clicked if that address is ${schemes.slice(0, -1).join(", ")} or ${schemes.at(-1)}.`;
+  return `${list[0]!.toUpperCase()}${list.slice(1)}. For Western European text, bold, italics and backtick code are set in their own faces in paragraphs, list items and quotes. A link keeps its address in parentheses, and outside table cells it opens when clicked if that address is ${schemes.slice(0, -1).join(", ")} or ${schemes.at(-1)}.`;
 })();
 
 /**
@@ -1535,8 +1543,13 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
     case "overlay":
       return [
         {
+          // CHANGED 2026-11-17: said "its first page is drawn over every page
+          // of your document", false of three paging modes and of Selected
+          // pages. Served on /tools/overlay-pdf through factFaq (pageFaq
+          // keeps it beside the authored FAQ), as a visible answer and in the
+          // FAQPage JSON-LD.
           question: "Can I add a letterhead or logo to every page?",
-          answer: `Yes. Save it as a PDF and add it as the overlay: its first page is drawn over every page of your document. With a multi-page overlay you choose how its pages map to yours: ${overlayPagingLabels}.`,
+          answer: `Yes. Save it as a PDF and add it as the overlay. A one-page overlay is drawn over every page of your document, or only the pages you list. With a multi-page overlay you choose how its pages map to yours: ${overlayPagingLabels}.`,
         },
         {
           question: "How is the overlay sized on each page?",
@@ -2347,9 +2360,12 @@ export function factFaq(tool: Tool): readonly ToolFaqEntry[] {
       // charged" and "has to be split into smaller files" became false for a
       // run that chooses pages; rewritten true in both modes, naming no
       // remedy (slice 7 does, after the key is observed in production).
+      // CHANGED 2026-11-17 (audit #29 slice 7): the remedy joined, with the
+      // scan limit beside it (this answer ships alone as FAQPage JSON-LD),
+      // after `translatePageRange` was observed in production.
       entries.push({
         question: `How much of my PDF can ${tool.name} translate in one run?`,
-        answer: `${TRANSLATE_MAX_INPUT_CHARS.toLocaleString("en-US")} characters of selectable text per pass — about ${translatePagesAtSparsest} sparsely-set ${pluralPages(translatePagesAtSparsest)}, or ${translatePagesAtDensest} ${pluralPages(translatePagesAtDensest)} of dense text. Translation writes roughly as much as it reads, so that ceiling is the model's output budget — far below the reading cap the other AI tools state. A longer document is not refused for length: it is split at page boundaries, translated a few pages at a time, then reassembled in order. A SINGLE page holding more than that many characters cannot be translated at all — it is skipped, and the result says so in place, at the point where that page was. The text sent for translation is charged against the free daily allowance when the job is created, so a document needing more than is left today is refused before it runs, with nothing charged, rather than half translated; one over ${AI_CHARACTER_ALLOWANCE_DELIVERED.toLocaleString("en-US")} characters, the whole day's allowance, cannot be translated in a single day. If our server finds more text or more pages than the job reserved, translation stops there and a notice in place names the untranslated pages and why, so nothing stops silently.`,
+        answer: `${TRANSLATE_MAX_INPUT_CHARS.toLocaleString("en-US")} characters of selectable text per pass — about ${translatePagesAtSparsest} sparsely-set ${pluralPages(translatePagesAtSparsest)}, or ${translatePagesAtDensest} ${pluralPages(translatePagesAtDensest)} of dense text. Translation writes roughly as much as it reads, so that ceiling is the model's output budget — far below the reading cap the other AI tools state. A longer document is not refused for length: it is split at page boundaries, translated a few pages at a time, then reassembled in order. A SINGLE page holding more than that many characters cannot be translated at all — it is skipped, and the result says so in place, at the point where that page was. The text sent for translation is charged against the free daily allowance when the job is created, so a document needing more than is left today is refused before it runs, with nothing charged, rather than half translated; one over ${AI_CHARACTER_ALLOWANCE_DELIVERED.toLocaleString("en-US")} characters, the whole day's allowance, cannot be translated in a single day. ${TRANSLATE_OVER_ALLOWANCE_REMEDY} ${TRANSLATE_PAGES_NEED_TEXT} If our server finds more text or more pages than the job reserved, translation stops there and a notice in place names the untranslated pages and why, so nothing stops silently.`,
       });
     } else if (tool.slug === CHAT_TOOL_SLUG) {
       // PER QUESTION: every question is its own job, and since L08 (9ebe3e6)

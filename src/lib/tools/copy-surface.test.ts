@@ -451,7 +451,9 @@ describe("copy reach: every file that holds words for a reader is walked, or rec
       { shape: /phrases?$/i },
       // Forward until WP-04 shipped renderEvidence() (2026-10-09).
       { shape: /evidence$/i },
-      { shape: /remed(?:y|ies)$/i, forward: "WP-08 remedy labels" },
+      // Forward ("WP-08 remedy labels") until Translate slice 7 shipped
+      // TRANSLATE_OVER_ALLOWANCE_REMEDY (2026-11-17).
+      { shape: /remed(?:y|ies)$/i },
       // Forward until WP-11 shipped hintFor() (2026-10-21).
       { shape: /^(?:hint|remedy|label|phrase)For(?:[A-Z]\w*)?$/ },
     ];
