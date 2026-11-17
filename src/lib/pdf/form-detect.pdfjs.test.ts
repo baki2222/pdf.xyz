@@ -20,7 +20,12 @@ import {
   unexplained,
   type DetectCase,
 } from "@/tests/form-detect-fixtures";
-import { detectFormFields, textItemToCard, toCard } from "./form-detect-read";
+import {
+  detectFormFields,
+  textItemToCard,
+  toCard,
+  turnedUpright,
+} from "./form-detect-read";
 import { contentBoxToRect } from "./redact-find";
 import { viewerFrame } from "./page-frame";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
@@ -173,6 +178,47 @@ describe("O2's bytes really are damaged (precondition)", () => {
     expect(s).not.toContain(O2_CONTENT);
     expect(s).toContain(`/Length ${after}`);
     await expect(PDFDocument.load(bytes)).resolves.toBeDefined();
+  });
+});
+
+// A landscape form made the common way (a portrait page, /Rotate 90, the
+// content counter-turned with `cm`) read as "no-candidates", which says "no
+// fields here": its lines are plumb and its labels not upright in content
+// space, so nothing was a candidate, and nothing counted the miss (review
+// finding; corpus O7).
+describe("turnedUpright: text upright only because the page is turned", () => {
+  const item = (t: number[]) => ({ str: "Name:", transform: t, width: 30 });
+  it("baseline at the page's turn, counter-clockwise in content space", () => {
+    expect(turnedUpright(item([0, 11, -11, 0, 112, 72]), 90)).toBe(true);
+    expect(turnedUpright(item([-11, 0, 0, -11, 500, 700]), 180)).toBe(true);
+    expect(turnedUpright(item([0, -11, 11, 0, 500, 700]), 270)).toBe(true);
+    expect(turnedUpright(item([0, 11, -11, 0, 112, 72]), -270)).toBe(true);
+  });
+  it("not when the page is not turned, or the text is turned another way", () => {
+    expect(turnedUpright(item([0, 11, -11, 0, 112, 72]), 0)).toBe(false);
+    expect(turnedUpright(item([11, 0, 0, 11, 72, 600]), 90)).toBe(false);
+    expect(turnedUpright(item([0, -11, 11, 0, 500, 700]), 90)).toBe(false);
+    // Mirrored (up points the wrong way) and vertical writing.
+    expect(turnedUpright(item([0, 11, 11, 0, 112, 72]), 90)).toBe(false);
+    expect(
+      turnedUpright({ ...item([0, 11, -11, 0, 112, 72]), dir: "ttb" }, 90),
+    ).toBe(false);
+    expect(
+      turnedUpright({ str: " ", transform: [0, 11, -11, 0, 0, 0] }, 90),
+    ).toBe(false);
+  });
+  it("O7 reads as turned-content, and the same form drawn upright is found", async () => {
+    const turned = await runCase(byId("O7"));
+    expect(turned.report.pages.map((p) => p.outcome)).toEqual([
+      "turned-content",
+    ]);
+    // Positive control: P10's turned page (content upright in content
+    // space on a /Rotate 90 page) is searched as usual.
+    const upright = await runCase(byId("P10"));
+    expect(upright.report.pages.map((p) => p.outcome)).toEqual([
+      "found",
+      "found",
+    ]);
   });
 });
 

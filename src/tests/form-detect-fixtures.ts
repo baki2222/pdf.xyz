@@ -1522,6 +1522,30 @@ export const DETECT_CASES: readonly DetectCase[] = [
     expect: "none",
     outcome: "no-candidates",
   },
+  {
+    id: "O7",
+    kind: "outcome",
+    note: "a landscape form made the common way: a portrait page, /Rotate 90, the content counter-turned with `cm` (upright on screen, turned in the content)",
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      page.setRotation(degrees(90));
+      page.pushOperators(
+        pushGraphicsState(),
+        concatTransformationMatrix(0, 1, -1, 0, 612, 0),
+      );
+      for (const [i, s] of ["Name:", "Address:", "City:", "Phone:"].entries())
+        for (const x of [72, 420]) {
+          await text(page, H, s, x, 500 - 40 * i, 11);
+          rule(page, x + 60, x + 300, 500 - 40 * i, 0.5);
+        }
+      page.pushOperators(popGraphicsState());
+      return save(d);
+    },
+    expect: "none",
+    // Never "no-candidates": that reads as "this page has no fields".
+    outcome: "turned-content",
+  },
 ];
 
 /* ------------------------------------------------------------------ *

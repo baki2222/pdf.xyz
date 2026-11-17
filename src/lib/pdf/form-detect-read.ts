@@ -26,9 +26,11 @@ import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
  *
  * It proposes and never writes. It reads only what the PDF draws as text,
  * lines and boxes, so a scanned page (a picture of a form) reads as
- * "no-text-layer", and a page with nothing readable as "nothing-drawn" or
- * "unread", never as "no fields here" (both pinned by the outcome cases in
- * src/tests/form-detect-fixtures.ts, run by form-detect.pdfjs.test.ts).
+ * "no-text-layer", a page with nothing readable as "nothing-drawn" or
+ * "unread", and a page drawn turned (upright only on screen) as
+ * "turned-content", never as "no fields here" (all pinned by the outcome
+ * cases in src/tests/form-detect-fixtures.ts, run by
+ * form-detect.pdfjs.test.ts).
  *
  * The pdf.js open sequence is the one `readPageTextItems` in text.ts uses,
  * copied rather than imported (text.ts is a first-load module that other
@@ -47,6 +49,12 @@ export type PageOutcome =
   | { page: number; outcome: "nothing-drawn" }
   /** Images cover over half the page and no upright text: likely a scan. */
   | { page: number; outcome: "no-text-layer" }
+  /**
+   * Nothing proposed, and most of its text reads upright only because the
+   * page is turned (see {@link turnedUpright}): drawn turned, which the
+   * finder does not read. Never "no fields here".
+   */
+  | { page: number; outcome: "turned-content" }
   | { page: number; outcome: "unread"; reason: string }
   | { page: number; outcome: "skipped"; reason: "too-complex" | "page-cap" };
 
@@ -203,6 +211,40 @@ export function textItemToCard(
   };
 }
 
+/**
+ * Whether a text item reads upright only because the page is turned: its
+ * baseline runs at the page's `/Rotate` angle, counter-clockwise, in content
+ * space, with its glyphs' up 90 degrees further on (not mirrored), so the
+ * clockwise turn the viewer applies makes it upright. That is a landscape
+ * form made the common way: a portrait page, `/Rotate 90`, and the content
+ * counter-turned with `cm`. Its labels are not upright in content space and
+ * its lines are plumb, so the finder, which reads upright content only,
+ * finds nothing there.
+ */
+export function turnedUpright(item: RawTextItem, rotate: number): boolean {
+  if (typeof item.str !== "string" || item.str.trim() === "") return false;
+  if (item.dir === "ttb") return false;
+  const r = ((Math.round(rotate) % 360) + 360) % 360;
+  if (r === 0) return false;
+  const t = item.transform;
+  if (!Array.isArray(t) || t.length < 6) return false;
+  const [a, b, c, d] = t as number[];
+  if (![a, b, c, d].every((n) => typeof n === "number" && isFinite(n)))
+    return false;
+  const run = Math.hypot(a!, b!);
+  const up = Math.hypot(c!, d!);
+  if (!(run > 0 && up > 0)) return false;
+  const cos = Math.cos((r * Math.PI) / 180);
+  const sin = Math.sin((r * Math.PI) / 180);
+  const near = (u: number, v: number) => Math.abs(u - v) < 0.02;
+  return (
+    near(a! / run, cos) &&
+    near(b! / run, sin) &&
+    near(c! / up, -sin) &&
+    near(d! / up, cos)
+  );
+}
+
 /** Share of the page box the image boxes cover, sampled on a 50 x 50 grid. */
 export function imageCover(
   images: readonly ImageBox[],
@@ -231,6 +273,8 @@ interface ReadPage {
   origin: [number, number];
   painted: number;
   textItems: number;
+  /** Text items upright only because the page is turned. */
+  turned: number;
 }
 
 const macrotask = () => new Promise<void>((r) => setTimeout(r, 0));
@@ -298,9 +342,12 @@ export async function detectFormFields(
           string,
           { fontFamily?: string }
         >;
-        const text = (content.items as RawTextItem[])
+        const items = content.items as RawTextItem[];
+        const text = items
           .map((it) => textItemToCard(it, origin, styles))
           .filter((t): t is CardText => t !== null);
+        const rotate = Number((page as { rotate?: unknown }).rotate) || 0;
+        const turned = items.filter((it) => turnedUpright(it, rotate)).length;
         // Page content only: existing widgets are read from the annotations
         // below, and their appearance streams are not lines on the page.
         const ops = await page.getOperatorList(
@@ -345,6 +392,7 @@ export async function detectFormFields(
             origin,
             painted: scan.painted,
             textItems: text.length,
+            turned,
             card: {
               page: n,
               width,
@@ -434,11 +482,17 @@ export async function detectFormFields(
       }
       counts.proposals += proposals.length - result.counts.proposals;
       runTotal += proposals.length;
+      // Nothing found on a page drawn turned is not "no fields here".
+      const turnedPage =
+        result.proposals.length === 0 &&
+        r.turned > card.text.filter((t) => t.upright).length;
       outcome.set(
         r.page,
         proposals.length > 0
           ? { page: r.page, outcome: "found", proposals }
-          : { page: r.page, outcome: "no-candidates" },
+          : turnedPage
+            ? { page: r.page, outcome: "turned-content" }
+            : { page: r.page, outcome: "no-candidates" },
       );
     }
 
