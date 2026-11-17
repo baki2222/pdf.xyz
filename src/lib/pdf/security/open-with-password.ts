@@ -1,4 +1,7 @@
-import type { PdfPermissions } from "@/lib/jobs/pdf-permissions";
+import {
+  hasRestrictions,
+  type PdfPermissions,
+} from "@/lib/jobs/pdf-permissions";
 import { ProtectedPdf } from "./protected-pdf";
 import type { Authenticated } from "./standard-handler";
 
@@ -20,6 +23,11 @@ export type PasswordOpenResult =
       as: Authenticated;
       /** What the author grants without the owner password. */
       permissions: PdfPermissions;
+      /**
+       * The file as opened: unlocked when `as` is "owner" — so a tool that
+       * writes back under the author's encryption (Rotate PDF) can.
+       */
+      pdf: ProtectedPdf;
     }
   /** Neither the open password nor the owner password. */
   | { kind: "wrong-password" }
@@ -40,5 +48,38 @@ export async function openWithPassword(
     plain: result.pdf.plain,
     as: result.pdf.authenticatedAs,
     permissions: result.pdf.permissions,
+    pdf: result.pdf,
   };
+}
+
+/**
+ * THE RULE (owner decision, competitor-audit backlog #11): a copy made from
+ * a password-opened PDF never lifts a restriction its author set (/P)
+ * unless the password typed was the OWNER password. The open password, or
+ * none, opens a file whose author withholds something only to be refused
+ * here — the copy would carry the pages without the restrictions.
+ *
+ * The ONE place that decision is made in the browser outside the editor:
+ * Grayscale PDF (`grayscale-unlock.ts`) and the owner-password field of
+ * Merge PDF, Extract Pages, Delete Pages, Rotate PDF and Extract Images
+ * (`owner-unlock.ts`) all come through here. `owner-password-matrix.test.ts`
+ * holds it over every tool × password kind × cipher.
+ */
+export type CopyOpenResult =
+  | Extract<PasswordOpenResult, { kind: "opened" }>
+  | { kind: "wrong-password" }
+  /** It opened, but not as owner, and the author withholds something. */
+  | { kind: "withheld"; permissions: PdfPermissions }
+  | { kind: "unsupported" };
+
+export async function openForCopy(
+  bytes: Uint8Array,
+  password: string,
+): Promise<CopyOpenResult> {
+  const result = await openWithPassword(bytes, password);
+  if (result.kind === "wrong-password") return result;
+  if (result.kind === "unsupported") return { kind: "unsupported" };
+  if (result.as !== "owner" && hasRestrictions(result.permissions))
+    return { kind: "withheld", permissions: result.permissions };
+  return result;
 }

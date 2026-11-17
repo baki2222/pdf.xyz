@@ -38,7 +38,11 @@ import {
   toggleIndex,
 } from "./selection";
 import { PageTile, TileAction } from "./page-tile";
-import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
+import {
+  FileHeader,
+  SignedInputNotice,
+  SinglePdfRunner,
+} from "./single-pdf-runner";
 import { usePdfThumbnails } from "./use-pdf-thumbnails";
 import type { LoadedPdf } from "./use-single-pdf";
 
@@ -115,14 +119,60 @@ export const PAGE_SELECT_TOOLS = {
   delete: { slug: "remove-pages", name: "Delete Pages" },
 } as const satisfies Record<Mode, { slug: string; name: string }>;
 
+/**
+ * The owner-password field and its note (`./owner-password`), fetched only
+ * when an encrypted file has been refused, or the owner password opened one.
+ */
+const OwnerPasswordField = dynamic(() =>
+  import("./owner-password").then((m) => m.OwnerPasswordField),
+);
+const OwnerOpenedNote = dynamic(() =>
+  import("./owner-password").then((m) => m.OwnerOpenedNote),
+);
+
+/**
+ * An encrypted PDF is refused as it opens; under the refusal, the
+ * owner-password field (competitor-audit backlog #11). The extracted or
+ * remaining pages are a NEW file with no encryption, so only the owner
+ * password may open it here (`openForCopy`): the open password of a file
+ * whose author restricts it, or none, is refused with the reason.
+ */
 export function PageSelectRunner({ mode }: { mode: Mode }) {
   const config = CONFIG[mode];
   const { slug: handoffSlug, name: toolName } = PAGE_SELECT_TOOLS[mode];
+  const [owned, setOwned] = useState<LoadedPdf | null>(null);
+  if (owned)
+    return (
+      <div className="flex flex-col gap-4">
+        {owned.protection?.unlocked && <OwnerOpenedNote tool={handoffSlug} />}
+        {owned.digitalSignatures > 0 && (
+          <SignedInputNotice
+            count={owned.digitalSignatures}
+            toolName={toolName}
+          />
+        )}
+        <PageSelectEditor
+          pdf={owned}
+          onReset={() => setOwned(null)}
+          config={config}
+        />
+      </div>
+    );
   return (
     <SinglePdfRunner
       hint={config.emptyHint}
       handoffSlug={handoffSlug}
       toolName={toolName}
+      errorAside={(error) =>
+        error.kind === "encrypted" ? (
+          <OwnerPasswordField
+            key={`${error.file.name}:${error.file.size}:${error.file.lastModified}`}
+            file={error.file}
+            tool={handoffSlug}
+            onOpened={setOwned}
+          />
+        ) : null
+      }
     >
       {(pdf, reset) => (
         <PageSelectEditor pdf={pdf} onReset={reset} config={config} />

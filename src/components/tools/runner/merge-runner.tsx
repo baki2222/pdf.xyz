@@ -13,6 +13,7 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   AlertTriangle,
   ArrowDown,
@@ -64,6 +65,7 @@ import {
   HandoffProblem,
 } from "./handoff-notice";
 import { useToolHandoff } from "./use-tool-handoff";
+import type { LoadedPdf } from "./use-single-pdf";
 
 interface MergeItem {
   id: string;
@@ -103,11 +105,29 @@ interface Rejection {
   reason: string;
   /** What the refusal says about why, for its fix (an encrypted file). */
   cause?: RemedyInput;
+  /** The file, kept for an encrypted one: the owner-password field reads it. */
+  file?: File;
 }
+
+/**
+ * The owner-password field and its note (`./owner-password`), fetched only
+ * when an encrypted file has been refused (competitor-audit backlog #11).
+ * The merged PDF is a NEW file with no encryption, so only the owner
+ * password may add a restricted file to it (`openForCopy`); the open
+ * password of a file whose author restricts it, or none, is refused.
+ */
+const OwnerPasswordField = dynamic(() =>
+  import("./owner-password").then((m) => m.OwnerPasswordField),
+);
+const OwnerOpenedNote = dynamic(() =>
+  import("./owner-password").then((m) => m.OwnerOpenedNote),
+);
 
 export function MergeRunner() {
   const [items, setItems] = useState<MergeItem[]>([]);
   const [rejections, setRejections] = useState<Rejection[]>([]);
+  // A file the owner password opened is in the list: say what that means.
+  const [ownerOpened, setOwnerOpened] = useState(false);
   const [loading, setLoading] = useState(0);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
@@ -231,9 +251,15 @@ export function MergeRunner() {
           ]);
           attachCover(id, bytes);
         } catch (err) {
+          const cause = causeOf(err);
           setRejections((prev) => [
             ...prev,
-            { name: file.name, reason: errorMessage(err), cause: causeOf(err) },
+            {
+              name: file.name,
+              reason: errorMessage(err),
+              cause,
+              ...(cause.kind === "encrypted" ? { file } : {}),
+            },
           ]);
         } finally {
           setLoading((n) => n - 1);
@@ -241,6 +267,34 @@ export function MergeRunner() {
       }
     },
     [attachCover],
+  );
+
+  // The owner password opened a refused file: its decrypted copy joins the
+  // list at the bottom, and its refusal goes.
+  const adoptOwned = useCallback(
+    (rejected: Rejection, pdf: LoadedPdf) => {
+      const id = `f${idRef.current++}`;
+      setRejections((prev) => prev.filter((r) => r !== rejected));
+      setItems((prev) => [
+        ...prev,
+        {
+          id,
+          name: pdf.file.name,
+          size: pdf.file.size,
+          bytes: pdf.bytes,
+          pageCount: pdf.pageCount,
+          cover: null,
+          seq: seqRef.current++,
+          modified: pdf.file.lastModified,
+          range: "",
+          reverse: false,
+        },
+      ]);
+      if (pdf.protection?.unlocked) setOwnerOpened(true);
+      attachCover(id, pdf.bytes);
+      announce(`Added ${pdf.file.name}.`);
+    },
+    [attachCover, announce],
   );
 
   // Pre-load PDFs handed off from the workspace exactly once.
@@ -281,6 +335,7 @@ export function MergeRunner() {
     reset();
     setItems([]);
     setRejections([]);
+    setOwnerOpened(false);
     setDragIndex(null);
     setOverIndex(null);
     setOrdered(null);
@@ -411,10 +466,14 @@ export function MergeRunner() {
   }
 
   const rejectionsPanel = (
-    <RejectionsNote
-      rejections={rejections}
-      onDismiss={() => setRejections([])}
-    />
+    <>
+      {ownerOpened && <OwnerOpenedNote tool="merge-pdf" />}
+      <RejectionsNote
+        rejections={rejections}
+        onDismiss={() => setRejections([])}
+        onOwnerOpened={adoptOwned}
+      />
+    </>
   );
 
   if (items.length === 0 && loading === 0) {
@@ -863,9 +922,11 @@ function PageSelection({
 function RejectionsNote({
   rejections,
   onDismiss,
+  onOwnerOpened,
 }: {
   rejections: Rejection[];
   onDismiss: () => void;
+  onOwnerOpened: (rejected: Rejection, pdf: LoadedPdf) => void;
 }) {
   if (rejections.length === 0) return null;
   return (
@@ -907,6 +968,15 @@ function RejectionsNote({
                   </Link>{" "}
                   {remedy.why}.
                 </>
+              )}
+              {r.file && (
+                <div className="mt-2">
+                  <OwnerPasswordField
+                    file={r.file}
+                    tool="merge-pdf"
+                    onOpened={(pdf) => onOwnerOpened(r, pdf)}
+                  />
+                </div>
               )}
             </li>
           );

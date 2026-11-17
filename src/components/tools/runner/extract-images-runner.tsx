@@ -79,8 +79,23 @@ const batch = (props: SinglePdfBatch) => <ExtractImagesBatch {...props} />;
  * (`./restricted-grant`). Refused at upload until 2026-11-08. That is
  * the single-file editor; the batch refuses a restricted file on its row
  * (`./batch/images-batch-runner`).
+ *
+ * Withheld — or a file that needs a password to open — the refusal carries
+ * the owner-password field (competitor-audit backlog #11): the owner
+ * password lifts the grant here, in the browser, and the PDF itself is
+ * still not changed.
  */
 export function ExtractImagesRunner() {
+  const [owned, setOwned] = useState<LoadedPdf | null>(null);
+  if (owned)
+    return (
+      <div className="flex flex-col gap-4">
+        {owned.protection?.unlocked && (
+          <OwnerOpenedNote tool="extract-images" />
+        )}
+        <ExtractImagesEditor pdf={owned} onReset={() => setOwned(null)} />
+      </div>
+    );
   return (
     <SinglePdfRunner
       hint="One or more PDFs · pulls out the images embedded in each, at their original resolution — all in your browser"
@@ -89,10 +104,25 @@ export function ExtractImagesRunner() {
       toolName="Extract Images"
       writesPdf={false}
       openProtected
+      errorAside={(error) =>
+        error.kind === "encrypted" ? (
+          <OwnerPasswordField
+            key={`${error.file.name}:${error.file.size}:${error.file.lastModified}`}
+            file={error.file}
+            tool="extract-images"
+            onOpened={setOwned}
+          />
+        ) : null
+      }
     >
       {(pdf, reset) =>
         pdf.protection && !grantAllows(pdf.protection, "copy") ? (
-          <RestrictedGrantRefusal pdf={pdf} grant="copy" onReset={reset} />
+          <RestrictedGrantRefusal
+            pdf={pdf}
+            grant="copy"
+            onReset={reset}
+            onOpened={setOwned}
+          />
         ) : (
           <ExtractImagesEditor pdf={pdf} onReset={reset} />
         )
@@ -100,6 +130,17 @@ export function ExtractImagesRunner() {
     </SinglePdfRunner>
   );
 }
+
+/**
+ * The owner-password field and its note (`./owner-password`), fetched only
+ * when a refusal draws or the owner password has opened a file.
+ */
+const OwnerPasswordField = dynamic(() =>
+  import("./owner-password").then((m) => m.OwnerPasswordField),
+);
+const OwnerOpenedNote = dynamic(() =>
+  import("./owner-password").then((m) => m.OwnerOpenedNote),
+);
 
 export interface Extraction extends ExtractImagesResult {
   /** Sum of extracted image bytes. */
@@ -144,7 +185,9 @@ export function ExtractImagesEditor({
   return (
     <div className="flex flex-col gap-5">
       <FileHeader pdf={pdf} />
-      {pdf.protection && <RestrictedGrantNote grant="copy" />}
+      {pdf.protection && !pdf.protection.unlocked && (
+        <RestrictedGrantNote grant="copy" />
+      )}
 
       <RunnerSection
         title="What gets extracted"

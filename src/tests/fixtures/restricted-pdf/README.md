@@ -104,3 +104,23 @@ it names the encrypted file's real offsets around its `/Contents` hole.
 | file                             | producer | V / R | cipher  | grant (pdf.js `getPermissions()`) | owner password      |
 | -------------------------------- | -------- | ----- | ------- | --------------------------------- | ------------------- |
 | `pypdf-r3-signed-restricted.pdf` | pypdf    | V2 R3 | RC4 128 | 4, 32, 256, 512, 2048 (P −1052)   | `owner-signed-test` |
+
+## The owner-password fixtures (2026-11-17)
+
+`python -I make-owner.py <this folder>` with pypdf 6.19.0: `grant-base.pdf`
+encrypted in AES, withholding what `pypdf-r3-no-assemble-copy.pdf` withholds
+(copying 16 and assembly 1024 among them, P −1340). pypdf's AES needs the
+`cryptography` package; where it is not installed the script supplies the
+AES block operations from Node's `crypto` (one `node` process per call),
+which shares no code with pdf.xyz either. Read back by pdf.js: both pages,
+the grant below, and the open password where there is one.
+
+| file                                 | producer | V / R | cipher  | open password | grant (pdf.js `getPermissions()`) | owner password      |
+| ------------------------------------ | -------- | ----- | ------- | ------------- | --------------------------------- | ------------------- |
+| `pypdf-r4-aes128-no-grant.pdf`       | pypdf    | V4 R4 | AES-128 | (none)        | 4, 512, 2048 (P −1340)            | `owner-aes128-test` |
+| `pypdf-r6-aes256-no-grant.pdf`       | pypdf    | V5 R6 | AES-256 | (none)        | 4, 512, 2048                      | `owner-aes256-test` |
+| `pypdf-r6-aes256-both-passwords.pdf` | pypdf    | V5 R6 | AES-256 | `open-test`   | 4, 512, 2048                      | `owner-both-test`   |
+
+Used by `src/lib/pdf/security/owner-password-matrix.test.ts` (every tool ×
+password kind × cipher) and `e2e/owner-password.spec.ts` (the five tools'
+pages, in a real browser).

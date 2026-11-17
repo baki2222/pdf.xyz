@@ -38,6 +38,7 @@ import {
 import { PageTile, TileAction } from "./page-tile";
 import {
   FileHeader,
+  SignedInputNotice,
   SinglePdfRunner,
   type SinglePdfBatch,
 } from "./single-pdf-runner";
@@ -67,14 +68,45 @@ const RotateBatch = dynamic(
 const batch = (props: SinglePdfBatch) => <RotateBatch {...props} />;
 
 /**
+ * The owner-password field and its note (`./owner-password`), fetched only
+ * when a refusal draws or the owner password has opened a file.
+ */
+const OwnerPasswordField = dynamic(() =>
+  import("./owner-password").then((m) => m.OwnerPasswordField),
+);
+const OwnerOpenedNote = dynamic(() =>
+  import("./owner-password").then((m) => m.OwnerOpenedNote),
+);
+
+/**
  * A PDF its author restricted opens here when the author grants page
  * assembly (/P bit 11, which names rotation): the rotation is saved under
  * the author's own encryption. Withheld, the tool says which permission and
  * that the owner password lifts it (`./restricted-grant`). Refused at
  * upload, with the editing-restrictions message, until 2026-11-08. That is
  * the single-file editor; the batch refuses a restricted file on its row.
+ *
+ * Withheld — or a file that needs a password to open — the refusal carries
+ * the owner-password field (competitor-audit backlog #11). The owner
+ * password unlocks the file's `protection`, and the rotation is STILL
+ * written under the author's encryption (`ProtectedPdf.saveChanges`): the
+ * rotated copy keeps the author's passwords, permissions and encryption.
  */
 export function RotateRunner() {
+  const [owned, setOwned] = useState<LoadedPdf | null>(null);
+  if (owned)
+    return (
+      <div className="flex flex-col gap-4">
+        {owned.protection?.unlocked && <OwnerOpenedNote tool="rotate-pdf" />}
+        {owned.digitalSignatures > 0 && (
+          <SignedInputNotice
+            count={owned.digitalSignatures}
+            toolName="Rotate PDF"
+          />
+        )}
+        <RotateEditor pdf={owned} onReset={() => setOwned(null)} />
+      </div>
+    );
   return (
     <SinglePdfRunner
       hint="One or more PDFs · rotate any or all pages"
@@ -82,10 +114,25 @@ export function RotateRunner() {
       handoffSlug="rotate-pdf"
       toolName="Rotate PDF"
       openProtected
+      errorAside={(error) =>
+        error.kind === "encrypted" ? (
+          <OwnerPasswordField
+            key={`${error.file.name}:${error.file.size}:${error.file.lastModified}`}
+            file={error.file}
+            tool="rotate-pdf"
+            onOpened={setOwned}
+          />
+        ) : null
+      }
     >
       {(pdf, reset) =>
         pdf.protection && !grantAllows(pdf.protection, "assemble") ? (
-          <RestrictedGrantRefusal pdf={pdf} grant="assemble" onReset={reset} />
+          <RestrictedGrantRefusal
+            pdf={pdf}
+            grant="assemble"
+            onReset={reset}
+            onOpened={setOwned}
+          />
         ) : (
           <RotateEditor pdf={pdf} onReset={reset} />
         )
@@ -187,7 +234,9 @@ function RotateEditor({
   return (
     <div className="flex flex-col gap-5">
       <FileHeader pdf={pdf} />
-      {protection && <RestrictedGrantNote grant="assemble" />}
+      {protection && !protection.unlocked && (
+        <RestrictedGrantNote grant="assemble" />
+      )}
 
       <RunnerSection
         title="Rotate"
