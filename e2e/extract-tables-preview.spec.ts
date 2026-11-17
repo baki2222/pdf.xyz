@@ -282,6 +282,61 @@ for (const [viewport, scheme] of [
   });
 }
 
+/**
+ * Review, 2026-11-17: an empty header cell's screen-reader label ("Column N",
+ * absolutely placed) escaped the scroll box and widened the PAGE whenever it
+ * sat past the right edge. The test above has one empty header, in column 3
+ * of 3, which never reaches the edge; this one is 31 columns of mostly empty
+ * headers. Also the CSV's formula guard: a phone number shows as written.
+ */
+const PHONE = "+880 1712-345678";
+const EMPTY_HEADED = [
+  {
+    pageNumber: 1,
+    rows: [
+      ["Name", ...Array.from({ length: 30 }, () => "")],
+      [PHONE, ...Array.from({ length: 30 }, (_, c) => `Cell ${c} value`)],
+    ],
+  },
+];
+
+for (const viewport of [null, { width: 375, height: 812 }] as const) {
+  const at = viewport ? ` at ${viewport.width}x${viewport.height}` : "";
+  test(`a wide table with mostly empty headers scrolls inside its box, never the page${at}`, async ({
+    page,
+  }) => {
+    if (viewport) await page.setViewportSize(viewport);
+    await mockWorker(page, await buildTablesZip(EMPTY_HEADED), {
+      tableCount: 1,
+      tablePages: [1],
+    });
+    const run = await runOnce(page);
+    expect(await pageScrollsSideways(page)).toBe(false);
+    await run.click();
+    await expect(page.getByText("Table 1, page 1: all 2 rows")).toBeVisible({
+      timeout: 15_000,
+    });
+    const box = page.locator('[data-table-preview="table-1.csv"]');
+    // Health check: the labels this is about are there, past the box's edge.
+    await expect(box.locator("thead th .sr-only")).toHaveCount(30);
+    await expect(
+      box.getByRole("columnheader", { name: "Column 31" }),
+    ).toHaveCount(1);
+    const edges = await box.evaluate((el) => ({
+      right: el.getBoundingClientRect().right,
+      last: el
+        .querySelector("thead th:last-child .sr-only")!
+        .getBoundingClientRect().left,
+    }));
+    expect(edges.last).toBeGreaterThan(edges.right);
+    expect(await pageScrollsSideways(page)).toBe(false);
+    // The CSV's guard is not shown: the cell reads as the PDF printed it.
+    await expect(
+      box.getByRole("cell", { name: PHONE, exact: true }),
+    ).toHaveCount(1);
+  });
+}
+
 test("a ZIP with no table: the preview says so and offers the OCR switch and PDF to Excel", async ({
   page,
 }) => {

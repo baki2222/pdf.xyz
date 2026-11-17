@@ -78,14 +78,18 @@ function PreviewTable({ table }: { table: TablePreview }) {
         {caption}
       </p>
       {/* Scrolls sideways inside the card, never the page; focusable, so a
-          keyboard can scroll it too (axe scrollable-region-focusable). */}
+          keyboard can scroll it too (axe scrollable-region-focusable). The
+          position makes it the containing block of the absolutely placed
+          screen-reader labels in empty header cells: without it they escape
+          its overflow and widen the PAGE (review, 2026-11-17; held by the
+          e2e "mostly empty header" test). */}
       <div
         role="region"
         aria-labelledby={id}
         tabIndex={0}
         data-table-preview={table.file}
         className="border-line bg-canvas rounded-panel border"
-        style={{ overflowX: "auto", maxWidth: "100%" }}
+        style={{ overflowX: "auto", maxWidth: "100%", position: "relative" }}
       >
         <table
           aria-labelledby={id}
