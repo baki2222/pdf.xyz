@@ -6,6 +6,7 @@ import {
   UNREADABLE_PDF_MESSAGE,
 } from "./engine-errors";
 import type { assemblePages as AssemblePages } from "./page-copy";
+import type { MergePageRef } from "./merge-pages";
 import { normalizeAngle, viewerRotation } from "./rotation";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
 import type {
@@ -177,6 +178,15 @@ export interface MergeOptions {
    * Blank pages from `blankAfterOdd` and contents pages carry none.
    */
   fileNames?: readonly string[];
+  /**
+   * Merge PDF's Arrange pages: the merged pages, in order, as (file, page),
+   * each with an optional ABSOLUTE rotation (omitted = the page keeps its
+   * own). Every file must give at least one page, `files` must be listed in
+   * the order their first pages appear here, and it replaces `pages`. When
+   * files interleave, fileBookmarks, contentsPage and blankAfterOdd are
+   * refused (`merge-pages.ts`, loaded only when this is given).
+   */
+  order?: readonly MergePageRef[];
 }
 
 /** Concatenate several PDFs into one, in the order given. */
@@ -191,9 +201,17 @@ export async function mergePdfs(
   if (options.fileBookmarks && options.fileBookmarks.length !== files.length) {
     throw new Error("one bookmark title per file");
   }
+  if (options.order) {
+    refuseNonFiniteRotations(options.order.map((ref) => ref.rotation ?? 0));
+  }
   const sources = [];
   for (const [i, bytes] of files.entries()) {
     const doc = await load(bytes);
+    if (options.order) {
+      // Taken from the order below, once every file's page count is known.
+      sources.push({ doc, indices: [] as number[] });
+      continue;
+    }
     const chosen = options.pages?.[i];
     const indices = chosen
       ? sanitizeIndices([...chosen], doc.getPageCount())
@@ -208,10 +226,27 @@ export async function mergePdfs(
   if (options.contentsPage && options.contentsPage.length !== files.length) {
     throw new Error("one contents title per file");
   }
+  // Loaded with the option, so a plain merge never pays for it.
+  const arranged = options.order ? await import("./merge-pages") : null;
+  const plan =
+    arranged && options.order
+      ? arranged.planPageOrder(
+          options.order,
+          sources.map(({ doc }) => doc.getPageCount()),
+          options,
+        )
+      : null;
+  if (plan) sources.forEach((source, i) => (source.indices = plan.indices[i]!));
   const { out, pages } = await assemblePages(lib, sources, {
     documentState: "merge",
     ...(options.fileBookmarks ? { fileBookmarks: options.fileBookmarks } : {}),
   });
+  // Turned and placed BEFORE the file names are stamped: the stamp reads
+  // each page's rotation, so a page turned after it would carry its name on
+  // its side.
+  if (arranged && plan && options.order) {
+    arranged.applyPageOrder(lib, out, pages, plan, options.order);
+  }
   if (options.fileNames) {
     if (options.fileNames.length !== files.length) {
       throw new Error("one file name per file");

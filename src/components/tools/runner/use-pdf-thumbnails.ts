@@ -21,6 +21,13 @@ export interface UsePdfThumbnailsOptions {
   enabled?: boolean;
   /** Override how many pages render eagerly before lazy loading kicks in. */
   eagerLimit?: number;
+  /**
+   * Draw the most recently requested page first. For a long board scrolled
+   * fast (Merge PDF's page grid): the tiles on screen asked last, and in
+   * request order they waited behind every tile already scrolled past.
+   * Eager pages, if any, still go first and in order.
+   */
+  newestFirst?: boolean;
 }
 
 export interface PdfThumbnails {
@@ -60,7 +67,11 @@ export function usePdfThumbnails(
   pageCount: number,
   options: UsePdfThumbnailsOptions = {},
 ): PdfThumbnails {
-  const { enabled = true, eagerLimit = EAGER_LIMIT } = options;
+  const {
+    enabled = true,
+    eagerLimit = EAGER_LIMIT,
+    newestFirst = false,
+  } = options;
   const total = Math.max(0, pageCount);
   const eagerCount = Math.min(total, Math.max(0, eagerLimit));
   const capped = enabled && total > eagerCount;
@@ -115,7 +126,8 @@ export function usePdfThumbnails(
       draining = true;
       try {
         while (queue.length > 0 && !cancelled && !controller.signal.aborted) {
-          const index = queue.shift()!;
+          const index =
+            newestFirst && eagerRemaining === 0 ? queue.pop()! : queue.shift()!;
           const isEager = index < eagerCount;
           const thumb = renderer
             ? await renderer.renderPage(index, {
@@ -170,7 +182,7 @@ export function usePdfThumbnails(
       created.clear();
       renderer?.destroy().catch(() => {});
     };
-  }, [bytes, total, eagerCount, enabled]);
+  }, [bytes, total, eagerCount, enabled, newestFirst]);
 
   const requestPage = useCallback((index: number) => {
     requestRef.current(index);

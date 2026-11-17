@@ -523,6 +523,10 @@ const ALTERNATE_FAILS = {
   alternated: "pages alternate between the two files",
   reversed: "the backs file's pages were taken last first",
 } as const;
+const ARRANGE_FAILS = {
+  order: "the pages come out in the grid's order, mixing the files",
+  turned: "the page turned in the grid carries /Rotate 90",
+} as const;
 const BATES_FAILS = {
   padded: "every page carries a zero-padded Bates number",
   start: "the numbers start at First number (124)",
@@ -3768,6 +3772,78 @@ export const VARIANTS: readonly VariantCase[] = [
       ];
     },
     rejectsBecause: [ALTERNATE_FAILS.alternated, ALTERNATE_FAILS.reversed],
+  },
+
+  {
+    slug: "merge-pdf",
+    name: "Arrange pages: a page of the second file between the first file's pages, turned",
+    kind: "merge",
+    artifact: "pdf",
+    run: async (ctx) => {
+      const alpha = Buffer.from(await makeTextPdf("alpha.pdf", { pages: 2 }));
+      const beta = Buffer.from(await makeTextPdf("beta.pdf", { pages: 2 }));
+      ctx.data["alpha.pdf"] = alpha;
+      ctx.data["beta.pdf"] = beta;
+      await uploadPayloads(ctx.page, [
+        { name: "alpha.pdf", mimeType: "application/pdf", buffer: alpha },
+        { name: "beta.pdf", mimeType: "application/pdf", buffer: beta },
+      ]);
+      await expect(
+        ctx.page.getByText("beta.pdf", { exact: true }),
+      ).toBeVisible();
+      const mode = ctx.page.getByRole("radio", { name: "Arrange pages" });
+      await waitForHydration(mode);
+      await mode.click();
+      // alpha 1, alpha 2, beta 1, beta 2 -> alpha 1, beta 1, alpha 2, beta 2.
+      await ctx.page
+        .getByRole("button", { name: "Move page 1 of beta.pdf earlier" })
+        .click();
+      await ctx.page
+        .getByRole("button", { name: "Rotate page 1 of beta.pdf right" })
+        .click();
+      return runAndDownload(
+        ctx,
+        /merge 2 pdfs/i,
+        /pdfs merged/i,
+        /download merged pdf/i,
+      );
+    },
+    assert: async (buf) => {
+      const texts = (await pdfPageTexts(buf)).map(normalizeText);
+      expect(
+        texts.map((t) => /\S+::page-\d/.exec(t)?.[0] ?? "?"),
+        ARRANGE_FAILS.order,
+      ).toEqual([
+        "alpha.pdf::page-1",
+        "beta.pdf::page-1",
+        "alpha.pdf::page-2",
+        "beta.pdf::page-2",
+      ]);
+      const doc = await PDFDocument.load(buf);
+      expect(
+        doc.getPages().map((p) => p.getRotation().angle),
+        ARRANGE_FAILS.turned,
+      ).toEqual([0, 90, 0, 0]);
+    },
+    // Built by the engine in Node, each differing in ONE way: whole files
+    // one after another, and the same order without the turn.
+    control: async (ctx) => {
+      const files = [input(ctx, "alpha.pdf"), input(ctx, "beta.pdf")];
+      return [
+        Buffer.from(await mergePdfs(files)),
+        Buffer.from(
+          await mergePdfs(files, {
+            order: [
+              { file: 0, page: 0 },
+              { file: 1, page: 0 },
+              { file: 0, page: 1 },
+              { file: 1, page: 1 },
+            ],
+          }),
+        ),
+      ];
+    },
+    rejectsBecause: [ARRANGE_FAILS.order, ARRANGE_FAILS.turned],
   },
 
   {

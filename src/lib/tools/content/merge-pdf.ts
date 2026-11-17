@@ -1,12 +1,19 @@
 import type { ToolContent } from "./types";
 import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
-import { MERGE_SORTS, MERGE_SORT_LABEL } from "@/lib/pdf/merge-order";
+import {
+  MERGE_MODE_LABEL,
+  MERGE_SORTS,
+  MERGE_SORT_LABEL,
+} from "@/lib/pdf/merge-order";
 
 /** The Sort buttons, in the order and words the runner draws them. */
 const SORT_LABELS = new Intl.ListFormat("en", { type: "disjunction" }).format(
   MERGE_SORTS.map((sort) => MERGE_SORT_LABEL[sort]),
 );
+
+/** The third Page order button, as the runner labels it. */
+const ARRANGE = MERGE_MODE_LABEL.pages;
 
 /**
  * The size the merge runner refuses above. `MergeRunner.addFiles` calls
@@ -102,6 +109,19 @@ const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
  * Sort "Oldest first" / "Newest first" order by File.lastModified, ties in
  * the order added. The finding's other half, one page size for the whole
  * merge, is not an option here: Resize PDF does it, in the browser, after.
+ *
+ * ADDED 2026-11-17 (audit backlog #9; merge-pages.ts, read back page by page
+ * from the saved file by merge-pages.test.ts, and from the download by
+ * merge-runner.test.tsx; claims-vs-capability.test.ts holds the copy to
+ * both): Page order "Arrange pages" shows every page of every file in one
+ * grid. A page can be dragged anywhere, even between pages of another file
+ * (or moved with its buttons, or from the keyboard), turned left or right,
+ * or left out; the merged PDF follows the grid. A file keeps at least one
+ * page. The Pages boxes still say which pages of each file go in, never
+ * their order. File names at the foot work in every arrangement; a bookmark
+ * for each file, a contents page and blank pages after odd files are offered
+ * only while each file's pages sit together. Duplicating a page or adding a
+ * blank one is not offered: Organize Pages does that after merging.
  */
 const content: ToolContent = {
   slug: "merge-pdf",
@@ -112,7 +132,7 @@ const content: ToolContent = {
     "Combine two or more PDFs into one file in the order you choose. Drag rows or use the arrow buttons, then merge in your browser. Your files are not uploaded.",
 
   intro: [
-    "Merge PDF joins documents end to end: the pages of the first file in your list, then the pages of the next, down to the bottom. Set Page order to Alternate pages and it takes one page from each file in turn instead, for a double-sided scan saved as two files. By default every page of every file goes in; type a range such as 1-3, 5 in a file's Pages box to take only those pages, which keep their own order. Each row gives the file's page count and size next to a thumbnail of its first page (a plain file icon stands in if that page can't be drawn), and a running total of files and pages heads the list, so you know how long the result will be before you merge. It all happens online in your browser: the PDFs you add are read on your device, not uploaded to pdf.xyz.",
+    `Merge PDF joins documents end to end: the pages of the first file in your list, then the pages of the next, down to the bottom. Set Page order to Alternate pages and it takes one page from each file in turn instead, for a double-sided scan saved as two files. Choose ${ARRANGE} to see every page of every file in one grid instead: drag a page anywhere, even between pages of another file, turn it, or leave it out. By default every page of every file goes in; type a range such as 1-3, 5 in a file's Pages box to take only those pages, which keep their own order. Each row gives the file's page count and size next to a thumbnail of its first page (a plain file icon stands in if that page can't be drawn), and a running total of files and pages heads the list, so you know how long the result will be before you merge. It all happens online in your browser: the PDFs you add are read on your device, not uploaded to pdf.xyz.`,
     "Pages are copied with their content, dimensions and rotation intact, so a landscape spreadsheet printout stays landscape next to portrait letters, and links to web addresses on a page still point where they did. Each file's bookmarks follow one another in the merged bookmarks panel (a bookmark to a page you left out is dropped), and ticking “Add a bookmark for each file” also writes one bookmark per file, named after it and opening its first page, with that file's own bookmarks beneath it. Form fields stay fillable with what was typed in them; when two files use the same field name, the later one is renamed so their answers stay separate. The title and author, page labels and language each describe one file, so none of them is copied into the merged PDF.",
     `Each file can be up to ${maxMb} MB, and the merge button stays disabled until at least two files are in the list. The tool sets no count limit of its own, but every file you add is held in your browser's memory until you remove its row, press “Start over” or leave the page, so the practical ceiling is your device's memory. If one file in a batch is password-protected, only that file is refused, by name, and the others remain in the list.`,
   ],
@@ -143,7 +163,7 @@ const content: ToolContent = {
     },
     {
       title: "Put them in order",
-      body: `Drag a row, or press its up and down arrow buttons, which also work from the keyboard, or sort the whole list by ${SORT_LABELS}. ${MERGE_SORT_LABEL["modified-asc"]} and ${MERGE_SORT_LABEL["modified-desc"]} use each file's last-modified date, for scans whose names carry none. The top row supplies the opening pages; the X button removes a file. Page order stays at One after another unless you pick Alternate pages.`,
+      body: `Drag a row, or press its up and down arrow buttons, which also work from the keyboard, or sort the whole list by ${SORT_LABELS}. ${MERGE_SORT_LABEL["modified-asc"]} and ${MERGE_SORT_LABEL["modified-desc"]} use each file's last-modified date, for scans whose names carry none. The top row supplies the opening pages; the X button removes a file. Page order stays at One after another unless you pick Alternate pages or ${ARRANGE}.`,
     },
     {
       title: "Pick pages and bookmarks (optional)",
@@ -170,7 +190,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I merge only some pages of a file, or reorder single pages?",
-      a: "Yes to the first: type the pages you want in that file's Pages box, such as 1-3, 5 or 10-, and only those are merged; an empty box takes every page, and the page total above the list counts your selection. The chosen pages keep the file's own order, so typing 5, 1 still gives page 1 before page 5; only Reverse page order, under Alternate pages, turns a file's pages round. To rearrange, rotate, duplicate or delete individual pages after merging, open the combined file in Organize Pages.",
+      a: `Yes to both. Type the pages you want in that file's Pages box, such as 1-3, 5 or 10-, and only those are merged; an empty box takes every page, and the page total above the list counts your selection. Pages chosen in the box keep the file's own order, so typing 5, 1 still gives page 1 before page 5. To put single pages in any order, mixing files, choose ${ARRANGE} under Page order: drag a page, or use its move buttons, which also work from the keyboard; you can turn a page or leave it out there too. To duplicate pages or add blank ones, open the merged file in Organize Pages.`,
     },
     {
       q: "How do I combine a double-sided scan saved as two files?",
