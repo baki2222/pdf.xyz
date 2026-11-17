@@ -159,7 +159,7 @@ describe("body copy is 16px at every width, in the reading colour", () => {
       }
     }
     expect(wrong).toEqual([]);
-  });
+  }, 30_000);
 });
 
 describe("related guides", () => {

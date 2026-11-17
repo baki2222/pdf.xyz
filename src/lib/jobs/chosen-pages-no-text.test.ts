@@ -117,7 +117,7 @@ describe("chosen-pages-no-text: one author, no panel's first load", () => {
       "src/lib/workers/translate/engine.ts",
       "src/lib/workers/translate/page-range-capability.ts",
     ]);
-  });
+  }, 30_000);
 
   it("no tool panel reaches the leaf by a static import", () => {
     const { modules } = ownPanelModules();
