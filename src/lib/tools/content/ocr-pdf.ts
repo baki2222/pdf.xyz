@@ -193,7 +193,7 @@ const content: ToolContent = {
     },
     {
       title: "OCR a PDF with editing restrictions",
-      body: `A PDF that opens without a password but carries its author's restrictions needs the owner (permissions) password that set them. When you add such a file, the page shows an ${OWNER_PASSWORD_LABEL} field below it if our server can use the password: type it there and press Recognize text. Our server checks that it is the owner password before it reads the file, and refuses any other password with nothing processed. The searchable PDF keeps the author's restrictions and the same owner password, and still opens without a password; a text file, if you ask for one, has no restrictions. If the field does not appear, remove the restrictions with Unlock PDF and the owner password first, then run OCR. A PDF that needs a password just to open always goes through Unlock PDF first.`,
+      body: `A PDF that opens without a password but carries its author's restrictions needs the owner (permissions) password that set them. When you add such a file, the page shows an ${OWNER_PASSWORD_LABEL} field below it if our server can use the password: type it there and press Recognize text. Our server checks that it is the owner password before it reads the file, and refuses any other password with nothing processed. The searchable PDF keeps the same owner password and the author's restrictions, except that screen readers are always allowed to read its text. It still opens without a password; a text file, if you ask for one, has no restrictions. If the field does not appear, remove the restrictions with Unlock PDF and the owner password first, then run OCR. A PDF that needs a password just to open always goes through Unlock PDF first.`,
     },
   ],
 

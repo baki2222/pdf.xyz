@@ -41,7 +41,7 @@ export interface OcrOwnerState {
   problem: string | null;
 }
 
-export const OCR_OWNER_HINT = `This PDF opens without a password, but its author restricted what can be done with it. Type its owner (permissions) password to run OCR on it. The searchable PDF keeps the same restrictions and the same owner password, and still opens without a password; a text file, if you ask for one, has no restrictions. The password goes with your file to our secure server, which checks that it is the owner password before it reads anything. ${PASSWORD_QUEUE_LIFETIME}`;
+export const OCR_OWNER_HINT = `This PDF opens without a password, but its author restricted what can be done with it. Type its owner (permissions) password to run OCR on it. The searchable PDF keeps the same owner password and the same restrictions, except that screen readers are always allowed to read its text. It still opens without a password; a text file, if you ask for one, has no restrictions. The password goes with your file to our secure server, which checks that it is the owner password before it reads anything. ${PASSWORD_QUEUE_LIFETIME}`;
 
 /** Said under the field while it is empty. */
 export const OCR_OWNER_NEEDED =
@@ -71,10 +71,14 @@ export function OcrOwnerPassword({
   useEffect(() => {
     let live = true;
     void (async () => {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const access = await classifyPdfAccess(bytes);
+      // A file the probe cannot read is answered as not restricted: the
+      // panel keeps Run off until this answers, so it must always answer.
+      const access = await file
+        .arrayBuffer()
+        .then((buffer) => classifyPdfAccess(new Uint8Array(buffer)))
+        .catch(() => null);
       if (!live) return;
-      const isRestricted = access.kind === "restricted";
+      const isRestricted = access?.kind === "restricted";
       setRestricted(isRestricted);
       onChange({
         file,

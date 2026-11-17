@@ -216,7 +216,10 @@ function stubNetwork(capability: boolean, upload: Uint8Array) {
   return { sent, engineInputs, decrypts };
 }
 
-async function addFile(bytes: Uint8Array, name = "scan.pdf") {
+async function addFile(
+  bytes: Uint8Array | File,
+  name = bytes instanceof File ? bytes.name : "scan.pdf",
+) {
   render(
     <InToolPage tool={ocrTool}>
       <OcrWorkerPanel tool={ocrTool} />
@@ -227,12 +230,42 @@ async function addFile(bytes: Uint8Array, name = "scan.pdf") {
     if (!found) throw new Error("no file input yet");
     return found;
   });
+  // The live worker's answer is in before the file is chosen, so the panel
+  // knows it may offer the field (a test of Run's gap is blind otherwise).
+  await vi.waitFor(() => {
+    const calls = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
+    if (!calls.includes("/api/worker/status")) throw new Error("no status");
+  });
+  await new Promise((r) => setTimeout(r, 50));
   fireEvent.change(input, {
     target: {
-      files: [new File([bytes.slice()], name, { type: "application/pdf" })],
+      files: [
+        bytes instanceof File
+          ? bytes
+          : new File([bytes.slice()], name, { type: "application/pdf" }),
+      ],
     },
   });
   await screen.findByText(name);
+}
+
+/**
+ * A file whose bytes are held back until `release()`: the Owner password
+ * field's probe cannot answer before then, which stretches the gap between
+ * choosing a file and the probe's answer that a person can click into.
+ */
+function heldFile(bytes: Uint8Array, name = "scan.pdf") {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const file = new File([bytes.slice()], name, { type: "application/pdf" });
+  const read = file.arrayBuffer.bind(file);
+  Object.defineProperty(file, "arrayBuffer", {
+    value: async () => {
+      await gate;
+      return read();
+    },
+  });
+  return { file, release };
 }
 
 const runButton = () => screen.getByRole("button", { name: /recognize text/i });
@@ -314,6 +347,42 @@ describe("OCR PDF's Owner password field: panel → job → worker", () => {
     expect(net.sent).toHaveLength(1);
     expect("ownerPassword" in net.sent[0]!).toBe(false);
     expect(net.decrypts).toEqual([]);
+  });
+
+  // Review finding (2026-11-18): Run was live for about 0.7 s after a
+  // restricted PDF was chosen, before the field's probe had answered, and a
+  // click in that gap posted the job with no owner password.
+  it("Run waits for the field's probe: a click before it answers posts no job", async () => {
+    const net = stubNetwork(true, RESTRICTED);
+    const held = heldFile(RESTRICTED);
+    await addFile(held.file);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(field()).toBeNull();
+    expect(runButton()).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(runButton());
+    await new Promise((r) => setTimeout(r, 300));
+    expect(net.sent).toEqual([]);
+    held.release();
+    await screen.findByLabelText(OWNER_PASSWORD_LABEL, {}, { timeout: 10_000 });
+    expect(runButton()).toHaveAttribute("aria-disabled", "true");
+    expect(net.sent).toEqual([]);
+  });
+
+  it("POSITIVE CONTROL: the same held probe, on an unrestricted PDF, frees Run once it answers", async () => {
+    const net = stubNetwork(true, PLAIN);
+    const held = heldFile(PLAIN);
+    await addFile(held.file);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(runButton()).toHaveAttribute("aria-disabled", "true");
+    held.release();
+    await waitFor(() =>
+      expect(runButton()).not.toHaveAttribute("aria-disabled"),
+    );
+    expect(field()).toBeNull();
+    fireEvent.click(runButton());
+    await screen.findByText(/OCR complete/, {}, { timeout: 10_000 });
+    expect(net.sent).toHaveLength(1);
+    expect("ownerPassword" in net.sent[0]!).toBe(false);
   });
 
   it("an unrestricted PDF, worker proves it: no field, no key", async () => {

@@ -167,6 +167,49 @@ for (const viewport of [null, { width: 375, height: 812 }] as const) {
   });
 }
 
+// Review finding (2026-11-18): on the served build Run was live for about
+// 0.7 s after a restricted PDF was chosen, before the field's probe had
+// answered, and a click in that gap posted the job with no ownerPassword.
+test("ocrOwnerPassword proven: Run stays off until the probe answers, and a click in the gap posts nothing", async ({
+  page,
+}) => {
+  const { bodies } = await mockWorker(page, true);
+  await page.goto("/tools/ocr-pdf");
+  const input = fileInput(page);
+  await waitForHydration(input);
+  // The live status is in before the file is chosen, as for a person who
+  // reads the page first.
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        performance
+          .getEntriesByType("resource")
+          .some((e) => e.name.includes("/api/worker/status")),
+      ),
+    )
+    .toBe(true);
+  const run = page.getByRole("button", { name: "Recognize text" });
+  await input.setInputFiles({
+    name: "restricted.pdf",
+    mimeType: "application/pdf",
+    buffer: RESTRICTED,
+  });
+  // Straight away: no wait for the field.
+  const samples: (string | null)[] = [];
+  const field = page.getByLabel(LABEL, { exact: true });
+  for (let i = 0; i < 200 && (await field.count()) === 0; i += 1) {
+    if (await page.getByText("restricted.pdf", { exact: true }).count())
+      samples.push(await run.getAttribute("aria-disabled"));
+    await run.click({ force: true, timeout: 1_000 }).catch(() => {});
+  }
+  await expect(field).toBeVisible({ timeout: 15_000 });
+  // Health: the gap was sampled at all.
+  expect(samples.length).toBeGreaterThan(0);
+  expect(samples.filter((s) => s !== "true")).toEqual([]);
+  await page.waitForTimeout(500);
+  expect(bodies).toEqual([]);
+});
+
 test("ocrOwnerPassword not proven: a restricted PDF shows no field, and the job carries no key", async ({
   page,
 }) => {

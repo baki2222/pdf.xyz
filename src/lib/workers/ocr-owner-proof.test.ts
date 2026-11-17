@@ -80,7 +80,10 @@ async function judge(
   return { code, lines };
 }
 
-describe("runOcrOwnerProof — the judge", () => {
+// R6 key derivation (SHA-256/384/512 rounds) is ~0.3 s a test alone and
+// overran vitest's default 5 s under the full suite's load (review finding,
+// 2026-11-18), as `options-proof.test.ts` does for the same reason.
+describe("runOcrOwnerProof — the judge", { timeout: 30_000 }, () => {
   it("POSITIVE CONTROL: every per-input check passes on a right output", async () => {
     const { lines } = await judge(processor(R6));
     for (const name of ["a", "b", "c"])

@@ -17,7 +17,13 @@ import {
   RESTRICTED_FIXTURES,
   readRestrictedFixture,
 } from "@/tests/restricted-pdf-fixtures";
-import { OcrEngineRefusal } from "./ocr-engine-errors";
+import { DEFAULT_RETENTION } from "@/lib/jobs";
+import { OCR_REFUSAL_MESSAGES, OcrEngineRefusal } from "./ocr-engine-errors";
+import { createWorkerExecutor } from "./executor/executor";
+import type { ExecutorStorage } from "./executor/types";
+import { createProcessorRegistry } from "./processor";
+import { createLocalDevQueue } from "./queue/local-dev";
+import { DevWorkerStore } from "./store";
 import {
   createNativeOcrRunner,
   nativeOcrDeps,
@@ -25,7 +31,10 @@ import {
   type OcrOwnerCrypt,
 } from "./ocr-native";
 import type { NativeOcrConfig } from "./ocr-native-config";
-import type { QpdfOwnerOnlyInput } from "./pdf-security/native";
+import {
+  QpdfEncryptFailed,
+  type QpdfOwnerOnlyInput,
+} from "./pdf-security/native";
 import type { ProcessorInputFile } from "./processor/types";
 
 const cfg: NativeOcrConfig = {
@@ -127,67 +136,173 @@ async function refusal(promise: Promise<unknown>): Promise<string> {
   throw new Error("expected a refusal");
 }
 
-describe("the owner password: verified, decrypted, OCRed, restricted again", () => {
-  it("decrypts only with the verified password, hands OCRmyPDF the plain copy, and delivers qpdf's restricted copy", async () => {
-    const h = harness();
-    const result = await h.run({
-      options: options({ ownerPassword: R6.owner }),
-      inputs: [input(R6_BYTES)],
-    });
-    expect(h.decrypts).toEqual([R6.owner]);
-    // OCRmyPDF read the DECRYPTED copy, never the upload.
-    expect(h.engineInputs).toEqual([PLAIN]);
-    // The searchable output went to qpdf with the author's grant.
-    expect(h.encryptedInputs).toEqual([OCRED]);
-    expect(h.encrypts).toEqual([
-      {
-        ownerPassword: R6.owner,
-        grant: {
-          print: "full",
-          modify: false,
-          copy: false,
-          annotate: true,
-          fillForms: true,
-          accessibility: true,
-          assemble: false,
+// R6 key derivation under full-suite load: see ocr-owner-password.test.ts.
+describe(
+  "the owner password: verified, decrypted, OCRed, restricted again",
+  { timeout: 30_000 },
+  () => {
+    it("decrypts only with the verified password, hands OCRmyPDF the plain copy, and delivers qpdf's restricted copy", async () => {
+      const h = harness();
+      const result = await h.run({
+        options: options({ ownerPassword: R6.owner }),
+        inputs: [input(R6_BYTES)],
+      });
+      expect(h.decrypts).toEqual([R6.owner]);
+      // OCRmyPDF read the DECRYPTED copy, never the upload.
+      expect(h.engineInputs).toEqual([PLAIN]);
+      // The searchable output went to qpdf with the author's grant.
+      expect(h.encryptedInputs).toEqual([OCRED]);
+      expect(h.encrypts).toEqual([
+        {
+          ownerPassword: R6.owner,
+          grant: {
+            print: "full",
+            modify: false,
+            copy: false,
+            annotate: true,
+            fillForms: true,
+            accessibility: true,
+            assemble: false,
+          },
         },
-      },
-    ]);
-    expect(result.artifacts.map((a) => a.bytes)).toEqual([R6_BYTES]);
-    expect(result.artifacts[0]!.filename).toBe("Scan-ocr.pdf");
-  });
-
-  it("the text file is read from the decrypted copy, beside the restricted PDF", async () => {
-    const h = harness();
-    const result = await h.run({
-      options: options({ outputMode: "both", ownerPassword: R6.owner }),
-      inputs: [input(R6_BYTES)],
+      ]);
+      expect(result.artifacts.map((a) => a.bytes)).toEqual([R6_BYTES]);
+      expect(result.artifacts[0]!.filename).toBe("Scan-ocr.pdf");
     });
-    expect(result.artifacts.map((a) => a.contentType)).toEqual([
-      "application/pdf",
-      "text/plain; charset=utf-8",
-    ]);
-    expect(result.artifacts[1]!.bytes).toEqual(TEXT);
-  });
 
-  it("NEVER delivers a copy that is not restricted like the upload (read-back)", async () => {
-    for (const lie of [
-      PLAIN,
-      readRestrictedFixture("qpdf-r6-view-only.pdf"),
-      readRestrictedFixture("qpdf-r3-rc4-128.pdf"),
-    ]) {
-      const h = harness(lie);
+    it("the text file is read from the decrypted copy, beside the restricted PDF", async () => {
+      const h = harness();
+      const result = await h.run({
+        options: options({ outputMode: "both", ownerPassword: R6.owner }),
+        inputs: [input(R6_BYTES)],
+      });
+      expect(result.artifacts.map((a) => a.contentType)).toEqual([
+        "application/pdf",
+        "text/plain; charset=utf-8",
+      ]);
+      expect(result.artifacts[1]!.bytes).toEqual(TEXT);
+    });
+
+    it("NEVER delivers a copy that is not restricted like the upload (read-back)", async () => {
+      for (const lie of [
+        PLAIN,
+        readRestrictedFixture("qpdf-r6-view-only.pdf"),
+        readRestrictedFixture("qpdf-r3-rc4-128.pdf"),
+      ]) {
+        const h = harness(lie);
+        // CHANGED 2026-11-18 (review finding): this was a plain Error, so a
+        // retryable internal_error that re-ran the whole OCR job to fail the
+        // same way. It is a final refusal now.
+        expect(
+          await refusal(
+            h.run({
+              options: options({ ownerPassword: R6.owner }),
+              inputs: [input(R6_BYTES)],
+            }),
+          ),
+        ).toBe("restrictions-not-kept");
+      }
+    });
+
+    it("a qpdf that exits without writing the copy: final; a spawn error: not", async () => {
+      const failing = (error: Error) => {
+        const h = harness();
+        return createNativeOcrRunner(cfg, {
+          resolveOnPath: () => true,
+          fs: {
+            mkdtemp: async (prefix) => `${prefix}t`,
+            writeFile: async () => {},
+            readFile: async () => OCRED,
+            rm: async () => {},
+          },
+          countPages: async () => 1,
+          exec: async () => ({}),
+          ownerCrypt: {
+            unlock: async () => ({ ok: true, output: PLAIN }),
+            encryptOwnerOnly: async () => {
+              h.encrypts.push({} as QpdfOwnerOnlyInput);
+              throw error;
+            },
+          },
+        });
+      };
+      const job = {
+        options: options({ ownerPassword: R6.owner }),
+        inputs: [input(R6_BYTES)],
+      };
+      expect(await refusal(failing(new QpdfEncryptFailed())(job))).toBe(
+        "restrictions-not-kept",
+      );
+      // A spawn error (a negative exit sentinel) may be transient.
       await expect(
-        h.run({
-          options: options({ ownerPassword: R6.owner }),
-          inputs: [input(R6_BYTES)],
-        }),
-      ).rejects.toThrow("OCR could not restore the PDF's restrictions.");
-    }
-  });
-});
+        failing(new Error("qpdf encryption failed."))(job),
+      ).rejects.not.toBeInstanceOf(OcrEngineRefusal);
+    });
 
-describe("everything else decrypts NOTHING", () => {
+    it("the executor runs such a job ONCE: not requeued, OCR not repeated", async () => {
+      let clock = 1_000;
+      const store = new DevWorkerStore(() => clock);
+      const queue = createLocalDevQueue({ store, now: () => clock });
+      const h = harness(PLAIN);
+      const registry = createProcessorRegistry({
+        ocr: {
+          runner: h.run,
+          engines: { ocrmypdf: true, tesseract: false },
+          installedLanguages: ["eng"],
+        },
+      });
+      const storage: ExecutorStorage = {
+        readInput: async (fileId) =>
+          fileId === "f_1234567890" ? input(R6_BYTES) : null,
+        writeArtifact: async () => {
+          throw new Error("nothing may be delivered");
+        },
+        deleteInput: async () => {},
+        deleteArtifact: async () => {},
+      };
+      await queue.submit({
+        job: {
+          jobId: "job_ocrowner01",
+          tool: "ocr-pdf",
+          capability: "secure-worker",
+          status: "queued",
+          progress: 0,
+          createdAt: new Date(clock).toISOString(),
+          updatedAt: new Date(clock).toISOString(),
+          expiresAt: new Date(clock + 3_600_000).toISOString(),
+          retention: DEFAULT_RETENTION,
+        },
+        inputs: ["f_1234567890"],
+        options: { ...options({ ownerPassword: R6.owner }) },
+      });
+      const exec = createWorkerExecutor({
+        queue,
+        storage,
+        registry,
+        leaseMs: 1_000,
+        maxAttempts: 3,
+      });
+      const outcomes: string[] = [];
+      for (let i = 0; i < 4; i += 1) {
+        outcomes.push((await exec.runOnce()).outcome);
+        clock += 61_000; // past any retry park
+      }
+      expect(outcomes).toEqual(["failed", "idle", "idle", "idle"]);
+      // ONE OCR run and ONE encryption, not one per attempt.
+      expect(h.engineInputs).toHaveLength(1);
+      expect(h.encrypts).toHaveLength(1);
+      const failed = store.getJob("job_ocrowner01");
+      expect(failed?.status).toBe("failed");
+      expect(failed?.error).toEqual({
+        code: "unprocessable_entity",
+        message: OCR_REFUSAL_MESSAGES["restrictions-not-kept"],
+        retryable: false,
+      });
+    });
+  },
+);
+
+describe("everything else decrypts NOTHING", { timeout: 30_000 }, () => {
   it("a wrong password: refused before qpdf or OCRmyPDF start", async () => {
     const h = harness();
     expect(

@@ -12,6 +12,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  OCR_AFTER_RUN_REFUSAL_KINDS,
   OCR_PRECHECK_REFUSAL_KINDS,
   OCR_REFUSAL_KINDS,
   OCR_REFUSAL_MESSAGES,
@@ -163,7 +164,11 @@ describe("classifyOcrmypdfFailure", () => {
     // A pre-check kind (decided from the upload before OCRmyPDF starts) is
     // never an exit status: it must NOT be produced here, and every other
     // kind must be. `ocr-native-owner.test.ts` produces the pre-check ones.
-    const precheck = new Set<string>(OCR_PRECHECK_REFUSAL_KINDS);
+    // Likewise an after-run kind (decided from what OCRmyPDF made).
+    const precheck = new Set<string>([
+      ...OCR_PRECHECK_REFUSAL_KINDS,
+      ...OCR_AFTER_RUN_REFUSAL_KINDS,
+    ]);
     for (const kind of OCR_REFUSAL_KINDS)
       expect(produced.has(kind), kind).toBe(!precheck.has(kind));
     expect(precheck.size).toBeGreaterThanOrEqual(1);
@@ -180,7 +185,12 @@ describe("OcrEngineRefusal — actionable, fixed, content-free copy", () => {
       expect(refusal.kind).toBe(kind);
       expect(refusal.message).toBe(OCR_REFUSAL_MESSAGES[kind]);
       // Every refusal says nothing was produced, so no user hunts for a file.
-      expect(refusal.message).toMatch(/nothing was processed/i);
+      // An after-run refusal says "delivered": OCR did run (2026-11-18).
+      expect(refusal.message).toMatch(
+        (OCR_AFTER_RUN_REFUSAL_KINDS as readonly string[]).includes(kind)
+          ? /nothing was delivered/i
+          : /nothing was processed/i,
+      );
     }
     expect(OCR_REFUSAL_MESSAGES.encrypted).toMatch(/Unlock PDF/);
     // A file that opens without a password is never called

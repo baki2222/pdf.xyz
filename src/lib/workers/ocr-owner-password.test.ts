@@ -26,6 +26,11 @@ import {
   restrictedLike,
 } from "./ocr-owner-password";
 import { qpdfGrantFromP, type QpdfGrant } from "./pdf-security/permission-bits";
+import {
+  PROBE_OWNER_PASSWORD,
+  PROBE_P,
+  restrictedProbePdf,
+} from "./ocr-owner-capability";
 import type { EncryptParams } from "@/lib/pdf/security/standard-handler";
 
 /** The PR #357 owner-password fixtures, from the folder's README. */
@@ -82,7 +87,10 @@ describe("the subjects (health)", () => {
   });
 });
 
-describe("checkOwnerPassword", () => {
+// R6 key derivation (SHA-256/384/512 rounds) is ~0.3 s a test alone and
+// overran vitest's default 5 s under the full suite's load (review finding,
+// 2026-11-18), as `options-proof.test.ts` does for the same reason.
+describe("checkOwnerPassword", { timeout: 30_000 }, () => {
   for (const fixture of ALL) {
     describe(fixture.file, () => {
       const bytes = readRestrictedFixture(fixture.file);
@@ -146,66 +154,150 @@ describe("checkOwnerPassword", () => {
   });
 });
 
-describe("restrictedLike — the read-back before delivery", () => {
-  const r6 = RESTRICTED_FIXTURES.find((f) => f.file === "qpdf-r6-aes256.pdf")!;
-  const r6Bytes = readRestrictedFixture(r6.file);
+describe(
+  "restrictedLike — the read-back before delivery",
+  { timeout: 30_000 },
+  () => {
+    const r6 = RESTRICTED_FIXTURES.find(
+      (f) => f.file === "qpdf-r6-aes256.pdf",
+    )!;
+    const r6Bytes = readRestrictedFixture(r6.file);
 
-  it("POSITIVE CONTROL: a file is restricted like itself", async () => {
-    const check = await checkOwnerPassword(r6Bytes, r6.owner);
-    if (check.kind !== "owner") throw new Error("fixture did not verify");
-    expect(
-      await restrictedLike(r6Bytes, check.grant, r6.owner, check.strength),
-    ).toBe(true);
+    it("POSITIVE CONTROL: a file is restricted like itself", async () => {
+      const check = await checkOwnerPassword(r6Bytes, r6.owner);
+      if (check.kind !== "owner") throw new Error("fixture did not verify");
+      expect(
+        await restrictedLike(r6Bytes, check.grant, r6.owner, check.strength),
+      ).toBe(true);
+    });
+
+    it("refuses: another owner password, a wider grant, a weaker cipher, a plain file", async () => {
+      const check = await checkOwnerPassword(r6Bytes, r6.owner);
+      if (check.kind !== "owner") throw new Error("fixture did not verify");
+      // Not this owner password.
+      expect(
+        await restrictedLike(r6Bytes, check.grant, "someone-else", 256),
+      ).toBe(false);
+      // The grant differs in one kept switch (copying lifted).
+      expect(
+        await restrictedLike(
+          r6Bytes,
+          { ...check.grant, copy: true },
+          r6.owner,
+          256,
+        ),
+      ).toBe(false);
+      // An RC4 copy of an AES-256 original is weaker.
+      const r3 = RESTRICTED_FIXTURES.find((f) => f.r === 3)!;
+      const r3Bytes = readRestrictedFixture(r3.file);
+      const r3Check = await checkOwnerPassword(r3Bytes, r3.owner);
+      if (r3Check.kind !== "owner") throw new Error("fixture did not verify");
+      expect(await restrictedLike(r3Bytes, r3Check.grant, r3.owner, 256)).toBe(
+        false,
+      );
+      expect(
+        await restrictedLike(
+          r3Bytes,
+          r3Check.grant,
+          r3.owner,
+          r3Check.strength,
+        ),
+      ).toBe(true);
+      // No encryption at all.
+      expect(
+        await restrictedLike(
+          readRestrictedFixture("base.pdf"),
+          check.grant,
+          r6.owner,
+          0,
+        ),
+      ).toBe(false);
+    });
+
+    // Review finding (2026-11-18): deleting the bit 10 demand left every test
+    // green. A copy whose kept switches all match but which withholds
+    // accessibility extraction is not what the read-back promises.
+    it("refuses a copy whose kept switches all match but whose bit 10 is clear", async () => {
+      const original = restrictedProbePdf();
+      const check = await checkOwnerPassword(original, PROBE_OWNER_PASSWORD);
+      if (check.kind !== "owner") throw new Error("probe did not verify");
+      expect(check.grant.accessibility).toBe(true);
+      const noAccessibility = PROBE_P & ~(1 << 9);
+      expect(noAccessibility).not.toBe(PROBE_P);
+      const copy = restrictedProbePdf(noAccessibility);
+      // Health: the copy differs from the original ONLY in bit 10.
+      const copyGrant = qpdfGrantFromP(noAccessibility, 3);
+      expect(copyGrant).toEqual({ ...check.grant, accessibility: false });
+      for (const key of OWNER_GRANT_KEPT_KEYS)
+        expect(copyGrant[key], key).toBe(check.grant[key]);
+      // POSITIVE CONTROL: the same builder, bit 10 set, passes.
+      expect(
+        await restrictedLike(
+          original,
+          check.grant,
+          PROBE_OWNER_PASSWORD,
+          check.strength,
+        ),
+      ).toBe(true);
+      expect(
+        await restrictedLike(
+          copy,
+          check.grant,
+          PROBE_OWNER_PASSWORD,
+          check.strength,
+        ),
+      ).toBe(false);
+    });
+
+    it("refuses a copy that needs a password to open", async () => {
+      const both = readRestrictedFixture("pypdf-r6-aes256-both-passwords.pdf");
+      expect(
+        await restrictedLike(
+          both,
+          qpdfGrantFromP(-1340, 6),
+          "owner-both-test",
+          0,
+        ),
+      ).toBe(false);
+    });
+  },
+);
+
+// Review finding (2026-11-18): reading fillForms from bit 9 in revision 2
+// left every test green, because the qpdf-r2 fixture's /P has bits 6 and 9
+// equal. Each case below sets the R2 source bit and its R3+ namesake
+// DIFFERENTLY, so only the Table 22 translation passes.
+describe("qpdfGrantFromP: revision 2 through ISO 32000-1 Table 22", () => {
+  const bit = (n: number) => 1 << (n - 1);
+  /** Every bit set but the ones listed: how R2 writers leave 7+ set. */
+  const allBut = (...bits: number[]) => bits.reduce((p, n) => p & ~bit(n), -1);
+
+  it("forms come from bit 6, never bit 9", () => {
+    expect(qpdfGrantFromP(allBut(9), 2).fillForms).toBe(true);
+    expect(qpdfGrantFromP(allBut(6), 2).fillForms).toBe(false);
+    // The same /P values read as R3: bit 9 itself.
+    expect(qpdfGrantFromP(allBut(9), 3).fillForms).toBe(false);
+    expect(qpdfGrantFromP(allBut(6), 3).fillForms).toBe(true);
   });
 
-  it("refuses: another owner password, a wider grant, a weaker cipher, a plain file", async () => {
-    const check = await checkOwnerPassword(r6Bytes, r6.owner);
-    if (check.kind !== "owner") throw new Error("fixture did not verify");
-    // Not this owner password.
-    expect(
-      await restrictedLike(r6Bytes, check.grant, "someone-else", 256),
-    ).toBe(false);
-    // The grant differs in one kept switch (copying lifted).
-    expect(
-      await restrictedLike(
-        r6Bytes,
-        { ...check.grant, copy: true },
-        r6.owner,
-        256,
-      ),
-    ).toBe(false);
-    // An RC4 copy of an AES-256 original is weaker.
-    const r3 = RESTRICTED_FIXTURES.find((f) => f.r === 3)!;
-    const r3Bytes = readRestrictedFixture(r3.file);
-    const r3Check = await checkOwnerPassword(r3Bytes, r3.owner);
-    if (r3Check.kind !== "owner") throw new Error("fixture did not verify");
-    expect(await restrictedLike(r3Bytes, r3Check.grant, r3.owner, 256)).toBe(
-      false,
-    );
-    expect(
-      await restrictedLike(r3Bytes, r3Check.grant, r3.owner, r3Check.strength),
-    ).toBe(true);
-    // No encryption at all.
-    expect(
-      await restrictedLike(
-        readRestrictedFixture("base.pdf"),
-        check.grant,
-        r6.owner,
-        0,
-      ),
-    ).toBe(false);
+  it("assembly comes from bit 4, never bit 11", () => {
+    expect(qpdfGrantFromP(allBut(11), 2).assemble).toBe(true);
+    expect(qpdfGrantFromP(allBut(4), 2).assemble).toBe(false);
+    expect(qpdfGrantFromP(allBut(11), 3).assemble).toBe(false);
+    expect(qpdfGrantFromP(allBut(4), 3).assemble).toBe(true);
   });
 
-  it("refuses a copy that needs a password to open", async () => {
-    const both = readRestrictedFixture("pypdf-r6-aes256-both-passwords.pdf");
-    expect(
-      await restrictedLike(
-        both,
-        qpdfGrantFromP(-1340, 6),
-        "owner-both-test",
-        0,
-      ),
-    ).toBe(false);
+  it("accessibility comes from bit 5, never bit 10", () => {
+    expect(qpdfGrantFromP(allBut(10), 2).accessibility).toBe(true);
+    expect(qpdfGrantFromP(allBut(5), 2).accessibility).toBe(false);
+    expect(qpdfGrantFromP(allBut(10), 3).accessibility).toBe(false);
+    expect(qpdfGrantFromP(allBut(5), 3).accessibility).toBe(true);
+  });
+
+  it("printing is full from bit 3 alone, never low for want of bit 12", () => {
+    expect(qpdfGrantFromP(allBut(12), 2).print).toBe("full");
+    expect(qpdfGrantFromP(allBut(3), 2).print).toBe("none");
+    expect(qpdfGrantFromP(allBut(12), 3).print).toBe("low");
   });
 });
 

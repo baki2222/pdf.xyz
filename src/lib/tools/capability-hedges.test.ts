@@ -1973,7 +1973,7 @@ describe("the ocrOwnerPassword subject (competitor-audit backlog #11, 2026-11-17
     )?.promise;
     expect(promise, "the operations row lost its promise").toBeDefined();
     expect(promise).toMatch(
-      /keeps the author's restrictions and owner password/,
+      /keeps the author's restrictions and owner password \(except that screen readers are always allowed to read it\)/,
     );
   });
 });

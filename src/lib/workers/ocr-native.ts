@@ -50,6 +50,7 @@ import { checkOwnerPassword, restrictedLike } from "./ocr-owner-password";
 import {
   createNativeQpdfRunner,
   probeQpdfFromConfig,
+  QpdfEncryptFailed,
   type NativeQpdfRunner,
   type QpdfSeams,
 } from "./pdf-security/native";
@@ -845,12 +846,22 @@ export function createNativeOcrRunner(
           // The author's restrictions, the same owner password, no open
           // password, AES-256; then READ BACK from what qpdf wrote: a copy
           // that is not restricted like the upload is never delivered.
+          // Both failures below are final, not retryable: the same bytes
+          // and the same qpdf make the same copy on every attempt (review
+          // finding, 2026-11-18). A timeout or a spawn error stays a plain
+          // Error, which may be transient.
           throwIfAttemptAborted(signal);
-          delivered = await seams.ownerCrypt.encryptOwnerOnly(
-            searchablePlain,
-            { ownerPassword, grant: owner.grant },
-            signalOption(signal),
-          );
+          try {
+            delivered = await seams.ownerCrypt.encryptOwnerOnly(
+              searchablePlain,
+              { ownerPassword, grant: owner.grant },
+              signalOption(signal),
+            );
+          } catch (error) {
+            if (error instanceof QpdfEncryptFailed)
+              throw new OcrEngineRefusal("restrictions-not-kept");
+            throw error;
+          }
           if (
             !(await restrictedLike(
               delivered,
@@ -859,7 +870,7 @@ export function createNativeOcrRunner(
               owner.strength,
             ))
           )
-            throw new Error("OCR could not restore the PDF's restrictions.");
+            throw new OcrEngineRefusal("restrictions-not-kept");
         }
         artifacts.push({
           filename: `${base}-ocr.pdf`,

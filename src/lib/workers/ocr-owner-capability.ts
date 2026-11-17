@@ -40,8 +40,11 @@
  *       started — so the stand-in refuses encryption, and (1)'s OCRmyPDF saw
  *       a decrypted file because the runner decrypted it;
  *   (4) the read-back: the same job with a qpdf whose `--encrypt` writes the
- *       PLAIN copy instead fails (retryable `internal_error`), delivering
- *       nothing — a copy not restricted like the upload never leaves;
+ *       PLAIN copy instead fails, NOT retryable, with the
+ *       restrictions-not-kept refusal, delivering nothing: a copy not
+ *       restricted like the upload never leaves, and the OCR run is not
+ *       repeated to fail the same way (until 2026-11-18 it was a retryable
+ *       `internal_error`);
  *   and qpdf is present on this host (presence only, nothing executed).
  *
  * WHAT A PASS DOES NOT MEAN. OCRmyPDF and qpdf are stand-ins: that the real
@@ -155,16 +158,18 @@ const int32le = (n: number): Uint8Array => {
  * {@link PROBE_OWNER_PASSWORD} as its owner password — Algorithms 2, 3 and
  * 5 of ISO 32000-1 §7.6.3, with the page's content stream encrypted under
  * its object key. Built in code, so the probe carries no fixture file and
- * shares no bytes with the tests' qpdf- and pypdf-made fixtures.
+ * shares no bytes with the tests' qpdf- and pypdf-made fixtures. `p` is for
+ * tests that need another grant (a /P with bit 10 clear, which neither qpdf
+ * nor the fixtures write at AES-256); the probe always uses the default.
  */
-export function restrictedProbePdf(): Uint8Array {
+export function restrictedProbePdf(p: number = PROBE_P): Uint8Array {
   const id = md5(latin1("pdf.xyz OCR owner-password probe"));
   const user = padded(new Uint8Array(0));
   // Algorithm 3: /O from the owner password.
   const ownerKey = md5Rounds(padded(latin1(PROBE_OWNER_PASSWORD)));
   const o = rc4Rounds(ownerKey, user);
   // Algorithm 2: the file key.
-  const fileKey = md5Rounds(concat(user, o, int32le(PROBE_P), id));
+  const fileKey = md5Rounds(concat(user, o, int32le(p), id));
   // Algorithm 5: /U for revision 3.
   const u = concat(
     rc4Rounds(fileKey, md5(concat(PAD, id))),
@@ -189,7 +194,7 @@ export function restrictedProbePdf(): Uint8Array {
       latin1("\nendstream\nendobj\n"),
     ),
     latin1(
-      `5 0 obj\n<< /Filter /Standard /V 2 /R 3 /Length 128 /P ${PROBE_P} /O <${hex(o)}> /U <${hex(u)}> >>\nendobj\n`,
+      `5 0 obj\n<< /Filter /Standard /V 2 /R 3 /Length 128 /P ${p} /O <${hex(o)}> /U <${hex(u)}> >>\nendobj\n`,
     ),
   ];
   const offsets: number[] = [];
@@ -408,7 +413,13 @@ export async function provesOcrOwnerPassword(
     const liar = ownerProbeRecorder(restricted, true);
     const lied = await run(liar, { ownerPassword: PROBE_OWNER_PASSWORD });
     if (lied.stage !== "failed") return false;
-    if (lied.result.error.code !== "internal_error") return false;
+    if (lied.result.error.code !== "unprocessable_entity") return false;
+    if (lied.result.error.retryable) return false;
+    if (
+      lied.result.error.message !==
+      OCR_REFUSAL_MESSAGES["restrictions-not-kept"]
+    )
+      return false;
     return liar.qpdf.length === 2;
   } catch {
     return false;

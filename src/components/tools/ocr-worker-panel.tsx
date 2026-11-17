@@ -221,6 +221,13 @@ function OcrBody({
     ownerOffered && ownerState?.file === file && ownerState.restricted
       ? ownerState
       : null;
+  // Until the field's probe has answered for THIS file, nobody knows whether
+  // it needs the owner password, so Run waits (review finding, 2026-11-18):
+  // for about 0.7 s after a restricted PDF was chosen Run was live, and a
+  // click sent the job with no password, which the worker then refused as
+  // restricted. The probe answers for every file, also when it cannot read
+  // one (as "not restricted"), so this always ends.
+  const ownerPending = ownerOffered && ownerState?.file !== file;
 
   // Run the free-form options through the real contract validator, so the "what
   // will happen" summary and any submitted job carry exactly the validated value.
@@ -412,7 +419,7 @@ function OcrBody({
       file={file}
       setFile={setFile}
       ownerPassword={ownerPassword}
-      ownerBlocked={owner !== null && owner.problem !== null}
+      ownerBlocked={ownerPending || (owner !== null && owner.problem !== null)}
       ownerField={
         ownerOffered && file ? (
           <OcrOwnerPassword file={file} onChange={setOwnerState} />
@@ -488,7 +495,7 @@ function OcrRunArea({
   setFile: (file: File | null) => void;
   /** A restricted PDF's owner password, sent with this file's job only. */
   ownerPassword: string | null;
-  /** The file is restricted and its field holds no password it can send. */
+  /** The field has not yet said whether the file is restricted, or it is and holds no password it can send. */
   ownerBlocked: boolean;
   /** The Owner password field, under the chosen file. */
   ownerField: ReactNode;

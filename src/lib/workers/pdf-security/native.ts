@@ -67,6 +67,20 @@ import {
 /** stdout/stderr capture ceiling. qpdf writes results to a file, so this is generous. */
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
 
+/**
+ * qpdf ran and exited with a status that says it wrote no output, for an
+ * owner-only encryption (OCR PDF's searchable copy of a restricted file).
+ * Typed so its caller can tell it from a spawn error or a timeout, which may
+ * be transient: the same bytes and the same qpdf fail the same way again
+ * (review finding, 2026-11-18).
+ */
+export class QpdfEncryptFailed extends Error {
+  constructor() {
+    super("qpdf encryption failed.");
+    this.name = "QpdfEncryptFailed";
+  }
+}
+
 /** The structured outcome of one qpdf invocation. Never carries a password. */
 export interface QpdfExecResult {
   /** Process exit code, or a negative sentinel for a spawn error / timeout. */
@@ -552,8 +566,11 @@ export function createNativeQpdfRunner(
         if (result.timedOut) throw new Error("qpdf timed out.");
         // 0, or 3 = output written with warnings (see protect). The caller
         // reads the encryption of what was written back before using it.
+        // A real exit status is final; a negative one (spawn error) is not.
         if (!qpdfWroteOutput(result)) {
-          throw new Error("qpdf encryption failed.");
+          throw result.code >= 0
+            ? new QpdfEncryptFailed()
+            : new Error("qpdf encryption failed.");
         }
         return job.readOutput();
       });
