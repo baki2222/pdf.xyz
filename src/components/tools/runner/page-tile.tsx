@@ -42,41 +42,7 @@ export interface DragHandle {
   tabIndex?: number;
 }
 
-/**
- * A page-shaped tile. The inner "sheet" rotates to preview orientation, so a
- * 90°/270° rotation visibly becomes landscape. Presentational only — selection,
- * ordering, and lazy preview requests are driven by props.
- *
- * Three usage modes:
- *  - `selectable`: a toggle button (extract / delete / rotate scope).
- *  - `dragHandle`: a sortable list item with a focusable keyboard drag handle.
- *  - plain: a static preview.
- */
-export function PageTile({
-  label,
-  rotation = 0,
-  thumbnail,
-  loading = false,
-  selectable = false,
-  selected = false,
-  onSelect,
-  ariaLabel,
-  cornerBadge,
-  actions,
-  dimmed = false,
-  draggable = false,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  onDragEnd,
-  dropTarget = false,
-  dragHandle,
-  onEnterView,
-  blankSheet,
-  tabIndex,
-  className,
-  style,
-}: {
+interface PageTileBase {
   label: ReactNode;
   /**
    * Draw an empty sheet of this upright size instead of a preview — a page
@@ -89,14 +55,12 @@ export function PageTile({
   thumbnail?: Thumbnail | null;
   /** Animate the placeholder while a preview is still rendering. */
   loading?: boolean;
-  selectable?: boolean;
   selected?: boolean;
   /** Called on click/Enter/Space; `shiftKey` powers range selection. */
   onSelect?: (shiftKey: boolean) => void;
   /** Accessible name override (used by sortable tiles to announce position). */
   ariaLabel?: string;
   cornerBadge?: ReactNode;
-  actions?: ReactNode;
   dimmed?: boolean;
   draggable?: boolean;
   onDragStart?: () => void;
@@ -119,7 +83,71 @@ export function PageTile({
    * `content-visibility` here so off-screen tiles skip layout and paint.
    */
   style?: CSSProperties;
-}) {
+}
+
+/**
+ * A selectable tile is a button (role=button, aria-pressed), so it may hold
+ * no control: `actions` is `never` here. `reserveActionRow` keeps the
+ * height a row of tile actions would take, for a caller that draws its
+ * buttons as a sibling positioned over the tile (Rotate PDF).
+ */
+interface SelectablePageTile extends PageTileBase {
+  selectable: true;
+  actions?: never;
+  reserveActionRow?: boolean;
+}
+
+/** A tile that is not a button may carry a row of buttons of its own. */
+interface PlainPageTile extends PageTileBase {
+  selectable?: false;
+  actions?: ReactNode;
+  reserveActionRow?: never;
+}
+
+export type PageTileProps = SelectablePageTile | PlainPageTile;
+
+/**
+ * A page-shaped tile. The inner "sheet" rotates to preview orientation, so a
+ * 90°/270° rotation visibly becomes landscape. Presentational only — selection,
+ * ordering, and lazy preview requests are driven by props.
+ *
+ * Three usage modes:
+ *  - `selectable`: a toggle button (extract / delete / rotate scope).
+ *  - `dragHandle`: a sortable list item with a focusable keyboard drag handle.
+ *  - plain: a static preview.
+ *
+ * A selectable tile takes no `actions`: it is a button, and a control inside
+ * a button cannot be pressed from the keyboard (the tile cancels Enter and
+ * Space for its own toggle) and is announced wrongly. `PageTileProps` makes the pair a
+ * type error; a caller that wants per-page buttons draws them as a sibling
+ * over the tile and reserves their row with `reserveActionRow`.
+ */
+export function PageTile({
+  label,
+  rotation = 0,
+  thumbnail,
+  loading = false,
+  selectable = false,
+  selected = false,
+  onSelect,
+  ariaLabel,
+  cornerBadge,
+  actions,
+  reserveActionRow = false,
+  dimmed = false,
+  draggable = false,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  dropTarget = false,
+  dragHandle,
+  onEnterView,
+  blankSheet,
+  tabIndex,
+  className,
+  style,
+}: PageTileProps) {
   const interactive = selectable && Boolean(onSelect);
   // Drawn the short way round: 270° then "Right" turns to 360°, not back to 0°.
   const drawn = useUnwrappedAngle(rotation);
@@ -275,9 +303,9 @@ export function PageTile({
         )}
       </div>
 
-      {actions && (
+      {(actions || reserveActionRow) && (
         <div className="flex flex-wrap items-center justify-center gap-1">
-          {actions}
+          {actions ?? <span className="size-7" aria-hidden />}
         </div>
       )}
     </div>
