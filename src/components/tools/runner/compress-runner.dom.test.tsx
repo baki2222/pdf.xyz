@@ -1784,9 +1784,16 @@ describe(
         screen.getByRole("textbox", { name: /custom target size in kb/i }),
         { target: { value: "5" } },
       );
-      expect(
-        screen.getAllByText(/enter a whole number of kb from 20/i)[0],
-      ).toBeVisible();
+      const said = screen.getAllByText(/^enter a whole number of kb/i);
+      expect(said[0]).toBeVisible();
+      // In plain words: the floor, and the ceiling as a size a reader knows,
+      // never the engine's raw KB figure ("2,097,152" until review of
+      // 4f590499, which wrapped mid-number at 375 px).
+      for (const el of said) {
+        expect(el.textContent).toMatch(/\b20 KB\b/);
+        expect(el.textContent).toMatch(/\b2 GB\b/);
+        expect(el.textContent).not.toMatch(/\d{4,}|\d,\d{3}/);
+      }
       const run = screen.getByRole("button", {
         name: /compress 2 pdfs on our server/i,
       });

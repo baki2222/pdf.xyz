@@ -67,5 +67,10 @@ export function batchTargetAlreadyFits(
   };
 }
 
-/** What to type instead of a size no file of the batch can be sent. */
-export const BATCH_TARGET_INVALID = `Enter a whole number of KB from ${MIN_TARGET_BYTES / KB} to ${(MAX_TARGET_BYTES / KB).toLocaleString("en-US")}.`;
+/**
+ * What to type instead of a size no file of the batch can be sent: the
+ * parser's own bounds, in plain words. The ceiling is said as a size ("2 GB"),
+ * never as its raw KB figure, which read like an engine limit and wrapped
+ * mid-number on a phone.
+ */
+export const BATCH_TARGET_INVALID = `Enter a whole number of KB, from ${MIN_TARGET_BYTES / KB} KB up to ${formatBytes(MAX_TARGET_BYTES, 0)}.`;
