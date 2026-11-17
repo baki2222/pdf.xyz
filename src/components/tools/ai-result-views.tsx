@@ -161,10 +161,39 @@ export function extractionJson(data: unknown): string {
 export { readExtraction };
 export type { ExtractionRead };
 
+/**
+ * The part of the rows the table draws, before any cell is shortened. ONE
+ * definition, read by both {@link ExtractionTable} (what it draws) and
+ * {@link tableCutNote} (what it says it left out), so the note cannot speak
+ * of a cell the table never drew. One record (every field schema) is drawn as
+ * Field | Value, so its fields are the body's rows.
+ */
+function drawnTable(rows: string[][]): {
+  single: boolean;
+  head: string[];
+  body: string[][];
+} {
+  const header = rows[0]!;
+  if (rows.length === 2)
+    return {
+      single: true,
+      head: ["Field", "Value"],
+      body: header
+        .slice(0, PAGE_ROW_LIMIT)
+        .map((field, i) => [field, rows[1]![i] ?? ""]),
+    };
+  return {
+    single: false,
+    head: header.slice(0, PAGE_COLUMN_LIMIT),
+    body: rows
+      .slice(1, PAGE_ROW_LIMIT + 1)
+      .map((row) => row.slice(0, PAGE_COLUMN_LIMIT)),
+  };
+}
+
 /** One line saying what the table leaves out, or `null` when it is whole. */
 export function tableCutNote(rows: string[][]): string | null {
-  const single = rows.length === 2;
-  // One record is drawn as Field | Value: its fields are the rows.
+  const { single, head, body } = drawnTable(rows);
   const lines = single ? rows[0]!.length : rows.length - 1;
   const columns = single ? 1 : rows[0]!.length;
   const unit = single ? "fields" : "rows";
@@ -175,7 +204,12 @@ export function tableCutNote(rows: string[][]): string | null {
     parts.push(
       `${parts.length ? "" : "the first "}${count(PAGE_COLUMN_LIMIT)} of ${count(columns)} columns`,
     );
-  const long = rows.some((row) => row.some((c) => c.length > PAGE_CELL_LIMIT));
+  // Only a cell the table DRAWS can be shortened on the page; the same
+  // predicate {@link cell} cuts by. One record's head is the fixed labels.
+  const drawn = single ? body : [head, ...body];
+  const long = drawn.some((row) =>
+    row.some((c) => cutForPage(c, PAGE_CELL_LIMIT).cut),
+  );
   if (parts.length === 0 && !long) return null;
   const shown = parts.length
     ? `Showing ${parts.join(" and ")}${long ? ", with long values shortened" : ""}.`
@@ -198,8 +232,7 @@ const TD = "text-fg px-4 py-2 text-left font-normal";
  * Field | Value; a list of records as one row each under the keys.
  */
 export function ExtractionTable({ rows }: { rows: string[][] }) {
-  const header = rows[0]!;
-  const single = rows.length === 2;
+  const { single, head, body } = drawnTable(rows);
   const note = tableCutNote(rows);
   return (
     <>
@@ -220,53 +253,32 @@ export function ExtractionTable({ rows }: { rows: string[][] }) {
               ? "The fields the AI extracted"
               : `The records the AI extracted, one per row`}
           </caption>
-          {single ? (
-            <>
-              <thead>
-                <tr>
-                  <th scope="col" className={TH}>
-                    Field
-                  </th>
-                  <th scope="col" className={TH}>
-                    Value
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {header.slice(0, PAGE_ROW_LIMIT).map((field, i) => (
-                  <tr key={i} className="border-line border-t">
-                    <th scope="row" className={TD}>
-                      {cell(field)}
+          <thead>
+            <tr>
+              {head.map((key, i) => (
+                <th key={i} scope="col" className={TH}>
+                  {single ? key : cell(key)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {body.map((row, r) => (
+              <tr key={r} className="border-line border-t">
+                {row.map((value, c) =>
+                  single && c === 0 ? (
+                    <th key={c} scope="row" className={TD}>
+                      {cell(value)}
                     </th>
-                    <td className={TD}>{cell(rows[1]![i] ?? "")}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </>
-          ) : (
-            <>
-              <thead>
-                <tr>
-                  {header.slice(0, PAGE_COLUMN_LIMIT).map((key, i) => (
-                    <th key={i} scope="col" className={TH}>
-                      {cell(key)}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.slice(1, PAGE_ROW_LIMIT + 1).map((row, r) => (
-                  <tr key={r} className="border-line border-t">
-                    {row.slice(0, PAGE_COLUMN_LIMIT).map((value, c) => (
-                      <td key={c} className={TD}>
-                        {cell(value)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </>
-          )}
+                  ) : (
+                    <td key={c} className={TD}>
+                      {cell(value)}
+                    </td>
+                  ),
+                )}
+              </tr>
+            ))}
+          </tbody>
         </table>
       </div>
       {note && <p className="text-muted text-xs leading-relaxed">{note}</p>}

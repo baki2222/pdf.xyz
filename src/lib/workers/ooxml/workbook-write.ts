@@ -17,7 +17,7 @@ import {
  *
  * Text cells are inline strings (`sheetCell`), and an inline string is never a
  * formula, so the `=`/`+`/`-`/`@` neutralising the CSV and TSV need does not
- * apply here: the cell holds the text as printed (workbook-write.test.ts).
+ * apply here: the cell holds the text as printed (tsv-and-workbook.test.ts).
  */
 
 /** One worksheet of the workbook: its tab name and its rows. */

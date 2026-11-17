@@ -28,13 +28,19 @@ import { runAiExtract } from "@/lib/workers/ai-extract/engine";
 import { readWorkbookSheets } from "@/lib/workers/ooxml/workbook-read";
 import { AiExtractResultBody } from "./ai-extract-worker-panel";
 import { AI_RESULT_CHUNK } from "./ai-result-chunk";
-import { PAGE_ROW_LIMIT, PAGE_TEXT_LIMIT } from "./ai-result-limits";
+import {
+  PAGE_CELL_LIMIT,
+  PAGE_COLUMN_LIMIT,
+  PAGE_ROW_LIMIT,
+  PAGE_TEXT_LIMIT,
+} from "./ai-result-limits";
 import {
   LongText,
   conversationFileName,
   conversationMarkdown,
   conversationText,
   cutForPage,
+  tableCutNote,
   type ConversationEntry,
 } from "./ai-result-views";
 
@@ -286,6 +292,149 @@ describe("AI Data Extraction shows the extracted data on the page", () => {
     // Positive control: both are on the page, as text in their cells.
     expect(within(table).getByText(HTML_VALUE).tagName).toBe("TD");
     expect(within(table).getByText(KEY).tagName).toBe("TH");
+  });
+
+  it(`a wide list draws ${PAGE_COLUMN_LIMIT} columns and says so; the copy and the workbook hold all of them`, async () => {
+    const writeText = stubClipboard();
+    const saved = catchDownloads();
+    const record = (n: number) =>
+      Object.fromEntries(
+        Array.from({ length: 60 }, (_, c) => [`col${c + 1}`, `r${n}c${c + 1}`]),
+      );
+    render(
+      <AiExtractResultBody
+        output={await realPackage([record(1), record(2)], PROMPT)}
+        filename={ZIP}
+      />,
+    );
+    const table = await screen.findByRole("table");
+    const heads = within(table).getAllByRole("columnheader");
+    expect(heads).toHaveLength(PAGE_COLUMN_LIMIT);
+    expect(heads.at(-1)!.textContent).toBe("col50");
+    expect(within(table).queryByText("col51")).toBeNull();
+    expect(within(table).queryByText("r1c51")).toBeNull();
+    // Positive control: the last column drawn is there, in every row.
+    expect(within(table).getByText("r2c50").tagName).toBe("TD");
+    expect(
+      screen.getByText(
+        "Showing the first 50 of 60 columns. Copying or downloading gives you all of it.",
+      ),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy as table" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    const lines = writeText.mock.calls[0]![0].split("\r\n");
+    expect(lines[0]!.split("\t")).toHaveLength(60);
+    expect(lines[2]!.split("\t").at(-1)).toBe("r2c60");
+
+    fireEvent.click(screen.getByRole("button", { name: "Download XLSX" }));
+    await waitFor(() => expect(saved).toHaveLength(1));
+    const [sheet] = await readWorkbookSheets(
+      new Uint8Array(await saved[0]!.blob.arrayBuffer()),
+    );
+    expect(sheet!.sheet.rows[0]!.cells).toHaveLength(60);
+    expect(sheet!.sheet.rows[2]!.cells.at(-1)!.value).toBe("r2c60");
+  });
+
+  it(`a value over ${PAGE_CELL_LIMIT} characters is drawn shortened with an ellipsis; the copy and the workbook keep all of it`, async () => {
+    const writeText = stubClipboard();
+    const saved = catchDownloads();
+    const ELLIPSIS = String.fromCodePoint(0x2026);
+    const LONG = "ab".repeat(450); // 900 characters, one drawn cell
+    render(
+      <AiExtractResultBody
+        output={await realPackage(
+          [
+            { item: "Bolt", note: LONG },
+            { item: "Nut", note: "short" },
+          ],
+          PROMPT,
+        )}
+        filename={ZIP}
+      />,
+    );
+    const table = await screen.findByRole("table");
+    const cells = within(table)
+      .getAllByRole("cell")
+      .map((td) => td.textContent ?? "");
+    expect(cells).toContain(`${LONG.slice(0, PAGE_CELL_LIMIT)}${ELLIPSIS}`);
+    expect(cells).not.toContain(LONG);
+    // Positive control: a short value is drawn whole, with no ellipsis.
+    expect(cells).toContain("short");
+    expect(
+      screen.getByText(
+        "Long values are shortened here. Copying or downloading gives you all of it.",
+      ),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy as table" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(writeText.mock.calls[0]![0].split("\r\n")[1]).toBe(`Bolt\t${LONG}`);
+
+    fireEvent.click(screen.getByRole("button", { name: "Download XLSX" }));
+    await waitFor(() => expect(saved).toHaveLength(1));
+    const [sheet] = await readWorkbookSheets(
+      new Uint8Array(await saved[0]!.blob.arrayBuffer()),
+    );
+    expect(sheet!.sheet.rows[1]!.cells[1]!.value).toBe(LONG);
+  });
+
+  it("the note speaks only of cells the table draws", () => {
+    // Found in review (2026-11-17): the "shortened" test read every cell of
+    // every row, so a long value in row 140 of 150 put "with long values
+    // shortened" under a table where nothing drawn was shortened.
+    const LONG = "x".repeat(PAGE_CELL_LIMIT + 400);
+    const list = (longAt: number, rows = 150) => [
+      ["n", "value"],
+      ...Array.from({ length: rows }, (_, i) => [
+        String(i + 1),
+        i + 1 === longAt ? LONG : "v",
+      ]),
+    ];
+    expect(tableCutNote(list(140))).toBe(
+      "Showing the first 100 of 150 rows. Copying or downloading gives you all of it.",
+    );
+    // Positive control: the same value in row 1 IS drawn, and is shortened.
+    expect(tableCutNote(list(1))).toBe(
+      "Showing the first 100 of 150 rows, with long values shortened. Copying or downloading gives you all of it.",
+    );
+    // The last row drawn counts; the first one past it does not.
+    expect(tableCutNote(list(PAGE_ROW_LIMIT))).toContain("shortened");
+    expect(tableCutNote(list(PAGE_ROW_LIMIT + 1))).not.toContain("shortened");
+
+    // Columns: a long value in column 51 is not drawn; in column 50 it is.
+    const wide = (longAt: number) => {
+      const header = Array.from({ length: 60 }, (_, c) => `k${c + 1}`);
+      const row = header.map((_, c) => (c + 1 === longAt ? LONG : "v"));
+      return [header, row, row.map(() => "w")];
+    };
+    expect(tableCutNote(wide(PAGE_COLUMN_LIMIT + 1))).toBe(
+      "Showing the first 50 of 60 columns. Copying or downloading gives you all of it.",
+    );
+    expect(tableCutNote(wide(PAGE_COLUMN_LIMIT))).toContain("shortened");
+
+    // A long KEY is drawn as a header cell, so it counts.
+    expect(
+      tableCutNote([
+        [LONG, "b"],
+        ["1", "2"],
+        ["3", "4"],
+      ]),
+    ).toBe(
+      "Long values are shortened here. Copying or downloading gives you all of it.",
+    );
+
+    // One record: fields past the hundredth are not drawn.
+    const record = (longAt: number) => {
+      const fields = Array.from({ length: 120 }, (_, i) => `f${i + 1}`);
+      return [fields, fields.map((_, i) => (i + 1 === longAt ? LONG : "v"))];
+    };
+    expect(tableCutNote(record(110))).toBe(
+      "Showing the first 100 of 120 fields. Copying or downloading gives you all of it.",
+    );
+    expect(tableCutNote(record(1))).toContain("shortened");
+    // And a whole table says nothing.
+    expect(tableCutNote([["a"], ["1"], ["2"]])).toBeNull();
   });
 
   it("data with no table shape offers Copy JSON and the ZIP, and no table", async () => {
