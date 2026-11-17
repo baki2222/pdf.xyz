@@ -39,6 +39,7 @@ import {
   PDF_PERMISSION_KEYS,
   type PdfPermissionKey,
 } from "@/lib/jobs/pdf-permissions";
+import type { QpdfGrant } from "./permission-bits";
 import {
   QPDF_EXIT_ERROR,
   QPDF_EXIT_WARNINGS,
@@ -254,6 +255,55 @@ const QPDF_RESTRICTION_FLAG: Record<PdfPermissionKey, string | null> = {
   assemble: "--assemble=n",
 };
 
+/**
+ * What OCR PDF encrypts its searchable copy of a restricted PDF with
+ * (competitor-audit backlog #11): the owner password the person typed —
+ * verified as the original's owner password before anything was decrypted
+ * (`../ocr-owner-password`) — and the original author's grant.
+ */
+export interface QpdfOwnerOnlyInput {
+  ownerPassword: string;
+  grant: QpdfGrant;
+}
+
+const yn = (allowed: boolean): "y" | "n" => (allowed ? "y" : "n");
+
+/**
+ * Build the qpdf argument vector that encrypts a PDF with an owner password,
+ * NO open password, AES-256 (R6), and every restriction switch stated
+ * explicitly from `grant` — so the copy is restricted exactly as the grant
+ * says, whatever qpdf's defaults are. qpdf 11's named `--owner-password`
+ * and `--bits` replace the positional operands, so no empty user-password
+ * line ever reaches the at-file: an omitted `--user-password` is the empty
+ * one, and the OCR runner reads the output back (opens with no password,
+ * the typed one is its owner password, the grant matches) before it
+ * delivers anything.
+ *
+ * `--accessibility` is not written: qpdf ignores it for AES-256, and PDF
+ * 2.0 (whose AES-256 this is) deprecates the bit and has writers set it.
+ */
+export function ownerOnlyEncryptArgs(
+  inputPath: string,
+  outputPath: string,
+  opts: QpdfOwnerOnlyInput,
+): string[] {
+  const g = opts.grant;
+  return [
+    "--encrypt",
+    `--owner-password=${opts.ownerPassword}`,
+    "--bits=256",
+    `--print=${g.print}`,
+    `--modify-other=${yn(g.modify)}`,
+    `--extract=${yn(g.copy)}`,
+    `--annotate=${yn(g.annotate)}`,
+    `--form=${yn(g.fillForms)}`,
+    `--assemble=${yn(g.assemble)}`,
+    "--",
+    inputPath,
+    outputPath,
+  ];
+}
+
 /** Build the qpdf argument vector for decrypting a PDF with a password. */
 export function unlockArgs(
   inputPath: string,
@@ -316,10 +366,22 @@ export function requiresPasswordArgs(inputPath: string): string[] {
  * that carries a password is passed to qpdf through an at-file in that same temp
  * dir, never on the command line.
  */
+/**
+ * The native runner: the engine's {@link QpdfRunner}, plus the one write OCR
+ * PDF needs for a restricted file ({@link ownerOnlyEncryptArgs}).
+ */
+export interface NativeQpdfRunner extends QpdfRunner {
+  encryptOwnerOnly(
+    input: Uint8Array,
+    opts: QpdfOwnerOnlyInput,
+    run?: { signal?: AbortSignal },
+  ): Promise<Uint8Array>;
+}
+
 export function createNativeQpdfRunner(
   config: NativePdfSecurityConfig,
   seams: QpdfSeams = {},
-): QpdfRunner {
+): NativeQpdfRunner {
   const exec = seams.exec ?? defaultQpdfExec;
   const fs = seams.fs ?? defaultFs;
   const baseTmp = config.tmpDir ?? tmpdir();
@@ -472,6 +534,24 @@ export function createNativeQpdfRunner(
         // (a broken xref, a wrong startxref) and then encrypted it. The output
         // is still read and validated here, and the engine re-proves it needs
         // the new password to open, so accepting 3 accepts no unproven bytes.
+        if (!qpdfWroteOutput(result)) {
+          throw new Error("qpdf encryption failed.");
+        }
+        return job.readOutput();
+      });
+    },
+
+    async encryptOwnerOnly(input, opts, run = {}) {
+      return withJob(input, run.signal, async (job) => {
+        const result = await job.run(
+          (inputPath, outputPath) =>
+            ownerOnlyEncryptArgs(inputPath, outputPath, opts),
+          // It carries the owner password: through the at-file.
+          true,
+        );
+        if (result.timedOut) throw new Error("qpdf timed out.");
+        // 0, or 3 = output written with warnings (see protect). The caller
+        // reads the encryption of what was written back before using it.
         if (!qpdfWroteOutput(result)) {
           throw new Error("qpdf encryption failed.");
         }

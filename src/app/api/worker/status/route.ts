@@ -22,6 +22,7 @@ import {
   liveWorkerSummarizesPages,
   liveWorkerTranslatesPageRanges,
   liveWorkerReadsCsvImportOptions,
+  liveWorkerOcrsWithOwnerPassword,
   liveWorkerTranslatesScans,
   readWorkerHeartbeatLiveness,
 } from "@/lib/workers/heartbeat";
@@ -129,6 +130,11 @@ export async function GET(request: Request): Promise<Response> {
   // (`csv-import.route.test.ts` runs each beat through both routes). An
   // older image publishes no key; absent is false.
   const workerCsvImportOptions = liveWorkerReadsCsvImportOptions(liveness);
+  // OCR PDF's Owner password field for a restricted PDF (competitor-audit
+  // backlog #11): offered only on a fresh beat that proves it. The SAME
+  // predicate `POST /api/jobs` admits an OCR job carrying `ownerPassword`
+  // on. An older image publishes no key; absent is false.
+  const workerOcrOwnerPassword = liveWorkerOcrsWithOwnerPassword(liveness);
 
   return respond(
     ok(
@@ -149,6 +155,7 @@ export async function GET(request: Request): Promise<Response> {
         workerSummarizePages,
         workerTranslatePageRange,
         workerCsvImportOptions,
+        workerOcrOwnerPassword,
       ),
     ),
   );

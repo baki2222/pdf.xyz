@@ -12,6 +12,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  OCR_PRECHECK_REFUSAL_KINDS,
   OCR_REFUSAL_KINDS,
   OCR_REFUSAL_MESSAGES,
   OCRMYPDF_EXIT_CODES,
@@ -159,7 +160,13 @@ describe("classifyOcrmypdfFailure", () => {
     // Rule 1: a kind nothing produces is decoration. Derived from the declared
     // kinds, so a kind added without a case fails here.
     const produced = new Set(CASES.map((c) => c.kind));
-    for (const kind of OCR_REFUSAL_KINDS) expect(produced).toContain(kind);
+    // A pre-check kind (decided from the upload before OCRmyPDF starts) is
+    // never an exit status: it must NOT be produced here, and every other
+    // kind must be. `ocr-native-owner.test.ts` produces the pre-check ones.
+    const precheck = new Set<string>(OCR_PRECHECK_REFUSAL_KINDS);
+    for (const kind of OCR_REFUSAL_KINDS)
+      expect(produced.has(kind), kind).toBe(!precheck.has(kind));
+    expect(precheck.size).toBeGreaterThanOrEqual(1);
     expect(produced).toContain(null);
     // Health check on the corpus itself.
     expect(CASES.length).toBeGreaterThanOrEqual(OCR_REFUSAL_KINDS.length + 3);

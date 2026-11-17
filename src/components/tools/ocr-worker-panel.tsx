@@ -46,6 +46,7 @@ import {
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { ChosenFileTarget } from "./chosen-file-target";
+import type { OcrOwnerState } from "./ocr-owner-password";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { useStagedHandoff } from "./use-staged-handoff";
 import {
@@ -209,6 +210,17 @@ function OcrBody({
   // pairs with both other boxes, so nothing else blocks it.
   const [rotateChoice, setRotate] = useState(false);
   const rotatePages = rotateChoice && !imageChosen;
+  // The Owner password field (competitor-audit backlog #11): offered only
+  // while the live worker proves `ocrOwnerPassword`, for a PDF, and drawn
+  // by its own chunk only once the file is found to be restricted. Its
+  // state belongs to the file it was typed for.
+  const ownerOffered =
+    status?.ocrOwnerPassword === true && file !== null && !imageChosen;
+  const [ownerState, setOwnerState] = useState<OcrOwnerState | null>(null);
+  const owner =
+    ownerOffered && ownerState?.file === file && ownerState.restricted
+      ? ownerState
+      : null;
 
   // Run the free-form options through the real contract validator, so the "what
   // will happen" summary and any submitted job carry exactly the validated value.
@@ -230,6 +242,9 @@ function OcrBody({
   // submit a job it will refuse.
   const runnable =
     parsed.ok && request.languages.every((code) => installed.has(code));
+  // Sent with this file's job only: never part of the shared request a
+  // batch reuses.
+  const ownerPassword = owner && !owner.problem ? owner.password : null;
 
   // The file comes first, then what to recognise in it, then Run: a
   // visitor meets the drop area at the top of the panel (owner,
@@ -396,9 +411,25 @@ function OcrBody({
       settings={settings}
       file={file}
       setFile={setFile}
+      ownerPassword={ownerPassword}
+      ownerBlocked={owner !== null && owner.problem !== null}
+      ownerField={
+        ownerOffered && file ? (
+          <OcrOwnerPassword file={file} onChange={setOwnerState} />
+        ) : null
+      }
     />
   );
 }
+
+/**
+ * The Owner password field, its own chunk (`./ocr-owner-password`): fetched
+ * only while the live worker proves it can use one and a PDF is chosen.
+ */
+const OcrOwnerPassword = dynamic(
+  () => import("./ocr-owner-password").then((m) => m.OcrOwnerPassword),
+  { loading: () => null },
+);
 
 const RUN_LABEL = "Recognize text";
 
@@ -439,6 +470,9 @@ function OcrRunArea({
   settings,
   file,
   setFile,
+  ownerPassword,
+  ownerBlocked,
+  ownerField,
 }: {
   tool: Tool;
   request: OcrOptions;
@@ -452,6 +486,12 @@ function OcrRunArea({
   /** The chosen file; owned by the body, whose settings depend on its kind. */
   file: File | null;
   setFile: (file: File | null) => void;
+  /** A restricted PDF's owner password, sent with this file's job only. */
+  ownerPassword: string | null;
+  /** The file is restricted and its field holds no password it can send. */
+  ownerBlocked: boolean;
+  /** The Owner password field, under the chosen file. */
+  ownerField: ReactNode;
 }) {
   const { available, status } = useWorkerPanel();
   // How many files a drop brought beyond the first while a job runs: two or
@@ -489,13 +529,13 @@ function OcrRunArea({
           filename: file.name,
           bytes,
           contentType: contentTypeFor(file),
-          options: request,
+          options: ownerPassword ? { ...request, ownerPassword } : request,
         },
         controls,
       );
       return result;
     });
-  }, [file, request, run, available]);
+  }, [file, request, run, available, ownerPassword]);
 
   if (batch)
     return (
@@ -556,6 +596,8 @@ function OcrRunArea({
         />
       )}
 
+      {file && ownerField}
+
       {discarded > 0 && (
         <p className="text-warn text-xs leading-relaxed" role="status">
           Only the first file was added, because a job is running. The other{" "}
@@ -578,7 +620,7 @@ function OcrRunArea({
           <WorkerRunButton
             onClick={start}
             busy={busy}
-            disabled={!ready || !file || !runnable}
+            disabled={!ready || !file || !runnable || ownerBlocked}
             busyLabel={jobBusyLabel(
               job.phase,
               "Recognizing text on our secure server…",

@@ -138,6 +138,11 @@ import {
   withStaleOcrLayer,
 } from "@/lib/workers/ocr-redo-proof";
 import { OCR_REFUSAL_MESSAGES } from "@/lib/workers/ocr-engine-errors";
+import {
+  checkOwnerPassword,
+  restrictedLike,
+} from "@/lib/workers/ocr-owner-password";
+import { openHandler } from "@/lib/pdf/security/document";
 
 import {
   PDF_TO_WORD_RTL_REFUSAL,
@@ -1485,6 +1490,78 @@ const SPECS: ProofSpec[] = [
     },
     expect: () => false,
     want: "a final refusal naming the author's restrictions and the owner password",
+  },
+  // The same restricted file WITH its owner password (competitor-audit
+  // backlog #11, 2026-11-17), on a worker that proves `ocrOwnerPassword`
+  // (the job route refuses the option otherwise). The download must be
+  // restricted exactly like the upload: read back in Node with the in-house
+  // handler — opens with no password, the typed password is its OWNER
+  // password, the kept grant switches equal the upload's, AES-256 (V5 R6).
+  // The owner password is the fixture's published test value. A wrong
+  // password is the control: refused, nothing processed.
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (restricted, with its owner password)",
+    make: () =>
+      readFileSync("src/tests/fixtures/restricted-pdf/qpdf-r6-aes256.pdf"),
+    name: "restricted.pdf",
+    type: PDF_MIME,
+    options: {
+      languages: ["eng"],
+      outputMode: "searchable-pdf",
+      ownerPassword: "owner-r6-test",
+    },
+    expect: isPdf,
+    verify: async (buf) => {
+      const original = new Uint8Array(
+        readFileSync("src/tests/fixtures/restricted-pdf/qpdf-r6-aes256.pdf"),
+      );
+      const before = await checkOwnerPassword(original, "owner-r6-test");
+      if (before.kind !== "owner")
+        return { ok: false, detail: "the fixture did not verify" };
+      const out = new Uint8Array(buf);
+      const free = await openHandler(out, "").catch(() => null);
+      const kept = await restrictedLike(
+        out,
+        before.grant,
+        "owner-r6-test",
+        before.strength,
+      );
+      const aes256 =
+        free?.params.v === 5 &&
+        free.params.r === 6 &&
+        free.params.stream === "aesv3";
+      return kept && aes256
+        ? {
+            ok: true,
+            detail: `restricted like the upload (/P ${readEncryptPermissions(out)}), owner password kept, no open password, V5 R6 AES-256`,
+          }
+        : {
+            ok: false,
+            detail: `restricted like the upload: ${kept}; V${free?.params.v} R${free?.params.r} ${free?.params.stream}`,
+          };
+    },
+    want: "the searchable PDF, restricted exactly like the upload",
+  },
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (restricted, wrong owner password, refused control)",
+    make: () =>
+      readFileSync("src/tests/fixtures/restricted-pdf/qpdf-r6-aes256.pdf"),
+    name: "restricted.pdf",
+    type: PDF_MIME,
+    options: {
+      languages: ["eng"],
+      outputMode: "searchable-pdf",
+      ownerPassword: "owner-r6-test-not-it",
+    },
+    expectFailure: {
+      code: "unprocessable_entity",
+      retryable: false,
+      message: exactly(OCR_REFUSAL_MESSAGES["wrong-owner-password"]),
+    },
+    expect: () => false,
+    want: "a final refusal of a password that is not the owner's",
   },
   {
     tool: "ocr-pdf",

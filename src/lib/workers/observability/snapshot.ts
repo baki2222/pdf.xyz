@@ -428,6 +428,16 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "Excel to PDF reads a CSV with the delimiter and character set the reader chose, instead of always as comma separated",
     proves: provenByFlag,
   },
+  ocrOwnerPassword: {
+    label: "owner password for restricted PDFs in OCR",
+    promise:
+      // Added 2026-11-17 (competitor-audit backlog #11). Positive, like
+      // `csvImportOptions`'s: the OCR panel offers the Owner password field
+      // for a restricted PDF, and the job API admits the option, only while
+      // this reads true on a fresh heartbeat.
+      "OCR PDF runs on a PDF its author restricted when the reader types its owner password, and the searchable PDF keeps the author's restrictions and owner password, instead of refusing the file",
+    proves: provenByFlag,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */

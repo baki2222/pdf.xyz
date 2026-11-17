@@ -490,6 +490,26 @@ export interface HeartbeatCapabilities {
    * parses as `false`.
    */
   readonly csvImportOptions: boolean;
+  /**
+   * This image's OCR PDF runs on a PDF that opens without a password but
+   * carries its author's restrictions, given the file's OWNER password
+   * (`ownerPassword` on the job, competitor-audit backlog #11): it checks
+   * the password against the file's own encryption dictionary, refuses one
+   * that is not the owner's (nothing decrypted), decrypts with qpdf, runs
+   * OCRmyPDF, and restricts the searchable PDF again with the same grant,
+   * the same owner password, no open password and AES-256, read back before
+   * it is delivered.
+   *
+   * PROVEN AT START-UP (`ocr-owner-capability.ts`, `provesOcrOwnerPassword`)
+   * through the executor's order with the image's OWN OCR runner and qpdf
+   * runner, on a restricted PDF built in code; only the OCRmyPDF and qpdf
+   * PROCESSES are stand-ins, and qpdf must be present on the host. An image
+   * built before the key IGNORES `ownerPassword` (its parser is lenient to
+   * unknown keys) and refuses the file as restricted, so the web offers the
+   * field, and `POST /api/jobs` admits the option, only while this reads
+   * `true` on an observed heartbeat. The absence parses as `false`.
+   */
+  readonly ocrOwnerPassword: boolean;
 }
 
 /**

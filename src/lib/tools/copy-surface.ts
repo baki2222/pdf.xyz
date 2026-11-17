@@ -169,6 +169,13 @@ export function copyFiles(): string[] {
     // guides and OCR PDF's page all render; ocr-start-copy.test.ts holds it
     // to the picker's hook.
     path.join(ROOT, "src", "lib", "jobs", "ocr-start-copy.ts"),
+    // OCR PDF's owner password for a restricted PDF: the job route's
+    // refusal while the running worker cannot use one (2026-11-17,
+    // competitor-audit backlog #11).
+    path.join(ROOT, "src", "lib", "jobs", "ocr-owner-password.ts"),
+    // The password-field rule Protect, Unlock and OCR PDF's owner password
+    // share (2026-11-17): its refusals, moved out of pdf-security.ts.
+    path.join(ROOT, "src", "lib", "jobs", "pdf-password.ts"),
     path.join(ROOT, "src", "lib", "jobs", "pdf-security.ts"),
     // The page-selection option's refusals (2026-11-16, Summarize page
     // ranges): what `POST /api/jobs` answers a malformed `pages` list. The
@@ -307,6 +314,9 @@ export function copyFiles(): string[] {
     // The OCR redo proof's verdict lines and fixture words (2026-11-08),
     // walked for the same reason.
     path.join(ROOT, "src", "lib", "workers", "ocr-redo-proof.ts"),
+    // The OCR owner-password proof's verdict lines (2026-11-17, backlog
+    // #11), walked for the same reason.
+    path.join(ROOT, "src", "lib", "workers", "ocr-owner-proof.ts"),
     // Compress PDF's page-orientation proof fixture (2026-11-06, audit #21),
     // walked for the same reason.
     path.join(

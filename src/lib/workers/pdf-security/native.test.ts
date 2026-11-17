@@ -4,6 +4,7 @@ import {
   createNativeQpdfRunner,
   isEncryptedArgs,
   nativePdfSecurityDeps,
+  ownerOnlyEncryptArgs,
   probeQpdfFromConfig,
   protectArgs,
   requiresPasswordArgs,
@@ -14,6 +15,7 @@ import {
 } from "./native";
 import type { NativePdfSecurityConfig } from "./native-config";
 import { QPDF_EXIT_ERROR, QPDF_EXIT_WARNINGS } from "../qpdf-exit";
+import { QPDF_GRANT_KEYS, type QpdfGrant } from "./permission-bits";
 
 /** Minimal, structurally-valid PDF bytes (passes `looksLikePdf`). */
 function pdf(pad = 40): Uint8Array {
@@ -578,5 +580,100 @@ describe("nativePdfSecurityDeps", () => {
       { resolveOnPath: () => true },
     );
     expect(deps.qpdf).toBeUndefined();
+  });
+});
+
+describe("createNativeQpdfRunner — encryptOwnerOnly (OCR PDF, backlog #11)", () => {
+  const grant: QpdfGrant = {
+    print: "low",
+    modify: false,
+    copy: false,
+    annotate: true,
+    fillForms: true,
+    accessibility: true,
+    assemble: false,
+  };
+
+  it("builds an owner-only AES-256 vector with every switch stated, and no user password", () => {
+    expect(
+      ownerOnlyEncryptArgs("/in", "/out", { ownerPassword: "OWN", grant }),
+    ).toEqual([
+      "--encrypt",
+      "--owner-password=OWN",
+      "--bits=256",
+      "--print=low",
+      "--modify-other=n",
+      "--extract=n",
+      "--annotate=y",
+      "--form=y",
+      "--assemble=n",
+      "--",
+      "/in",
+      "/out",
+    ]);
+  });
+
+  it("states one switch per grant key but accessibility, in both values", () => {
+    // Derived from the grant's own keys: a key added without a switch fails.
+    const flip = (g: QpdfGrant): QpdfGrant => ({
+      print: g.print === "none" ? "full" : "none",
+      modify: !g.modify,
+      copy: !g.copy,
+      annotate: !g.annotate,
+      fillForms: !g.fillForms,
+      accessibility: !g.accessibility,
+      assemble: !g.assemble,
+    });
+    const a = ownerOnlyEncryptArgs("i", "o", { ownerPassword: "x", grant });
+    const b = ownerOnlyEncryptArgs("i", "o", {
+      ownerPassword: "x",
+      grant: flip(grant),
+    });
+    const differing = a.filter((arg, i) => arg !== b[i]);
+    expect(differing).toHaveLength(QPDF_GRANT_KEYS.length - 1);
+  });
+
+  it("passes the owner password via the at-file only, and returns the output", async () => {
+    const { fs, writes } = fakeFs(pdf(64));
+    const { exec, calls } = fakeExec(OK);
+    const runner = createNativeQpdfRunner(config(), { exec, fs });
+    const out = await runner.encryptOwnerOnly(pdf(), {
+      ownerPassword: "OWN-SENTINEL",
+      grant,
+    });
+    expect(out).toEqual(pdf(64));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.args).toHaveLength(1);
+    expect(calls[0]!.args[0]!.startsWith("@")).toBe(true);
+    expect(JSON.stringify(calls[0]!.args)).not.toContain("OWN-SENTINEL");
+    const argfile = [...writes.entries()].find(([p]) =>
+      p.endsWith("qpdf.args"),
+    );
+    expect(new TextDecoder().decode(argfile![1]).split("\n")).toContain(
+      "--owner-password=OWN-SENTINEL",
+    );
+  });
+
+  it("accepts exit 3 and throws on 2, a timeout, or output that is not a PDF", async () => {
+    const ok3 = createNativeQpdfRunner(config(), {
+      exec: fakeExec(EXIT(QPDF_EXIT_WARNINGS)).exec,
+      fs: fakeFs(pdf(64)).fs,
+    });
+    expect(
+      await ok3.encryptOwnerOnly(pdf(), { ownerPassword: "x", grant }),
+    ).toEqual(pdf(64));
+    for (const [result, out] of [
+      [EXIT(QPDF_EXIT_ERROR), pdf(64)],
+      [TIMEOUT, pdf(64)],
+      [OK, new TextEncoder().encode("not a pdf")],
+    ] as const) {
+      const runner = createNativeQpdfRunner(config(), {
+        exec: fakeExec(result).exec,
+        fs: fakeFs(out).fs,
+      });
+      await expect(
+        runner.encryptOwnerOnly(pdf(), { ownerPassword: "x", grant }),
+      ).rejects.toThrow();
+    }
   });
 });
