@@ -195,7 +195,7 @@ const content: ToolContent = {
     },
     {
       title: "Make a CSV export readable",
-      body: `Bank, CRM and analytics exports arrive as raw delimited text. Converting paginates them with plain default formatting, since a CSV stores none. When you add a .csv, two settings appear. ${CSV_DELIMITER_LABEL} starts on Auto-detect, which looks at the first lines and picks the separator they all share, or a comma; choose ${DELIMITER_WORDS} if the columns come out wrong. ${CSV_CHARSET_LABEL} starts on Auto, which reads a file saved as UTF-8, or as UTF-16 with a byte-order mark, and anything else as Western European text; for a Cyrillic, Central European or Japanese export, choose its character set: ${CHARSET_WORDS}.`,
+      body: `Bank, CRM and analytics exports arrive as raw delimited text. Converting paginates them with plain default formatting, since a CSV stores none. When you add a .csv, two settings appear. ${CSV_DELIMITER_LABEL} starts on Auto-detect, which looks at the first lines and picks the separator most of them share, or a comma; choose ${DELIMITER_WORDS} if the columns come out wrong. ${CSV_CHARSET_LABEL} starts on Auto, which reads a file saved as UTF-8, or as UTF-16 with a byte-order mark, and anything else as Western European text; if the letters come out wrong, choose the character set the file was saved in: ${CHARSET_WORDS}.`,
     },
     {
       title: "Try an old .xls from a colleague",

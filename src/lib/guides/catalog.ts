@@ -4919,7 +4919,7 @@ export const guides: Guide[] = [
         id: "csv-separators-and-letters",
         heading: "CSV files: separators and letters",
         body: [
-          `A CSV is plain text, so it does not say which character separates its columns or which character set its letters were saved in. When you add a .csv, the tool shows two settings for that. ${CSV_DELIMITER_LABEL} starts on Auto-detect: it looks at the first lines and picks the separator they all share, and uses a comma when none fits. Choose Comma, Semicolon, Tab or Pipe if the columns come out wrong; many European exports use a semicolon, and one column of whole lines is the sign.`,
+          `A CSV is plain text, so it does not say which character separates its columns or which character set its letters were saved in. When you add a .csv, the tool shows two settings for that. ${CSV_DELIMITER_LABEL} starts on Auto-detect: it looks at the first lines and picks the separator most of them share, skipping a title line above the table, and uses a comma when none fits. A first line such as sep=; that Excel adds names the separator and is not printed. Choose Comma, Semicolon, Tab or Pipe if the columns come out wrong; many European exports use a semicolon, and one column of whole lines is the sign.`,
           `${CSV_CHARSET_LABEL} starts on Auto, which reads a file saved as UTF-8, or as UTF-16 that starts with a byte-order mark, and anything else as Windows-1252, the Western European set. A Cyrillic, Central European or Japanese file saved by an older program is usually in another set: choose Windows-1251, ISO-8859-2 or Shift-JIS, and the letters come out as they were typed.`,
         ],
       },

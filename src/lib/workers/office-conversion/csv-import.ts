@@ -67,7 +67,7 @@ export const CSV_CHARSETS: ReadonlyArray<{
 
 /** The sentence under the two selects. True of `./csv-filter`'s auto rules. */
 export const CSV_IMPORT_HINT =
-  "Auto-detect looks at the first lines and picks the separator they all share, or a comma. Auto reads UTF-8, UTF-16 that starts with a byte-order mark, and anything else as Windows-1252; choose the character set when letters come out wrong.";
+  "Auto-detect looks at the first lines and picks the separator most of them share, or a comma. Auto reads UTF-8, UTF-16 that starts with a byte-order mark, and anything else as Windows-1252; choose the character set when letters come out wrong.";
 
 /** The extensions these choices apply to. */
 export const CSV_IMPORT_EXTENSIONS = ["csv"] as const;
