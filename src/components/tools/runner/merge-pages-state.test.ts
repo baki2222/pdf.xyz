@@ -7,12 +7,14 @@ import {
   arrangementBeyondFiles,
   canLeaveOut,
   fileOrderOf,
+  fileSeedOf,
   filesInterleave,
   keptPages,
   mergePayload,
   moveKeyTo,
   rangeTextOf,
   regroup,
+  resumePages,
   rotateKey,
   samePages,
   seedPages,
@@ -222,5 +224,62 @@ describe("Arrange pages: what the engine is given", () => {
     expect(filesInterleave(grouped)).toBe(false);
     expect(grouped[0]!.rotation).toBe(90);
     expect(grouped[2]!.kept).toBe(false);
+  });
+});
+
+describe("resumePages: Arrange pages chosen again", () => {
+  const a = file("a", 3);
+  const b = file("b", 2);
+  const keys = (list: MergePage[]) => list.map((p) => p.key);
+
+  it("a stash file mode could say in full is reseeded from the mode left", () => {
+    const stash = seedPages([a, b], "append");
+    expect(arrangementBeyondFiles(stash)).toBe(false);
+    // The files were reordered in between: b leads.
+    expect(keys(resumePages(stash, [b, a], "append", [], []))).toEqual([
+      "b:0",
+      "b:1",
+      "a:0",
+      "a:1",
+      "a:2",
+    ]);
+    // Alternate pages was the mode left: its seed, not the stash.
+    expect(keys(resumePages(stash, [a, b], "alternate", [], []))).toEqual(
+      keys(seedPages([a, b], "alternate")),
+    );
+  });
+
+  it("a stash with a turn is kept, in the file order chosen meanwhile", () => {
+    const stash = rotateKey(seedPages([a, b], "append"), "a:1", 90);
+    const back = resumePages(stash, [b, a], "append", [], []);
+    expect(keys(back)).toEqual(["b:0", "b:1", "a:0", "a:1", "a:2"]);
+    expect(back.find((p) => p.key === "a:1")?.rotation).toBe(90);
+  });
+
+  it("a stash that mixes files is kept as it is", () => {
+    const stash = moveKeyTo(seedPages([a, b], "append"), "b:0", 0);
+    expect(keys(resumePages(stash, [a, b], "append", [], []))).toEqual(
+      keys(stash),
+    );
+  });
+});
+
+describe("fileSeedOf: Reset to file order", () => {
+  it("orders files by their first kept pages and keeps each file's chosen pages", () => {
+    const a = file("a", 3);
+    const b = file("b", 2);
+    const list = setKeptKey(
+      moveKeyTo(seedPages([a, b], "append"), "b:1", 0),
+      "a:2",
+      false,
+    );
+    const seed = fileSeedOf(list, [a, b]);
+    expect(seed.map((p) => `${p.key}${p.kept ? "" : "-"}`)).toEqual([
+      "b:0",
+      "b:1",
+      "a:0",
+      "a:1",
+      "a:2-",
+    ]);
   });
 });

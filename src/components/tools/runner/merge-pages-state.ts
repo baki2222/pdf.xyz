@@ -300,3 +300,56 @@ export function mergePayload(pages: readonly MergePage[]): {
     })),
   };
 }
+
+/**
+ * Arrange pages chosen again after a file-level mode (review of 2026-11-17).
+ * The list kept aside is used only while it says something file mode cannot
+ * (`arrangementBeyondFiles`): then the Pages boxes apply, and so does the
+ * file order chosen meanwhile, unless files interleave (an order of files
+ * cannot say where mixed pages go; the runner says so on screen). Otherwise
+ * the list is seeded afresh from the mode being left, exactly as on a first
+ * visit, so the untouched grid merges what that mode merged.
+ */
+export function resumePages(
+  stash: readonly MergePage[] | null,
+  files: readonly PageFile[],
+  mode: SeedMode,
+  selections: readonly PageSelection[],
+  reverse: readonly boolean[],
+): MergePage[] {
+  if (stash && arrangementBeyondFiles(stash)) {
+    const list = applyRanges(syncFiles(stash, files), files, selections);
+    return filesInterleave(list)
+      ? list
+      : regroup(
+          list,
+          files.map((f) => f.id),
+        );
+  }
+  return seedPages(files, mode, selections, reverse);
+}
+
+/**
+ * "Reset to file order": the list as One after another would seed it, the
+ * files in the order their first kept pages appear, each keeping its chosen
+ * pages.
+ */
+export function fileSeedOf(
+  pages: readonly MergePage[],
+  files: readonly PageFile[],
+): MergePage[] {
+  const order = fileOrderOf(pages);
+  const rank = (id: string) => {
+    const i = order.indexOf(id);
+    return i < 0 ? order.length : i;
+  };
+  const sorted = [...files].sort((a, b) => rank(a.id) - rank(b.id));
+  return seedPages(
+    sorted,
+    "append",
+    sorted.map((file) => {
+      const kept = keptSetOf(pages, file.id);
+      return kept.length === file.rotations.length ? undefined : kept;
+    }),
+  );
+}
