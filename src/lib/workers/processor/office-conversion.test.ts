@@ -681,7 +681,7 @@ describe("excel-to-pdf's CSV choices (competitor audit #18)", () => {
     expect(result.ok).toBe(true);
     const args = (exec.mock.calls[0] as unknown as [string, string[]])[1];
     expect(args).toContain(
-      "--infilter=Text - txt - csv (StarCalc):124,34,13,1",
+      "--infilter=Text - txt - csv (StarCalc):124,34,13,1,,0,false,false",
     );
   });
 });

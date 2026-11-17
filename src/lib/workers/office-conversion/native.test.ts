@@ -105,8 +105,13 @@ describe("native LibreOffice Office converter", () => {
     }
     const FILTER = `--infilter=${CSV_UTF8_INFILTER}`;
 
-    it("CONTROL: the filter is LibreOffice's CSV import with character set 76 (UTF-8)", () => {
-      expect(CSV_UTF8_INFILTER).toBe("Text - txt - csv (StarCalc):44,34,76,1");
+    // CHANGED 2026-11-17 (review): this pinned "44,34,76,1", the 2026-11-07
+    // spelling, which stops after token 4 and so leaves "detect special
+    // numbers" on: in the image a UTF-8 file's "1/2" printed as a date.
+    it("CONTROL: the filter is LibreOffice's CSV import with character set 76 (UTF-8), tokens 5-8 as no options sets them", () => {
+      expect(CSV_UTF8_INFILTER).toBe(
+        "Text - txt - csv (StarCalc):44,34,76,1,,0,false,false",
+      );
     });
 
     it("a UTF-8 CSV with non-ASCII text is imported as UTF-8, the file still last", async () => {
@@ -127,7 +132,13 @@ describe("native LibreOffice Office converter", () => {
     // they pinned "no filter at all", and every CSV that was not UTF-8 was
     // read as comma separated. Every .csv now gets a filter; for these two
     // it is the import LibreOffice made with NO options (docsh.cxx: MS_1252,
-    // comma, double quote), spelled out, so the output is unchanged.
+    // comma, double quote), spelled out.
+    // CORRECTED 2026-11-17 (review): "spelled out" was "44,34,1,1", and that
+    // string is NOT the no-options import: with token 8 missing LibreOffice
+    // detects special numbers, so "1/2" printed as 01/02/26 and "1e5" as
+    // 1.00E+05 in the live image. The string below now carries tokens 5-8;
+    // that it prints what no options printed is proved by OUTPUT in the
+    // image (input-proof.ts, "csv default import"), never by this string.
     const DEFAULT_IMPORT = `--infilter=${csvInfilter("comma", "windows-1252")}`;
 
     it("a Windows-1252 CSV gets LibreOffice's no-options import, spelled out", async () => {
@@ -135,7 +146,7 @@ describe("native LibreOffice Office converter", () => {
       expect(args).not.toContain(FILTER);
       expect(args).toContain(DEFAULT_IMPORT);
       expect(DEFAULT_IMPORT).toBe(
-        "--infilter=Text - txt - csv (StarCalc):44,34,1,1",
+        "--infilter=Text - txt - csv (StarCalc):44,34,1,1,,0,false,false",
       );
     });
 
@@ -150,7 +161,8 @@ describe("native LibreOffice Office converter", () => {
         delimiter: "semicolon",
         charset: "windows-1251",
       });
-      const chosen = "--infilter=Text - txt - csv (StarCalc):59,34,34,1";
+      const chosen =
+        "--infilter=Text - txt - csv (StarCalc):59,34,34,1,,0,false,false";
       expect(args).toContain(chosen);
       expect(args.indexOf(chosen)).toBeLessThan(args.indexOf("--convert-to"));
       expect(args.at(-1)).toBe(join("/tmp/pdfxyz-office-1", "input.csv"));
@@ -159,8 +171,32 @@ describe("native LibreOffice Office converter", () => {
     it("Auto-detect finds a semicolon file's separator on its own", async () => {
       const semi = new TextEncoder().encode("Town;Visitors\nBern;980\n");
       expect(await argsFor(semi, "towns.csv")).toContain(
-        "--infilter=Text - txt - csv (StarCalc):59,34,1,1",
+        "--infilter=Text - txt - csv (StarCalc):59,34,1,1,,0,false,false",
       );
+    });
+
+    it("an Excel sep= first line names the separator and is skipped (line 2)", async () => {
+      const hinted = new TextEncoder().encode(
+        "sep=;\nTown;Visitors\nBern;980\n",
+      );
+      expect(await argsFor(hinted, "towns.csv")).toContain(
+        "--infilter=Text - txt - csv (StarCalc):59,34,1,2,,0,false,false",
+      );
+    });
+
+    it("the importFilter seam replaces the filter, and only the seam", async () => {
+      const exec = vi.fn(async () => ({ code: 0, timedOut: false }));
+      const runner = createNativeLibreOfficePdfRunner(config, {
+        exec,
+        fs: fsStub(),
+        resolveOnPath: (bin) => bin === "soffice",
+        importFilter: () => null,
+      });
+      await runner.convertToPdf(UTF8_CSV, "towns.csv", {});
+      const args = (exec.mock.calls[0] as unknown as [string, string[]])[1];
+      expect(args.filter((a) => a.startsWith("--infilter="))).toEqual([]);
+      // CONTROL: the same file through the default seam gets the filter.
+      expect(await argsFor(UTF8_CSV, "towns.csv")).toContain(FILTER);
     });
 
     it("a file that is not a CSV never gets the CSV filter, even as UTF-8 text", async () => {

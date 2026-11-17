@@ -20,6 +20,7 @@ import { lockedOdfFixtures } from "@/tests/locked-odf";
 import {
   CSV_CHARSET_CASES,
   CSV_CHOICE_CASES,
+  CSV_DEFAULT_CASES,
 } from "@/tests/csv-charset-fixtures";
 import type { CsvCharset, CsvDelimiter, CsvImportChoice } from "./csv-import";
 import type { LibreOfficePdfRunner } from "./engine";
@@ -133,6 +134,8 @@ async function deps(
     ...lockedOdfFixtures(),
     csv: CSV_CHARSET_CASES,
     csvChoices: CSV_CHOICE_CASES,
+    libreofficeNoOptions: honest,
+    csvDefaults: CSV_DEFAULT_CASES,
     ...over,
   };
 }
@@ -182,7 +185,9 @@ describe("the proof's verdict", () => {
         CSV_CHOICE_CASES.reduce(
           (n, c) => n + c.right.length + c.wrong.length,
           0,
-        ),
+        ) +
+        // One line per default-import comparison (review 2026-11-17).
+        CSV_DEFAULT_CASES.length,
     );
   });
 
@@ -196,8 +201,14 @@ describe("the proof's verdict", () => {
     expect(result.ok).toBe(false);
     expect(
       result.lines.filter((l) => /is not in its text/.test(l)),
-      // Every fixture, the locked files' unlocked twin, and every CSV.
-    ).toHaveLength(OFFICE_INPUT_FIXTURES.length + 1 + CSV_CHARSET_CASES.length);
+      // Every fixture, the locked files' unlocked twin, every CSV, and the
+      // UTF-8 default-import case's word.
+    ).toHaveLength(
+      OFFICE_INPUT_FIXTURES.length +
+        1 +
+        CSV_CHARSET_CASES.length +
+        CSV_DEFAULT_CASES.filter((c) => c.encoding === "utf-8").length,
+    );
   });
 
   it("fails a converter that answers every file with the same PDF", async () => {
@@ -298,7 +309,10 @@ describe("the proof's verdict", () => {
 describe("the CSV character-set cases", () => {
   const csvFails = (lines: readonly string[]) =>
     lines.filter(
-      (l) => l.startsWith("FAIL  csv ") && !l.startsWith("FAIL  csv choice "),
+      (l) =>
+        l.startsWith("FAIL  csv ") &&
+        !l.startsWith("FAIL  csv choice ") &&
+        !l.startsWith("FAIL  csv default import "),
     );
   const nameOf = (line: string) => /FAIL {2}csv (\S+)/.exec(line)?.[1];
   const reading = (
@@ -434,5 +448,91 @@ describe("the CSV choice cases (competitor audit #18)", () => {
     expect(
       fails(result.lines).filter((l) => l.includes("CONTROL read right")),
     ).toHaveLength(semicolon.wrong.length);
+  });
+});
+
+describe("the CSV default import: Auto prints what no options printed (review 2026-11-17)", () => {
+  const fails = (lines: readonly string[]) =>
+    lines.filter((l) => l.startsWith("FAIL  csv default import "));
+  /**
+   * LibreOffice with "detect special numbers" on, which is what a filter
+   * token that stops after token 4 gave in the image: a date and a fraction
+   * rewritten as dd/mm/yy, a percentage with two decimals.
+   */
+  const detecting: LibreOfficePdfRunner = {
+    convertToPdf: async (input, name, run, layout, csv) => {
+      const pdf = await honest.convertToPdf(input, name, run, layout, csv);
+      if (!isCsv(input)) return pdf;
+      const text = (await extract(pdf)).text;
+      return pdfOf(
+        text
+          .replace(/\b1\/2\/2026\b/g, "01/02/26")
+          .replace(/(^|\s)(\d)\/(\d)(?=\s|$)/g, "$1$2/$3/26")
+          .replace(/(\d+)%/g, "$1.00%"),
+      );
+    },
+  };
+
+  it("health: an honest converter passes both cases, and the lines say so", async () => {
+    const result = await runOfficeInputProof(await deps());
+    expect(fails(result.lines)).toEqual([]);
+    expect(
+      result.lines.filter((l) => l.startsWith("ok    csv default import ")),
+    ).toHaveLength(CSV_DEFAULT_CASES.length);
+    expect(CSV_DEFAULT_CASES.map((c) => c.encoding).sort()).toEqual([
+      "ascii",
+      "utf-8",
+    ]);
+  });
+
+  it("fails an import that detects special numbers (the 4-token filter, measured in the image)", async () => {
+    const result = await runOfficeInputProof(
+      await deps({ libreoffice: detecting }),
+    );
+    expect(result.ok).toBe(false);
+    expect(fails(result.lines)).toEqual([
+      'FAIL  csv default import ledger.csv (ascii): prints "01/02/26" where no options printed "1/2/2026"',
+      'FAIL  csv default import visits.csv (utf-8): prints "01/02/26" where no options printed "1/2/2026"',
+    ]);
+  });
+
+  it("fails a blank no-options baseline instead of calling two blanks the same", async () => {
+    const blank: LibreOfficePdfRunner = {
+      convertToPdf: async () => pdfOf(""),
+    };
+    const result = await runOfficeInputProof(
+      await deps({ libreoffice: blank, libreofficeNoOptions: blank }),
+    );
+    expect(fails(result.lines)).toEqual(
+      CSV_DEFAULT_CASES.map(
+        (c) =>
+          `FAIL  csv default import ${c.name} (${c.encoding}): the no-options text lacks ${c.marks.join(", ")}, so the comparison proves nothing`,
+      ),
+    );
+  });
+
+  it("fails a UTF-8 case the Auto import did not read as UTF-8", async () => {
+    const western: LibreOfficePdfRunner = {
+      convertToPdf: async (input, name) =>
+        isCsv(input) ? pdfOf(latin1(input)) : honest.convertToPdf(input, name),
+    };
+    const result = await runOfficeInputProof(
+      await deps({ libreoffice: western }),
+    );
+    expect(fails(result.lines)).toContain(
+      `FAIL  csv default import visits.csv (utf-8): "${CSV_DEFAULT_CASES[1]!.word}" is not in its text, so it was not read as UTF-8`,
+    );
+  });
+
+  it("fails a run without one of the two kinds", async () => {
+    const result = await runOfficeInputProof(
+      await deps({
+        csvDefaults: CSV_DEFAULT_CASES.filter((c) => c.encoding === "ascii"),
+      }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.lines).toContain(
+      "FAIL  the csv default import cases hold no utf-8 file; the proof needs one of each",
+    );
   });
 });

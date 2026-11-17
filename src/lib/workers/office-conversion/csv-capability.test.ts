@@ -55,7 +55,7 @@ describe("provesCsvImportOptions", () => {
     // Health: the recorder saw the starts the YES rests on.
     expect(recorder.calls).toHaveLength(3);
     expect(recorder.calls[0]).toContain(
-      "--infilter=Text - txt - csv (StarCalc):59,34,34,1",
+      "--infilter=Text - txt - csv (StarCalc):59,34,34,1,,0,false,false",
     );
   });
 

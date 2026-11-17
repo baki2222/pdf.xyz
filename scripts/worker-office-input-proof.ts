@@ -11,7 +11,9 @@
  * it runs, while LibreOffice handed them directly makes no PDF. And a CSV
  * per Delimiter and Character set choice (competitor audit #18), each read
  * right with its choice and wrong with the choice a reader would otherwise
- * get. See `src/lib/workers/office-conversion/input-proof.ts`.
+ * get. And value-rich CSVs, converted with Auto and with no import options,
+ * must print the same values. See
+ * `src/lib/workers/office-conversion/input-proof.ts`.
  *
  * Exit codes: 0 = proven; 1 = a check failed; 2 = an engine is not available
  * in this image. Run by `.github/workflows/container.yml`; no secret, queue,
@@ -26,12 +28,18 @@ import { lockedOdfFixtures } from "@/tests/locked-odf";
 import {
   CSV_CHARSET_CASES,
   CSV_CHOICE_CASES,
+  CSV_DEFAULT_CASES,
 } from "@/tests/csv-charset-fixtures";
 
 async function main(): Promise<number> {
   const libreoffice = nativeOfficeConversionDeps(process.env).libreoffice;
+  // The same runner, importing every file with NO options: the baseline the
+  // CSV default-import check compares Auto's output against.
+  const libreofficeNoOptions = nativeOfficeConversionDeps(process.env, {
+    importFilter: () => null,
+  }).libreoffice;
   const extract = pdfOfficeExportDeps(process.env).extract;
-  if (!libreoffice || !extract) {
+  if (!libreoffice || !libreofficeNoOptions || !extract) {
     console.log(
       `CANNOT CONCLUDE — ${!libreoffice ? "LibreOffice" : "pdftotext"} is not available in this image.`,
     );
@@ -45,6 +53,8 @@ async function main(): Promise<number> {
     ...lockedOdfFixtures(),
     csv: CSV_CHARSET_CASES,
     csvChoices: CSV_CHOICE_CASES,
+    libreofficeNoOptions,
+    csvDefaults: CSV_DEFAULT_CASES,
   });
   for (const line of result.lines) console.log(line);
   console.log(result.ok ? "PROVEN" : "FAIL");

@@ -23,14 +23,16 @@
  * PASS requires ALL of:
  *   (1) a semicolon CSV in Windows-1251, sent with `semicolon` and
  *       `windows-1251`: delivered, and soffice was handed
- *       `--infilter=Text - txt - csv (StarCalc):59,34,34,1` before
+ *       `--infilter=Text - txt - csv (StarCalc):59,34,34,1,,0,false,false` before
  *       `--convert-to`, the file last;
  *   (2) POSITIVE CONTROL, the same bytes with no choice: delivered with
- *       `59,34,1,1` — Auto-detect found the semicolon and Auto read the
- *       bytes as Windows-1252, the import LibreOffice made with no options.
+ *       `59,34,1,1,,0,false,false` — Auto-detect found the semicolon and Auto
+ *       read the bytes as Windows-1252, LibreOffice's no-options character
+ *       set (that tokens 5-8 print what no options printed is proved by
+ *       output in the image: input-proof.ts, "csv default import").
  *       So (1)'s `34` came from the choice, not from the file, and the
  *       recorder records;
- *   (3) `tab` and `utf-16` on a tab-separated UTF-16 file: `9,34,65535,1`;
+ *   (3) `tab` and `utf-16` on a tab-separated UTF-16 file: `9,34,65535,1,,0,false,false`;
  *   (4) an unknown delimiter, and an unknown character set: each fails as
  *       `unprocessable_entity`, not retryable, with soffice never started.
  *

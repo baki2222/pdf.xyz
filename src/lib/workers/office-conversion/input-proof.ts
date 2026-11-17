@@ -28,6 +28,18 @@
  *    document, converts and carries its word, so "no PDF" is the lock and
  *    not the generator.
  *
+ * And the CSV DEFAULT IMPORT (review, 2026-11-17): value-rich CSVs, one
+ * ASCII and one UTF-8, converted the way the worker imports them (Auto,
+ * through the engine) and again with NO import options by the same runner
+ * (`libreofficeNoOptions`). The two must print the same values: every
+ * ASCII word of the two texts equal, in order. The check exists because
+ * the filter once stopped after token 4, which leaves LibreOffice's
+ * "detect special numbers" on, so `1/2` printed as a date and `12%` as
+ * 12.00%, while a test compared only the option string and called it the
+ * same import. Each case's `marks` must be in the no-options text first,
+ * or a blank or garbled baseline would make "the same" vacuous; and the
+ * UTF-8 case's word must be in the Auto text, or it was not read as UTF-8.
+ *
  * Pure: the runner and the extractor are passed in. `input-proof.test.ts`
  * holds the verdict to stand-ins that break each property in turn.
  */
@@ -68,7 +80,32 @@ export interface OfficeInputProofDeps {
   readonly csv: readonly CsvCharsetCase[];
   /** CSVs read with a chosen delimiter or character set (see CsvChoiceCase). */
   readonly csvChoices: readonly CsvChoiceCase[];
+  /** The same LibreOffice runner with no import options on any file. */
+  readonly libreofficeNoOptions: LibreOfficePdfRunner;
+  /** Value-rich CSVs for the default-import comparison (see CsvDefaultCase). */
+  readonly csvDefaults: readonly CsvDefaultCase[];
 }
+
+/**
+ * A CSV full of values LibreOffice can reformat (a date, a fraction, a
+ * percentage, scientific notation, a leading zero), for the default-import
+ * comparison in the header. ADDED 2026-11-17 (review).
+ */
+export interface CsvDefaultCase {
+  readonly encoding: "ascii" | "utf-8";
+  readonly name: string;
+  readonly build: () => Uint8Array;
+  /** Words the no-options import prints for this file, each a whole word. */
+  readonly marks: readonly string[];
+  /** UTF-8 only: the non-ASCII word the Auto import must print. */
+  readonly word?: string;
+}
+
+/** The words of a text made only of ASCII characters, in order. */
+const asciiWords = (text: string) =>
+  text
+    .split(/\s+/)
+    .filter((w) => w && [...w].every((ch) => ch.charCodeAt(0) < 0x80));
 
 /**
  * A CSV that reads right only with the right Delimiter or Character set
@@ -359,6 +396,60 @@ export async function runOfficeInputProof(
             ? `${how}: not ${c.want} (${text.characterCount} characters read)`
             : `${how}: CONTROL read right with the wrong choice, so the check cannot fail`,
         );
+    }
+  }
+  // CSV default import: Auto prints what no options printed. See the header.
+  const defaultKinds = new Set(deps.csvDefaults.map((c) => c.encoding));
+  for (const needed of ["ascii", "utf-8"] as const)
+    if (!defaultKinds.has(needed))
+      fail(
+        `the csv default import cases hold no ${needed} file; the proof needs one of each`,
+      );
+  for (const c of deps.csvDefaults) {
+    const label = `csv default import ${c.name} (${c.encoding})`;
+    const bytes = c.build();
+    let baseline: ExtractedPdfText;
+    try {
+      baseline = await deps.extract(
+        await deps.libreofficeNoOptions.convertToPdf(bytes, c.name),
+      );
+    } catch (error) {
+      fail(
+        `${label}: with no options LibreOffice made no PDF (${(error as Error).message})`,
+      );
+      continue;
+    }
+    const baseWords = asciiWords(baseline.text);
+    const missing = c.marks.filter((m) => !baseWords.includes(m));
+    if (c.marks.length === 0 || missing.length > 0) {
+      fail(
+        `${label}: the no-options text lacks ${missing.join(", ") || "any mark"}, so the comparison proves nothing`,
+      );
+      continue;
+    }
+    const run = await runOfficeToPdf("excel-to-pdf", bytes, c.name, {
+      libreoffice: deps.libreoffice,
+    });
+    if (!run.ok) {
+      fail(`${label}: the engine answered ${run.kind}: ${run.message}`);
+      continue;
+    }
+    const auto = await deps.extract(run.output);
+    if (c.encoding === "utf-8" && !(c.word && auto.text.includes(c.word))) {
+      fail(
+        `${label}: "${c.word ?? ""}" is not in its text, so it was not read as UTF-8`,
+      );
+      continue;
+    }
+    const autoWords = asciiWords(auto.text);
+    const at = autoWords.findIndex((w, i) => w !== baseWords[i]);
+    if (at < 0 && autoWords.length === baseWords.length)
+      pass(`${label}: prints what no options printed (${c.marks.join(" ")})`);
+    else {
+      const i = at < 0 ? Math.min(autoWords.length, baseWords.length) : at;
+      fail(
+        `${label}: prints "${autoWords[i] ?? "(nothing)"}" where no options printed "${baseWords[i] ?? "(nothing)"}"`,
+      );
     }
   }
   return { ok, lines };

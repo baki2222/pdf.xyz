@@ -51,6 +51,12 @@ export interface LibreOfficeSeams {
   fileExists?: (filePath: string) => boolean;
   exec?: LibreOfficeExec;
   fs?: LibreOfficeFs;
+  /**
+   * The import filter for a file; {@link csvImportFilter} unless replaced.
+   * Only the in-image proof replaces it, with `() => null`, to convert a CSV
+   * the way LibreOffice imports it with no options and compare the output.
+   */
+  importFilter?: typeof csvImportFilter;
 }
 
 /** The real subprocess runner; exported so an abort test drives THIS function. */
@@ -108,9 +114,11 @@ export function resolveOnPath(binary: string): boolean {
 
 /**
  * LibreOffice's CSV import filter with its options: comma-separated,
- * double-quoted text, character set 76 (UTF-8), read from line 1. Kept as
- * the one spelling the 2026-11-07 production fix shipped, now derived from
- * `./csv-filter` so the two cannot drift.
+ * double-quoted text, character set 76 (UTF-8), read from line 1, and
+ * since 2026-11-17 tokens 5 to 8 as an import with no options sets them.
+ * The 2026-11-07 production fix shipped `44,34,76,1`, which left "detect
+ * special numbers" on, so a UTF-8 file's `1/2` printed as a date
+ * (`./csv-filter`). Derived from `./csv-filter` so the two cannot drift.
  *
  * Measured 2026-11-07 in the production worker image (no LANG set): a CSV
  * handed to LibreOffice with no import options is read in its Western
@@ -130,9 +138,10 @@ export const CSV_UTF8_INFILTER = csvInfilter("comma", "utf-8");
  * 2026-11-17: {@link CSV_UTF8_INFILTER} for a non-ASCII UTF-8 CSV and null
  * for every other, so a semicolon CSV printed as one column. Auto's
  * character set is still that rule plus a UTF-16 byte-order mark, and a
- * CSV it reads as Windows-1252 gets
- * `44,34,1,1`, which is the import LibreOffice made with no options. Any
- * other file: null, exactly as before.
+ * CSV it reads as Windows-1252 gets `44,34,1,1,,0,false,false`, which
+ * prints what LibreOffice printed with no options (measured in the image,
+ * `./input-proof` "csv default import"; four tokens did NOT, see
+ * `./csv-filter`). Any other file: null, exactly as before.
  */
 export function csvImportFilter(
   input: Uint8Array,
@@ -140,8 +149,8 @@ export function csvImportFilter(
   choice?: CsvImportChoice,
 ): string | null {
   if (!/\.csv$/i.test(inputName)) return null;
-  const { delimiter, charset } = resolveCsvImport(input, choice);
-  return csvInfilter(delimiter, charset);
+  const { delimiter, charset, firstLine } = resolveCsvImport(input, choice);
+  return csvInfilter(delimiter, charset, firstLine);
 }
 
 /**
@@ -210,6 +219,7 @@ export function createNativeLibreOfficePdfRunner(
 ): LibreOfficePdfRunner {
   const exec = seams.exec ?? defaultLibreOfficeExec;
   const fs = seams.fs ?? defaultFs;
+  const importFilter = seams.importFilter ?? csvImportFilter;
   const baseTmp = config.tmpDir ?? tmpdir();
   const binary =
     probeLibreOfficeFromConfig(config, seams) ??
@@ -235,7 +245,7 @@ export function createNativeLibreOfficePdfRunner(
           libreOfficeConvertArgs(
             inputPath,
             dir,
-            csvImportFilter(input, inputName, csv),
+            importFilter(input, inputName, csv),
             pdfConvertTarget(layout),
           ),
           {

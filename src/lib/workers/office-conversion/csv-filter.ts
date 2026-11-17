@@ -3,8 +3,8 @@
  * job's choices (`./csv-import`) and, where a choice is Auto, from the file.
  *
  * ── THE TOKEN ────────────────────────────────────────────────────────────────
- * `--infilter=Text - txt - csv (StarCalc):<seps>,<quote>,<charset>,<line>`,
- * the first four of the CSV filter's comma-separated option tokens, as
+ * `--infilter=Text - txt - csv (StarCalc):<seps>,<quote>,<charset>,<line>,,0,false,false`,
+ * the first eight of the CSV filter's comma-separated option tokens, as
  * LibreOffice 7.4 reads them (`ScAsciiOptions::ReadFromString`,
  * sc/source/ui/dbgui/asciiopt.cxx, read 2026-11-17):
  *
@@ -16,28 +16,54 @@
  *      `rtl_TextEncoding`), whose values are in include/rtl/textenc.h:
  *      RTL_TEXTENCODING_MS_1252 = 1, ISO_8859_2 = 13, MS_1251 = 34,
  *      SHIFT_JIS = 64, UTF8 = 76, UCS2 (= UNICODE, UTF-16) = 0xFFFF;
- *   4. the line to start reading on: 1.
+ *   4. the line to start reading on: 1, or 2 past an Excel `sep=` line;
+ *   5. column formats: none (empty);
+ *   6. the language numbers are read in: 0, the system's;
+ *   7. quoted fields as text: false;
+ *   8. detect special numbers (dates, fractions, percentages, scientific
+ *      notation): false.
+ *
+ * Tokens 5 to 8 are what an import with NO options does, and they must be
+ * written: a token string that stops after token 4 leaves "detect special
+ * numbers" ON. Measured in the live worker image (sha256:78faaf08, LO
+ * 7.4.7.2, 2026-11-17), the ASCII row `1/2/2026,1e5,12%,1/2` printed as
+ * `01/02/26 1.00E+05 12.00% 01/02/26` with `44,34,1,1`, and as
+ * `1/2/2026 100000 12% 1/2` with no options or `44,34,1,1,,0,false,false`.
+ * WAS, 2026-11-07 to 2026-11-17: four tokens (`44,34,76,1` for a UTF-8 file
+ * from 2026-11-07, every .csv from this module's first version), and this
+ * header called that "the same import" as no options; only the option
+ * string was ever compared, never the output. The in-image proof now
+ * compares the output (`./input-proof`, "csv default import").
  *
  * With NO filter options, `ScDocShell::ConvertFrom` imports a CSV as
- * MS_1252, comma, double quote (sc/source/ui/docshell/docsh.cxx) — the
+ * MS_1252, comma, double quote (sc/source/ui/docshell/docsh.cxx), the
  * Western default production measured on 2026-11-07. So a CSV whose choices
- * are both Auto and whose bytes are not UTF-8 gets `44,34,1,1`: the same
- * import as before this module, spelled out. Every .csv now gets a token;
- * nothing else ever does.
+ * are both Auto and whose bytes are not UTF-8 gets
+ * `44,34,1,1,,0,false,false`, which prints what no options printed. Every
+ * .csv now gets a token; nothing else ever does.
  *
  * ── AUTO ─────────────────────────────────────────────────────────────────────
  * Character set: UTF-16 when the file starts with a UTF-16 byte-order mark,
  * UTF-8 when it holds non-ASCII bytes that decode as UTF-8 (the 2026-11-07
  * rule, unchanged), Windows-1252 otherwise.
  *
- * Delimiter ({@link sniffCsvDelimiter}): deterministic and bounded. It reads
- * at most {@link CSV_SNIFF_MAX_BYTES} bytes and {@link CSV_SNIFF_MAX_RECORDS}
- * records, counts each candidate OUTSIDE double quotes per record, and keeps
- * the candidates found the same, non-zero number of times on every record.
- * The most frequent wins; a tie goes to the earlier of tab, semicolon, comma,
- * pipe (a file with one semicolon and one decimal comma on every line is a
- * European export, so semicolon beats comma). No consistent candidate: comma,
- * the filter's own default.
+ * Delimiter ({@link sniffCsvDelimiter}): deterministic and bounded. A first
+ * line that is Excel's `sep=X` hint, X one of the four, is the answer, and
+ * reading starts on line 2 so the hint is not printed (with a chosen
+ * delimiter too). Otherwise it reads at most {@link CSV_SNIFF_MAX_BYTES}
+ * bytes and {@link CSV_SNIFF_MAX_RECORDS} records, counts each candidate
+ * OUTSIDE double quotes per record, and drops the leading records that hold
+ * no candidate at all (a title line above the table). A candidate's usual
+ * count is the non-zero count found on the most records (the larger on a
+ * tie), and it qualifies when MORE THAN HALF the records hold exactly that
+ * count, so one short row or one note line does not throw it out. The
+ * candidate on the most records wins, then the larger count, then the
+ * earlier of tab, semicolon, comma, pipe (a file with one semicolon and one
+ * decimal comma on every line is a European export, so semicolon beats
+ * comma). None qualifies: comma, the filter's own default. WAS, until the
+ * 2026-11-17 review: a candidate had to hold the same count on EVERY
+ * record, so a bank export with one title line or one ragged row fell back
+ * to comma and printed as one column.
  */
 import type { CsvCharset, CsvDelimiter, CsvImportChoice } from "./csv-import";
 
@@ -65,20 +91,30 @@ export const CSV_CHARSET_IDS: Readonly<Record<CsvCharset, number>> = {
 /** Token 2: the double quote. */
 const TEXT_DELIMITER_CODE = 34;
 
-/** The option string for one delimiter and character set. */
+/**
+ * Tokens 5 to 8: no column formats, the system language, quoted fields not
+ * forced to text, special numbers NOT detected. See the header: left out,
+ * LibreOffice detects special numbers, which an import with no options
+ * does not.
+ */
+export const CSV_NO_OPTIONS_SUFFIX = ",,0,false,false";
+
+/** The option string for one delimiter, character set and first line. */
 export function csvFilterOptions(
   delimiter: CsvDelimiter,
   charset: CsvCharset,
+  firstLine = 1,
 ): string {
-  return `${CSV_DELIMITER_CODES[delimiter]},${TEXT_DELIMITER_CODE},${CSV_CHARSET_IDS[charset]},1`;
+  return `${CSV_DELIMITER_CODES[delimiter]},${TEXT_DELIMITER_CODE},${CSV_CHARSET_IDS[charset]},${firstLine}${CSV_NO_OPTIONS_SUFFIX}`;
 }
 
-/** The whole `--infilter` value for one delimiter and character set. */
+/** The whole `--infilter` value for one delimiter, character set and first line. */
 export function csvInfilter(
   delimiter: CsvDelimiter,
   charset: CsvCharset,
+  firstLine = 1,
 ): string {
-  return `${CSV_FILTER_NAME}:${csvFilterOptions(delimiter, charset)}`;
+  return `${CSV_FILTER_NAME}:${csvFilterOptions(delimiter, charset, firstLine)}`;
 }
 
 const STRICT_UTF8 = new TextDecoder("utf-8", { fatal: true });
@@ -182,32 +218,88 @@ export function countCsvDelimiters(
   return records;
 }
 
+/**
+ * The delimiter an Excel `sep=X` first line names, or null: the line is
+ * exactly `sep=` and one of the four candidates, optionally in double
+ * quotes, after any byte-order mark. See the header.
+ */
+export function csvSepHint(
+  input: Uint8Array,
+  charset: CsvCharset,
+): CsvDelimiter | null {
+  let units = asciiUnits(input.subarray(0, 64), charset);
+  if (
+    charset === "utf-8" &&
+    input[0] === 0xef &&
+    input[1] === 0xbb &&
+    input[2] === 0xbf
+  )
+    units = units.slice(3);
+  else if (
+    charset === "utf-16" &&
+    ((input[0] === 0xff && input[1] === 0xfe) ||
+      (input[0] === 0xfe && input[1] === 0xff))
+  )
+    units = units.slice(1);
+  const end = units.findIndex((u) => u === 0x0a || u === 0x0d);
+  if (end < 0) return null;
+  const line = units.slice(0, end);
+  if (line.some((u) => u === OTHER)) return null;
+  const m = /^"?sep=(.)"?$/.exec(String.fromCharCode(...line));
+  if (!m) return null;
+  const code = m[1]!.charCodeAt(0);
+  return (
+    CSV_SNIFF_ORDER.find((name) => CSV_DELIMITER_CODES[name] === code) ?? null
+  );
+}
+
+/** A candidate's usual count, and how many records hold exactly it. */
+function usualCount(counts: readonly number[]): { count: number; on: number } {
+  const tally = new Map<number, number>();
+  for (const n of counts) if (n > 0) tally.set(n, (tally.get(n) ?? 0) + 1);
+  let count = 0;
+  let on = 0;
+  for (const [n, records] of tally)
+    if (records > on || (records === on && n > count)) {
+      count = n;
+      on = records;
+    }
+  return { count, on };
+}
+
 /** Auto-detect's delimiter for these bytes. See the header. */
 export function sniffCsvDelimiter(
   input: Uint8Array,
   charset: CsvCharset,
 ): CsvDelimiter {
-  const records = countCsvDelimiters(input, charset);
+  const hint = csvSepHint(input, charset);
+  if (hint) return hint;
+  const all = countCsvDelimiters(input, charset);
+  const start = all.findIndex((r) => CSV_SNIFF_ORDER.some((n) => r[n] > 0));
+  if (start < 0) return "comma";
+  const records = all.slice(start);
   let best: CsvDelimiter | null = null;
+  let bestOn = 0;
   let bestCount = 0;
   for (const name of CSV_SNIFF_ORDER) {
-    const first = records[0]?.[name] ?? 0;
-    if (first === 0) continue;
-    if (!records.every((r) => r[name] === first)) continue;
-    if (first > bestCount) {
+    const { count, on } = usualCount(records.map((r) => r[name]));
+    if (count === 0 || on * 2 <= records.length) continue;
+    if (on > bestOn || (on === bestOn && count > bestCount)) {
       best = name;
-      bestCount = first;
+      bestOn = on;
+      bestCount = count;
     }
   }
   return best ?? "comma";
 }
 
-/** What the file is read with, each Auto resolved. */
+/** What the file is read with, each Auto resolved, and the line to start on. */
 export function resolveCsvImport(
   input: Uint8Array,
   choice: CsvImportChoice | undefined,
-): { delimiter: CsvDelimiter; charset: CsvCharset } {
+): { delimiter: CsvDelimiter; charset: CsvCharset; firstLine: number } {
   const charset = choice?.charset ?? detectCsvCharset(input);
   const delimiter = choice?.delimiter ?? sniffCsvDelimiter(input, charset);
-  return { delimiter, charset };
+  const firstLine = csvSepHint(input, charset) ? 2 : 1;
+  return { delimiter, charset, firstLine };
 }

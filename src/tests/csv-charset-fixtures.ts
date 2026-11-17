@@ -1,6 +1,7 @@
 import type {
   CsvCharsetCase,
   CsvChoiceCase,
+  CsvDefaultCase,
 } from "@/lib/workers/office-conversion/input-proof";
 import type {
   CsvCharset,
@@ -142,6 +143,33 @@ const has =
  * shows its word. Each wrong choice is the one a reader would otherwise get:
  * a comma, or Auto (Windows-1252 for these bytes).
  */
+/**
+ * Value-rich CSVs for the default-import comparison (review 2026-11-17).
+ * Measured in the live image: with `44,34,1,1` the ASCII row printed
+ * `01/02/26 ... 1.00E+05 12.00% 01/02/26`; with no options, the marks
+ * below. The marks are words both LibreOffice's no-options import and the
+ * unit test's stand-in print unchanged (a leading zero and `1e5` LibreOffice
+ * rewrites even then, so they are in the file but not marks).
+ */
+export const CSV_DEFAULT_CASES: readonly CsvDefaultCase[] = [
+  {
+    encoding: "ascii",
+    name: "ledger.csv",
+    marks: ["1/2/2026", "12%", "1/2"],
+    build: () =>
+      utf8(
+        `Date,Amount,Code,Big,Pct,Frac,Text\n1/2/2026,${cp(34)}$1,000.50${cp(34)},00123,1e5,12%,1/2,hello\n`,
+      ),
+  },
+  {
+    encoding: "utf-8",
+    name: "visits.csv",
+    word: ZURICH,
+    marks: ["1/2/2026", "15%", "3/4"],
+    build: () => utf8(`City,Date,Frac,Pct\n${ZURICH},1/2/2026,3/4,15%\n`),
+  },
+];
+
 export const CSV_CHOICE_CASES: readonly CsvChoiceCase[] = [
   {
     label: "semicolon",
