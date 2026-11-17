@@ -1861,7 +1861,7 @@ export const guides: Guide[] = [
         body: [
           "The tool accepts a PDF and produces a PDF — specifically a reusable, fillable AcroForm document. The tool is in beta — the five field types above are the supported set. Because the fields are genuine form fields rather than flat marks on the page, one saved copy can be distributed and completed over and over, with each person entering their own answers.",
           `Each PDF can be up to ${ceilingMb("create-forms")} MB. When it is time to complete the form, the Fill Forms tool handles the other half of the job: it fills a PDF's existing AcroForm fields — text, checkboxes, radio buttons, dropdowns, and lists — right in the browser. And when a form needs a signature to finish it, the Sign PDF tool adds one.`,
-          `This tool places fields by typed coordinates. To drag fields into place on the page instead, or to add an empty signature field for someone to sign later, use ${nameOf("edit-pdf")}: the tools in its ${EDITOR_FORMS_GROUP} group drag out text fields, checkboxes, dropdowns, radio groups and signature fields, saved as real form fields, also in your browser.`,
+          `Each field is placed by the numbers on its card, which you can type or set on a preview of the page: click where the field's bottom-left corner belongs, drag its box, or nudge it with the arrow keys. To add an empty signature field for someone to sign later, use ${nameOf("edit-pdf")}: the tools in its ${EDITOR_FORMS_GROUP} group drag out text fields, checkboxes, dropdowns, radio groups and signature fields, saved as real form fields, also in your browser.`,
         ],
       },
     ],
@@ -1891,7 +1891,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-07",
+    updated: "2026-11-17",
   },
   {
     slug: "how-to-fill-out-a-pdf-form",
@@ -2537,7 +2537,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-11-16",
+    updated: "2026-11-17",
   },
   {
     slug: "how-to-redact-a-pdf",

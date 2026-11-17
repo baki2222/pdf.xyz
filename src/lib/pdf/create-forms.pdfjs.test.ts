@@ -11,6 +11,8 @@ import {
   type NewFormField,
 } from "./create-forms";
 import { cropPdf } from "./crop";
+import { fieldBoxes } from "./field-boxes";
+import { boxOnSheet, placeAt, sheetPoint } from "./form-preview";
 import { rotatePages } from "./engine";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
 
@@ -481,4 +483,109 @@ describe("each new field shows its starting value", () => {
       widget("choice", 0).paths,
     );
   });
+});
+
+/*
+ * Backlog #17 (2026-11-17): the builder's page preview draws each field at
+ * `boxOnSheet(fieldBoxes(spec), page size)` — shares of the displayed page,
+ * from its bottom-left (create-forms-preview.tsx; its jsdom test holds the
+ * drawn boxes to the cards). Here the same shares, scaled to the page pdfjs
+ * shows, are held to where pdfjs puts each widget of the saved file: the
+ * preview and the output cannot disagree on a plain, a turned or a cropped
+ * page. And a click read off the sheet (`sheetPoint` -> `placeAt`, the
+ * preview's own path into the card) lands the widget's corner where it was
+ * clicked.
+ */
+describe("the page preview's boxes are where the reader gets the widgets", () => {
+  const PREVIEW_CASES = [
+    { turn: 0, cropped: false, label: "a plain page" },
+    { turn: 90, cropped: false, label: "a /Rotate 90 page" },
+    { turn: 0, cropped: true, label: "a cropped page" },
+    { turn: 90, cropped: true, label: "a cropped /Rotate 90 page" },
+  ];
+
+  it("HEALTH CHECK: the cases cover a plain, a turned and a cropped page", async () => {
+    expect(PREVIEW_CASES.map((c) => c.label)).toHaveLength(4);
+    const sizes = await Promise.all(
+      PREVIEW_CASES.map(
+        async ({ turn, cropped }) =>
+          (await readFormContext(await fixture(turn, cropped))).pageSizes[0],
+      ),
+    );
+    // Four different displayed shapes: a case that silently fell back to the
+    // plain page would repeat one.
+    expect(new Set(sizes.map((z) => `${z!.width}x${z!.height}`)).size).toBe(4);
+  });
+
+  for (const { turn, cropped, label } of PREVIEW_CASES) {
+    it(`${label}: each widget pdfjs reads is the box the preview draws`, async () => {
+      const bytes = await fixture(turn, cropped);
+      const size = (await readFormContext(bytes)).pageSizes[0]!;
+      const specs = fields();
+      const result = await createFormFields(bytes, specs);
+      const [page] = await readAsViewed(result.bytes);
+      const drawn = specs.flatMap((spec) =>
+        fieldBoxes(spec).map((box) => {
+          const s = boxOnSheet(box, size);
+          return {
+            name: spec.name,
+            box: {
+              x: s.left * page!.width,
+              y: s.bottom * page!.height,
+              width: s.width * page!.width,
+              height: s.height * page!.height,
+            },
+          };
+        }),
+      );
+      // Health: one drawn box per widget (the radio's two buttons included).
+      expect(drawn).toHaveLength(7);
+      expect(page!.widgets.map((w) => w.name)).toEqual(
+        drawn.map((d) => d.name),
+      );
+      page!.widgets.forEach((widget, i) => {
+        expectBoxNear(widget.box, drawn[i]!.box);
+      });
+    });
+
+    it(`${label}: a click on the preview lands the widget's corner where it was clicked`, async () => {
+      const bytes = await fixture(turn, cropped);
+      const size = (await readFormContext(bytes)).pageSizes[0]!;
+      const rect = { width: 420, height: (420 * size.height) / size.width };
+      const clicks = [
+        { name: "a", px: 0.3, py: 0.4 },
+        { name: "b", px: 0.05, py: 0.9 },
+      ];
+      const specs: NewFormField[] = clicks.map(({ name, px, py }) => {
+        const start = {
+          type: "text" as const,
+          name,
+          page: 1,
+          x: 0,
+          y: 0,
+          width: 60,
+          height: 16,
+        };
+        const at = placeAt(
+          sheetPoint(px * rect.width, py * rect.height, rect, size),
+          start,
+          fieldBoxes(start),
+          size,
+        );
+        return { ...start, ...at };
+      });
+      const [page] = await readAsViewed(
+        (await createFormFields(bytes, specs)).bytes,
+      );
+      expect(page!.widgets).toHaveLength(2);
+      clicks.forEach(({ px, py }, i) => {
+        const w = page!.widgets[i]!.box;
+        // Whole points (0.5) plus pdf-lib's half-point border.
+        expect(Math.abs(w.x - px * page!.width)).toBeLessThanOrEqual(1 + 1e-6);
+        expect(Math.abs(w.y - (1 - py) * page!.height)).toBeLessThanOrEqual(
+          1 + 1e-6,
+        );
+      });
+    });
+  }
 });

@@ -1724,10 +1724,17 @@ describe("the converters' pages describe the page they produce", () => {
     // outside Western European text sets bold and italics in one Noto face.
     expect(answer).toMatch(/For Western European text, bold, italics/);
     expect(answer).not.toMatch(/Bold and italics print as plain text/);
-    // Scoped since the review of markdown-to-pdf#6: a table cell's link
-    // prints but has no annotation (markdown-runs.test.ts).
+    // INVERTED 2026-11-17 (backlog #24). Scoped from the review of
+    // markdown-to-pdf#6 until then, when a table cell's link printed but had
+    // no annotation: this matched "and outside table cells it opens when
+    // clicked". A cell's link opens now (markdown-table-cells.test.ts reads
+    // its /Link from the PDF), so the scope is the stale part.
     expect(answer).toMatch(
-      /address in parentheses, and outside table cells it opens when clicked/,
+      /address in parentheses, and it opens when clicked if that address is/,
+    );
+    expect(answer).not.toMatch(/\boutside table cells?\b/);
+    expect(answer).toMatch(
+      /\bparagraphs, list items, quotes and table cells\b/,
     );
     // The sentence that shipped until the merge, false once tables are drawn.
     expect(answer).not.toMatch(/\btables?\b[^.]*\bplain text\b/i);
