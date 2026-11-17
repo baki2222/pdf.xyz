@@ -353,3 +353,43 @@ export function fileSeedOf(
     }),
   );
 }
+
+/**
+ * Why the options that need one first page per file are greyed out. Shown
+ * only while files mix, which only page mode can do, so it loads with it
+ * (review of 2026-11-17: a plain merge does not pay for page mode's words).
+ */
+export const MIXED_NOTE =
+  "Your files' pages are mixed, so these options are off: a bookmark for each file, a contents page and blank pages after odd files. Keep each file's pages together to use them. Bookmarks already in your files are kept.";
+
+/**
+ * Leaving page mode: file mode says what it can of the arrangement, the
+ * file order (by first kept page) and each file's pages, a Pages box still
+ * being typed winning over the list's own text. Order inside a file, mixing
+ * and turns wait in the stash for the next visit.
+ */
+export function fileModeItems<T extends { id: string; range: string }>(
+  pages: readonly MergePage[],
+  items: readonly T[],
+  drafts: Readonly<Record<string, string>>,
+): T[] {
+  const order = fileOrderOf(pages);
+  const at = (id: string) => {
+    const i = order.indexOf(id);
+    return i < 0 ? order.length : i;
+  };
+  return [...items]
+    .sort((a, b) => at(a.id) - at(b.id))
+    .map((item) => ({
+      ...item,
+      range: drafts[item.id] ?? rangeTextOf(pages, item.id),
+    }));
+}
+
+/** A Sort or Reset that throws away an order mixing files: Undo is offered. */
+export function losesMixedOrder(
+  pages: readonly MergePage[],
+  next: readonly MergePage[],
+): boolean {
+  return filesInterleave(pages) && !samePages(pages, next);
+}

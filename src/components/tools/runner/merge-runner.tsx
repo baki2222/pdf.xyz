@@ -71,10 +71,6 @@ import type { MergePage } from "./merge-pages-state";
 /** Arrange pages' list helpers, loaded with the mode, not with the page. */
 type ArrangeLib = typeof import("./merge-pages-state");
 
-/** Why the options that need one first page per file are greyed out. */
-const MIXED_NOTE =
-  "Your files' pages are mixed, so these options are off: a bookmark for each file, a contents page and blank pages after odd files. Keep each file's pages together to use them. Bookmarks already in your files are kept.";
-
 /** A greyed-out option looks it, not only says it (review of 2026-11-17). */
 const OFF_STYLE = { opacity: 0.5, cursor: "not-allowed" } as const;
 const INPUT_OFF_STYLE = { cursor: "not-allowed" } as const;
@@ -334,8 +330,7 @@ export function MergeRunner() {
    */
   const replacePages = (next: MergePage[]) => {
     if (!pages || !arrange) return false;
-    const lost =
-      arrange.filesInterleave(pages) && !arrange.samePages(pages, next);
+    const lost = arrange.losesMixedOrder(pages, next);
     setUndo(lost ? { before: pages, after: next } : null);
     setPages(next);
     return lost;
@@ -476,22 +471,7 @@ export function MergeRunner() {
       return;
     }
     if (view) {
-      // File mode says what it can of the arrangement: the file order and
-      // each file's pages. Order inside a file, mixing and turns wait in the
-      // stash for the next visit.
-      const order = view.lib.fileOrderOf(view.pages);
-      const at = (id: string) => {
-        const i = order.indexOf(id);
-        return i < 0 ? order.length : i;
-      };
-      setItems((prev) =>
-        [...prev]
-          .sort((a, b) => at(a.id) - at(b.id))
-          .map((item) => ({
-            ...item,
-            range: drafts[item.id] ?? view.lib.rangeTextOf(view.pages, item.id),
-          })),
-      );
+      setItems((prev) => view.lib.fileModeItems(view.pages, prev, drafts));
       setStash(view.pages);
       setPages(null);
       setDrafts({});
@@ -1003,9 +983,9 @@ export function MergeRunner() {
           {/* Greyed out, not removed, while files mix: nothing jumps while a
               page is dragged, and a tick comes back once the pages are
               together again. Never sent while greyed out. */}
-          {interleaved && (
+          {view && interleaved && (
             <p id={mixedNoteId} className="text-muted text-xs">
-              {MIXED_NOTE}
+              {view.lib.MIXED_NOTE}
             </p>
           )}
           <label
