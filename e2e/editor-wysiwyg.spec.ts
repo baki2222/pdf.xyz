@@ -7,6 +7,11 @@ import {
 } from "./client-proof/artifacts";
 import { attachConsoleGuard, fileInput, waitForHydration } from "./helpers";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
+import {
+  editorViewportSlugs,
+  proveNoRingOnClick,
+  proveViewportKeyboard,
+} from "./editor-viewport-tools";
 
 /**
  * Edit PDF, driven by hand through the live page and proven on the bytes it
@@ -255,3 +260,28 @@ test("Bengali is previewed in the face the export embeds, and lands in the file"
   expect(guard.pageErrors).toEqual([]);
   expect(guard.cspViolations()).toEqual([]);
 });
+
+// The page view is a keyboard stop (2026-11-18 after-upload sweep, F1): on
+// production it scrolled but could never take focus, so a keyboard user saw
+// page 1 and nothing after it. The set of tools is derived from the
+// catalogue (editor-viewport-tools.ts), never typed.
+const VIEWPORT_SLUGS = editorViewportSlugs();
+
+test("health: the page-view set is derived and plausible (desktop)", () => {
+  expect(VIEWPORT_SLUGS.length).toBeGreaterThanOrEqual(1);
+  expect([...VIEWPORT_SLUGS].sort()).toEqual([
+    "annotate-pdf",
+    "edit-pdf",
+    "sign-pdf",
+  ]);
+});
+
+for (const slug of VIEWPORT_SLUGS) {
+  test(`${slug} (desktop): Tab reaches the page view and PageDown scrolls it`, async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await proveViewportKeyboard(page, slug);
+    await proveNoRingOnClick(page);
+  });
+}

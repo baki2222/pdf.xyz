@@ -2558,10 +2558,18 @@ export function WysiwygEditor({
           <div
             ref={viewport}
             data-editor-viewport=""
-            tabIndex={-1}
+            // A keyboard stop, so arrow keys and Page Down scroll the pages
+            // (WCAG 2.1.1; axe scrollable-region-focusable). It was -1 until
+            // 2026-11-18: the view scrolled but Tab never reached it. No
+            // `outline-none`: the global :focus-visible ring shows on
+            // keyboard focus and not on a mouse click. Held by
+            // e2e/editor-viewport-tools.ts.
+            tabIndex={0}
+            role="region"
+            aria-label="Page view"
             // On a phone the page view takes the screen's height less the
             // header, the docked toolbar and the Apply bar under it.
-            className="bg-wash border-line rounded-panel relative h-[calc(100dvh-13.5rem)] min-h-[300px] [touch-action:pan-x_pan-y] overflow-auto border outline-none sm:h-[min(76vh,1100px)] sm:min-h-[420px]"
+            className="bg-wash border-line rounded-panel relative h-[calc(100dvh-13.5rem)] min-h-[300px] [touch-action:pan-x_pan-y] overflow-auto border sm:h-[min(76vh,1100px)] sm:min-h-[420px]"
           >
             {openError ? (
               <div className="p-6">
