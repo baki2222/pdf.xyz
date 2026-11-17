@@ -48,13 +48,44 @@ const Z = 4;
 
 type Op = [number, unknown[]];
 
+/**
+ * A path op in pdf.js 6's layout. args[2] is the path's [minX, minY, maxX,
+ * maxY] BEFORE the CTM, which pdf.js always hands and the walker reads for
+ * a clip. This helper once handed null, so every clipping test ran the
+ * fallback and dropping the CTM from the branch pdf.js takes stayed green
+ * (review finding). {@link pathNoBox} keeps the fallback covered.
+ */
 function path(paint: number, ...data: number[]): Op {
   return pathOf(paint, data);
 }
 
 /** {@link path} for data too long to spread into a call. */
 function pathOf(paint: number, data: number[]): Op {
+  return [OPS.constructPath, [paint, [new Float32Array(data)], minMax(data)]];
+}
+
+/** A path op with no bbox, for the walker's fallback. */
+function pathNoBox(paint: number, ...data: number[]): Op {
   return [OPS.constructPath, [paint, [new Float32Array(data)], null]];
+}
+
+/** pdf.js's minMax: every point the path data names, before the CTM. */
+function minMax(data: number[]): Float32Array {
+  const box = new Float32Array([Infinity, Infinity, -Infinity, -Infinity]);
+  // Coordinates after each DrawOPS code: moveTo, lineTo, curveTo,
+  // quadraticCurveTo, closePath.
+  const counts = [2, 2, 6, 4, 0];
+  for (let i = 0; i < data.length;) {
+    const n = counts[data[i++]!] ?? 0;
+    for (let k = 0; k < n; k += 2) {
+      box[0] = Math.min(box[0]!, data[i + k]!);
+      box[1] = Math.min(box[1]!, data[i + k + 1]!);
+      box[2] = Math.max(box[2]!, data[i + k]!);
+      box[3] = Math.max(box[3]!, data[i + k + 1]!);
+    }
+    i += n;
+  }
+  return box;
 }
 
 function scan(ops: Op[], limits = {}) {
@@ -412,6 +443,38 @@ describe("scanPaths", () => {
         line,
       ]);
       expect(gone.segs).toEqual([]);
+    });
+
+    it("clips under a scaling CTM too: pdf.js's bbox goes through it", () => {
+      const at = (y: number) =>
+        scan([
+          [OPS.save, []],
+          [OPS.transform, [2, 0, 0, 2, 0, 0]],
+          // [60 295 180 305] under the scale: [120 590 360 610].
+          ...clipTo(60, 295, 120, 10),
+          [OPS.transform, [0.5, 0, 0, 0.5, 0, 0]],
+          path(OPS.stroke, M, 130, y, L, 330, y),
+          [OPS.restore, []],
+        ]).segs;
+      expect(at(600)).toHaveLength(1);
+      expect(at(620)).toEqual([]);
+    });
+
+    it("a clip path with no bbox from pdf.js falls back to its points", () => {
+      const gone = scan([
+        [OPS.clip, []],
+        pathNoBox(OPS.endPath, ...re(0, 0, 10, 10)),
+        line,
+      ]);
+      expect(gone.segs).toEqual([]);
+      const kept = scan([
+        [OPS.transform, [1, 0, 0, 1, 120, 590]],
+        [OPS.clip, []],
+        pathNoBox(OPS.endPath, ...re(0, 0, 300, 20)),
+        [OPS.transform, [1, 0, 0, 1, -120, -590]],
+        line,
+      ]);
+      expect(kept.segs).toHaveLength(1);
     });
 
     it("a form XObject's /BBox clips what it draws, and stops at its end", () => {

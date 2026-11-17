@@ -978,6 +978,27 @@ export const DETECT_CASES: readonly DetectCase[] = [
     decidedBy: "signature",
     at: { page: 1, x: 150, y: 563 },
   },
+  {
+    id: "P24",
+    kind: "positive",
+    note: "P4's line under a `W n` clip set under a translating `cm` that moves the clip onto the line: kept",
+    // pdf.js hands the clip path's bbox BEFORE the CTM; read without the
+    // CTM, this clip sits at [0 0 300 20] and hides the line. N28 is the
+    // other half.
+    build: () =>
+      addressWith(
+        "q 1 0 0 1 120 590 cm 0 0 300 20 re W n 1 0 0 1 -120 -590 cm 0.5 w 130 600 m 330 600 l S Q",
+      ),
+    expect: [
+      {
+        rule: "labelled-rule",
+        type: "text",
+        label: "Address",
+        page: 1,
+        box: ruleBox(P4.x0, P4.x1, P4.y, 12),
+      },
+    ],
+  },
 
   // ---------------------------------------------------------- negatives
   {
@@ -1417,6 +1438,16 @@ export const DETECT_CASES: readonly DetectCase[] = [
     note: "P4's line drawn under a `W n` clip to [0 0 10 10]: clipped away",
     build: () =>
       addressWith("q 0 0 10 10 re W n 0.5 w 130 600 m 330 600 l S Q"),
+    expect: "none",
+  },
+  {
+    id: "N28",
+    kind: "negative",
+    note: "P4's line under a `W n` clip set under a translating `cm` that moves the clip off the line: clipped away",
+    build: () =>
+      addressWith(
+        "q 1 0 0 1 120 0 cm 0 0 300 20 re W n 1 0 0 1 -120 0 cm 0.5 w 130 600 m 330 600 l S Q",
+      ),
     expect: "none",
   },
   {
