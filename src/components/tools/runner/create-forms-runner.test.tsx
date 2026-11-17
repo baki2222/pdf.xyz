@@ -18,7 +18,7 @@
  */
 import type { ReactNode } from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
@@ -28,6 +28,26 @@ import { EDITOR_FORMS_GROUP } from "@/lib/pdf/offered-kinds";
 import { getToolBySlug } from "@/lib/tools";
 import { getToolContent } from "@/lib/tools/content";
 import { TOOL_GROUPS } from "./editor/toolbar";
+import { pageImageDeps } from "./use-page-image";
+
+// The builder draws a page preview (backlog #17); its picture is not what
+// these tests judge, so the renderer is swapped through the hook's own seam
+// (pdf.js would load a native canvas in this thread). The preview itself is
+// tested in create-forms-preview.test.tsx.
+const realRenderer = pageImageDeps.renderer;
+beforeAll(() => {
+  pageImageDeps.renderer = async () =>
+    ({
+      createThumbnailRenderer: async () => ({
+        numPages: 1,
+        renderPage: async () => null,
+        destroy: async () => {},
+      }),
+    }) as unknown as typeof import("@/lib/pdf/render");
+});
+afterAll(() => {
+  pageImageDeps.renderer = realRenderer;
+});
 
 const router = {
   back: () => {},
