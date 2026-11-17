@@ -17,6 +17,8 @@ import {
   type NativeOfficeConversionConfig,
 } from "./native-config";
 import type { SheetLayout } from "./sheet-layout";
+import type { CsvImportChoice } from "./csv-import";
+import { csvInfilter, resolveCsvImport } from "./csv-filter";
 
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
 
@@ -106,39 +108,40 @@ export function resolveOnPath(binary: string): boolean {
 
 /**
  * LibreOffice's CSV import filter with its options: comma-separated,
- * double-quoted text, character set 76 (UTF-8), read from line 1.
+ * double-quoted text, character set 76 (UTF-8), read from line 1. Kept as
+ * the one spelling the 2026-11-07 production fix shipped, now derived from
+ * `./csv-filter` so the two cannot drift.
  *
  * Measured 2026-11-07 in the production worker image (no LANG set): a CSV
  * handed to LibreOffice with no import options is read in its Western
- * default, so a UTF-8 "Zürich" printed as "ZÃ¼rich". That is how the
+ * default, so a UTF-8 "Zürich" printed as mojibake. That is how the
  * production proof "excel-to-pdf (csv)" failed. Forcing UTF-8 on every CSV
- * is no fix either, because a Windows-1252 "Zürich" then printed with U+FFFD
- * in place of the ü. So {@link csvImportFilter} passes this only for a CSV
- * whose bytes ARE UTF-8, and leaves any other CSV on the default that reads
- * it correctly.
+ * is no fix either, because a Windows-1252 "Zürich" then printed with
+ * U+FFFD in place of the letter.
  */
-export const CSV_UTF8_INFILTER = "Text - txt - csv (StarCalc):44,34,76,1";
-
-const STRICT_UTF8 = new TextDecoder("utf-8", { fatal: true });
+export const CSV_UTF8_INFILTER = csvInfilter("comma", "utf-8");
 
 /**
- * The import filter a file needs, or null for LibreOffice's own choice:
- * {@link CSV_UTF8_INFILTER} for a `.csv` that holds non-ASCII bytes and
- * decodes as UTF-8 (a byte-order mark included). An ASCII-only CSV reads
- * the same either way, and is handed over exactly as before.
+ * The import filter a file needs, or null for LibreOffice's own choice.
+ *
+ * Every `.csv` gets one since 2026-11-17 (competitor audit #18): its
+ * delimiter and character set are the job's choices (`./csv-import`), each
+ * Auto resolved from the bytes (`./csv-filter`). WAS, 2026-11-07 to
+ * 2026-11-17: {@link CSV_UTF8_INFILTER} for a non-ASCII UTF-8 CSV and null
+ * for every other, so a semicolon CSV printed as one column. Auto's
+ * character set is still that rule plus a UTF-16 byte-order mark, and a
+ * CSV it reads as Windows-1252 gets
+ * `44,34,1,1`, which is the import LibreOffice made with no options. Any
+ * other file: null, exactly as before.
  */
 export function csvImportFilter(
   input: Uint8Array,
   inputName: string,
+  choice?: CsvImportChoice,
 ): string | null {
   if (!/\.csv$/i.test(inputName)) return null;
-  if (input.every((byte) => byte < 0x80)) return null;
-  try {
-    STRICT_UTF8.decode(input);
-  } catch {
-    return null;
-  }
-  return CSV_UTF8_INFILTER;
+  const { delimiter, charset } = resolveCsvImport(input, choice);
+  return csvInfilter(delimiter, charset);
 }
 
 /**
@@ -213,7 +216,7 @@ export function createNativeLibreOfficePdfRunner(
     config.candidates[0] ??
     "soffice";
   return {
-    async convertToPdf(input, filename, run = {}, layout) {
+    async convertToPdf(input, filename, run = {}, layout, csv) {
       if (input.byteLength > config.maxInputBytes)
         throw new Error("Input exceeds size limit.");
       throwIfAttemptAborted(run.signal);
@@ -232,7 +235,7 @@ export function createNativeLibreOfficePdfRunner(
           libreOfficeConvertArgs(
             inputPath,
             dir,
-            csvImportFilter(input, inputName),
+            csvImportFilter(input, inputName, csv),
             pdfConvertTarget(layout),
           ),
           {

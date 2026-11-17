@@ -8,6 +8,8 @@ import {
   nativeOfficeConversionDeps,
   probeLibreOfficeFromConfig,
 } from "./native";
+import { csvInfilter } from "./csv-filter";
+import type { CsvImportChoice } from "./csv-import";
 import {
   resolveNativeOfficeConversionConfig,
   type NativeOfficeConversionConfig,
@@ -87,14 +89,18 @@ describe("native LibreOffice Office converter", () => {
     ]);
     const ASCII_CSV = new TextEncoder().encode("Town,Visitors\nBern,980\n");
 
-    async function argsFor(bytes: Uint8Array, name: string) {
+    async function argsFor(
+      bytes: Uint8Array,
+      name: string,
+      csv?: CsvImportChoice,
+    ) {
       const exec = vi.fn(async () => ({ code: 0, timedOut: false }));
       const runner = createNativeLibreOfficePdfRunner(config, {
         exec,
         fs: fsStub(),
         resolveOnPath: (bin) => bin === "soffice",
       });
-      await runner.convertToPdf(bytes, name);
+      await runner.convertToPdf(bytes, name, {}, undefined, csv);
       return (exec.mock.calls[0] as unknown as [string, string[]])[1];
     }
     const FILTER = `--infilter=${CSV_UTF8_INFILTER}`;
@@ -114,12 +120,47 @@ describe("native LibreOffice Office converter", () => {
       expect(await argsFor(BOM_CSV, "towns.csv")).toContain(FILTER);
     });
 
-    it("a Windows-1252 CSV keeps the default that reads it correctly", async () => {
-      expect(await argsFor(CP1252_CSV, "towns.csv")).not.toContain(FILTER);
+    // INVERTED 2026-11-17 (competitor audit #18), not deleted. These two
+    // read, from 2026-11-07: "a Windows-1252 CSV keeps the default that
+    // reads it correctly" and "an ASCII-only CSV is handed over exactly as
+    // before", each asserting only that the UTF-8 filter was ABSENT — so
+    // they pinned "no filter at all", and every CSV that was not UTF-8 was
+    // read as comma separated. Every .csv now gets a filter; for these two
+    // it is the import LibreOffice made with NO options (docsh.cxx: MS_1252,
+    // comma, double quote), spelled out, so the output is unchanged.
+    const DEFAULT_IMPORT = `--infilter=${csvInfilter("comma", "windows-1252")}`;
+
+    it("a Windows-1252 CSV gets LibreOffice's no-options import, spelled out", async () => {
+      const args = await argsFor(CP1252_CSV, "towns.csv");
+      expect(args).not.toContain(FILTER);
+      expect(args).toContain(DEFAULT_IMPORT);
+      expect(DEFAULT_IMPORT).toBe(
+        "--infilter=Text - txt - csv (StarCalc):44,34,1,1",
+      );
     });
 
-    it("an ASCII-only CSV is handed over exactly as before", async () => {
-      expect(await argsFor(ASCII_CSV, "towns.csv")).not.toContain(FILTER);
+    it("so does an ASCII-only CSV", async () => {
+      const args = await argsFor(ASCII_CSV, "towns.csv");
+      expect(args).toContain(DEFAULT_IMPORT);
+      expect(args.filter((a) => a.startsWith("--infilter="))).toHaveLength(1);
+    });
+
+    it("a chosen delimiter and character set are what LibreOffice is handed, before --convert-to", async () => {
+      const args = await argsFor(ASCII_CSV, "towns.csv", {
+        delimiter: "semicolon",
+        charset: "windows-1251",
+      });
+      const chosen = "--infilter=Text - txt - csv (StarCalc):59,34,34,1";
+      expect(args).toContain(chosen);
+      expect(args.indexOf(chosen)).toBeLessThan(args.indexOf("--convert-to"));
+      expect(args.at(-1)).toBe(join("/tmp/pdfxyz-office-1", "input.csv"));
+    });
+
+    it("Auto-detect finds a semicolon file's separator on its own", async () => {
+      const semi = new TextEncoder().encode("Town;Visitors\nBern;980\n");
+      expect(await argsFor(semi, "towns.csv")).toContain(
+        "--infilter=Text - txt - csv (StarCalc):59,34,1,1",
+      );
     });
 
     it("a file that is not a CSV never gets the CSV filter, even as UTF-8 text", async () => {
