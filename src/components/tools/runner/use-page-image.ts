@@ -54,8 +54,23 @@ export function usePageImageState(
   /** Clockwise turn from the unrotated page, in place of its own /Rotate. */
   rotation?: number,
 ): PageImageState {
-  const [result, setResult] = useState<PageImageState>(LOADING);
+  // Each result remembers the page it is of. Until the effect for a new page
+  // has run, the last page's image would show under the new page's name for
+  // a render (page-zoom.spec.ts caught Organize's dialog reading the page it
+  // had just left), so a result of another page reads as loading.
+  const [stored, setStored] = useState<{
+    of: readonly unknown[];
+    value: PageImageState;
+  }>({ of: [], value: LOADING });
+  const of = [bytes, index, targetWidth, rotation] as const;
+  const result =
+    stored.of.length === of.length &&
+    stored.of.every((dep, i) => Object.is(dep, of[i]))
+      ? stored.value
+      : LOADING;
   useEffect(() => {
+    const deps = [bytes, index, targetWidth, rotation] as const;
+    const setResult = (value: PageImageState) => setStored({ of: deps, value });
     if (index === null) return;
     let alive = true;
     let made: string | null = null;

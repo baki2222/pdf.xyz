@@ -533,6 +533,10 @@ export function copyFiles(): string[] {
     // so listed singly, as the ratchet asks of a new module.
     path.join(ROOT, "src", "lib", "pdf", "merge-order.ts"),
     path.join(ROOT, "src", "lib", "pdf", "merge-alternate.ts"),
+    // Merge PDF's Arrange pages engine (2026-11-17): its refusal of a file
+    // with no pages is a sentence the merge runner shows. Beside engine
+    // code, so listed singly, as the ratchet asks of a new module.
+    path.join(ROOT, "src", "lib", "pdf", "merge-pages.ts"),
     // JPG / PNG to PDF's WebP, GIF and BMP decoder (2026-10-30): its
     // refusals are the sentences the image runners show.
     path.join(ROOT, "src", "lib", "pdf", "image-transcode.ts"),

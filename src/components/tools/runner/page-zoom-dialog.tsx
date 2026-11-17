@@ -38,6 +38,19 @@ export interface BoardPage {
   rotation: number;
   /** A page the tool inserts: an empty sheet of this upright size. */
   blank?: { width: number; height: number };
+  /**
+   * A board of several files (Merge PDF's page grid): the file this page is
+   * drawn from, in place of the dialog's `bytes`, and its name for the
+   * heading ("Page 2 of b.pdf").
+   */
+  bytes?: Uint8Array;
+  label?: string;
+  /**
+   * Where the page is, in the board's own words, in place of "position N of
+   * M": Merge PDF counts only the pages that go in ("page 3 of 5 in the
+   * merged PDF", or "left out"), so its tile and this heading agree.
+   */
+  where?: string;
 }
 
 export interface PageZoomDialogProps {
@@ -83,13 +96,13 @@ export function PageZoomDialog({
   const place = pages?.[index];
   const count = pages ? pages.length : pageCount;
   const { state, image } = usePageImageState(
-    bytes,
+    place?.bytes ?? bytes,
     place ? (place.blank ? null : place.sourceIndex) : index,
     ZOOM_WIDTH,
     place ? place.rotation : rotations?.[index],
   );
   const imageName = place
-    ? `${place.blank ? "Blank page" : `Page ${place.sourceIndex + 1}`}, position ${index + 1} of ${count}`
+    ? `${place.blank ? "Blank page" : (place.label ?? `Page ${place.sourceIndex + 1}`)}, ${place.where ?? `position ${index + 1} of ${count}`}`
     : `Page ${index + 1}`;
   const closeRef = useRef(onClose);
   useEffect(() => {
