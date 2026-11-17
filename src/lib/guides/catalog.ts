@@ -81,6 +81,11 @@ import {
   TRANSLATE_PAGE_HEADINGS,
 } from "@/lib/jobs/translate-reading-copy";
 import {
+  TRANSLATE_ONLY_CHOSEN_PAGES,
+  TRANSLATE_OVER_ALLOWANCE_REMEDY,
+  TRANSLATE_PAGES_NEED_TEXT,
+} from "@/lib/tools/translate-page-choice";
+import {
   DEFAULT_JPEG_QUALITY,
   DEFAULT_JPEG_QUALITY_ID,
   JPEG_QUALITY_LABEL,
@@ -2291,7 +2296,16 @@ export const guides: Guide[] = [
         heading: "Long documents, oversized pages, and the allowance",
         body: [
           "Each translation pass carries a bounded amount of selectable text, because translation writes roughly as much as it reads. The exact character figures, and the approximate page ranges they work out to, are stated on the Translate PDF page itself. A longer document is not refused: it is split at page boundaries, translated a few pages at a time, and reassembled in order, so the result reads front to back like the original.",
-          `Two limits can still show up in the output, and both announce themselves. A single page holding more text than one pass can carry cannot be translated at all — it is skipped, and the result says so in place, right where that page was. And the amount translated in a day is bounded by the free allowance. ${aiAllowanceFactFor("translate-pdf")} A document longer than the allowance covers is translated as far as the allowance reaches, with the rest marked in place and the reason named — nothing stops silently. Files themselves are capped at ${ceilingMb("translate-pdf")} MB.`,
+          // CHANGED 2026-11-17 (audit #29 slice 7). Was "Two limits can still
+          // show up in the output, and both announce themselves. … A document
+          // longer than the allowance covers is translated as far as the
+          // allowance reaches, with the rest marked in place and the reason
+          // named — nothing stops silently." That was false (the route
+          // refuses a charge that does not fit, whole, before any job
+          // exists; the tool page's FAQ was corrected on 2026-10-07 and this
+          // guide was not), and the page-choice remedy joined beside the
+          // true sentence after `translatePageRange` was observed live.
+          `Two limits still apply. A single page holding more text than one pass can carry cannot be translated at all — it is skipped, and the result says so in place, right where that page was. And the amount translated in a day is bounded by the free allowance. ${aiAllowanceFactFor("translate-pdf")} A document needing more than the allowance has left is refused before it runs, with nothing charged, rather than half translated. ${TRANSLATE_OVER_ALLOWANCE_REMEDY} ${TRANSLATE_PAGES_NEED_TEXT} ${TRANSLATE_ONLY_CHOSEN_PAGES} Files themselves are capped at ${ceilingMb("translate-pdf")} MB.`,
         ],
       },
       {
@@ -2322,7 +2336,11 @@ export const guides: Guide[] = [
     faq: [
       {
         question: "Can I translate a PDF for free?",
-        answer: `Yes, with no account. ${aiAllowanceFactFor("translate-pdf")} If a document needs more than the allowance has left, it is translated as far as the allowance reaches, and the untranslated remainder is marked in place with the reason named.`,
+        // CHANGED 2026-11-17 (audit #29 slice 7). Was "… If a document needs
+        // more than the allowance has left, it is translated as far as the
+        // allowance reaches, and the untranslated remainder is marked in
+        // place with the reason named." False: it is refused whole.
+        answer: `Yes, with no account. ${aiAllowanceFactFor("translate-pdf")} If a document needs more than the allowance has left, it is refused before it runs, with nothing charged. ${TRANSLATE_OVER_ALLOWANCE_REMEDY} ${TRANSLATE_PAGES_NEED_TEXT}`,
       },
       {
         question: "What happens to my PDF after it is translated?",
@@ -2342,8 +2360,11 @@ export const guides: Guide[] = [
       },
       {
         question: "How much of a PDF can be translated in one run?",
-        answer:
-          "Each pass carries a bounded amount of selectable text — the exact figures are stated on the Translate PDF page. A longer document is split at page boundaries, translated pass by pass, and reassembled in order. Two things bound how far one run gets. A single page holding more text than a pass can carry cannot be translated at all — it is skipped, and the result notes it in place. And the free daily allowance: the run translates as far as the allowance reaches, with the rest marked in place and the reason named.",
+        // CHANGED 2026-11-17 (audit #29 slice 7). Ended "And the free daily
+        // allowance: the run translates as far as the allowance reaches,
+        // with the rest marked in place and the reason named." False: a
+        // document over what is left is refused whole, before it runs.
+        answer: `Each pass carries a bounded amount of selectable text — the exact figures are stated on the Translate PDF page. A longer document is split at page boundaries, translated pass by pass, and reassembled in order. Two things bound one run. A single page holding more text than a pass can carry cannot be translated at all — it is skipped, and the result notes it in place. And the free daily allowance: a document needing more than it has left is refused before it runs, with nothing charged. ${TRANSLATE_OVER_ALLOWANCE_REMEDY} ${TRANSLATE_PAGES_NEED_TEXT}`,
       },
       {
         question: "Can I translate a scanned PDF?",
@@ -2361,7 +2382,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-16",
+    updated: "2026-11-17",
   },
   {
     slug: "how-to-delete-pages-from-a-pdf",

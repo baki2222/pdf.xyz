@@ -146,6 +146,14 @@ import {
 } from "./summarize-page-choice";
 import { SUMMARIZE_PAGE_CHOICE_SHAPES } from "./summarize-page-choice-claims";
 import {
+  TRANSLATE_PAGE_CHOICE,
+  TRANSLATE_PAGE_RANGE_CAPABILITY,
+} from "./translate-page-choice";
+import {
+  TRANSLATE_PAGE_CHOICE_SHAPES,
+  TRANSLATE_PAGE_CHOICE_SHIPPED,
+} from "./translate-page-choice-claims";
+import {
   cardSummary,
   pageContent,
   pageFaq,
@@ -610,9 +618,19 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     // ("page range" with no "translat…"): "translat…" must come first, or
     // the whole phrase "enter a page range … translat…" must appear. See
     // "the translatePageRange subject".
+    //
+    // FLIPPED 2026-11-17 (slice 7): production published
+    // `translatePageRange: true` and a real pages-"2, 4" job sent only those
+    // pages, so the intro, two FAQ answers, the served "How much of my PDF"
+    // fact and the guide now say a reader can "choose which pages to
+    // translate" (`TRANSLATE_PAGE_CHOICE`). Those shapes joined
+    // (`TRANSLATE_PAGE_CHOICE_SHAPES`): the advertisement, the FAQ QUESTION
+    // "Can I translate only some pages?" (a bare "Not yet." answer is read
+    // against its question, `faqPairs`) and "only the pages you choose".
+    // Members pinned in "the translatePageRange subject".
     subject:
-      /\btranslat[^.]{0,80}\b(?:page ranges?|pages? you (?:choose|chose|enter)|choose (?:which )?pages)\b|\benter a page range\b[^.]{0,60}\btranslat/i,
-    catalogueCopy: false,
+      /\btranslat[^.]{0,80}\b(?:page ranges?|pages? you (?:choose|chose|enter)|choose (?:which )?pages)\b|\benter a page range\b[^.]{0,60}\btranslat|\bchoose which pages to translate\b|\btranslat\w* only some pages\b|\bonly the pages you choose\b/i,
+    catalogueCopy: true,
   },
 };
 
@@ -1697,21 +1715,93 @@ describe("the translatePageMap subject (competitor audit #29 slice 4, 2026-11-16
   });
 });
 
-describe("the translatePageRange subject (competitor audit #29 slice 6, 2026-11-16)", () => {
+describe("the translatePageRange subject (competitor audit #29 slices 6 and 7)", () => {
   /**
-   * `catalogueCopy: false`, like translatePageMap's: the planted sentences
-   * below are the ONLY things that exercise the subject (house rule 1), and
-   * the negative control holds it off the page-range copy of other tools.
+   * `catalogueCopy: true` since slice 7 (2026-11-17). The served members are
+   * pinned to exactly the advertisement's sentences, so a new sentence the
+   * subject starts catching (a Split or Extract page, say) is red here, and
+   * so is an advertisement sentence that stops being a member.
+   *
+   * INVERTED 2026-11-17, history kept. Slice 6 shipped this as
+   *
+   *   it("reaches nothing shipped today (measured: no member)")
+   *     expect(members).toEqual([]);
+   *
+   * which was true while no static copy offered page choice, and would have
+   * pinned the defect (an advertisement read as about no key) the moment
+   * slice 7 shipped one.
    */
-  it("reaches nothing shipped today (measured: no member)", () => {
-    const members = COPY.filter((entry) =>
-      SUBJECTS.translatePageRange!.subject.test(entry.text),
-    ).map((entry) => `${entry.slug} ${entry.where}`);
-    expect(members).toEqual([]);
+  const sentenceMembers = () =>
+    COPY.flatMap((entry) =>
+      entry.text
+        .split(/(?<=[.?!])\s+/)
+        .filter((s) => SUBJECTS.translatePageRange!.subject.test(s))
+        .map((sentence) => ({ at: `${entry.slug} ${entry.where}`, sentence })),
+    );
+
+  it("its served members are exactly the page-choice advertisement's sentences", () => {
+    const key = TRANSLATE_PAGE_RANGE_CAPABILITY;
+    expect(WIRE_KEYS).toContain(key);
+    const members = sentenceMembers();
+    // Health: measured 2026-11-17, ten sentences on two surfaces.
+    expect(members.length).toBeGreaterThanOrEqual(10);
+    expect(members.length).toBeLessThan(40);
+    expect(new Set(members.map((m) => m.at.split(" ")[0]))).toEqual(
+      new Set(["translate-pdf", "guide:how-to-translate-a-pdf"]),
+    );
+    expect(new Set(members.map((m) => m.sentence))).toEqual(
+      new Set(TRANSLATE_PAGE_CHOICE_SHIPPED.map((s) => s.sentence)),
+    );
+    // And every sentence carrying the advertisement (any shape) is a member.
+    const claims = COPY.flatMap((entry) =>
+      entry.text
+        .split(/(?<=[.?!])\s+/)
+        .filter((s) =>
+          TRANSLATE_PAGE_CHOICE_SHAPES.some(({ pattern }) => pattern.test(s)),
+        ),
+    );
+    expect(claims.length).toBeGreaterThanOrEqual(10);
+    expect(
+      claims.filter((s) => !SUBJECTS.translatePageRange!.subject.test(s)),
+    ).toEqual([]);
+  });
+
+  it('positive controls: a deferral planted in the advertisement, and a bare "Not yet." to its question, are caught', () => {
+    const key = TRANSLATE_PAGE_RANGE_CAPABILITY;
+    const members = sentenceMembers();
+    const advert = members.find((m) =>
+      m.sentence.includes(TRANSLATE_PAGE_CHOICE),
+    );
+    expect(advert, "no served advertisement to plant in").toBeDefined();
+    const planted: CopyEntry = {
+      slug: "translate-pdf",
+      where: "intro[2]",
+      text: `${advert!.sentence.replace(/\.$/, "")} (coming soon).`,
+    };
+    expect(
+      hedgeOffenders([planted], []).some((line) =>
+        line.includes(`hedges "${key}"`),
+      ),
+    ).toBe(true);
+    const question = members.find((m) => m.at.endsWith(".question"));
+    expect(question, "the FAQ question is no longer a member").toBeDefined();
+    const pair: FaqPair = {
+      slug: "translate-pdf",
+      where: "faq[11]",
+      question: question!.sentence,
+      answer: "Not yet.",
+    };
+    expect(
+      hedgeOffenders([], [pair]).some((line) =>
+        line.includes(`answers a question about "${key}"`),
+      ),
+    ).toBe(true);
   });
 
   it("positive control: slice 7's advertisement is a member, and a planted deferral is caught", () => {
-    // The sentence slice 7 is planned to ship.
+    // The sentence slice 6 planned for slice 7. Kept as a control: slice 7
+    // shipped other words (`TRANSLATE_PAGE_CHOICE_SHIPPED`), and this
+    // spelling must still be read as about the key.
     expect(
       SUBJECTS.translatePageRange!.subject.test(
         "Enter a page range and translate the rest tomorrow, with no splitting.",
