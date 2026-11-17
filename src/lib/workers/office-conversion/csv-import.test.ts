@@ -217,3 +217,59 @@ describe("officeJobOptions: what the page sends", () => {
     ).toEqual({});
   });
 });
+
+/**
+ * The sentence these settings retired, and its synonyms, may not come back
+ * (mutation control M15, 2026-11-17: restoring "There is no delimiter
+ * option." to the page passed every other guard, because the hedge rule
+ * reads deferrals and a bare present-tense denial is not one). A ban list
+ * with its corpus in both directions (house rule 1): every denial below is
+ * caught by some pattern, and every pattern catches some denial.
+ */
+describe("no sentence denies the CSV settings", () => {
+  const DENIALS: readonly RegExp[] = [
+    /\bno (?:csv )?(?:delimiter|separator|character[- ]set|encoding) (?:option|setting|choice|picker)s?\b/i,
+    /\b(?:cannot|can't|can ?not) (?:choose|pick|set|change) (?:the |a |its )?(?:csv )?(?:delimiter|separator|character set|encoding)\b/i,
+    /\b(?:delimiter|separator|character set|encoding) (?:is|are) (?:always|fixed|assumed)\b/i,
+  ];
+  const CORPUS: readonly string[] = [
+    // Shipped on the Excel to PDF page until 2026-11-17 (its CSV use case).
+    "There is no delimiter option, so check the columns split as expected.",
+    // The synonyms the same claim would be written in.
+    "There is no separator setting.",
+    "You cannot choose the delimiter.",
+    "The delimiter is always a comma.",
+  ];
+
+  it("the corpus and the patterns cover each other", () => {
+    for (const sentence of CORPUS)
+      expect(
+        DENIALS.some((re) => re.test(sentence)),
+        sentence,
+      ).toBe(true);
+    for (const re of DENIALS)
+      expect(
+        CORPUS.some((sentence) => re.test(sentence)),
+        String(re),
+      ).toBe(true);
+  });
+
+  it("nothing on the page or in the guide matches", () => {
+    const tool = getToolBySlug("excel-to-pdf")!;
+    const guide = guides.find((g) => g.slug === "how-to-convert-excel-to-pdf")!;
+    const texts = [
+      ...pageIntro(tool),
+      ...pageSteps(tool).map(stepText),
+      ...pageUseCases(tool).map((u) => u.body),
+      ...pageFaq(tool).flatMap((f) => [f.question, f.answer]),
+      ...guide.intro,
+      ...guide.steps,
+      ...guide.sections.flatMap((s) => s.body),
+      ...guide.faq.flatMap((f) => [f.question, f.answer]),
+    ];
+    // Health: the corpus read is the page and the guide, not nothing.
+    expect(texts.length).toBeGreaterThanOrEqual(20);
+    const offenders = texts.filter((t) => DENIALS.some((re) => re.test(t)));
+    expect(offenders).toEqual([]);
+  });
+});

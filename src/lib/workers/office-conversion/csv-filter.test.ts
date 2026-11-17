@@ -172,6 +172,16 @@ describe("Auto-detect's delimiter", () => {
     expect(sniff('a;b\n"line one,\nline two,";2\nc;3\n')).toBe("semicolon");
   });
 
+  it("CONTROL: a quoted separator that WOULD win if counted does not", () => {
+    // Outside quotes one comma per line; inside, one semicolon per line,
+    // which ties with the comma and would win the tie-break if counted
+    // (mutation control M2, 2026-11-17: the two cases above passed with the
+    // quote rule deleted).
+    expect(sniff('"a;b",c' + String.fromCharCode(10) + '"d;e",f')).toBe(
+      "comma",
+    );
+  });
+
   it("CRLF line ends and a missing final newline", () => {
     expect(sniff("a;b\r\n1;2\r\n3;4")).toBe("semicolon");
   });
