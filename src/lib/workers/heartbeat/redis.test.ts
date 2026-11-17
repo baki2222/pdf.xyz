@@ -43,6 +43,7 @@ const CAPS: HeartbeatCapabilities = {
   translateReadingOrder: true,
   translatePageMap: true,
   translatePageRange: true,
+  csvImportOptions: true,
 };
 
 /** A mutable fake clock. */

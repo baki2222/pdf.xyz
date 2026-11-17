@@ -15,6 +15,7 @@ import {
   type OfficeToPdfTool,
 } from "../office-conversion/engine";
 import { parseSheetLayout } from "../office-conversion/sheet-layout";
+import { parseCsvImportChoice } from "../office-conversion/csv-import";
 import {
   processorFail,
   processorOk,
@@ -146,6 +147,18 @@ export function createOfficeConversionProcessor(
           message: layout.message,
           retryable: false,
         });
+      // Its CSV delimiter and character set, read the same way: an unknown
+      // value is refused here, before LibreOffice runs, never read as Auto.
+      const csv =
+        input.tool === EXCEL_TO_PDF_TOOL
+          ? parseCsvImportChoice(input.options)
+          : null;
+      if (csv && !csv.ok)
+        return processorFail({
+          code: "unprocessable_entity",
+          message: csv.message,
+          retryable: false,
+        });
       const run = await runOfficeToPdf(
         input.tool,
         file.bytes,
@@ -153,6 +166,7 @@ export function createOfficeConversionProcessor(
         deps,
         input.signal,
         layout?.value,
+        csv?.value,
       );
       if (!run.ok) return processorFail(jobError(run));
       return processorOk(
