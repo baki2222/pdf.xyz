@@ -62,8 +62,10 @@ import { ChatAnswer } from "./chat-answer";
 
 /**
  * The page a citation opens (audit #30, 2026-11-15): Delete Pages' own zoom
- * dialog, without its selection toggle. Loaded on the first press, as it is
- * there (runner/page-select-runner.tsx).
+ * dialog, without its selection toggle. Loaded on the first press, as the
+ * page boards load it (runner/page-zoom-lazy.tsx). Its own loader rather than
+ * that module's: this panel can be in its page's first load, and it needs no
+ * tile button.
  */
 const PageZoomDialog = dynamic(() =>
   import("./runner/page-zoom-dialog").then(

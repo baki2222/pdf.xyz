@@ -6,7 +6,9 @@
  * One page, large (audit remove-pages#3, 2026-11-08): the page board's
  * thumbnails are small, and telling a near-blank page or a page scanned twice
  * from its neighbours is the job Delete Pages is used for. "View page N
- * larger" (`zoomLabel` in page-select-runner.tsx) opens this dialog over the board: the page rendered afresh at
+ * larger" (`zoomLabel` and `ZoomButton` in page-zoom-lazy.tsx, on every page
+ * board since backlog #9, 2026-11-17) opens this dialog over the board: the
+ * page rendered afresh at
  * {@link ZOOM_WIDTH} CSS pixels (in the browser, like every thumbnail),
  * Previous page / Next page (or the arrow keys) to compare neighbours, and the
  * same selection toggle the tile has.
@@ -26,6 +28,18 @@ import { usePageImageState } from "./use-page-image";
 /** The CSS width the enlarged page is rendered at. */
 export const ZOOM_WIDTH = 720;
 
+/**
+ * One place on a board whose order is not the file's (Organize): the page it
+ * holds, or the blank sheet the tool inserts there, and its turn.
+ */
+export interface BoardPage {
+  sourceIndex: number;
+  /** Clockwise turn from the unrotated page, as the tile draws it. */
+  rotation: number;
+  /** A page the tool inserts: an empty sheet of this upright size. */
+  blank?: { width: number; height: number };
+}
+
 export interface PageZoomDialogProps {
   bytes: Uint8Array;
   pageCount: number;
@@ -40,6 +54,17 @@ export interface PageZoomDialogProps {
   selected?: boolean;
   onToggle?: () => void;
   onClose: () => void;
+  /**
+   * Each file page's turn as the board draws it (Rotate's pending turns), in
+   * place of its own /Rotate: the page as it will come out.
+   */
+  rotations?: readonly number[];
+  /**
+   * The board's own order (Organize): `index` and Previous / Next walk this
+   * list, each place drawn turned as its tile is, and named by its page and
+   * its position. Without it, page `index` of the file is shown.
+   */
+  pages?: readonly BoardPage[];
 }
 
 export function PageZoomDialog({
@@ -50,10 +75,22 @@ export function PageZoomDialog({
   selected = false,
   onToggle,
   onClose,
+  rotations,
+  pages,
 }: PageZoomDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const headingId = useId();
-  const { state, image } = usePageImageState(bytes, index, ZOOM_WIDTH);
+  const place = pages?.[index];
+  const count = pages ? pages.length : pageCount;
+  const { state, image } = usePageImageState(
+    bytes,
+    place ? (place.blank ? null : place.sourceIndex) : index,
+    ZOOM_WIDTH,
+    place ? place.rotation : rotations?.[index],
+  );
+  const imageName = place
+    ? `${place.blank ? "Blank page" : `Page ${place.sourceIndex + 1}`}, position ${index + 1} of ${count}`
+    : `Page ${index + 1}`;
   const closeRef = useRef(onClose);
   useEffect(() => {
     closeRef.current = onClose;
@@ -84,7 +121,7 @@ export function PageZoomDialog({
     if (dialog?.open && typeof dialog.close === "function") dialog.close();
     else closeRef.current();
   };
-  const go = (to: number) => onIndex(Math.max(0, Math.min(pageCount - 1, to)));
+  const go = (to: number) => onIndex(Math.max(0, Math.min(count - 1, to)));
 
   return createPortal(
     <dialog
@@ -110,7 +147,7 @@ export function PageZoomDialog({
       <div className="flex h-full flex-col gap-3 p-4 sm:p-5">
         <div className="flex items-center justify-between gap-3">
           <h2 id={headingId} className="tnum text-sm font-semibold">
-            Page {index + 1} of {pageCount}
+            {place ? imageName : `Page ${index + 1} of ${count}`}
           </h2>
           <button
             type="button"
@@ -122,14 +159,12 @@ export function PageZoomDialog({
           </button>
         </div>
         <div className="bg-wash rounded-panel grid min-h-0 flex-1 place-items-center overflow-auto p-3">
-          {image ? (
+          {place?.blank ? (
+            <BlankSheet size={place.blank} rotation={place.rotation} />
+          ) : image ? (
             <img
               src={image.url}
-              alt={
-                image.note
-                  ? `Page ${index + 1}. ${image.note}`
-                  : `Page ${index + 1}`
-              }
+              alt={image.note ? `${imageName}. ${image.note}` : imageName}
               className="rounded-sheet max-h-[70vh] w-auto max-w-full bg-white shadow-md ring-1 ring-black/5"
             />
           ) : state === "failed" ? (
@@ -151,7 +186,7 @@ export function PageZoomDialog({
             </ChipButton>
             <ChipButton
               onClick={() => go(index + 1)}
-              disabled={index >= pageCount - 1}
+              disabled={index >= count - 1}
             >
               Next page
               <ChevronRight className="size-3.5" aria-hidden />
@@ -166,5 +201,32 @@ export function PageZoomDialog({
       </div>
     </dialog>,
     document.body,
+  );
+}
+
+/** An inserted page: an empty sheet, turned as the tile turns it. */
+function BlankSheet({
+  size,
+  rotation,
+}: {
+  size: { width: number; height: number };
+  rotation: number;
+}) {
+  const quarter = ((rotation % 180) + 180) % 180 === 90;
+  const width = quarter ? size.height : size.width;
+  const height = quarter ? size.width : size.height;
+  return (
+    <div
+      role="img"
+      aria-label="Blank page"
+      data-blank-sheet=""
+      className="rounded-sheet max-w-full bg-white shadow-md ring-1 ring-black/5"
+      style={{
+        aspectRatio: `${width} / ${height}`,
+        ...(width >= height
+          ? { width: "100%", maxHeight: "70vh" }
+          : { height: "60vh" }),
+      }}
+    />
   );
 }

@@ -45,7 +45,7 @@ import {
   THUMBNAIL_TARGET_WIDTH,
   renderDimensions,
 } from "@/lib/pdf/render-utils";
-import { zoomLabel } from "./page-select-runner";
+import { zoomLabel } from "./page-zoom-lazy";
 
 vi.mock("pdfjs-dist", async () => import("pdfjs-dist/legacy/build/pdf.mjs"));
 

@@ -49,6 +49,12 @@ export interface RenderPageOptions {
    * pixels are in the same frame as coordinates a reader would use.
    */
   orientation?: "base" | "displayed";
+  /**
+   * Draw the page turned this many degrees clockwise from its unrotated
+   * shape, in place of `orientation`: the page as a tool will write it out
+   * (Rotate's and Organize's pending turns), not as the file holds it now.
+   */
+  rotation?: number;
 }
 
 /**
@@ -133,7 +139,13 @@ export async function createThumbnailRenderer(
       // "displayed" bakes the page's own /Rotate in, for overlays drawn in the
       // frame a reader sees.
       const orientation = options.orientation ?? base.orientation ?? "base";
-      const rotation = orientation === "displayed" ? page.rotate : 0;
+      const turned = options.rotation ?? base.rotation;
+      const rotation =
+        turned !== undefined
+          ? turned
+          : orientation === "displayed"
+            ? page.rotate
+            : 0;
       const baseViewport = page.getViewport({ scale: 1, rotation });
       const dims = renderDimensions(
         baseViewport.width,
@@ -155,7 +167,11 @@ export async function createThumbnailRenderer(
       if (note !== null) {
         // A base-orientation tile is turned by the page's /Rotate where it
         // is shown: the note is drawn turned back, to read upright there.
-        guard.drawPageNote(canvas, note, rotation === 0 ? page.rotate : 0);
+        guard.drawPageNote(
+          canvas,
+          note,
+          turned === undefined && rotation === 0 ? page.rotate : 0,
+        );
       } else {
         const background = options.background ?? base.background ?? "#ffffff";
         task = page.render({ canvas, viewport, background });

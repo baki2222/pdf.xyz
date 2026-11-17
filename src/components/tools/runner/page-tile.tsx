@@ -289,16 +289,20 @@ export function TileAction({
   disabled,
   children,
   danger = false,
+  tabIndex,
 }: {
   onClick: () => void;
   title: string;
   disabled?: boolean;
   children: ReactNode;
   danger?: boolean;
+  /** For a board with one roving tab stop (the page picker's zoom). */
+  tabIndex?: number;
 }) {
   return (
     <button
       type="button"
+      tabIndex={tabIndex}
       title={title}
       aria-label={title}
       aria-disabled={disabled || undefined}
