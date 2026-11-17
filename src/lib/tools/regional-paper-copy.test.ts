@@ -15,7 +15,9 @@
  * `htmlLayoutAnswer` (found by its opening words in the served text, with a
  * health check that it found the two it must).
  *
- * WHAT THIS DOES NOT SEE: a synonym of these shapes, and a sentence about
+ * WHAT THIS DOES NOT SEE: a synonym of these shapes (one, "page size the
+ * site's print stylesheet sets", was found in review on 2026-11-17 and is
+ * now a ban), and a sentence about
  * these pages on another tool's page that does not lead with them.
  */
 import { describe, expect, it } from "vitest";
@@ -64,6 +66,12 @@ const SHIPPED_HTML = [
   "Upload an .html file or paste HTML code, and headless Chromium prints it to PDF, running its scripts and applying print CSS and @page size.",
   "Embed the logo as a data: URI rather than pointing at an image file, and add @page { size: A4 } when the recipient expects A4 rather than US Letter.",
   "By default the PDF shows the result of your print CSS rather than your screen layout, including any @page size it sets, with backgrounds printed and no header or footer lines added; untick Use the site's print styles to print the screen layout for comparison.",
+  // Missed by the first rewrite and found in review (2026-11-17): the same
+  // @page claim without the token "@page", the synonym hole named above.
+  "Paste the link and a headless copy of Chromium, the engine behind Chrome and Edge, loads it, lets its JavaScript run for a fixed budget of page time, and prints it to PDF with backgrounds included and any page size the site's print stylesheet sets.",
+  // Typed by hand on this branch and found in review (2026-11-17): the
+  // panel follows the browser's preferred language, not the country.
+  "Page size starts on A4, or on Letter in countries that use Letter paper, so pick the other one under Page size when the person you send it to expects it.",
 ];
 
 const AUTO = `(?:${LQ})?As the page sets it(?:${RQ})?`;
@@ -89,6 +97,14 @@ const BANS: Record<"text" | "html", Record<string, (s: string) => boolean>> = {
       !new RegExp(AUTO).test(s) &&
       !/\bA4\b/.test(s),
     "edit @page to get A4": (s) => /@page\s*\{\s*size:\s*A4\b/.test(s),
+    "the stylesheet's page size, with neither the choice nor A4 named": (s) =>
+      /\b(?:page|paper) size\b[^.]*\bstylesheet\b/i.test(s) &&
+      !new RegExp(AUTO).test(s) &&
+      !/\bA4\b/.test(s),
+    "paper follows the country, not the browser": (s) =>
+      /\bin (?:the )?countries (?:that|which|where)\b[^.]*\bLetter\b/i.test(
+        s,
+      ) && !/\bbrowser\b/i.test(s),
     "default width on Letter alone": (s) =>
       /\bdefault\b[^.]*\b\d+ pixels on (?:US )?Letter\b/i.test(s) &&
       !/\bA4\b/.test(s),

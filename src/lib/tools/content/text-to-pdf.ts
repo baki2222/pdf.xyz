@@ -172,7 +172,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I choose A4, landscape, a bigger text size or another font?",
-      a: `The page and the text size, yes. ${TEXT_PAGE_SETUP_SENTENCE} The font and the margins are fixed, and the page heading doubles as the document's Title property. For headings, lists or code blocks, write Markdown and use Markdown to PDF.`,
+      a: `Yes for the paper size, the orientation and the text size, but not the font. ${TEXT_PAGE_SETUP_SENTENCE} The font and the margins are fixed, and the page heading doubles as the document's Title property. For headings, lists or code blocks, write Markdown and use Markdown to PDF.`,
     },
     {
       q: "My file is .log, .csv or saved in another encoding. What do I do?",

@@ -5,6 +5,7 @@ import { toolFileCeiling } from "@/lib/tools/file-ceilings";
 import { formatBytes } from "@/lib/utils";
 import {
   HTML_LAYOUT_STEP,
+  HTML_START_SIZE,
   htmlLayoutAnswer,
 } from "@/lib/tools/html-layout-copy";
 import {
@@ -164,7 +165,7 @@ const content: ToolContent = {
   seoTitle: "HTML to PDF: Print an HTML File with Chromium",
 
   metaDescription:
-    "Upload an .html file or paste HTML code: headless Chromium prints it with its scripts and print CSS, on A4, Letter or its own @page size. Input deleted after.",
+    "Upload an .html file or paste HTML code: Chromium prints it with its scripts and print CSS, on A4, Letter, other sizes or its @page size. Input deleted after.",
 
   intro: [
     "HTML to PDF takes one .html or .htm file, or HTML code you paste into the page, and prints it the way a browser would. Headless Chromium, the open-source engine behind Chrome, lays out the markup with the CSS inside the file, runs its JavaScript within a bounded rendering window, and prints the result. Because it is a print rather than a screenshot, text stays selectable, @media print rules take effect, and a CSS @page rule decides the paper size when Page size is set to “As the page sets it”.",
@@ -175,7 +176,7 @@ const content: ToolContent = {
   useCases: [
     {
       title: "Print an HTML email template or invoice",
-      body: "Templates like these tend to keep their styling inline in one file, which is the shape this tool handles best. Embed the logo as a data: URI rather than pointing at an image file. Page size starts on A4, or on Letter in countries that use Letter paper, so pick the other one under Page size when the person you send it to expects it.",
+      body: `Templates like these tend to keep their styling inline in one file, which is the shape this tool handles best. Embed the logo as a data: URI rather than pointing at an image file. Page size starts on ${HTML_START_SIZE}, so pick the other one under Page size when the person you send it to expects it.`,
     },
     {
       title: "Turn a static report into something you can send",

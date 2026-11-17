@@ -65,7 +65,10 @@ import { regionalChoice, useRegionalPaper } from "../use-regional-paper";
  * a size choice (audit backlog #5); the sizes are now read from the chips'
  * own table, so the sentence names what the chips offer.
  */
-const MONOSPACE_CLAIM = `Paginated PDF on ${new Intl.ListFormat("en", { type: "disjunction" }).format(TEXT_PAGE_SIZES.map((s) => s.label))} pages. ${monospaceClaimSentence()} Other characters, in the text or its file name, can move the whole document to a proportional Noto face.`;
+const PAGE_LABELS = TEXT_PAGE_SIZES.map((s) => s.label);
+/** "A4, US Letter or US Legal": no serial comma, as the facts box and FAQ. */
+const PAGE_LIST = `${PAGE_LABELS.slice(0, -1).join(", ")} or ${PAGE_LABELS.at(-1)}`;
+const MONOSPACE_CLAIM = `Paginated PDF on ${PAGE_LIST} pages. ${monospaceClaimSentence()} Other characters, in the text or its file name, can move the whole document to a proportional Noto face.`;
 
 /**
  * Two or more text files: the batch (batch plan P2), one PDF per file, its

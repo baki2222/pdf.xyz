@@ -50,7 +50,9 @@ const MARGINS = list(HTML_MARGINS.map((m) => m.label));
 const WIDTHS = list(
   HTML_VIEWPORTS.filter((v) => v.width).map((v) => `${v.width}`),
 );
-const AUTO_SIZE = `“${HTML_PAGE_SIZES.find((s) => s.inches === null)!.label}”`;
+/** "“As the page sets it”", the menu's own entry, quotes included. */
+export const HTML_AUTO_SIZE = `“${HTML_PAGE_SIZES.find((s) => s.inches === null)!.label}”`;
+const AUTO_SIZE = HTML_AUTO_SIZE;
 /** Every Page size choice, the sizes first and the page's own last. */
 const ALL_SIZES = list([
   ...HTML_PAGE_SIZES.filter((s) => s.inches).map((s) => s.label),
@@ -62,9 +64,10 @@ const htmlSizeFor = (paper: string): HtmlPageSize =>
 const labelOfSize = (id: HtmlPageSize) =>
   HTML_PAGE_SIZES.find((s) => s.id === id)!.label;
 /** "A4, or Letter if your browser's preferred language is set for …". */
-const START_SIZE = imageDefaultPaperCopy((size) =>
+export const HTML_START_SIZE = imageDefaultPaperCopy((size) =>
   labelOfSize(htmlSizeFor(size.id)),
 );
+const START_SIZE = HTML_START_SIZE;
 /** The paper "As the page sets it" falls back to: Chromium's, Letter. */
 const FALLBACK_SIZE = HTML_PAGE_SIZES.find(
   (s) =>

@@ -5904,7 +5904,7 @@ export const guides: Guide[] = [
       `Open the ${nameOf("text-to-pdf")} tool.`,
       "Drop a .txt file on the box that says “Drop TXT files here, or browse”, or click browse to choose one. Loading a file replaces whatever is in the box; two or more files open a batch list instead, one PDF per file.",
       "Or paste or type straight into the Text content box. The figure beside its heading counts the characters and the size as you go, and you can edit the text before converting.",
-      `If you want another page, choose it under ${TEXT_PAGE_SETUP_LABELS.pageSize}, ${TEXT_PAGE_SETUP_LABELS.orientation} and ${TEXT_PAGE_SETUP_LABELS.fontSize}, below the box.`,
+      `To change the paper size, orientation or text size, use ${TEXT_PAGE_SETUP_LABELS.pageSize}, ${TEXT_PAGE_SETUP_LABELS.orientation} and ${TEXT_PAGE_SETUP_LABELS.fontSize} below the box.`,
       "Press Create PDF. The button reads Creating PDF… while the pages are set.",
       `Under “PDF created”, press Download PDF. notes.txt is saved as ${TXT_EXAMPLE_OUT}, and pasted text as ${TXT_PASTED_OUT}.`,
       "Press Start over to clear the box for the next text.",
@@ -5961,7 +5961,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-16",
+    updated: "2026-11-17",
   },
   {
     slug: "how-to-prepare-a-pdf-for-others-to-sign",
