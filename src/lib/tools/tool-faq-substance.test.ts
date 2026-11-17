@@ -52,7 +52,12 @@ import { tools } from "@/lib/tools";
 import type { Tool } from "./types";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { getRunnerKind } from "@/lib/pdf/registry";
-import { extractPages, getPageCount, mergePdfs } from "@/lib/pdf/engine";
+import {
+  extractPages,
+  getPageCount,
+  getPageRotations,
+  mergePdfs,
+} from "@/lib/pdf/engine";
 import { PDF_ENCRYPTED_UNKNOWN_MESSAGE } from "@/lib/pdf/encryption";
 import { userPasswordEncryptedPdf } from "@/tests/encrypted-pdf-fixture";
 import { parseRanges } from "@/lib/pdf/ranges";
@@ -464,6 +469,9 @@ describe("merge, split and extract answer what their engines do", () => {
       1,
     );
     await expect(getPageCount(locked)).rejects.toThrow(/password-protected/);
+    await expect(getPageRotations(locked)).rejects.toThrow(
+      /password-protected/,
+    );
     await expect(mergePdfs([locked])).rejects.toThrow(/password-protected/);
     // A lock no reader can classify is turned away too, in words true of both.
     const unclassifiable = await lockedPdf();
@@ -476,9 +484,14 @@ describe("merge, split and extract answer what their engines do", () => {
     for (const tool of mounting("merge")) {
       // The runner parses each file as it is added, and files the rejection
       // against that file — which is the "turned away when you add it".
+      // AMENDED 2026-11-17 (Merge PDF's Arrange pages), history kept: this
+      // matched `await getPageCount(bytes)` only. The runner now reads each
+      // page's rotation from the same one parse (`getPageRotations`), which
+      // refuses a locked file the same way (asserted above), so either
+      // loader on the add path satisfies the property.
       const src = runnerSource(tool.slug);
       expect(src).toMatch(
-        /await getPageCount\(bytes\)[\s\S]{0,900}setRejections/,
+        /await (?:getPageCount|getPageRotations)\(bytes\)[\s\S]{0,900}setRejections/,
       );
       const served = answer(tool.slug, /password-protected/);
       expect(served).toMatch(/^Not while they are locked\./);
