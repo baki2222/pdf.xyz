@@ -15,8 +15,8 @@ import { ErrorNote, Spinner } from "./runner-kit";
  * password is kept in one place:
  *
  * the password is held in this component's state only while it is typed,
- * CLEARED before the check returns, handed to `check` once, and never
- * stored, logged or sent. `check` returns the problem to show, or null when
+ * CLEARED before the check returns, and handed to `check` once; it goes to
+ * no storage, log or request (`owner-password-runners.test.tsx` checks). `check` returns the problem to show, or null when
  * the file opened (the caller has moved on).
  */
 export function PasswordField({

@@ -32,7 +32,9 @@ import type { OwnerOpened } from "./owner-unlock";
  * Images changes nothing in the PDF.
  *
  * The password lives in the form's state for the one check
- * (`./password-field`), and is never stored, logged or sent.
+ * (`./password-field`) and nowhere else: no storage write, request or DOM
+ * node carries it — `owner-password-runners.test.tsx` and
+ * `e2e/owner-password.spec.ts` check those, not this sentence.
  */
 
 const CHECKED =
