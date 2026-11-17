@@ -33,6 +33,16 @@ import {
   type SheetOrientation,
 } from "@/lib/workers/office-conversion/sheet-layout";
 import {
+  CSV_CHARSETS,
+  CSV_CHARSET_LABEL,
+  CSV_DELIMITERS,
+  CSV_DELIMITER_LABEL,
+  CSV_IMPORT_HINT,
+  acceptsCsvImport,
+  type CsvCharset,
+  type CsvDelimiter,
+} from "@/lib/workers/office-conversion/csv-import";
+import {
   DownloadCta,
   Dropzone,
   ResultCard,
@@ -195,7 +205,7 @@ function OfficeRunArea({
   accept: string;
 }) {
   const pickRefuse = usePickRefusal(catalogTool);
-  const { available } = useWorkerPanel();
+  const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
   const [batch, setBatch] = useState<File[] | null>(null);
   // Excel to PDF only (audit excel-to-pdf#1): each checkbox's state keyed by
@@ -203,6 +213,14 @@ function OfficeRunArea({
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [orientation, setOrientation] = useState<SheetOrientation | null>(null);
   const layoutId = useId();
+  // A .csv's Delimiter and Character set (competitor audit #18); null is
+  // Auto. Offered only while the live worker proves `csvImportOptions`: an
+  // older image would drop both and read the file as comma separated.
+  const [delimiter, setDelimiter] = useState<CsvDelimiter | null>(null);
+  const [charset, setCharset] = useState<CsvCharset | null>(null);
+  const csvOffered =
+    tool === "excel-to-pdf" && status?.csvImportOptions === true;
+  const csv = csvOffered ? { delimiter, charset } : undefined;
   const onePagePerSheet = checked[ONE_PAGE_PER_SHEET_OPTION] === true;
   const job = useWorkerJob<OfficeConversionWorkerResult>({
     tool: tool,
@@ -230,12 +248,24 @@ function OfficeRunArea({
             orientation,
             fitColumnsToWidth: checked[FIT_COLUMNS_TO_WIDTH_OPTION] === true,
           },
+          csv: csvOffered ? { delimiter, charset } : undefined,
         },
         controls,
       );
       return result;
     });
-  }, [file, tool, run, available, onePagePerSheet, orientation, checked]);
+  }, [
+    file,
+    tool,
+    run,
+    available,
+    onePagePerSheet,
+    orientation,
+    checked,
+    delimiter,
+    charset,
+    csvOffered,
+  ]);
 
   const orientationId = `${layoutId}-orientation`;
   // Page setup does nothing beside one page per sheet, and the worker can
@@ -317,6 +347,68 @@ function OfficeRunArea({
         </Fragment>
       );
     });
+  // Shown only once a .csv is chosen (in a batch, once any is): no other
+  // file takes them, and the client sends them only for a .csv.
+  const csvShown =
+    csvOffered &&
+    (batch
+      ? batch.some((f) => acceptsCsvImport(f.name))
+      : !!file && acceptsCsvImport(file.name));
+  const csvHintId = `${layoutId}-csv-hint`;
+  const csvSelects = csvShown && (
+    <div className="flex flex-col gap-1">
+      {(
+        [
+          {
+            key: "delimiter",
+            label: CSV_DELIMITER_LABEL,
+            value: delimiter,
+            choices: CSV_DELIMITERS,
+            set: (v: string) =>
+              setDelimiter(v === "" ? null : (v as CsvDelimiter)),
+          },
+          {
+            key: "charset",
+            label: CSV_CHARSET_LABEL,
+            value: charset,
+            choices: CSV_CHARSETS,
+            set: (v: string) => setCharset(v === "" ? null : (v as CsvCharset)),
+          },
+        ] as const
+      ).map((field) => {
+        const id = `${layoutId}-csv-${field.key}`;
+        return (
+          <div key={field.key} className="flex flex-col gap-1">
+            <label htmlFor={id} className="text-fg text-sm font-medium">
+              {field.label}
+            </label>
+            <select
+              id={id}
+              value={field.value ?? ""}
+              aria-disabled={busy}
+              aria-describedby={csvHintId}
+              onChange={(e) => {
+                // Locked while a job runs, but kept in the focus order.
+                if (busy) return;
+                setOutcome(null);
+                field.set(e.target.value);
+              }}
+              className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl min-h-11 border px-3 py-1.5 text-sm outline-none"
+            >
+              {field.choices.map((c) => (
+                <option key={c.label} value={c.value ?? ""}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        );
+      })}
+      <p id={csvHintId} className="text-muted text-xs leading-relaxed">
+        {CSV_IMPORT_HINT}
+      </p>
+    </div>
+  );
   if (batch)
     return (
       <div className="flex flex-col gap-4">
@@ -340,11 +432,19 @@ function OfficeRunArea({
                   fitColumnsToWidth:
                     checked[FIT_COLUMNS_TO_WIDTH_OPTION] === true,
                 },
+                csv,
               },
               controls,
             )
           }
-          settings={tool === "excel-to-pdf" ? layoutOptions : undefined}
+          settings={
+            tool === "excel-to-pdf" ? (
+              <>
+                {layoutOptions}
+                {csvSelects}
+              </>
+            ) : undefined
+          }
         />
       </div>
     );
@@ -398,6 +498,7 @@ function OfficeRunArea({
         />
       )}
       {layoutOptions}
+      {csvSelects}
       <WorkerGate
         reserve={STATUS_SLOT}
         job={job}

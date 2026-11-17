@@ -615,3 +615,73 @@ describe("excel-to-pdf orientation and fit-to-width reach the workbook soffice o
       expect(result.error.message).toContain("cannot be combined");
   });
 });
+
+describe("excel-to-pdf's CSV choices (competitor audit #18)", () => {
+  const CSV = new TextEncoder().encode("a;b\n1;2\n");
+  const input = (options: Record<string, unknown>) => ({
+    tool: "excel-to-pdf",
+    options,
+    inputs: [
+      {
+        fileId: "f1",
+        filename: "rows.csv",
+        contentType: "text/csv",
+        bytes: CSV,
+        declaredBytes: CSV.byteLength,
+      },
+    ],
+  });
+
+  it("an unknown value fails the job, final, before LibreOffice runs", async () => {
+    const convertToPdf = vi.fn(async () => PDF);
+    const processor = createOfficeConversionProcessor({
+      libreoffice: { convertToPdf },
+    });
+    for (const options of [
+      { csvDelimiter: "colon" },
+      { csvCharset: "koi8-r" },
+      { csvDelimiter: 59 },
+    ]) {
+      const result = await processor.process(input(options));
+      expect(result.ok, JSON.stringify(options)).toBe(false);
+      if (!result.ok)
+        expect(result.error).toMatchObject({
+          code: "unprocessable_entity",
+          retryable: false,
+        });
+    }
+    expect(convertToPdf).not.toHaveBeenCalled();
+  });
+
+  it("the choice reaches the runner, and through the native runner, soffice's --infilter", async () => {
+    const exec = vi.fn(async () => ({ code: 0, timedOut: false }));
+    const config: NativeOfficeConversionConfig = {
+      enabled: true,
+      candidates: ["soffice"],
+      overridden: false,
+      timeoutMs: 1000,
+      maxInputBytes: 1000,
+      maxOutputBytes: 1000,
+      tmpDir: "/tmp",
+    };
+    const libreoffice = createNativeLibreOfficePdfRunner(config, {
+      exec,
+      resolveOnPath: () => true,
+      fs: {
+        mkdtemp: async () => "/tmp/x",
+        writeFile: async () => {},
+        readFile: async () => PDF,
+        rm: async () => {},
+      },
+    });
+    const processor = createOfficeConversionProcessor({ libreoffice });
+    const result = await processor.process(
+      input({ csvDelimiter: "pipe", csvCharset: "iso-8859-2" }),
+    );
+    expect(result.ok).toBe(true);
+    const args = (exec.mock.calls[0] as unknown as [string, string[]])[1];
+    expect(args).toContain(
+      "--infilter=Text - txt - csv (StarCalc):124,34,13,1,,0,false,false",
+    );
+  });
+});

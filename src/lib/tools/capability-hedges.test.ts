@@ -632,6 +632,20 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /\btranslat[^.]{0,80}\b(?:page ranges?|pages? you (?:choose|chose|enter)|choose (?:which )?pages)\b|\benter a page range\b[^.]{0,60}\btranslat|\bchoose which pages to translate\b|\btranslat\w* only some pages\b|\bonly the pages you choose\b/i,
     catalogueCopy: true,
   },
+  csvImportOptions: {
+    // Added 2026-11-17 with the key (competitor audit #18). The sentences
+    // about how a CSV's separator or character set is chosen or read: a
+    // "delimiter", "separator" or "character set" within one sentence of
+    // "CSV", in either order, a setting's own name followed by "Auto", both
+    // settings' names in one sentence, or a CSV that came out as one column
+    // (the FAQ question; its answer names the settings).
+    // TRUE: Excel to PDF's use case and step, and its guide's section and
+    // FAQ, say the settings appear for a .csv, with no hedge. Members
+    // pinned in "the csvImportOptions subject".
+    subject:
+      /\bcsv\b[^.]{0,160}\b(?:delimiter|separator|character set)s?\b|\b(?:delimiter|separator|character set)s?\b[^.]{0,160}\bcsv\b|\b(?:Delimiter|Character set)\b[^.]{0,40}\bAuto\b|\bDelimiter\b[^.]{0,80}\bCharacter set\b|\bcsv\b[^.]{0,60}\bone column\b/i,
+    catalogueCopy: true,
+  },
 };
 
 /* ------------------------------------------------------------------ *
@@ -1845,6 +1859,63 @@ describe("the translatePageRange subject (competitor audit #29 slices 6 and 7)",
     )?.promise;
     expect(promise, "the operations row lost its promise").toBeDefined();
     expect(promise).toMatch(/sends only the pages the reader chose/);
+  });
+});
+
+describe("the csvImportOptions subject (competitor audit #18, 2026-11-17)", () => {
+  /**
+   * `catalogueCopy: true`: the shipped sentences are what exercise it
+   * (house rule 1; members printed and bounded), and a planted deferral is
+   * caught through the rule's own path (positive control).
+   */
+  const members = () =>
+    COPY.filter((entry) =>
+      SUBJECTS.csvImportOptions!.subject.test(entry.text),
+    ).map((entry) => `${entry.slug} ${entry.where}`);
+
+  it("reaches Excel to PDF's page and guide (members printed, bounded)", () => {
+    const found = members();
+    expect(found.length, found.join("\n")).toBeGreaterThanOrEqual(4);
+    for (const where of [
+      "excel-to-pdf useCases",
+      "excel-to-pdf how",
+      "guide:how-to-convert-excel-to-pdf sections",
+      "guide:how-to-convert-excel-to-pdf faq",
+    ])
+      expect(
+        found.some((m) => m.startsWith(where)),
+        `${where} is not a member:\n${found.join("\n")}`,
+      ).toBe(true);
+  });
+
+  it("positive control: the sentence it replaced, and a planted deferral, are caught", () => {
+    // Shipped until 2026-11-17 in Excel to PDF's CSV use case: a bare
+    // present-tense denial, which this file says it cannot see as a hedge,
+    // but which IS about the capability.
+    expect(
+      SUBJECTS.csvImportOptions!.subject.test(
+        "A CSV saved as UTF-8 keeps its letters. There is no delimiter option, so check the CSV columns split as expected.",
+      ),
+    ).toBe(true);
+    const planted: CopyEntry = {
+      slug: "excel-to-pdf",
+      where: "useCases[4].body",
+      text: "Choosing a CSV delimiter is coming soon.",
+    };
+    expect(SUBJECTS.csvImportOptions!.subject.test(planted.text)).toBe(true);
+    expect(
+      hedgeOffenders([planted], []).some((line) =>
+        line.includes('hedges "csvImportOptions"'),
+      ),
+    ).toBe(true);
+  });
+
+  it("the operations promise is positive (the panel offers it only while it reads true)", () => {
+    const promise = ADVERTISED_WORKER_CAPABILITIES.find(
+      (c) => c.key === "csvImportOptions",
+    )?.promise;
+    expect(promise, "the operations row lost its promise").toBeDefined();
+    expect(promise).toMatch(/delimiter and character set the reader chose/);
   });
 });
 

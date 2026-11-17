@@ -4,6 +4,7 @@ import { usePickRefusal } from "@/components/tools/use-pick";
 import dynamic from "next/dynamic";
 import {
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -59,6 +60,8 @@ import {
   WorkerPanelShell,
 } from "./worker-panel-shell";
 import { ChatAnswer } from "./chat-answer";
+
+type AiResultViews = typeof import("./ai-result-views");
 
 /**
  * The page a citation opens (audit #30, 2026-11-15): Delete Pages' own zoom
@@ -373,6 +376,27 @@ function ChatBuilder({
   });
   const { busy, setOutcome, run } = job;
 
+  /**
+   * Copy answer, Copy conversation and the Markdown download, and the box
+   * that caps a long answer: the AI result views chunk, fetched as a question
+   * is asked (or an answer is picked up) and never with the page. A failed
+   * fetch is tried again the next time either happens.
+   */
+  const [views, setViews] = useState<AiResultViews | null>(null);
+  useEffect(() => {
+    if (views !== null || (!busy && transcript.length === 0)) return;
+    let live = true;
+    void import("./ai-result-views").then(
+      (loaded) => {
+        if (live) setViews(() => loaded);
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [views, busy, transcript.length]);
+
   const requestReady = question.trim().length > 0;
   const canRun = file != null && !busy && requestReady;
 
@@ -555,7 +579,25 @@ function ChatBuilder({
           region and its first answer in the same commit to the DOM, and a region
           that arrives already containing its text is not a change — nothing is
           spoken. The empty list costs nothing and is what makes the log work. */}
-      <Transcript entries={transcript} doc={doc} onOpen={openCitation} />
+      <Transcript
+        entries={transcript}
+        doc={doc}
+        onOpen={openCitation}
+        views={views}
+      />
+      {views !== null && transcript.length > 0 && (
+        <views.ConversationActions
+          entries={transcript.map((entry) => ({
+            question: entry.question,
+            answer: entry.answer,
+            filename: entry.filename,
+            pageCount:
+              doc !== null && entry.docToken === doc.token
+                ? doc.pageCount
+                : null,
+          }))}
+        />
+      )}
       {zoom !== null && doc && (
         <PageZoomDialog
           bytes={doc.bytes}
@@ -662,11 +704,14 @@ function Transcript({
   entries,
   doc,
   onOpen,
+  views,
 }: {
   entries: TranscriptEntry[];
   /** The document held, if any: only its own answers' citations open it. */
   doc: { token: number; pageCount: number } | null;
   onOpen: (page: number) => void;
+  /** The lazy result views, once fetched: Copy answer and the answer cap. */
+  views: AiResultViews | null;
 }) {
   return (
     /* `log` rather than `status`: answers arrive in sequence and the order is
@@ -693,12 +738,15 @@ function Transcript({
               // paraphrase, and never anything the panel composed itself.
               <>
                 <ChatAnswer
-                  answer={entry.answer}
+                  answer={
+                    views ? views.cutForPage(entry.answer).shown : entry.answer
+                  }
                   pageCount={doc?.pageCount ?? null}
                   onOpen={
                     doc !== null && entry.docToken === doc.token ? onOpen : null
                   }
                 />
+                {views && <views.TextCutNote text={entry.answer} />}
                 {/* Under EVERY answer, and not conditional on citations: an
                   ungrounded answer has none to point at. */}
                 <p className="text-muted text-xs leading-relaxed">
@@ -712,6 +760,9 @@ function Transcript({
                 exchange is left out of follow-up context. Download it to read
                 the answer.
               </p>
+            )}
+            {views && entry.answer !== null && (
+              <views.CopyAnswer answer={entry.answer} />
             )}
             <button
               type="button"

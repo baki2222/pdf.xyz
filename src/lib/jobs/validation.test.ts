@@ -386,3 +386,45 @@ describe("the validator reads a content type exactly as the intake does", () => 
     expect(disagreements).toEqual([]);
   });
 });
+
+describe("Excel to PDF's CSV choices are refused at job creation (competitor audit #18)", () => {
+  it("an unknown delimiter or character set is a 422 naming its field", () => {
+    for (const [options, field] of [
+      [{ csvDelimiter: "colon" }, "options.csvDelimiter"],
+      [{ csvDelimiter: 59 }, "options.csvDelimiter"],
+      [{ csvCharset: "koi8-r" }, "options.csvCharset"],
+    ] as const) {
+      const bad = parseCreateJobRequest({
+        tool: "excel-to-pdf",
+        inputs: ["f_1234567890"],
+        options,
+      });
+      expect(bad.ok, JSON.stringify(options)).toBe(false);
+      if (!bad.ok) {
+        expect(bad.error.body.error.code).toBe("unprocessable_entity");
+        expect(bad.error.body.error.details?.[0]?.field).toBe(field);
+      }
+    }
+  });
+
+  it("CONTROL: every listed value passes, and another tool is not judged", () => {
+    for (const options of [
+      { csvDelimiter: "semicolon", csvCharset: "windows-1251" },
+      { csvDelimiter: "auto", csvCharset: "utf-16" },
+    ])
+      expect(
+        parseCreateJobRequest({
+          tool: "excel-to-pdf",
+          inputs: ["f_1234567890"],
+          options,
+        }).ok,
+      ).toBe(true);
+    expect(
+      parseCreateJobRequest({
+        tool: "word-to-pdf",
+        inputs: ["f_1234567890"],
+        options: { csvDelimiter: "colon" },
+      }).ok,
+    ).toBe(true);
+  });
+});

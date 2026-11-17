@@ -164,8 +164,35 @@ describe("the in-image OpenDocument / RTF proof runs, from the workflow to the c
       "fixtures: OFFICE_INPUT_FIXTURES",
     );
     expect(props.get("csv")!.getText(file)).toBe("csv: CSV_CHARSET_CASES");
+    // The CSV default-import comparison (review 2026-11-17): the baseline is
+    // the SAME runner with only its import filter replaced by "none".
+    expect(imports.get("CSV_DEFAULT_CASES")).toBe(
+      "@/tests/csv-charset-fixtures",
+    );
+    expect(props.get("csvDefaults")?.getText(file)).toBe(
+      "csvDefaults: CSV_DEFAULT_CASES",
+    );
+    expect(props.has("libreofficeNoOptions")).toBe(true);
+    const noOptions = initializerOf(file, "libreofficeNoOptions");
+    expect(
+      noOptions &&
+        ts.isPropertyAccessExpression(noOptions) &&
+        noOptions.name.text === "libreoffice" &&
+        calleeName(noOptions.expression),
+    ).toBe("nativeOfficeConversionDeps");
+    const seams = (
+      (noOptions as TS.PropertyAccessExpression).expression as TS.CallExpression
+    ).arguments[1];
+    expect(seams?.getText(file).replace(/\s+/g, " ")).toBe(
+      "{ importFilter: () => null, }",
+    );
     // No LibreOffice or pdftotext, no conclusion: exit 2, never a pass.
-    for (const needed of [/!libreoffice/, /!extract/, /return 2;/])
+    for (const needed of [
+      /!libreoffice\b/,
+      /!libreofficeNoOptions/,
+      /!extract/,
+      /return 2;/,
+    ])
       expect(file.getFullText()).toMatch(needed);
   });
 });

@@ -6,6 +6,10 @@ import {
   COMBINED_SHEET_NAME,
 } from "@/lib/jobs/extract-tables-options";
 import {
+  MAX_PREVIEW_TABLES,
+  TABLE_PREVIEW_ROWS,
+} from "@/lib/jobs/table-preview-limits";
+import {
   WORD_OCR_LABEL,
   XLSX_NUMBER_EXAMPLES,
   XLSX_TEXT_EXAMPLE,
@@ -115,7 +119,7 @@ const content: ToolContent = {
     },
     {
       title: "Download the ZIP",
-      body: `The ready message says how many tables were found and on which pages, for example Found 3 tables on pages 1–2 and 4, and names any page where no table was detected. The button under it reads Download followed by the output name, so report.pdf comes back as ${EXAMPLE_ZIP}. That button appears only once your browser has fetched the ZIP, so clicking it writes the file to disk without another trip to the server. Inside are table-1.csv, table-2.csv and so on, plus tables.xlsx with sheets named like Table 1 (p3). With ${COMBINE_TABLES_LABEL} ticked, it holds one ${COMBINED_CSV_NAME} and a tables.xlsx with the one sheet ${COMBINED_SHEET_NAME}.`,
+      body: `The ready message says how many tables were found and on which pages, for example Found 3 tables on pages 1–2 and 4, and names any page where no table was detected. The button under it reads Download followed by the output name, so report.pdf comes back as ${EXAMPLE_ZIP}. That button appears only once your browser has fetched the ZIP, so clicking it writes the file to disk without another trip to the server. Under the Download button, a preview shows the first ${TABLE_PREVIEW_ROWS} rows of each table, read by your browser from the ZIP it fetched, so you can check them before opening anything; with more than ${MAX_PREVIEW_TABLES} tables, it shows the first table on each page, up to ${MAX_PREVIEW_TABLES} of them. Inside the ZIP are table-1.csv, table-2.csv and so on, plus tables.xlsx with sheets named like Table 1 (p3). With ${COMBINE_TABLES_LABEL} ticked, it holds one ${COMBINED_CSV_NAME} and a tables.xlsx with the one sheet ${COMBINED_SHEET_NAME}.`,
     },
     {
       title: "Check each sheet against its page",

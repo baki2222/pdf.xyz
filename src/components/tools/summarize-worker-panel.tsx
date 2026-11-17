@@ -44,6 +44,8 @@ import {
 } from "@/lib/workers/summarize-package";
 import { buttonVariants } from "@/components/ui/button";
 import { CopyTextButton } from "./copy-text-button";
+
+type AiResultViews = typeof import("./ai-result-views");
 import { TruncationNotice } from "./truncation-notice";
 import type { Tool } from "@/lib/tools/types";
 import type { PickRefusal } from "@/lib/uploads/pick-check";
@@ -544,20 +546,29 @@ export function SummaryResultBody({
 }) {
   // Keyed by the bytes it was read from, so a new result never shows the
   // previous summary while its own package is being read.
+  // The box comes from the AI result views chunk, fetched with the result
+  // and never with the page; it draws at most PAGE_TEXT_LIMIT characters.
+  // A chunk that will not load is treated as a package that cannot be read:
+  // the card says only what is certainly true, and the ZIP holds the summary.
   const [read, setRead] = useState<{
     from: Uint8Array;
     summary: SummaryReadBack | null;
+    views: AiResultViews | null;
   } | null>(null);
   useEffect(() => {
     let live = true;
-    void readSummaryFromPackage(output).then((summary) => {
-      if (live) setRead({ from: output, summary });
+    void Promise.all([
+      readSummaryFromPackage(output),
+      import("./ai-result-views").catch(() => null),
+    ]).then(([summary, views]) => {
+      if (live) setRead({ from: output, summary, views });
     });
     return () => {
       live = false;
     };
   }, [output]);
   const summary = read?.from === output ? read.summary : undefined;
+  const views = read?.from === output ? read.views : null;
 
   const zipButton = (
     <DownloadCta onClick={() => downloadBytes(output, filename)}>
@@ -565,7 +576,7 @@ export function SummaryResultBody({
     </DownloadCta>
   );
 
-  if (!summary) {
+  if (!summary || !views) {
     return (
       <>
         <p className="text-ok text-sm">
@@ -594,20 +605,20 @@ export function SummaryResultBody({
         text or Markdown. The ZIP adds a manifest recording the model and honest
         scope.
       </p>
-      <section
-        aria-label="Summary"
-        // Focusable so a keyboard can scroll a long summary.
-        tabIndex={0}
+      <views.LongText
+        label="Summary"
+        text={summary.text}
         className="border-line text-fg bg-canvas rounded-panel focus-visible:ring-ok/50 max-h-96 overflow-auto border p-4 text-sm leading-6 whitespace-pre-wrap outline-none focus-visible:ring-2"
-      >
-        {summary.text}
-      </section>
+      />
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
         <CopyTextButton
           text={summary.text}
           label="Copy summary"
           size="md"
           className="w-full sm:w-auto"
+          {...(views.cutForPage(summary.text).cut
+            ? { failed: views.COPY_FAILED_CUT }
+            : {})}
         />
         <button
           type="button"

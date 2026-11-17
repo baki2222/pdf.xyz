@@ -418,6 +418,16 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "Translate PDF sends only the pages the reader chose to the AI model, charges only their text and names those pages in the PDF, the ZIP and the panel, instead of translating the whole document",
     proves: provenByFlag,
   },
+  csvImportOptions: {
+    label: "CSV delimiter and character set in Excel to PDF",
+    promise:
+      // Added 2026-11-17 (competitor audit #18). Positive, like
+      // `translatePageRange`'s: the Excel to PDF panel offers the two
+      // selects for a .csv, and the job API admits them, only while this
+      // reads true on a fresh heartbeat.
+      "Excel to PDF reads a CSV with the delimiter and character set the reader chose, instead of always as comma separated",
+    proves: provenByFlag,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */
