@@ -8,8 +8,10 @@
  * random bytes named .rtf, must be refused before LibreOffice runs. And the
  * files this image's LibreOffice locked with a password
  * (`src/tests/odf-locked-fixtures/`) must be named password-protected before
- * it runs, while LibreOffice handed them directly makes no PDF. See
- * `src/lib/workers/office-conversion/input-proof.ts`.
+ * it runs, while LibreOffice handed them directly makes no PDF. And a CSV
+ * per Delimiter and Character set choice (competitor audit #18), each read
+ * right with its choice and wrong with the choice a reader would otherwise
+ * get. See `src/lib/workers/office-conversion/input-proof.ts`.
  *
  * Exit codes: 0 = proven; 1 = a check failed; 2 = an engine is not available
  * in this image. Run by `.github/workflows/container.yml`; no secret, queue,
@@ -21,7 +23,10 @@ import { nativeOfficeConversionDeps } from "@/lib/workers/office-conversion/nati
 import { pdfOfficeExportDeps } from "@/lib/workers/pdf-office-export/native";
 import { OFFICE_INPUT_FIXTURES, odsWith } from "@/tests/office-input-fixtures";
 import { lockedOdfFixtures } from "@/tests/locked-odf";
-import { CSV_CHARSET_CASES } from "@/tests/csv-charset-fixtures";
+import {
+  CSV_CHARSET_CASES,
+  CSV_CHOICE_CASES,
+} from "@/tests/csv-charset-fixtures";
 
 async function main(): Promise<number> {
   const libreoffice = nativeOfficeConversionDeps(process.env).libreoffice;
@@ -39,6 +44,7 @@ async function main(): Promise<number> {
     spreadsheetBytes: await odsWith("Renamed"),
     ...lockedOdfFixtures(),
     csv: CSV_CHARSET_CASES,
+    csvChoices: CSV_CHOICE_CASES,
   });
   for (const line of result.lines) console.log(line);
   console.log(result.ok ? "PROVEN" : "FAIL");

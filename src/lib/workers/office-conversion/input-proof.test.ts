@@ -17,7 +17,11 @@ import {
   odtWith,
 } from "@/tests/office-input-fixtures";
 import { lockedOdfFixtures } from "@/tests/locked-odf";
-import { CSV_CHARSET_CASES } from "@/tests/csv-charset-fixtures";
+import {
+  CSV_CHARSET_CASES,
+  CSV_CHOICE_CASES,
+} from "@/tests/csv-charset-fixtures";
+import type { CsvCharset, CsvDelimiter, CsvImportChoice } from "./csv-import";
 import type { LibreOfficePdfRunner } from "./engine";
 import { LibreOfficeRunError } from "./errors";
 import { officeContentRefusal, SIGNED_OFFICE_INPUTS } from "./input-content";
@@ -64,11 +68,46 @@ async function lockedByJsZip(bytes: Uint8Array): Promise<boolean> {
  * like the image's (PROVENANCE.txt), makes no PDF of a locked one.
  */
 const honest: LibreOfficePdfRunner = {
-  convertToPdf: async (input) => {
+  convertToPdf: async (input, _name, _run, _layout, csv) => {
     if (await lockedByJsZip(input)) throw new LibreOfficeRunError("no_output");
+    if (isCsv(input)) return pdfOf(readCsv(input, csv));
     return pdfOf(await wordsIn(input));
   },
 };
+
+/**
+ * A CSV read as a LibreOffice honouring the choice would read it, by an
+ * independent decoder (the platform's TextDecoder, not the worker's sniff):
+ * the chosen character set or, on Auto, UTF-16 by its mark, UTF-8, or
+ * Latin-1; the chosen delimiter or, on Auto, the first of tab, semicolon and
+ * pipe on line 1, else a comma. Cells are joined with a space.
+ */
+const DECODER_LABELS: Record<CsvCharset, string> = {
+  "utf-8": "utf-8",
+  "windows-1252": "windows-1252",
+  "iso-8859-2": "iso-8859-2",
+  "windows-1251": "windows-1251",
+  "shift-jis": "shift_jis",
+  "utf-16": "utf-16le",
+};
+const SEPARATORS: Record<CsvDelimiter, string> = {
+  comma: ",",
+  semicolon: ";",
+  tab: String.fromCharCode(9),
+  pipe: "|",
+};
+function readCsv(bytes: Uint8Array, csv?: CsvImportChoice): string {
+  const text = csv?.charset
+    ? new TextDecoder(DECODER_LABELS[csv.charset]).decode(bytes)
+    : bytes[0] === 0xff && bytes[1] === 0xfe
+      ? new TextDecoder("utf-16le").decode(bytes)
+      : csvText(bytes);
+  const lines = text.split(/\r?\n/);
+  const sep = csv?.delimiter
+    ? SEPARATORS[csv.delimiter]
+    : ([SEPARATORS.tab, ";", "|"].find((c) => lines[0]?.includes(c)) ?? ",");
+  return lines.map((line) => line.split(sep).join(" ")).join(" / ");
+}
 
 /** A stand-in pdftotext for {@link pdfOf}'s PDFs. */
 async function extract(pdf: Uint8Array): Promise<ExtractedPdfText> {
@@ -93,6 +132,7 @@ async function deps(
     spreadsheetBytes: await odsWith("Renamed"),
     ...lockedOdfFixtures(),
     csv: CSV_CHARSET_CASES,
+    csvChoices: CSV_CHOICE_CASES,
     ...over,
   };
 }
@@ -137,7 +177,12 @@ describe("the proof's verdict", () => {
         2 +
         locked.length +
         1 +
-        CSV_CHARSET_CASES.length,
+        CSV_CHARSET_CASES.length +
+        // One line per CSV choice run, right and wrong (audit #18).
+        CSV_CHOICE_CASES.reduce(
+          (n, c) => n + c.right.length + c.wrong.length,
+          0,
+        ),
     );
   });
 
@@ -252,7 +297,9 @@ describe("the proof's verdict", () => {
 
 describe("the CSV character-set cases", () => {
   const csvFails = (lines: readonly string[]) =>
-    lines.filter((l) => l.startsWith("FAIL  csv "));
+    lines.filter(
+      (l) => l.startsWith("FAIL  csv ") && !l.startsWith("FAIL  csv choice "),
+    );
   const nameOf = (line: string) => /FAIL {2}csv (\S+)/.exec(line)?.[1];
   const reading = (
     decode: (b: Uint8Array) => string,
@@ -297,5 +344,95 @@ describe("the CSV character-set cases", () => {
     expect(fails).toContain(
       'FAIL  csv plain.csv (utf-8): its word "Town" is plain ASCII, so it proves nothing',
     );
+  });
+});
+
+describe("the CSV choice cases (competitor audit #18)", () => {
+  const fails = (lines: readonly string[]) =>
+    lines.filter((l) => l.startsWith("FAIL  csv choice "));
+  const labelOf = (line: string) => /FAIL {2}csv choice (\S+)/.exec(line)?.[1];
+
+  it("health: an honest converter passes every case, right and wrong, and the lines say so", async () => {
+    const result = await runOfficeInputProof(await deps());
+    expect(result.lines.filter((l) => l.startsWith("FAIL"))).toEqual([]);
+    expect(result.ok).toBe(true);
+    const runs = CSV_CHOICE_CASES.reduce(
+      (n, c) => n + c.right.length + c.wrong.length,
+      0,
+    );
+    const choiceLines = result.lines.filter((l) => l.includes("csv choice "));
+    expect(choiceLines).toHaveLength(runs);
+    expect(
+      choiceLines.filter((l) => l.includes("CONTROL, comes out wrong")).length,
+    ).toBe(CSV_CHOICE_CASES.reduce((n, c) => n + c.wrong.length, 0));
+  });
+
+  it("the fixtures hold the two required cases and one per choice the selects offer", () => {
+    const labels = CSV_CHOICE_CASES.map((c) => c.label).sort();
+    expect(labels).toEqual(
+      [
+        "pipe",
+        "semicolon",
+        "tab",
+        "windows-1251",
+        "iso-8859-2",
+        "shift-jis",
+        "utf-16",
+        "utf-16-bom",
+      ].sort(),
+    );
+  });
+
+  it("fails an image built before the feature: every choice ignored, every CSV comma separated", async () => {
+    const old: LibreOfficePdfRunner = {
+      convertToPdf: async (input) =>
+        isCsv(input)
+          ? pdfOf(readCsv(input, { delimiter: "comma", charset: null }))
+          : honest.convertToPdf(input, ""),
+    };
+    const result = await runOfficeInputProof(await deps({ libreoffice: old }));
+    expect(result.ok).toBe(false);
+    const failed = new Set(fails(result.lines).map(labelOf));
+    for (const label of [
+      "semicolon",
+      "pipe",
+      "tab",
+      "windows-1251",
+      "iso-8859-2",
+      "shift-jis",
+    ])
+      expect(failed.has(label), label).toBe(true);
+  });
+
+  it("fails a run without a required case", async () => {
+    const result = await runOfficeInputProof(
+      await deps({
+        csvChoices: CSV_CHOICE_CASES.filter((c) => c.label !== "windows-1251"),
+      }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.lines).toContain(
+      'FAIL  the CSV choice cases hold no "windows-1251" case; the run needs it',
+    );
+  });
+
+  it("fails a judge that passes an empty page, and a control that reads right", async () => {
+    const semicolon = CSV_CHOICE_CASES.find((c) => c.label === "semicolon")!;
+    const blind = { ...semicolon, label: "blind", reads: () => true };
+    const lax = {
+      ...semicolon,
+      label: "lax",
+      reads: (t: string) => t.includes("North"),
+    };
+    const result = await runOfficeInputProof(
+      await deps({ csvChoices: [...CSV_CHOICE_CASES, blind, lax] }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.lines).toContain(
+      "FAIL  csv choice blind (regions.csv): its judge passes an empty page, so it proves nothing",
+    );
+    expect(
+      fails(result.lines).filter((l) => l.includes("CONTROL read right")),
+    ).toHaveLength(semicolon.wrong.length);
   });
 });

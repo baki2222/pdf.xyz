@@ -32,6 +32,7 @@
  * holds the verdict to stand-ins that break each property in turn.
  */
 import type { ExtractedPdfText } from "@/lib/pdf/text";
+import type { CsvImportChoice } from "./csv-import";
 import {
   DOCUMENT_WORDS,
   runOfficeToPdf,
@@ -65,7 +66,35 @@ export interface OfficeInputProofDeps {
   readonly lockedTwin: LockedOfficeFile & { readonly word: string };
   /** CSVs in known encodings, through Excel to PDF (see CsvCharsetCase). */
   readonly csv: readonly CsvCharsetCase[];
+  /** CSVs read with a chosen delimiter or character set (see CsvChoiceCase). */
+  readonly csvChoices: readonly CsvChoiceCase[];
 }
+
+/**
+ * A CSV that reads right only with the right Delimiter or Character set
+ * (competitor audit #18, 2026-11-17). Each is converted with every `right`
+ * choice, whose PDF must pass `reads`, and with every `wrong` one, whose PDF
+ * must convert and FAIL `reads`: the control that shows the check can fail,
+ * so a pass is the choice at work and not a judge that passes anything.
+ */
+export interface CsvChoiceCase {
+  /** The name the run requires it by (see {@link CSV_CHOICE_PROOF_REQUIRED}). */
+  readonly label: string;
+  readonly name: string;
+  readonly build: () => Uint8Array;
+  readonly right: readonly CsvImportChoice[];
+  readonly wrong: readonly CsvImportChoice[];
+  /** True when the PDF's text shows the file read as intended. */
+  readonly reads: (text: string) => boolean;
+  /** What `reads` looks for, for the printed line. */
+  readonly want: string;
+}
+
+/** The cases a run must hold: the two the feature was asked to prove. */
+export const CSV_CHOICE_PROOF_REQUIRED = ["semicolon", "windows-1251"] as const;
+
+const describeChoice = (c: CsvImportChoice) =>
+  `delimiter ${c.delimiter ?? "auto"}, charset ${c.charset ?? "auto"}`;
 
 /**
  * A CSV in a known encoding and the accented word its PDF must carry.
@@ -279,6 +308,58 @@ export async function runOfficeInputProof(
       fail(
         `${label}: "${c.word}" is not in its text (${text.characterCount} characters read)`,
       );
+  }
+
+  // CSV choices: the required cases are present, each judge rejects an
+  // empty page (or a blank PDF would pass the controls below), and every
+  // choice is converted by the real engine and the real LibreOffice.
+  const choiceLabels = new Set(deps.csvChoices.map((c) => c.label));
+  for (const needed of CSV_CHOICE_PROOF_REQUIRED)
+    if (!choiceLabels.has(needed))
+      fail(`the CSV choice cases hold no "${needed}" case; the run needs it`);
+  for (const c of deps.csvChoices) {
+    const label = `csv choice ${c.label} (${c.name})`;
+    if (c.right.length === 0 || c.wrong.length === 0) {
+      fail(`${label}: it needs a right choice and a wrong one`);
+      continue;
+    }
+    if (c.reads("")) {
+      fail(`${label}: its judge passes an empty page, so it proves nothing`);
+      continue;
+    }
+    for (const [choice, expected] of [
+      ...c.right.map((r) => [r, true] as const),
+      ...c.wrong.map((w) => [w, false] as const),
+    ]) {
+      const run = await runOfficeToPdf(
+        "excel-to-pdf",
+        c.build(),
+        c.name,
+        { libreoffice: deps.libreoffice },
+        undefined,
+        undefined,
+        choice,
+      );
+      const how = `${label}, ${describeChoice(choice)}`;
+      if (!run.ok) {
+        fail(`${how}: the engine answered ${run.kind}: ${run.message}`);
+        continue;
+      }
+      const text = await deps.extract(run.output);
+      const read = c.reads(text.text);
+      if (read === expected)
+        pass(
+          expected
+            ? `${how}: ${c.want}`
+            : `${how}: CONTROL, comes out wrong as it must`,
+        );
+      else
+        fail(
+          expected
+            ? `${how}: not ${c.want} (${text.characterCount} characters read)`
+            : `${how}: CONTROL read right with the wrong choice, so the check cannot fail`,
+        );
+    }
   }
   return { ok, lines };
 }
