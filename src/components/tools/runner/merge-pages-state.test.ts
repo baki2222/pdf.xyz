@@ -15,6 +15,8 @@ import {
   moveKeyTo,
   rangeTextOf,
   regroup,
+  regroupStep,
+  resetStep,
   resumesStash,
   rotateKey,
   samePages,
@@ -23,6 +25,7 @@ import {
   setKeptKey,
   stashOnLeave,
   syncFiles,
+  undoStep,
   type MergePage,
   type PageFile,
 } from "./merge-pages-state";
@@ -341,5 +344,36 @@ describe("fileSeedOf: Reset to file order", () => {
       "a:1",
       "a:2-",
     ]);
+  });
+});
+
+// The Undo, Sort and Reset steps moved out of the runner's first load
+// (re-review of 2026-11-17). The runner test "Undo brings the mixed order
+// back" drives them to the download; these pin the words and the Undo rule.
+describe("page-mode steps: Sort, Reset and Undo", () => {
+  const a = file("a", 2);
+  const b = file("b", 2);
+  const grouped = seedPages([a, b], "append");
+  const mixed = moveKeyTo(grouped, "b:0", 0);
+
+  it("a Sort that loses a mixed order offers Undo, and Undo brings it back", () => {
+    const step = regroupStep(mixed, ["a", "b"]);
+    expect(step.pages.map((p) => p.key)).toEqual(["a:0", "a:1", "b:0", "b:1"]);
+    expect(step.say).toBe(
+      " Each file's pages are together again. Undo brings your order back.",
+    );
+    expect(step.undo).toEqual({ before: mixed, after: step.pages });
+    const back = undoStep(step.undo!);
+    expect(back).toEqual({
+      pages: mixed,
+      undo: null,
+      say: "Your page order is back.",
+    });
+  });
+
+  it("CONTROL: a Reset of a grouped list offers no Undo", () => {
+    const step = resetStep(grouped, fileSeedOf(grouped, [a, b]));
+    expect(step.undo).toBeNull();
+    expect(step.say).toBe("Reset to file order.");
   });
 });

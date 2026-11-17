@@ -66,7 +66,7 @@ import {
 } from "./handoff-notice";
 import { useToolHandoff } from "./use-tool-handoff";
 import { LazyMergePageGrid } from "./merge-page-grid-lazy";
-import type { MergePage } from "./merge-pages-state";
+import type { MergePage, PagesStep, PagesUndo } from "./merge-pages-state";
 
 /** Arrange pages' list helpers, loaded with the mode, not with the page. */
 type ArrangeLib = typeof import("./merge-pages-state");
@@ -171,10 +171,7 @@ export function MergeRunner() {
   // Pages boxes typed in page mode, by file id, until they are left.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   // What one Sort or Reset in page mode threw away, while it is undoable.
-  const [undo, setUndo] = useState<{
-    before: MergePage[];
-    after: MergePage[];
-  } | null>(null);
+  const [undo, setUndo] = useState<PagesUndo | null>(null);
   const mixedNoteId = useId();
   const rangeIdBase = useId();
   // Files handed off from the workspace (merge collects many into one).
@@ -328,28 +325,22 @@ export function MergeRunner() {
     setUndo(null);
   };
 
-  /**
-   * Page mode's list replaced in one step (a Sort, Reset to file order):
-   * when it threw away an order that mixed files, Undo brings it back.
-   */
-  const replacePages = (next: MergePage[]) => {
-    if (!pages || !arrange) return false;
-    const lost = arrange.losesMixedOrder(pages, next);
-    setUndo(lost ? { before: pages, after: next } : null);
-    setPages(next);
-    return lost;
+  /** Page mode's list replaced in one step; returns what to announce. */
+  const applyStep = (step: PagesStep) => {
+    setUndo(step.undo);
+    setPages(step.pages);
+    return step.say;
   };
   /** In page mode, a new file order regroups each file's pages together. */
-  const regroupTo = (sorted: MergeItem[]) => {
-    if (mode !== "pages" || !arrange || !pages) return "";
-    const lost = replacePages(
-      arrange.regroup(
-        pages,
-        sorted.map((item) => item.id),
-      ),
-    );
-    return ` Each file's pages are together again.${lost ? " Undo brings your order back." : ""}`;
-  };
+  const regroupTo = (sorted: MergeItem[]) =>
+    mode === "pages" && arrange && pages
+      ? applyStep(
+          arrange.regroupStep(
+            pages,
+            sorted.map((item) => item.id),
+          ),
+        )
+      : "";
 
   const keepDropOrder = () => {
     const sorted = [...items].sort((a, b) => a.seq - b.seq);
@@ -696,7 +687,7 @@ export function MergeRunner() {
         </span>
         {view && (
           <span className="text-muted w-full">
-            Sorting puts each file&apos;s pages back together.
+            {view.lib.PAGE_MODE_COPY.sortHint}
           </span>
         )}
       </div>
@@ -748,19 +739,15 @@ export function MergeRunner() {
             Reverse page order on a backs file scanned last page first.
           </span>
         )}
-        {mode === "pages" && (
+        {view && (
           <span className="text-muted w-full">
-            Every page of every file in one grid. Drag a page anywhere, turn it,
-            or leave it out. The merged PDF follows the grid, left to right, top
-            to bottom.
+            {view.lib.PAGE_MODE_COPY.intro}
           </span>
         )}
         {beyond && (
           <span className="text-muted w-full">
-            Your page arrangement is kept. Choose {MERGE_MODE_LABEL.pages} again
-            to use it.
-            {stashMixed &&
-              " Its pages mix files, so the file order chosen here does not change it."}
+            {arrange.PAGE_MODE_COPY.kept}
+            {stashMixed && arrange.PAGE_MODE_COPY.keptMixed}
           </span>
         )}
       </div>
@@ -771,8 +758,7 @@ export function MergeRunner() {
             <OrderNote note={ordered} onKeep={keepDropOrder} />
           ) : view ? (
             <span className="text-muted text-xs">
-              Use the Pages box to choose a file&apos;s pages; drag in the grid
-              to set their order.
+              {view.lib.PAGE_MODE_COPY.aside}
             </span>
           ) : (
             <span className="text-muted text-xs">
@@ -785,7 +771,7 @@ export function MergeRunner() {
           role="list"
           aria-label={
             view
-              ? "PDFs to merge, in the order their first pages appear"
+              ? view.lib.PAGE_MODE_COPY.listLabel
               : "PDFs to merge, in output order — drag a row or use its move buttons to reorder"
           }
           className="flex flex-col gap-2"
@@ -942,19 +928,14 @@ export function MergeRunner() {
             update={updatePages}
             announce={announce}
             onReset={() => {
-              const lost = replacePages(fileSeed);
               setDrafts({});
-              announce(
-                `Reset to file order.${lost ? " Undo brings your order back." : ""}`,
-              );
+              announce(applyStep(view.lib.resetStep(view.pages, fileSeed)));
             }}
             onUndo={
               undo && undo.after === view.pages
                 ? () => {
-                    setPages(undo.before);
-                    setUndo(null);
                     setDrafts({});
-                    announce("Your page order is back.");
+                    announce(applyStep(view.lib.undoStep(undo)));
                   }
                 : undefined
             }
@@ -1104,7 +1085,7 @@ export function MergeRunner() {
             {alternate
               ? "Pages alternate between the files shown above."
               : view
-                ? "Pages are combined in the order of the grid above."
+                ? view.lib.PAGE_MODE_COPY.runBar
                 : "Files are combined in the order shown above."}
           </p>
           <RunReason

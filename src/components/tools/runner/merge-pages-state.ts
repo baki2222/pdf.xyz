@@ -14,7 +14,7 @@
  * Loaded with the grid, when Arrange pages is chosen, not with the page.
  */
 import type { Rotation } from "@/lib/pdf/types";
-import { interleavePages } from "@/lib/pdf/merge-order";
+import { interleavePages, MERGE_MODE_LABEL } from "@/lib/pdf/merge-order";
 import { normalizeAngle } from "@/lib/pdf/rotation";
 import { reorder } from "./list-utils";
 import { pageListText } from "./page-picker-text";
@@ -394,6 +394,25 @@ export const MIXED_NOTE =
   "Your files' pages are mixed, so these options are off: a bookmark for each file, a contents page and blank pages after odd files. Keep each file's pages together to use them. Bookmarks already in your files are kept.";
 
 /**
+ * The runner's page-mode sentences. Each is shown only once page mode has
+ * been chosen (the kept note only while a stash waits, which only page mode
+ * leaves), so they load with it and a plain merge's first load does not
+ * carry them (re-review of 2026-11-17).
+ */
+export const PAGE_MODE_COPY = {
+  sortHint: "Sorting puts each file's pages back together.",
+  intro:
+    "Every page of every file in one grid. Drag a page anywhere, turn it, or leave it out. The merged PDF follows the grid, left to right, top to bottom.",
+  kept: `Your page arrangement is kept. Choose ${MERGE_MODE_LABEL.pages} again to use it.`,
+  keptMixed:
+    " Its pages mix files, so the file order chosen here does not change it.",
+  aside:
+    "Use the Pages box to choose a file's pages; drag in the grid to set their order.",
+  listLabel: "PDFs to merge, in the order their first pages appear",
+  runBar: "Pages are combined in the order of the grid above.",
+} as const;
+
+/**
  * Leaving page mode: file mode says what it can of the arrangement, the
  * file order (by first kept page) and each file's pages, a Pages box still
  * being typed winning over the list's own text. Order inside a file, mixing
@@ -415,6 +434,61 @@ export function fileModeItems<T extends { id: string; range: string }>(
       ...item,
       range: drafts[item.id] ?? rangeTextOf(pages, item.id),
     }));
+}
+
+/** What one Sort or Reset threw away, while it is undoable. */
+export interface PagesUndo {
+  readonly before: MergePage[];
+  readonly after: MergePage[];
+}
+
+/**
+ * One whole-list step in page mode (a Sort, Reset to file order, Undo): the
+ * new list, the Undo it leaves, and what to announce. Built here, with page
+ * mode, so a plain merge's first load does not carry its words or its logic
+ * (re-review of 2026-11-17).
+ */
+export interface PagesStep {
+  readonly pages: MergePage[];
+  readonly undo: PagesUndo | null;
+  readonly say: string;
+}
+
+const UNDO_OFFER = " Undo brings your order back.";
+
+function replaceStep(
+  pages: MergePage[],
+  next: MergePage[],
+  say: string,
+): PagesStep {
+  const lost = losesMixedOrder(pages, next);
+  return {
+    pages: next,
+    undo: lost ? { before: pages, after: next } : null,
+    say: lost ? say + UNDO_OFFER : say,
+  };
+}
+
+/** A new file order in page mode: each file's pages together again. */
+export function regroupStep(
+  pages: MergePage[],
+  fileIds: readonly string[],
+): PagesStep {
+  return replaceStep(
+    pages,
+    regroup(pages, fileIds),
+    " Each file's pages are together again.",
+  );
+}
+
+/** "Reset to file order" (`seed` is `fileSeedOf` the list). */
+export function resetStep(pages: MergePage[], seed: MergePage[]): PagesStep {
+  return replaceStep(pages, seed, "Reset to file order.");
+}
+
+/** Undo: the list as it was before the Sort or Reset. */
+export function undoStep(undo: PagesUndo): PagesStep {
+  return { pages: undo.before, undo: null, say: "Your page order is back." };
 }
 
 /** A Sort or Reset that throws away an order mixing files: Undo is offered. */
