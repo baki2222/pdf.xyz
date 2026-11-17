@@ -68,13 +68,57 @@ export interface TablePreviewSet {
   combined: boolean;
 }
 
-/** RFC-4180, as `toCsv` writes it: CRLF rows, doubled quotes, a leading BOM. */
+/**
+ * The characters after which `csvCell` (`./ooxml/csv`) puts a guarding
+ * apostrophe: its `CSV_FORMULA_LEADS` plus tab and carriage return. Typed
+ * here, not imported, so this lazy chunk does not pull the writer's number
+ * rules in with it; `table-extract-preview.test.ts` checks it against
+ * `CSV_FORMULA_LEADS` and round-trips every lead through the real writer.
+ */
+export const GUARDED_LEADS: ReadonlySet<string> = new Set([
+  "=",
+  "+",
+  "-",
+  "@",
+  "\t",
+  "\r",
+]);
+
+/**
+ * A cell as the PDF and `tables.xlsx` hold it: the CSV's formula guard
+ * undone (review, 2026-11-17). `csvCell` writes `+880 1712-345678` as
+ * `"'+880 1712-345678"`, always quoted, and a preview that showed the
+ * apostrophe read like an extraction mistake. Only a QUOTED field is
+ * unguarded, so an unquoted `'=x` stays as written; the one case read wrong
+ * is a cell that really began with an apostrophe and a formula lead AND
+ * held a comma, quote or line break, since the writer makes those two the
+ * same bytes.
+ */
+function unguardCell(field: string, quoted: boolean): string {
+  return quoted &&
+    field.length > 1 &&
+    field.charAt(0) === "'" &&
+    GUARDED_LEADS.has(field.charAt(1))
+    ? field.slice(1)
+    : field;
+}
+
+/**
+ * RFC-4180, as `toCsv` writes it: CRLF rows, doubled quotes, a leading BOM,
+ * and the formula guard's apostrophe removed again ({@link unguardCell}).
+ */
 export function parseCsv(csv: string): string[][] {
   const text = csv.startsWith(BOM) ? csv.slice(1) : csv;
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
   let quoted = false;
+  let wasQuoted = false;
+  const endField = () => {
+    row.push(unguardCell(field, wasQuoted));
+    field = "";
+    wasQuoted = false;
+  };
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]!;
     if (quoted) {
@@ -83,21 +127,20 @@ export function parseCsv(csv: string): string[][] {
         i++;
       } else if (ch === '"') quoted = false;
       else field += ch;
-    } else if (ch === '"') quoted = true;
-    else if (ch === ",") {
-      row.push(field);
-      field = "";
-    } else if (ch === "\r" && text[i + 1] === "\n") {
+    } else if (ch === '"') {
+      quoted = true;
+      wasQuoted = true;
+    } else if (ch === ",") endField();
+    else if (ch === "\r" && text[i + 1] === "\n") {
       /* the LF ends the row */
     } else if (ch === "\n") {
-      row.push(field);
+      endField();
       rows.push(row);
       row = [];
-      field = "";
     } else field += ch;
   }
-  if (field !== "" || row.length > 0) {
-    row.push(field);
+  if (field !== "" || row.length > 0 || wasQuoted) {
+    endField();
     rows.push(row);
   }
   return rows;

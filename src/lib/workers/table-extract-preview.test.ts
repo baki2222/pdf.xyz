@@ -19,6 +19,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildTablesZip,
   combineTables,
+  CSV_FORMULA_LEADS,
   toCsv,
   type DetectedTable,
 } from "@/lib/workers/table-extract/engine";
@@ -33,6 +34,7 @@ import {
   TABLE_PREVIEW_ROWS,
 } from "@/lib/jobs/table-preview-limits";
 import {
+  GUARDED_LEADS,
   MAX_PREVIEW_CELL_CHARS,
   parseCsv,
   pickPreviewTables,
@@ -209,6 +211,22 @@ describe("readTablePreview - over the engine's own archive", () => {
     ]);
   });
 
+  it("a phone number or list cell comes back as written, not with the CSV's apostrophe", async () => {
+    const cells = ["+880 1712-345678", "- item", "@SUM(A1)", "-1,250.00", "-"];
+    const bytes = await buildTablesZip([
+      {
+        pageNumber: 2,
+        rows: [["Phone", "Note", "Ref", "Amount", "Nil"], cells],
+      },
+    ]);
+    // Positive control: the file the preview reads really holds the guard.
+    const zip = await JSZip.loadAsync(bytes);
+    const raw = await zip.file("table-1.csv")!.async("string");
+    expect(raw).toContain(`"'${cells[0]}"`);
+    const set = await readTablePreview(bytes);
+    expect(set.tables[0]!.rows[1]).toEqual(cells);
+  });
+
   it("a broken ZIP is refused, not read as empty", async () => {
     await expect(
       readTablePreview(new Uint8Array([0x50, 0x4b, 1, 2, 3])),
@@ -225,8 +243,29 @@ describe("the preview's CSV reader agrees with the engine's writer", () => {
     expect(parseCsv(cp(0xfeff) + toCsv(rows))).toEqual(rows);
   });
 
-  it("shows a formula-led cell as the file holds it, apostrophe first", () => {
-    expect(parseCsv(toCsv([["=1+1", "-4"]]))).toEqual([["'=1+1", "-4"]]);
+  // INVERTED (review, 2026-11-17). This test first pinned the defect:
+  //   "shows a formula-led cell as the file holds it, apostrophe first",
+  //   expecting [["'=1+1", "-4"]]. The preview then showed values that are in
+  //   neither the PDF nor tables.xlsx ("'+880 1712-345678"), on the card that
+  //   tells people to check the tables there.
+  it("shows a formula-led cell as the PDF holds it, the CSV's guard undone", () => {
+    expect(parseCsv(toCsv([["=1+1", "-4"]]))).toEqual([["=1+1", "-4"]]);
+  });
+
+  it("undoes the guard for exactly the writer's leads, each through the real writer", () => {
+    // Health check: the lead set is the writer's, plus the two OWASP adds.
+    expect([...GUARDED_LEADS].sort()).toEqual(
+      [...CSV_FORMULA_LEADS, "\t", "\r"].sort(),
+    );
+    for (const lead of GUARDED_LEADS) {
+      const cell = `${lead}x y`;
+      // Positive control: the writer really guarded it, so the undo is live.
+      expect(toCsv([[cell]])).toBe(`"'${cell.replace(/"/g, '""')}"`);
+      expect(parseCsv(toCsv([[cell]]))).toEqual([[cell]]);
+    }
+    // An apostrophe the PDF itself printed stays: unquoted, or no lead after.
+    const own = ["'=x", "'tis", "'", "''+1"];
+    expect(parseCsv(toCsv([own]))).toEqual([own]);
   });
 
   it("cuts a long cell by code points, never inside a character", () => {
