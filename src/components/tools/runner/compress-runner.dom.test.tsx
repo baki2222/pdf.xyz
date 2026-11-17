@@ -51,6 +51,7 @@ import {
 import { getToolBySlug, tools } from "@/lib/tools";
 import compressContent from "@/lib/tools/content/compress-pdf";
 import {
+  DEFAULT_IMAGE_QUALITY,
   IMAGE_QUALITY_HINT,
   IMAGE_QUALITY_LABELS,
   IMAGE_QUALITY_LEVELS,
@@ -1676,10 +1677,19 @@ describe(
 
     it("No target and Medium are the defaults, and a default batch sends what it always did", async () => {
       const big = await bigPdf();
-      const { jobs } = await startDeepBatch([
-        asFile(big, "a.pdf"),
-        asFile(big, "b.pdf"),
-      ]);
+      // The record a default run writes: no `imageQuality`, since the worker
+      // records the level only when one other than Medium was asked for.
+      const records: Record<string, unknown>[] = [];
+      const { jobs } = await startDeepBatch(
+        [asFile(big, "a.pdf"), asFile(big, "b.pdf")],
+        (job) => {
+          records.push(
+            (job.results as { compression: Record<string, unknown> })
+              .compression,
+          );
+          return job;
+        },
+      );
       expect(screen.getByRole("button", { name: "No target" })).toHaveAttribute(
         "aria-pressed",
         "true",
@@ -1696,6 +1706,18 @@ describe(
         { profile: "deep", targetDpi: 150 },
       ]);
       expect(screen.queryByText(/your .* target/i)).toBeNull();
+      // Health check: the records were read, and carry no level.
+      expect(records.length).toBeGreaterThanOrEqual(2);
+      expect(records.every((c) => !("imageQuality" in c))).toBe(true);
+      // So Medium is not said to be ignored by a worker that read it.
+      for (const name of ["a.pdf", "b.pdf"]) {
+        const row = rowOf(name);
+        expect(row).toHaveTextContent(/smaller|unchanged|KB/);
+        expect(row).not.toHaveTextContent(
+          imageQualityNotApplied(DEFAULT_IMAGE_QUALITY),
+        );
+      }
+      expect(document.querySelector("li .text-warn")).toBeNull();
     });
 
     it("a missed target is said plainly on its row, and the smallest file still downloads", async () => {
@@ -1718,6 +1740,30 @@ describe(
       expect(
         screen.getByRole("button", { name: /download compressed a\.pdf/i }),
       ).toBeInTheDocument();
+    });
+
+    it("a missed target on a Grayscale batch does not suggest Grayscale", async () => {
+      const big = await bigPdf();
+      const { jobs } = await startDeepBatch([
+        asFile(big, "a.pdf"),
+        asFile(big, "b.pdf"),
+      ]);
+      fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+      fireEvent.change(
+        screen.getByRole("textbox", { name: /custom target size in kb/i }),
+        { target: { value: "40" } },
+      );
+      fireEvent.click(screen.getByRole("checkbox", { name: /grayscale/i }));
+      fireEvent.click(
+        screen.getByRole("button", { name: /compress 2 pdfs on our server/i }),
+      );
+      await screen.findByText(/batch complete/i, {}, { timeout: 10_000 });
+      // Health check: the run was a Grayscale one.
+      expect(jobs.every((o) => o.grayscale === true)).toBe(true);
+      const line = within(rowOf("a.pdf")).getByText(/above your 40 KB target/);
+      expect(line).toHaveTextContent(/Try splitting the file\.$/);
+      expect(line).not.toHaveTextContent(/Try Grayscale/);
+      expect(line).toHaveAttribute("data-target-met", "false");
     });
 
     it("an invalid custom size holds the run and says what to type", async () => {
