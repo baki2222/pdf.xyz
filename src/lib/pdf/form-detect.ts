@@ -447,14 +447,22 @@ function pieces(t: CardText, item: number): Piece[] {
   return out;
 }
 
-/** Label text: underscores and trailing colons dropped, spaces collapsed. */
+const TRAILING = /[\s:.\-\u2013\u2014]/u;
+
+/**
+ * Label text: underscores and trailing colons dropped, spaces collapsed.
+ * The trailing colons, periods, dashes and spaces are trimmed one character
+ * at a time from the end: an anchored `[...]+$` backtracked over every run
+ * of them that did not end the string, which is quadratic in a long one.
+ */
 export function cleanLabel(s: string): string | null {
-  const out = s
+  const mid = s
     .replace(/[_\uFF3F]+/g, " ")
     .replace(/\s+/g, " ")
-    .trim()
-    .replace(/[\s:.\-\u2013\u2014]+$/u, "")
     .trim();
+  let end = mid.length;
+  while (end > 0 && TRAILING.test(mid[end - 1]!)) end--;
+  const out = mid.slice(0, end).trim();
   return out.length > 0 ? out : null;
 }
 

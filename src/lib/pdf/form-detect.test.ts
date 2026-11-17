@@ -1267,6 +1267,21 @@ describe("cleanLabel", () => {
     expect(cleanLabel("Date ____")).toBe("Date");
     expect(cleanLabel("____")).toBeNull();
     expect(cleanLabel("Amount -")).toBe("Amount");
+    const dash = String.fromCodePoint(0x2014);
+    expect(cleanLabel(`Total ${dash}. :`)).toBe("Total");
+    expect(cleanLabel(": . -")).toBeNull();
+  });
+
+  // The trailing trim was an anchored regex that backtracked over every run
+  // of ':' and '.' that did not end the string, so one 40,005-character text
+  // item beside 40 rules took 32 s for one page (review finding).
+  it("trims in linear time, whatever runs of punctuation the label holds", () => {
+    const inner = "Name" + ".:".repeat(25_000) + "x";
+    const t0 = performance.now();
+    expect(cleanLabel(inner)).toBe(inner);
+    expect(cleanLabel("Name" + ".:".repeat(25_000))).toBe("Name");
+    // Measured before: about 1.3 s; after: well under 1 ms.
+    expect(performance.now() - t0).toBeLessThan(100);
   });
 });
 
