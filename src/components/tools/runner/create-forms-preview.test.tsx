@@ -11,8 +11,11 @@
  *    the engine's `fieldBoxes`, so the two are compared, not copied);
  *  - the drawing follows the numbers as they change;
  *  - a click on the page, a drag and the arrow keys change the card's X/Y,
- *    and only the selected field's;
- *  - the page shown is the selected card's, rendered as displayed;
+ *    and only the selected field's; a press the browser takes back (a swipe
+ *    that scrolls) leaves them as they were;
+ *  - the page shown is the selected card's, drawn the shape the sheet is
+ *    (the fake renderer reads the page's own /Rotate and any override, so a
+ *    preview that rendered a turned page unturned draws the wrong shape);
  *  - every box is a button named by its field's name and type.
  *
  * The renderer is swapped through `pageImageDeps`, the hook's own seam (a
@@ -22,7 +25,7 @@
 import type { ReactNode } from "react";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, degrees } from "pdf-lib";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { RADIO_STACK_GAP } from "@/lib/pdf/create-forms";
@@ -53,32 +56,62 @@ beforeEach(() => {
   pageImageDeps.renderer = async () =>
     ({
       createThumbnailRenderer: async (
-        _bytes: Uint8Array,
+        bytes: Uint8Array,
         options: Record<string, unknown>,
-      ) => ({
-        numPages: 2,
-        renderPage: async (index: number) => {
-          asked.push({ index, options });
-          return { index, url: `blob:page-${index}`, width: 840, height: 1087 };
-        },
-        destroy: async () => {},
-      }),
+      ) => {
+        // Draws each page the shape the real renderer would: its MediaBox,
+        // turned by `options.rotation` when one is given, else by the
+        // page's own /Rotate. The shape rides in the URL, so a test can hold
+        // the image against the sheet it is drawn on.
+        const doc = await PDFDocument.load(bytes);
+        return {
+          numPages: doc.getPageCount(),
+          renderPage: async (index: number) => {
+            asked.push({ index, options });
+            const page = doc.getPage(index);
+            const turn =
+              typeof options.rotation === "number"
+                ? options.rotation
+                : page.getRotation().angle;
+            const { width, height } = page.getSize();
+            const [w, h] =
+              ((turn % 360) + 360) % 180 === 90
+                ? [height, width]
+                : [width, height];
+            return {
+              index,
+              url: `blob:page-${index}-${w}x${h}`,
+              width: 840,
+              height: Math.round((840 * h) / w),
+            };
+          },
+          destroy: async () => {},
+        };
+      },
     }) as unknown as typeof import("@/lib/pdf/render");
 });
 afterEach(() => {
   pageImageDeps.renderer = realRenderer;
 });
 
-async function pdfOfSizes(sizes: [number, number][]): Promise<Uint8Array> {
+/** Pages of these sizes; a third number is the page's own /Rotate. */
+async function pdfOfSizes(
+  sizes: ([number, number] | [number, number, number])[],
+): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  for (const size of sizes) doc.addPage(size);
+  for (const [w, h, turn] of sizes) {
+    const page = doc.addPage([w, h]);
+    if (turn) page.setRotation(degrees(turn));
+  }
   return doc.save();
 }
 
 const SHEET_PX = 420;
 
 /** Drop a PDF and wait for the builder AND its preview. */
-async function openBuilder(sizes: [number, number][]): Promise<HTMLElement> {
+async function openBuilder(
+  sizes: Parameters<typeof pdfOfSizes>[0],
+): Promise<HTMLElement> {
   const bytes = await pdfOfSizes(sizes);
   const { container } = render(withRouter(<CreateFormsRunner />));
   await dropSheetsLive(container);
@@ -306,6 +339,31 @@ describe(
       expect(expectDrawnAsCards(LETTER_SIZE)).toBe(1);
     });
 
+    it("a finger that swipes from the page to scroll it leaves the field where it was", async () => {
+      const el = await openBuilder([LETTER]);
+      const card = cards()[0]!;
+      fireEvent.focus(within(card).getByLabelText(/^x$/i));
+      const before = cardNumbers(card);
+      const touch = { pointerId: 7, button: 0, pointerType: "touch" };
+      fireEvent.pointerDown(el, { ...touch, clientX: 336, clientY: 400 });
+      fireEvent.pointerMove(el, { ...touch, clientX: 336, clientY: 300 });
+      // Health: the press DID move the field, so what follows is a restore
+      // and not a press that never landed.
+      expect(cardNumbers(card)).not.toEqual(before);
+      // The browser takes the gesture as a scroll.
+      fireEvent.pointerCancel(el, { ...touch, clientX: 336, clientY: 300 });
+      expect(cardNumbers(card)).toEqual(before);
+      expect(expectDrawnAsCards(LETTER_SIZE)).toBe(1);
+      // Control: a cancel of some OTHER pointer restores nothing.
+      fireEvent.pointerDown(el, { ...touch, clientX: 210, clientY: 100 });
+      const placed = cardNumbers(card);
+      expect(placed).not.toEqual(before);
+      fireEvent.pointerCancel(el, { ...touch, pointerId: 8 });
+      expect(cardNumbers(card)).toEqual(placed);
+      fireEvent.pointerUp(el, { ...touch, clientX: 210, clientY: 100 });
+      expect(cardNumbers(card)).toEqual(placed);
+    });
+
     it("a selected box moves with the arrow keys, 1 pt and 10 pt with Shift, never off the page", async () => {
       await openBuilder([LETTER]);
       const card = cards()[0]!;
@@ -322,6 +380,20 @@ describe(
       expect(button().getAttribute("aria-label")).toBe(
         `field_1, ${FIELD_TYPE_LABELS.text}, X ${before.x + 1}, Y ${before.y + 10}`,
       );
+      // Down and Left, each in its own direction.
+      fireEvent.keyDown(button(), { key: "ArrowDown" });
+      fireEvent.keyDown(button(), { key: "ArrowLeft", shiftKey: true });
+      expect(cardNumbers(card)).toMatchObject({
+        x: before.x + 1 - 10,
+        y: before.y + 10 - 1,
+      });
+      // Held on the page at the bottom-left corner...
+      setNumber(card, /^x$/i, 3);
+      setNumber(card, /^y$/i, 4);
+      fireEvent.keyDown(button(), { key: "ArrowLeft", shiftKey: true });
+      fireEvent.keyDown(button(), { key: "ArrowDown", shiftKey: true });
+      expect(cardNumbers(card)).toMatchObject({ x: 0, y: 0 });
+      // ...and at the right.
       setNumber(card, /^x$/i, 612 - 200);
       fireEvent.keyDown(button(), { key: "ArrowRight", shiftKey: true });
       expect(cardNumbers(card).x).toBe(612 - 200);
@@ -330,8 +402,11 @@ describe(
       expect(cardNumbers(card).x).toBe(612 - 200);
     });
 
-    it("shows the selected card's page, rendered as displayed, and names every box by field and type", async () => {
-      const el = await openBuilder([LETTER, [792, 612]]);
+    it("shows the selected card's page, drawn the shape it is displayed, and names every box by field and type", async () => {
+      // Page 2 is a portrait page turned a quarter by its own /Rotate: it
+      // is DISPLAYED landscape, and only a render that honours the /Rotate
+      // is that shape.
+      const el = await openBuilder([LETTER, [612, 792, 90]]);
       expect(el.style.aspectRatio.replace(/\s/g, "")).toBe("612/792");
       const radio = addRadioField();
       setNumber(radio, /^page$/i, 2);
@@ -342,8 +417,15 @@ describe(
       ).toBeTruthy();
       const turned = await sheet();
       expect(turned.style.aspectRatio.replace(/\s/g, "")).toBe("792/612");
-      // The renderer was asked for page 2 (index 1), as displayed.
+      // The renderer was asked for page 2 (index 1), and the image drawn is
+      // the shape of the sheet it sits on (the property; the e2e spec holds
+      // the real render's naturalWidth/naturalHeight to the same).
       expect(asked.some((a) => a.index === 1)).toBe(true);
+      await act(async () => {});
+      const src = turned.querySelector("img")?.getAttribute("src") ?? "";
+      const shape = /^blob:page-1-(\d+)x(\d+)$/.exec(src);
+      expect(shape, `image src ${src}`).toBeTruthy();
+      expect(`${shape![1]}/${shape![2]}`).toBe("792/612");
       expect(asked.every((a) => a.options.orientation === "displayed")).toBe(
         true,
       );

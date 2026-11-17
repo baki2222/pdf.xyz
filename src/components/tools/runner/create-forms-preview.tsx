@@ -93,8 +93,15 @@ export function CreateFormsPreview({
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const sayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // A press on the page itself: the selected field follows the pointer
-  // while it is held (a tap places it).
-  const follow = useRef<{ id: string; pointer: number } | null>(null);
+  // while it is held (a tap places it). `start` is where the field was
+  // before the press: a press the browser takes back (a finger that swipes
+  // to scroll the page fires pointercancel) puts it back there, unannounced,
+  // since nothing was announced.
+  const follow = useRef<{
+    id: string;
+    pointer: number;
+    start: { x: number; y: number };
+  } | null>(null);
   useEffect(
     () => () => {
       if (sayTimer.current) clearTimeout(sayTimer.current);
@@ -149,9 +156,10 @@ export function CreateFormsPreview({
           )
             return;
           event.preventDefault();
+          const start = { x: selected.x, y: selected.y };
           const at = placeAtPointer(selected, event.clientX, event.clientY);
           if (!at) return;
-          follow.current = { id: selected.id, pointer: event.pointerId };
+          follow.current = { id: selected.id, pointer: event.pointerId, start };
           event.currentTarget.setPointerCapture?.(event.pointerId);
         }}
         onPointerMove={(event) => {
@@ -170,8 +178,11 @@ export function CreateFormsPreview({
             : null;
           if (field && at) announceOutcome(where(field, at));
         }}
-        onPointerCancel={() => {
+        onPointerCancel={(event) => {
+          const f = follow.current;
+          if (!f || f.pointer !== event.pointerId) return;
           follow.current = null;
+          onMove(f.id, f.start);
         }}
       >
         {image.image && (
