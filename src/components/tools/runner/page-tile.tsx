@@ -4,7 +4,7 @@
 // for already-rasterized, ephemeral bitmaps, so a plain <img> is intentional.
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { CheckSquare, GripVertical, Square } from "lucide-react";
 import type { Rotation } from "@/lib/pdf/types";
 import type { Thumbnail } from "@/lib/pdf/render-utils";
@@ -38,6 +38,8 @@ export interface DragHandle {
   onToggle: () => void;
   /** Arrow/Home/End/Enter/Escape handling while focused. */
   onKeyDown: (event: React.KeyboardEvent) => void;
+  /** For a board with one roving tab stop (Merge PDF's page grid). */
+  tabIndex?: number;
 }
 
 /**
@@ -73,6 +75,7 @@ export function PageTile({
   blankSheet,
   tabIndex,
   className,
+  style,
 }: {
   label: ReactNode;
   /**
@@ -111,6 +114,11 @@ export function PageTile({
    */
   tabIndex?: number;
   className?: string;
+  /**
+   * Inline style on the tile's root. Merge PDF's page grid sets
+   * `content-visibility` here so off-screen tiles skip layout and paint.
+   */
+  style?: CSSProperties;
 }) {
   const interactive = selectable && Boolean(onSelect);
   // Drawn the short way round: 270° then "Right" turns to 360°, not back to 0°.
@@ -173,6 +181,7 @@ export function PageTile({
       onDragOver={onDragOver}
       onDrop={onDrop}
       onDragEnd={onDragEnd}
+      style={style}
       className={cn(
         "group rounded-panel relative flex flex-col items-center gap-2 border p-3 transition duration-200",
         draggable
@@ -202,6 +211,7 @@ export function PageTile({
           aria-label={dragHandle.label}
           aria-pressed={dragHandle.grabbed}
           aria-roledescription="Draggable page"
+          tabIndex={dragHandle.tabIndex}
           onKeyDown={dragHandle.onKeyDown}
           onClick={(e) => {
             e.stopPropagation();
