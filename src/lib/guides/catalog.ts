@@ -2532,7 +2532,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-11-16",
+    updated: "2026-11-17",
   },
   {
     slug: "how-to-redact-a-pdf",

@@ -59,19 +59,33 @@ export interface RunFonts {
   body: PDFFont;
   bold: PDFFont;
   italic: PDFFont;
+  /** Bold and italic at once (`***text***`, `**_text_**`). */
+  boldItalic: PDFFont;
   mono: PDFFont;
 }
 
 /**
- * The face a run is drawn in. `base` is the block's own face (a quote is
- * italic): italic text inside an italic block is drawn upright, as browsers
- * do. There is no bold-italic face, so bold wins.
+ * The face a run is drawn in. `base` is the block's own face: a quote is
+ * italic and a table's header row is bold. Emphasis is added to what the
+ * block already has, so bold text in a quote is bold italic and italic text
+ * in a header cell is bold italic; italic text inside an italic block is
+ * drawn upright, as browsers do. Until backlog #24 there was no bold-italic
+ * face and bold won: `***both***` came out bold and upright.
+ *
+ * On the Unicode path every face is the same Noto Regular, so whichever face
+ * this picks draws the same as today (markdown-to-pdf's page scopes bold and
+ * italics to Western European text for that reason).
  */
 function fontFor(style: number, fonts: RunFonts, base: PDFFont): PDFFont {
   if (style & CODE) return fonts.mono;
-  if (style & BOLD) return fonts.bold;
-  if (style & ITALIC) return base === fonts.italic ? fonts.body : fonts.italic;
-  return base;
+  if (!(style & (BOLD | ITALIC))) return base;
+  const bold =
+    (style & BOLD) !== 0 || base === fonts.bold || base === fonts.boldItalic;
+  const italic =
+    ((style & ITALIC) !== 0) !==
+    (base === fonts.italic || base === fonts.boldItalic);
+  if (bold) return italic ? fonts.boldItalic : fonts.bold;
+  return italic ? fonts.italic : fonts.body;
 }
 
 /** One piece of a drawn line: text in one face, with its link if any. */

@@ -467,7 +467,7 @@ export const MARKDOWN_SYNTAX_FACT = (() => {
   const names = MARKDOWN_BLOCK_KINDS.map((k) => MARKDOWN_BLOCK_PHRASE[k]);
   const list = `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
   const schemes = PDF_LINK_SCHEMES.map((s) => s.slice(0, -1));
-  return `${list[0]!.toUpperCase()}${list.slice(1)}. For Western European text, bold, italics and backtick code are set in their own faces in paragraphs, list items and quotes. A link keeps its address in parentheses, and outside table cells it opens when clicked if that address is ${schemes.slice(0, -1).join(", ")} or ${schemes.at(-1)}.`;
+  return `${list[0]!.toUpperCase()}${list.slice(1)}. For Western European text, bold, italics and backtick code are set in their own faces in paragraphs, list items, quotes and table cells. A link keeps its address in parentheses, and it opens when clicked if that address is ${schemes.slice(0, -1).join(", ")} or ${schemes.at(-1)}.`;
 })();
 
 /**
