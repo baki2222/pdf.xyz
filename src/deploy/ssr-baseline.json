@@ -6319,7 +6319,7 @@
     },
     "guides/how-to-prepare-a-pdf-for-others-to-sign.html": {
       "title": "How to prepare a PDF for other people to sign — pdf.xyz",
-      "description": "Add a named signature box, and a date box, for each signer on one PDF, then send the prepared file yourself. pdf.xyz emails no one and collects nothing.",
+      "description": "Place signature, initials, date and text boxes for each signer on a PDF, then send the prepared file yourself. pdf.xyz emails no one and collects nothing.",
       "canonical": "https://pdf.xyz/guides/how-to-prepare-a-pdf-for-others-to-sign",
       "robots": "index, follow",
       "h1": ["How to prepare a PDF for other people to sign"],
@@ -15034,7 +15034,7 @@
     },
     "tools/request-signatures.html": {
       "title": "Request Signatures — Prepare a PDF for Signers — pdf.xyz",
-      "description": "Add a named signature box, and optionally a date box, for each of up to 10 signers on one PDF. You get a ZIP with the file and a manifest; no email is sent.",
+      "description": "Place signature, initials, date and text boxes for up to 10 signers on any page of a PDF. You get a ZIP with the file and a manifest; no email is sent.",
       "canonical": "https://pdf.xyz/tools/request-signatures",
       "robots": "index, follow",
       "h1": ["Request Signatures"],

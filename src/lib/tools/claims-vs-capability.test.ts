@@ -213,7 +213,13 @@ import type { FetchLike } from "@/lib/workers/pdf-security-client";
 import { resetUploadedThisSessionForTests } from "@/lib/uploads/session-uploads";
 import { ADVERTISED_WORKER_CAPABILITIES } from "@/lib/workers/observability";
 import { panelDispatchArms, panelFile } from "@/tests/worker-panel-dispatch";
-import { runnerModuleOf } from "@/tests/tool-panel-modules";
+import {
+  ownPanelModules,
+  rel as relToRoot,
+  runnerModuleOf,
+  valueClosure,
+} from "@/tests/tool-panel-modules";
+import { moveField, startingLayout } from "@/lib/signatures/request-layout";
 import { compareExtractedPdfText } from "@/components/tools/runner/compare/compare-result";
 import {
   comparablePdf,
@@ -859,6 +865,9 @@ const RULES: readonly ClaimRule[] = [
       "Download the ZIP with the prepared PDF, manifest and audit trail, then send the PDF to your signers yourself.",
       "pdf.xyz does not deliver, track, or certify the signatures.",
       "Nothing is emailed or tracked for you.",
+      // The message box (audit #21, 2026-11-17): proven not to read as sending.
+      "The names and addresses you type, and Message to signers if you write one (up to 1,000 characters; line breaks become spaces), are copied into manifest.json and README.txt; unzip the package and send prepared.pdf however you normally would.",
+      "Written into README.txt and manifest.json. Nobody is emailed.",
     ],
     probe: async () => {
       // THE PROPERTY: can anything be delivered to a signer? The production
@@ -913,6 +922,81 @@ const RULES: readonly ClaimRule[] = [
         evidence: found.length
           ? `the runner offers: ${found.join("; ")}`
           : "no page-setup control in the runner",
+      };
+    },
+  },
+  {
+    // INVERTED 2026-11-17 (audit #21), in the style of the image-to-PDF
+    // "is fixed" rule above. Until then Request Signatures placed one fixed
+    // block (signatureBlockFields) and its pages said so — "stacks one
+    // fillable signature box per signer", "placed automatically", "There is
+    // no dragging.", "all on the one page you choose" — every one true. The
+    // placement editor made them false, so they are banned here, and the
+    // probe asks the PROPERTY "a reader can change where a box lands", not
+    // the mechanism: the editor must be reachable from the panel the page
+    // mounts AND its move must actually move a box. While either fails, the
+    // old claims are true again and this rule goes red (present: true).
+    // The bare "No." those FAQs answered with is held by a question-answer
+    // rule in signature-copy-claims.test.ts.
+    id: "request-signatures says its boxes are placed for you and cannot be moved",
+    subjects: () => panelMounts().get("RequestSignaturesWorkerPanel") ?? [],
+    shapes: {
+      "placed automatically": /\bplaced automatically\b/i,
+      "placed for you": /\bplaced for you\b/i,
+      "no dragging": /\bno (?:dragging|drag)\b/i,
+      "stacks one per signer": /\bstacks? one\b[^.;]*\bper signer\b/i,
+      "all on one page": /\ball on the one page\b/i,
+      "cannot move":
+        /\b(?:can(?:no|')t|cannot)\s+(?:drag|move|reposition)\b[^.]*\bbox/i,
+    },
+    shipped: [
+      "Our server stacks one fillable signature box per signer near the bottom of that page, each with a date box beside it unless you untick that option.",
+      "No. They are placed automatically near the left edge, just above the bottom of the chosen page as it is displayed, so any rotation or crop the page carries is taken into account.",
+      "The boxes are placed for you, near the left edge just above the foot of the chosen page as it is displayed, so a rotation or crop the page carries is taken into account.",
+      "There is no dragging.",
+      "No. They are placed automatically near the foot of the chosen page, signer 1 lowest.",
+      "Up to 10, each with their own signature box and, unless you untick the option, a date box, all on the one page you choose.",
+    ],
+    synonyms: [
+      "You cannot move the boxes.",
+      "The boxes are placed automatically.",
+    ],
+    honest: [
+      "Each signer starts with a signature box near the foot of the page you pick, with a date box beside it unless you untick that option.",
+      "You can then drag any box to another spot, resize it, move it to another page or remove it, and add more boxes for a signature, initials, a date, a name or other text, up to 50 in all.",
+      "Yes. Drag a box on the preview, or select it and use the arrow keys, to move it; drag its corner to resize it; press Delete to remove it.",
+      "Each signer starts with a signature box near the left edge, just above the foot of the page you pick, with the date box to its right; signer 1's is lowest.",
+      "Up to 10, each with at least one box of their own.",
+      "Boxes can go on any page, up to 50 in one request.",
+      "Positions are measured on the page as it is displayed, so any rotation or crop the page carries is taken into account.",
+    ],
+    probe: async () => {
+      // (a) The editor is reachable from the panel the page mounts: the
+      // panel's VALUE-import closure (static and `import()`, derived from
+      // the page's own dispatch) contains the layout module.
+      const panel = ownPanelModules().bySlug.get("request-signatures");
+      if (!panel) throw new Error("no panel mounted for request-signatures");
+      const closure = valueClosure(panel.file).map((f) =>
+        relToRoot(f).replace(/\\/g, "/"),
+      );
+      // Health: the walk reached the panel itself and its client.
+      if (
+        !closure.includes(relToRoot(panel.file).replace(/\\/g, "/")) ||
+        !closure.includes("src/lib/workers/request-signatures-client.ts")
+      )
+        throw new Error(
+          `implausible closure for the panel: ${closure.join(", ")}`,
+        );
+      const reachable = closure.includes(
+        "src/lib/signatures/request-layout.ts",
+      );
+      // (b) …and moving a box moves it.
+      const [box] = startingLayout([1], 1, false);
+      const moved = moveField(box!, 0.25, 0, { width: 612, height: 792 });
+      const moves = moved.x !== box!.x;
+      return {
+        present: !(reachable && moves),
+        evidence: `request-layout.ts in the panel's closure: ${reachable}; moveField changes x: ${moves} (${box!.x} -> ${moved.x})`,
       };
     },
   },

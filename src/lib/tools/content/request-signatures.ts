@@ -3,6 +3,9 @@ import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import {
+  MAX_FIELD_LABEL_CHARS,
+  MAX_REQUEST_FIELDS,
+  MAX_REQUEST_MESSAGE_CHARS,
   MAX_REQUEST_SIGNERS,
   MAX_SIGNER_EMAIL_CHARS,
   MAX_SIGNER_NAME_CHARS,
@@ -23,12 +26,21 @@ import {
  *    the picked PDF has been read in the browser (readPdfFrames, nothing
  *    uploaded; "Reading…" beside the file name meanwhile) it is labelled
  *    "Signature page (of N)", clamped to 1..N by clampSignaturePage and set
- *    to the LAST page; "Request title (optional)"; the checkbox "Add a date
- *    field next to each signature" (ticked by default); with a complete
- *    signer row and an unlocked read PDF, SignaturePagePreview draws the
- *    page in its displayed orientation with each planned field on it; the
+ *    to the LAST page; "Request title (optional)"; "Message to signers
+ *    (optional)", a textarea capped at MAX_REQUEST_MESSAGE_CHARS with the
+ *    hint that it goes into README.txt and manifest.json, nobody is emailed
+ *    and line breaks become spaces; the checkbox "Add a date field next to
+ *    each signature" (ticked by default). Signature page and the checkbox set
+ *    the STARTING layout only: once the reader moves or adds a box both are
+ *    replaced by a line saying they no longer apply and a Start over button.
+ *    With a complete signer row and an unlocked read PDF the placement editor
+ *    (request-field-editor.tsx, loaded with the PDF read) draws the page in
+ *    its displayed orientation with every box on it, and lists every box with
+ *    its signer, page, a Label input (MAX_FIELD_LABEL_CHARS), Show and
+ *    Remove; the
  *    "Prepare signature request" button, disabled unless canRun (a file, a
- *    usable signer row, not reading, not encrypted), whose busy label is
+ *    usable signer row, not reading, not encrypted, and no layout or size
+ *    problem — see layout below), whose busy label is
  *    jobBusyLabel(job.phase, "Preparing request…") — the upload, queued and
  *    download stages have their own labels; then "Download <filename>".
  *    (Until 2026-10-07 this said the page input had no upper bound and the
@@ -44,18 +56,35 @@ import {
  *    and blocks Prepare; a wholly blank row is ignored. Name, email and title
  *    inputs carry the worker's maxLength (MAX_SIGNER_NAME_CHARS,
  *    MAX_SIGNER_EMAIL_CHARS, MAX_REQUEST_TITLE_CHARS).
- *  - layout: buildFields() puts one signature box per signer at x 8%, 40% of
- *    the page wide, rows starting 6% above the bottom edge and stacking up
- *    (signer 1 lowest), row height min(11%, 60% / signers) — constant for a
- *    short list, shrinking once the list is long; the optional date box sits at
- *    x 56%. There is no drag or manual placement. native.ts resolves fractions
- *    against the page's VISIBLE frame (visiblePageFrame: the CropBox turned by
- *    /Rotate) and maps each box back through placeVisibleRect, turned to read
- *    upright (native.integration.test.ts reads it through pdfjs). Until
- *    2026-10-07 this bullet said it ignored /Rotate and the CropBox.
+ *  - layout: CHANGED 2026-11-17 (audit #21). The starting layout is still
+ *    signatureBlockFields(): one signature box per signer at x 8%, 40% of the
+ *    page wide, rows starting 6% above the bottom edge and stacking up
+ *    (signer 1 lowest), row height min(11%, 60% / signers); the optional date
+ *    box sits at x 56%. Until the reader touches it the request carries exactly
+ *    that. Then the placement editor edits it: drag a box to move it, drag its
+ *    corner to resize it, arrow keys 1 pt (Shift 10 pt), Delete removes, one
+ *    Undo for Remove and Start over; Add a box adds a Signature, Initials, Date,
+ *    Name (a text box labelled "Name") or Text box for the chosen signer on the
+ *    page shown, up to MAX_REQUEST_FIELDS; the box list moves a box to another
+ *    page or gives it to another signer. Boxes are owned by a signer row's
+ *    stable id: a box whose row is blank, or a signer left with no box, blocks
+ *    Prepare in words. Geometry is @/lib/signatures/request-layout (min 24 x 12
+ *    pt, clamped to the page, 4 decimals). A label goes to manifest.json only:
+ *    inside the PDF each box is still named Signer<N>-<Type>-<k>. The message,
+ *    title and labels have C0 controls turned into spaces by the client's
+ *    options builder (requestSignaturesJobOptions), and the panel measures that
+ *    exact object against JOB_LIMITS.maxOptionsBytes (8 KB) and blocks Prepare
+ *    over it. Until 2026-11-17 this bullet said "There is no drag or manual
+ *    placement." native.ts resolves fractions against the page's VISIBLE
+ *    frame (visiblePageFrame: the CropBox turned by /Rotate) and maps each box
+ *    back through placeVisibleRect, turned to read upright
+ *    (native.integration.test.ts reads it through pdfjs, for the starting
+ *    layout and for boxes the editor makes). Until 2026-10-07 this bullet said
+ *    it ignored /Rotate and the CropBox.
  *  - engine: src/lib/workers/request-signatures/{engine,native}.ts — every box
  *    is a plain AcroForm TEXT field named Signer<N>-Signature-<k> /
- *    Signer<N>-Date-<k>; existing pages and fields are kept. A field on a page
+ *    Signer<N>-Initials-<k> / Signer<N>-Date-<k> / Signer<N>-Text-<k>;
+ *    existing pages and fields are kept. A field on a page
  *    the PDF does not have fails as invalid_request naming both numbers; an
  *    unreadable or encrypted PDF fails as invalid_request in the loader's own
  *    words (AMENDED 2026-10-06: this said the engine's catch swallowed them
@@ -107,10 +136,10 @@ const content: ToolContent = {
 
   seoTitle: "Request Signatures — Prepare a PDF for Signers",
 
-  metaDescription: `Add a named signature box, and optionally a date box, for each of up to ${maxSigners} signers on one PDF. You get a ZIP with the file and a manifest; no email is sent.`,
+  metaDescription: `Place signature, initials, date and text boxes for up to ${maxSigners} signers on any page of a PDF. You get a ZIP with the file and a manifest; no email is sent.`,
 
   intro: [
-    `Request Signatures gets a PDF ready for other people to sign. You list up to ${maxSigners} signers by name and email, pick the page for the signature block, and say whether they sign one after another or all at once. Our server stacks one fillable signature box per signer near the bottom of that page, each with a date box beside it unless you untick that option.`,
+    `Request Signatures gets a PDF ready for other people to sign. You list up to ${maxSigners} signers by name and email and say whether they sign one after another or all at once. Each signer starts with a signature box near the foot of the page you pick, with a date box beside it unless you untick that option. You can then drag any box to another spot, resize it, move it to another page or remove it, and add more boxes for a signature, initials, a date, a name or other text, up to ${MAX_REQUEST_FIELDS} in all.`,
     `What you download is a ZIP, not a signed document. Inside are prepared.pdf with the new fields, manifest.json recording every signer, field and the chosen order, audit-trail.json with the original file's SHA-256 fingerprint and one "request.prepared" event, and a README.txt. Nobody is emailed and the order is recorded, not enforced: you send prepared.pdf yourself, and each signer types into their own boxes.`,
     `The fields are added by pdf.xyz's secure server, not in your browser, so your PDF (a single upload, capped at ${ceilingMb} MB) and the signer names and addresses are sent over TLS to that server. It deletes the PDF you uploaded once the job ends. The ZIP, which carries those names and addresses, can be fetched for ${linkMinutes} minutes before the link to it is refused, and a daily storage rule later erases the stored ZIP.`,
   ],
@@ -122,7 +151,11 @@ const content: ToolContent = {
     },
     {
       title: "A resolution or consent form many people sign",
-      body: `Add up to ${maxSigners} signers and choose Parallel. Rows keep one height for a short list and shrink once more names are added, so the whole block still fits on the chosen page.`,
+      body: `Add up to ${maxSigners} signers and choose Parallel. The starting block keeps one row height for a short list and shrinks as more names are added, so it fits on the chosen page; drag boxes apart, or move some to another page, if you want more room.`,
+    },
+    {
+      title: "Initials on every page",
+      body: "Pick a signer under Add a box and press Initials on each page of a lease, then keep their signature box on the last page. Previous page and Next page turn the preview.",
     },
     {
       title: "A flat PDF that has nowhere to type",
@@ -144,19 +177,19 @@ const content: ToolContent = {
       body: `Under Signers, enter a Full name and email address for each person. Add signer adds a row, up to ${maxSigners}, and the bin icon removes one while more than one row remains. A row with anything in it needs both a name, up to ${MAX_SIGNER_NAME_CHARS} characters, and a valid-looking email, up to ${MAX_SIGNER_EMAIL_CHARS}: until it has them, the row says what is missing once you leave it and Prepare signature request stays disabled, so no signer is left out of the package. A row left wholly empty is ignored.`,
     },
     {
-      title: "Set the order and the page",
-      body: 'Choose "Sequential — one at a time" or "Parallel — everyone at once" under Signing order, enter the Signature page number, and fill Request title (optional) if the README and manifest should name the agreement. Untick "Add a date field next to each signature" for signature boxes only.',
+      title: "Set the order and place the boxes",
+      body: 'Choose "Sequential — one at a time" or "Parallel — everyone at once" under Signing order. Signature page and "Add a date field next to each signature" set where the boxes start. On the preview, drag a box to move it or drag its corner to resize it, or select it and use the arrow keys (hold Shift for bigger steps) and Delete. Under Add a box, pick the signer and press Signature, Initials, Date, Name or Text to add one to the page shown. Fill Request title (optional) and Message to signers (optional) if the README and manifest should carry them.',
     },
     {
       title: "Prepare and download",
-      body: 'Press Prepare signature request. It stays disabled until a PDF and one complete signer row exist, while any row is incomplete, while the PDF is still being read ("Reading…" beside its name), and for an encrypted PDF. Once pressed, its label follows the job: "Uploading your file…", then "Waiting for our server…" while it is queued, "Preparing request…" while our server adds the fields, and "Downloading the result…" as the package comes back. The Download button for the file ending in -signature-request.zip then saves a copy the page already holds; there is no link to come back to, so keep the tab open until the ZIP is saved.',
+      body: 'Press Prepare signature request. It stays disabled until a PDF and one complete signer row exist, while any row is incomplete, while the PDF is still being read ("Reading…" beside its name), for an encrypted PDF, while a box belongs to a signer row that is empty or a signer has no box, and while the request is too long to send; the reason is shown above it. Once pressed, its label follows the job: "Uploading your file…", then "Waiting for our server…" while it is queued, "Preparing request…" while our server adds the fields, and "Downloading the result…" as the package comes back. The Download button for the file ending in -signature-request.zip then saves a copy the page already holds; there is no link to come back to, so keep the tab open until the ZIP is saved.',
     },
   ],
 
   faqs: [
     {
       q: "Does pdf.xyz send the document to my signers?",
-      a: "No. There is no email, reminder or status tracking. The names and addresses you type are copied into manifest.json and README.txt; unzip the package and send prepared.pdf however you normally would.",
+      a: `No. There is no email, reminder or status tracking. The names and addresses you type, and Message to signers if you write one (up to ${MAX_REQUEST_MESSAGE_CHARS.toLocaleString("en-US")} characters; line breaks become spaces), are copied into manifest.json and README.txt; unzip the package and send prepared.pdf however you normally would.`,
     },
     {
       q: "Does this create a certified or digital signature?",
@@ -164,11 +197,11 @@ const content: ToolContent = {
     },
     {
       q: "How do signers fill in their boxes?",
-      a: "Fields are named after their owner, such as Signer1-Signature-1 and Signer1-Date-1; the date box is blank text, not a date stamp. Fill Forms on pdf.xyz types into them in the browser without uploading, but refuses letters outside the standard PDF fonts' Western European set, and its Flatten after filling option bakes every field into the page, so a signer who ticks it also wipes out the still-empty boxes of every other signer.",
+      a: `Fields are named after their owner and type, such as Signer1-Signature-1, Signer1-Initials-1, Signer1-Date-1 and Signer1-Text-1. A label you give a box, up to ${MAX_FIELD_LABEL_CHARS} characters, is written into manifest.json only, so inside the PDF a Name box is still called Signer1-Text-1. The date box is blank text, not a date stamp. Fill Forms on pdf.xyz types into them in the browser without uploading, but refuses letters outside the standard PDF fonts' Western European set, and its Flatten after filling option bakes every field into the page, so a signer who ticks it also wipes out the still-empty boxes of every other signer.`,
     },
     {
-      q: "Can I drag the boxes somewhere else?",
-      a: "No. They are placed automatically near the left edge, just above the bottom of the chosen page as it is displayed, so any rotation or crop the page carries is taken into account. Signer 1 is lowest, and the block climbs higher with each extra signer. Once a signer row is complete, the panel previews that page with each signer's boxes drawn where they will land. The boxes are outlines laid over whatever is printed there, so pick a page with blank space at the foot.",
+      q: "Can I move the boxes or add more?",
+      a: `Yes. Drag a box on the preview, or select it and use the arrow keys, to move it; drag its corner to resize it; press Delete to remove it. Add a box adds a signature, initials, date, name or text box for the signer you pick, on the page shown, up to ${MAX_REQUEST_FIELDS} boxes in one request. Positions are measured on the page as it is displayed, so any rotation or crop the page carries is taken into account. The boxes are outlines laid over whatever is printed there, so put them on blank space.`,
     },
     {
       q: "What does Sequential change?",

@@ -984,7 +984,7 @@ export const tools: Tool[] = [
     // wired. The tagline also renders on Sign PDF's related-tools card.
     tagline: "Prepare a PDF for others to sign.",
     description:
-      "Add a fillable signature field (and an optional date) for each signer, then download a ZIP with the prepared PDF, a signer manifest and an audit trail. You send it.",
+      "Place signature, initials, date and text fields for each signer on any page, then download a ZIP with the prepared PDF, a manifest and an audit trail. You send it.",
     category: "sign",
     icon: "requestSign",
     processing: "server",

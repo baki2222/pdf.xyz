@@ -62,6 +62,7 @@ import {
 } from "@/lib/workers/pdf-office-export/picture-limits";
 import { MAX_TOOL_NOTES } from "@/lib/jobs/tool-notes";
 import {
+  MAX_REQUEST_FIELDS,
   MAX_REQUEST_SIGNERS,
   REQUEST_PACKAGE_FILES,
 } from "@/lib/jobs/request-signatures";
@@ -896,7 +897,7 @@ const FACTS: Record<string, readonly ToolFact[]> = {
   "request-signatures": [
     {
       label: "Signers",
-      value: `Up to ${MAX_REQUEST_SIGNERS} per request, each given a named, fillable signature field — with a date field beside it if you ask for one.`,
+      value: `Up to ${MAX_REQUEST_SIGNERS} per request, each with at least one named, fillable box: a signature, initials, a date, a name or other text, on any page, up to ${MAX_REQUEST_FIELDS} boxes in all.`,
     },
   ],
   "ai-extract": [
