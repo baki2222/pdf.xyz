@@ -554,6 +554,29 @@ describe("scanPaths", () => {
       expect(r.segs).toHaveLength(1);
     });
 
+    // pdf.js 6 hands a grouped form's /BBox ONLY to beginGroup (the form
+    // begin gets null), so the group's matrix is the only thing that places
+    // that clip. The test above used an identity matrix, so ignoring it
+    // stayed green, and a line inside the moved bbox was dropped (review
+    // finding; corpus P26 and N30).
+    it("a group's bbox is placed by the group's matrix", () => {
+      const moved = (y: number) =>
+        scan([
+          [
+            OPS.beginGroup,
+            [{ matrix: [1, 0, 0, 1, 120, 590], bbox: [0, 0, 300, 20] }],
+          ],
+          [OPS.paintFormXObjectBegin, [[1, 0, 0, 1, 120, 590], null]],
+          path(OPS.stroke, M, 10, y, L, 210, y),
+          [OPS.paintFormXObjectEnd, []],
+          [OPS.endGroup, [{}]],
+        ]).segs;
+      expect(moved(10)).toEqual([
+        expect.objectContaining({ x0: 130, y0: 600, x1: 330 }),
+      ]);
+      expect(moved(30)).toEqual([]);
+    });
+
     it("drops a Rect outside the clip, trims a filled one, and cuts a stroked one into its visible edges", () => {
       const clip = clipTo(0, 0, 100, 100);
       expect(

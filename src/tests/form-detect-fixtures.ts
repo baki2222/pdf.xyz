@@ -270,6 +270,30 @@ function formXObject(page: PDFPage, content: string, bbox: number[]) {
   raw(page, `q ${page.node.newXObject("Fc", ref).asString()} Do Q`);
 }
 
+/**
+ * "Address:" where P4 draws it, and a transparency-group form XObject with
+ * /Matrix [1 0 0 1 120 590] and /BBox [0 0 300 20] (so [120 590 420 610] on
+ * the page) drawing `content`. pdf.js 6 hands such a form's /BBox to
+ * beginGroup only, under the group's matrix.
+ */
+async function addressInGroup(content: string): Promise<Uint8Array> {
+  const d = await doc();
+  const page = d.addPage(LETTER);
+  await text(page, H, "Address:", P4.labelX, P4.y);
+  const ctx = d.context;
+  const ref = ctx.register(
+    ctx.stream(content, {
+      Type: "XObject",
+      Subtype: "Form",
+      BBox: [0, 0, 300, 20],
+      Matrix: [1, 0, 0, 1, 120, 590],
+      Group: { S: "Transparency" },
+    }),
+  );
+  raw(page, `q ${page.node.newXObject("Gx", ref).asString()} Do Q`);
+  return save(d);
+}
+
 /** "Address:" where P4 draws it, with `content` as the page's only lines. */
 async function addressWith(content: string): Promise<Uint8Array> {
   const d = await doc();
@@ -1004,6 +1028,23 @@ export const DETECT_CASES: readonly DetectCase[] = [
     })),
   },
   {
+    id: "P26",
+    kind: "positive",
+    note: "P4's line drawn inside a transparency-group form whose /Matrix moves its /BBox onto the line: kept",
+    // Read without the group's matrix, the bbox sits at [0 0 300 20] and
+    // hides the line. N30 is the other half.
+    build: () => addressInGroup("0.5 w 10 10 m 210 10 l S"),
+    expect: [
+      {
+        rule: "labelled-rule",
+        type: "text",
+        label: "Address",
+        page: 1,
+        box: ruleBox(P4.x0, P4.x1, P4.y, 12),
+      },
+    ],
+  },
+  {
     id: "P24",
     kind: "positive",
     note: "P4's line under a `W n` clip set under a translating `cm` that moves the clip onto the line: kept",
@@ -1473,6 +1514,13 @@ export const DETECT_CASES: readonly DetectCase[] = [
       addressWith(
         "q 1 0 0 1 120 0 cm 0 0 300 20 re W n 1 0 0 1 -120 0 cm 0.5 w 130 600 m 330 600 l S Q",
       ),
+    expect: "none",
+  },
+  {
+    id: "N30",
+    kind: "negative",
+    note: "the same transparency-group form drawing its line 20 pt above its moved /BBox: clipped away",
+    build: () => addressInGroup("0.5 w 10 30 m 210 30 l S"),
     expect: "none",
   },
   {
