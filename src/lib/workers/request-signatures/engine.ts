@@ -64,6 +64,12 @@ export interface PlacedField {
   y: number;
   width: number;
   height: number;
+  /**
+   * The label the requester gave the box, if any. The placer writes it as the
+   * field's `/TU` (the alternate name a viewer shows as the box's tooltip) and
+   * leaves `name` alone: a filled form keys on the name, so it must not move.
+   */
+  label?: string;
 }
 
 /**
@@ -265,6 +271,7 @@ export async function runSignatureRequest(
         y: field.y * size.height,
         width: field.width * size.width,
         height: field.height * size.height,
+        ...(field.label !== undefined ? { label: field.label } : {}),
       });
       manifestFields.push({
         name,
@@ -479,6 +486,19 @@ function renderReadme(manifest: RequestManifest): string {
   for (const signer of manifest.signers) {
     lines.push(
       `  ${signer.order}. ${signer.name} <${signer.email}> — fields: ${signer.fields.join(", ")}`,
+    );
+    // Each box's label under its owner, so a signer reading the README can
+    // tell what a box named Signer1-Text-1 is for. Read from the same
+    // manifest fields the PDF's /TU is written from (see `placed` above).
+    for (const field of manifest.fields) {
+      if (field.signer === signer.order && field.label !== undefined)
+        lines.push(`     ${field.name} label: ${field.label}`);
+    }
+  }
+  if (manifest.fields.some((field) => field.label !== undefined)) {
+    lines.push("");
+    lines.push(
+      `Each label is also the tooltip of its box in ${REQUEST_PACKAGE_FILES.prepared}, which many PDF viewers show when you point at the box.`,
     );
   }
   lines.push("");

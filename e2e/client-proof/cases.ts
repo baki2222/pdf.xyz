@@ -4430,7 +4430,7 @@ export const PROOF_LIMITS: Record<string, string> = {
   "fill-forms":
     "Only a text field is written. Checkboxes, radio groups, dropdowns and the appearance-stream regeneration those need are not exercised.",
   "create-forms":
-    "Only the default single text-field draft. Adding several fields, other field types, and dragged placement are not exercised.",
+    "Only the default single text-field draft. e2e/create-forms-preview.spec.ts adds a radio group on a turned, cropped page 2, places both fields by clicking the page preview, drags one, nudges one with the keyboard and reads the downloaded widgets' rectangles back with pdfjs; e2e/create-forms-preview.mobile.spec.ts places one with a tap at 375 px. Checkbox, Dropdown and List fields, and their options, are not exercised in a real browser.",
   "rotate-pdf":
     "Every page turned Right (the default case), and the option variant (VARIANTS: Odd pages, Right, then Rotate all 180°). Even pages, Invert, Clear, shift-click ranges and the per-tile arrows are not exercised in a real browser; Even pages with Left is downloaded through the runner in src/components/tools/runner/rotate-runner.test.tsx, in jsdom.",
   "crop-pdf":

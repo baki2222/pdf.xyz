@@ -145,6 +145,34 @@ describe("runSignatureRequest", () => {
     expect(audit.events[0].type).toBe("request.prepared");
   });
 
+  it("hands each box's label to the placer beside its unchanged name, and lists it in the README", async () => {
+    const base = options();
+    const { deps: d, placed } = deps();
+    const run = await runSignatureRequest(
+      PDF,
+      options({
+        fields: [
+          { ...base.fields[0]!, type: "text", label: "Name" },
+          base.fields[1]!,
+        ],
+      }),
+      d,
+    );
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    // The name keeps its owner-and-type shape; the label rides beside it.
+    expect(placed.map((f) => [f.name, f.label])).toEqual([
+      ["Signer1-Text-1", "Name"],
+      ["Signer2-Date-1", undefined],
+    ]);
+    expect("label" in placed[1]!).toBe(false);
+    const zip = await JSZip.loadAsync(run.output);
+    const lines = (await zip.file("README.txt")!.async("string")).split("\n");
+    const s1 = lines.findIndex((l) => l.startsWith("  1. Ada Lovelace"));
+    expect(lines[s1 + 1]).toBe("     Signer1-Text-1 label: Name");
+    expect(lines[s1 + 2]).toMatch(/^  2\. Alan Turing/);
+  });
+
   it("rejects a field whose page exceeds the document", async () => {
     const { deps: d } = deps();
     const run = await runSignatureRequest(
