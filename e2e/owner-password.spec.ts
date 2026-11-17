@@ -4,6 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { PDFDocument } from "pdf-lib";
 import { captureDownload } from "./client-proof/artifacts";
 import { attachConsoleGuard, fileInput, waitForHydration } from "./helpers";
+import { shownAspect, zoomButton } from "./page-zoom-fixture";
 import { PDFJS_DOCUMENT_DEFAULTS } from "../src/lib/pdf/wasm-assets";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
 import {
@@ -114,6 +115,13 @@ test.beforeEach(async ({ page }) => {
     window.localStorage.setItem(key, "denied");
   }, CONSENT_STORAGE_KEY);
 });
+
+/** The tools whose opened file shows a page board (#356's zoom on it). */
+const BOARD_TOOLS: ReadonlySet<OwnerPasswordTool> = new Set([
+  "extract-pages",
+  "remove-pages",
+  "rotate-pdf",
+]);
 
 async function open(page: Page, tool: OwnerPasswordTool, fixture: Fixture) {
   await page.goto(`/tools/${tool}`);
@@ -236,6 +244,20 @@ for (const tool of TOOLS)
       // gone.
       for (const old of [PDF_NEEDS_PASSWORD_MESSAGE, PDF_RESTRICTED_MESSAGE])
         await expect(page.getByText(old)).toHaveCount(0);
+      // ...but the remedy the tool-wide refusal drew stays under it, in the
+      // single-file tools: ONE Unlock PDF link, which password it wants, and
+      // that the file goes along and uploads only when started (G.7 row 4;
+      // CI Playwright smoke caught the field's refusal dropping all three).
+      if (fixture.open !== "" && tool !== "merge-pdf") {
+        const alert = page
+          .getByRole("alert")
+          .filter({ hasText: "is password-protected." });
+        await expect(alert.getByRole("link")).toHaveText(["Open Unlock PDF"]);
+        await expect(alert).toContainText("with the password that opens it.");
+        await expect(alert).toContainText(
+          "Your file goes with you, and it uploads to our secure server only when you start it.",
+        );
+      }
       // The field is outside every live region.
       expect(
         await field.evaluate((el) => el.closest("[role=alert]") === null),
@@ -272,6 +294,18 @@ for (const tool of TOOLS)
       await expect(opened).toBeVisible({ timeout: 20_000 });
       // The form went with the refusal; the focus is on the note, not <body>.
       await expect(opened).toBeFocused();
+      // The opened board is the tool's own, with "View page N larger"
+      // (#356): page 2's button opens page 2, drawn from the decrypted copy.
+      if (BOARD_TOOLS.has(tool)) {
+        const second = zoomButton(page, 2);
+        await second.click();
+        const dialog = page.getByRole("dialog", { name: "Page 2 of 2" });
+        await expect(dialog).toBeVisible();
+        expect(await shownAspect(dialog)).toBeGreaterThan(0);
+        await page.keyboard.press("Escape");
+        await expect(dialog).toBeHidden();
+        await expect(second).toBeFocused();
+      }
       await finish(page, tool, fixture);
 
       // No password left the page.

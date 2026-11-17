@@ -67,6 +67,7 @@ export function OwnerPdfRefusal({
       verdict={error.verdict}
       tool={tool}
       grant={grant}
+      cause={error}
       onOpened={async (opened) => onOpened(await adopt(opened))}
     />
   );

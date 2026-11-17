@@ -5,6 +5,7 @@ import { LockKeyhole } from "lucide-react";
 import type { PdfPermissions } from "@/lib/jobs/pdf-permissions";
 import { readFileBytes } from "@/lib/pdf/browser";
 import type { EncryptionVerdict } from "@/lib/pdf/encryption";
+import type { RemedyInput } from "@/lib/pdf/remedies";
 import type { ToolGrant } from "@/lib/pdf/security/open-with-password";
 import { buttonVariants } from "@/components/ui/button";
 import {
@@ -193,6 +194,7 @@ export function OwnerRefusal({
   tool,
   subject,
   grant,
+  cause,
   onOpened,
   onDismiss,
 }: {
@@ -201,13 +203,25 @@ export function OwnerRefusal({
   tool: OwnerPasswordTool;
   subject?: string;
   grant?: ToolGrant;
+  /**
+   * The single-file tools: the refusal's cause, so the note keeps the
+   * remedy the tool-wide refusal drew — Unlock PDF's link that CARRIES the
+   * file, which password it wants, and that it uploads only when started
+   * (G.7 row 4; CI Playwright smoke, 2026-11-17, caught the field's
+   * refusal dropping all three). Merge PDF passes none: its list never
+   * carried a file to Unlock PDF.
+   */
+  cause?: RemedyInput;
   onOpened: (opened: OwnerOpened) => Promise<void>;
   /** Merge PDF: take the refused file off the page. */
   onDismiss?: () => void;
 }) {
   return (
     <div data-owner-refusal={tool} className="flex flex-col gap-2">
-      <ErrorNote message={ownerRefusalMessage(tool, verdict, subject)} />
+      <ErrorNote
+        message={ownerRefusalMessage(tool, verdict, subject)}
+        cause={cause}
+      />
       <OwnerPasswordField
         file={file}
         tool={tool}

@@ -13,6 +13,7 @@ import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared
 import { PDFDocument } from "pdf-lib";
 import { getRunnerKind } from "@/lib/pdf/registry";
 import { PDF_NEEDS_PASSWORD_MESSAGE } from "@/lib/pdf/encryption";
+import { whereFor } from "@/lib/pdf/remedies";
 import {
   OWNER_PASSWORD_BUTTON,
   OWNER_PASSWORD_LABEL,
@@ -282,6 +283,27 @@ describe("the owner password, typed under a restricted file's refusal", () => {
       expect(
         screen.queryAllByText(PDF_NEEDS_PASSWORD_MESSAGE, { exact: false }),
       ).toEqual([]);
+      // The tool-wide refusal's REMEDY stays, in the single-file tools: one
+      // Unlock PDF link, which password it wants, and where the file goes
+      // (G.7 row 4 — CI's Playwright smoke caught the field's refusal
+      // dropping it, 2026-11-17). Merge PDF's list never carried a file.
+      const refusal = field
+        .closest("[data-owner-refusal]")!
+        .querySelector("[role=alert]")!;
+      const links = [...refusal.querySelectorAll("a")].map(
+        (a) => a.textContent,
+      );
+      expect(links).toEqual(["Open Unlock PDF"]);
+      if (slug === "merge-pdf") {
+        expect(refusal.querySelector("[data-remedy]")).toBeNull();
+      } else {
+        expect(refusal.textContent).toContain(
+          "Open Unlock PDF with the password that opens it.",
+        );
+        expect(refusal.textContent).toContain(
+          whereFor("server", true) ?? "a sentence",
+        );
+      }
       // The field is not inside a live region: a wrong password announces
       // its own error, not the whole refusal again.
       expect(field.closest("[role=alert]")).toBeNull();
