@@ -378,6 +378,9 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "pdf", "compress-batch-copy.ts"),
     // Compress PDF's lossless cleanup sentence and line (2026-11-08).
     path.join(ROOT, "src", "lib", "pdf", "compress-cleanup.ts"),
+    // Split PDF's "By file size" field label (2026-11-17, audit #2): the
+    // runner draws it and the Compress size guide quotes it.
+    path.join(ROOT, "src", "lib", "pdf", "split-size.ts"),
     // A batch's refusal of a file past its count or byte total (2026-11-08,
     // batch plan P0b): the sentences are built from BATCH_LIMITS.
     path.join(ROOT, "src", "lib", "batch", "limits.ts"),

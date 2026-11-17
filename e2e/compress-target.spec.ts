@@ -122,8 +122,8 @@ async function mockWorker(
   return sent;
 }
 
-async function openWith(page: Page, bytes: Uint8Array) {
-  await page.goto("/tools/compress-pdf");
+async function openWith(page: Page, bytes: Uint8Array, search = "") {
+  await page.goto(`/tools/compress-pdf${search}`);
   const input = fileInput(page);
   await waitForHydration(input);
   await input.setInputFiles({
@@ -200,4 +200,84 @@ test("No target is the default and sends what a run always sent", async ({
   // No target line on the result (the FAQ's quoted example is not one).
   await expect(page.locator("[data-target-met]")).toHaveCount(0);
   expect(sent).toEqual([{ profile: "deep", targetDpi: 150 }]);
+});
+
+/**
+ * A size guide's `?size=` link (audit #2, 2026-11-17), on the served build:
+ * the size is set once a file is added, never one the file is already under,
+ * and a size the guide's table does not list sets nothing.
+ */
+const targetChip = (page: Page, name: string) =>
+  page
+    .getByRole("group", { name: "Target size" })
+    .getByRole("button", { name, exact: true });
+const invalidHint = (page: Page) =>
+  page.getByText(/^Enter a whole number of KB/);
+
+test("?size=200kb: the 200 KB chip is pressed once a file is added, and the job asks for it", async ({
+  page,
+}) => {
+  const artifact = await pdfOfAbout(150);
+  const sent = await mockWorker(page, artifact, (asked) => ({
+    targetBytes: asked,
+    met: true,
+    attempts: 1,
+    outputBytes: artifact.byteLength,
+  }));
+  const run = await openWith(page, await pdfOfAbout(320), "?size=200kb");
+  await expect(targetChip(page, "200 KB")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await run.click();
+  await expect(page.locator("[data-target-met]")).toHaveAttribute(
+    "data-target-met",
+    "true",
+    { timeout: 20_000 },
+  );
+  expect(sent).toEqual([
+    { profile: "deep", targetDpi: 150, targetBytes: 200 * KB },
+  ]);
+});
+
+test("?size=2mb with a bigger file: Custom, the box shows 2048, no warning", async ({
+  page,
+}) => {
+  await mockWorker(page, await pdfOfAbout(150), null);
+  await openWith(page, await pdfOfAbout(2200), "?size=2mb");
+  await expect(targetChip(page, "Custom")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(
+    page.getByRole("textbox", { name: /custom target size/i }),
+  ).toHaveValue("2048");
+  await expect(invalidHint(page)).toHaveCount(0);
+});
+
+test("?size=200kb with a file already under it: nothing set, no warning", async ({
+  page,
+}) => {
+  await mockWorker(page, await pdfOfAbout(100), null);
+  await openWith(page, await pdfOfAbout(150), "?size=200kb");
+  await expect(targetChip(page, "No target")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(targetChip(page, "200 KB")).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  await expect(invalidHint(page)).toHaveCount(0);
+});
+
+test("?size=999kb, a size the guide does not list: No target", async ({
+  page,
+}) => {
+  await mockWorker(page, await pdfOfAbout(150), null);
+  await openWith(page, await pdfOfAbout(1100), "?size=999kb");
+  await expect(targetChip(page, "No target")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
 });

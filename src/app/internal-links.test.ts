@@ -41,6 +41,12 @@ import { categories, tools } from "@/lib/tools";
 import { guides, RELATED_GUIDE_LIMIT, type Guide } from "@/lib/guides";
 import { categoryHref } from "@/lib/tools/category-href";
 import { withoutComments } from "@/lib/tools/copy-surface";
+import {
+  COMPRESS_TABLE_SIZES,
+  LIMIT_TABLE_SIZES,
+  SIZE_PARAM,
+  parseSizeParam,
+} from "@/lib/pdf/size-targets";
 
 const ROOT = process.cwd();
 const TSX_CLI = path.join(ROOT, "node_modules", "tsx", "dist", "cli.mjs");
@@ -324,5 +330,69 @@ describe("internal-link graph", () => {
 
   it("no page but a pending tool page links a ?category= URL", () => {
     expect(queryLinkSources(renderGraph())).toEqual([]);
+  }, 120_000);
+});
+
+/**
+ * The size guides' `?size=` links, as a crawler and a reader receive them
+ * (audit #2, 2026-11-17). Each must name a size the tool it opens accepts:
+ * the runner reads the parameter through `parseSizeParam` against its own
+ * list, and anything not on that list sets nothing, so a link the runner
+ * would ignore is a broken promise in the guide. This reads the RENDERED
+ * content graph, not the catalogue object the rows were built from.
+ */
+const SIZE_LISTS: Readonly<Record<string, readonly number[]>> = {
+  "/tools/compress-pdf": COMPRESS_TABLE_SIZES,
+  "/tools/jpg-to-pdf": LIMIT_TABLE_SIZES,
+  "/tools/png-to-pdf": LIMIT_TABLE_SIZES,
+};
+
+/** Every rendered link carrying `?size=`, as [page, href]. */
+const sizeLinks = (content: Graph) =>
+  Object.entries(content).flatMap(([page, targets]) =>
+    targets
+      .filter((t) => new URL(t, "https://x").searchParams.has(SIZE_PARAM))
+      .map((t) => [page, t] as const),
+  );
+
+/** The `?size=` links whose tool would not take the size they name. */
+function sizeLinkProblems(content: Graph): string[] {
+  return sizeLinks(content)
+    .filter(([, href]) => {
+      const url = new URL(href, "https://x");
+      const list = SIZE_LISTS[url.pathname];
+      return !list || parseSizeParam(url.search, list) === null;
+    })
+    .map(([page, href]) => `${page} -> ${href}`);
+}
+
+describe("size guides' ?size= links", () => {
+  const sizeGuidePages = guides
+    .filter((g) => g.sections.some((s) => s.table))
+    .map(guideHref);
+
+  it("finds them, all on the size guides (health check: at least 11)", () => {
+    const links = sizeLinks(renderContent());
+    expect(links.length).toBeGreaterThanOrEqual(11);
+    expect(sizeGuidePages.length).toBe(2);
+    expect([...new Set(links.map(([page]) => page))].sort()).toEqual(
+      [...sizeGuidePages].sort(),
+    );
+  }, 120_000);
+
+  it("a link to a size its tool does not take is caught (positive control)", () => {
+    const content = renderContent();
+    const page = sizeGuidePages[0]!;
+    const bad = "/tools/compress-pdf?size=300kb";
+    expect(
+      sizeLinkProblems({
+        ...content,
+        [page]: [...(content[page] ?? []), bad],
+      }),
+    ).toEqual([`${page} -> ${bad}`]);
+  }, 120_000);
+
+  it("every rendered ?size= link names a size its tool takes", () => {
+    expect(sizeLinkProblems(renderContent())).toEqual([]);
   }, 120_000);
 });

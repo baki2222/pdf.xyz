@@ -33,6 +33,13 @@ export const MAX_TARGET_BYTES = 2 * 1024 * MB;
  */
 export const TARGET_SIZE_PRESETS = SIZE_PRESETS;
 
+/**
+ * The title on a preset chip the file is already under (the chip is
+ * disabled). Named once so the runner and its tests read one string.
+ */
+export const PRESET_ALREADY_SMALLER_TITLE =
+  "Your file is already smaller than this";
+
 /** The panel's words for the choice, named once so copy can quote them. */
 export const TARGET_SIZE_LABELS = {
   heading: "Target size",

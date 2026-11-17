@@ -45,6 +45,7 @@ import {
 import {
   KB,
   MIN_TARGET_BYTES,
+  PRESET_ALREADY_SMALLER_TITLE,
   TARGET_SIZE_HINT,
   TARGET_SIZE_LABELS,
   TARGET_SIZE_PRESETS,
@@ -54,6 +55,7 @@ import {
   type TargetChoice,
 } from "@/lib/pdf/compress-target";
 import { outputName, partitionPdfFiles } from "@/lib/pdf/files";
+import { COMPRESS_TABLE_SIZES, parseSizeParam } from "@/lib/pdf/size-targets";
 import {
   runWorkerCompression,
   type CompressWorkerResult,
@@ -797,6 +799,27 @@ function CompressEditor({
   );
 }
 
+/**
+ * The Target size a guide's link asks for, as this panel's initial state: a
+ * preset the file is over, or Custom with a value the box accepts. Anything
+ * else (no link, a preset the file is already under, a Custom value the box
+ * would warn about) leaves "No target", exactly as without a link.
+ */
+function linkedTarget(
+  bytes: number | null,
+  originalBytes: number,
+): { target: TargetChoice; customKb: string } {
+  const none = { target: "none" as const, customKb: "" };
+  if (bytes === null) return none;
+  if (TARGET_SIZE_PRESETS.some((p) => p.bytes === bytes)) {
+    return bytes < originalBytes ? { target: bytes, customKb: "" } : none;
+  }
+  const customKb = String(bytes / KB);
+  return chosenTargetBytes("custom", customKb, originalBytes) === "invalid"
+    ? none
+    : { target: "custom", customKb };
+}
+
 /** Quality presets for deep compression, mapped to a target image DPI. */
 const DEEP_QUALITY = DEEP_COMPRESSION_PRESETS;
 
@@ -840,8 +863,21 @@ function WorkerDeepPanel({
   const [imageQuality, setImageQuality] = useState<ImageQuality>(
     DEFAULT_IMAGE_QUALITY,
   );
-  const [target, setTarget] = useState<TargetChoice>("none");
-  const [customKb, setCustomKb] = useState("");
+  // A guide's `?size=` link (audit #2), read once when this panel mounts,
+  // which is only after a file is added, on the client. It sets a size the
+  // reader could have chosen here, and nothing else: never a preset the file
+  // is already under (that chip is disabled), and never a Custom value the
+  // box would warn about. A later click wins, since this is initial state.
+  const [linked] = useState(() =>
+    linkedTarget(
+      typeof window === "undefined"
+        ? null
+        : parseSizeParam(window.location.search, COMPRESS_TABLE_SIZES),
+      originalBytes,
+    ),
+  );
+  const [target, setTarget] = useState<TargetChoice>(linked.target);
+  const [customKb, setCustomKb] = useState(linked.customKb);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<CompressWorkerResult | null>(null);
   // What the run that drew `outcome` asked for — not the toggle's state now,
@@ -1149,7 +1185,7 @@ function DeepRunControls({
             // A file already under a preset has nothing to aim for.
             disabled={busy || p.bytes >= originalBytes}
             {...(p.bytes >= originalBytes
-              ? { title: "Your file is already smaller than this" }
+              ? { title: PRESET_ALREADY_SMALLER_TITLE }
               : {})}
           >
             {p.label}

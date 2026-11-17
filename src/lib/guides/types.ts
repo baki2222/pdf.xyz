@@ -7,12 +7,38 @@
  * (copy-surface, the numbers census, legal-pages' overclaim scan).
  */
 
+/**
+ * One row of a size guide's table (audit #2, 2026-11-17): a size, how to
+ * choose it in the tool, what to type for a form that counts 1 KB as 1,000
+ * bytes, and a link that opens the tool with the size set.
+ */
+export interface GuideSizeRow {
+  readonly bytes: number;
+  /** `sizeLabel(bytes)`. */
+  readonly label: string;
+  /** In-page anchor id, `size-<spelling>`. */
+  readonly anchor: string;
+  readonly choose: string;
+  readonly portal: string;
+  /** `/tools/<tool>?size=<spelling>`. */
+  readonly href: string;
+  readonly linkText: string;
+}
+
+export interface GuideSizeTable {
+  readonly caption: string;
+  readonly columns: readonly [string, string, string];
+  readonly rows: readonly GuideSizeRow[];
+}
+
 export interface GuideSection {
   /** In-page anchor id — kebab-case, unique within the guide. */
   readonly id: string;
   readonly heading: string;
   /** Paragraphs. */
   readonly body: readonly string[];
+  /** A table drawn after the paragraphs (the size guides' sizes). */
+  readonly table?: GuideSizeTable;
 }
 
 export interface GuideFaqEntry {

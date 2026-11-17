@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import { JPEG_30X20 } from "@/tests/jpeg-fixtures";
 import { withAppRouter } from "@/tests/app-router";
@@ -142,5 +148,99 @@ describe("image to PDF · the page size starts on the browser's paper", () => {
       "aria-pressed",
       "false",
     );
+  });
+});
+
+/**
+ * A size guide's `?size=` link (audit #2, 2026-11-17): the JPG size guide's
+ * table links here with a size set. The limit is set when the first images
+ * arrive, once; a choice the reader makes afterwards wins.
+ */
+describe("image to PDF: a guide's ?size= link", () => {
+  const at = (search: string) =>
+    window.history.replaceState({}, "", `/tools/jpg-to-pdf${search}`);
+  afterEach(() => at(""));
+  const sizes = () =>
+    within(screen.getByRole("group", { name: "Max file size" }));
+  const pressed = (name: string) =>
+    expect(sizes().getByRole("button", { name })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+  it("?size=300kb: after an image is added, Custom shows 300", async () => {
+    at("?size=300kb");
+    await mount(KINDS[0], ["alpha.jpg"]);
+    pressed("Custom");
+    expect(
+      screen.getByRole("textbox", { name: "Custom max file size in KB" }),
+    ).toHaveValue("300");
+    expect(screen.queryByText(/Enter a whole number of KB/)).toBeNull();
+  });
+
+  it("?size=200kb sets the 200 KB preset", async () => {
+    at("?size=200kb");
+    await mount(KINDS[0], ["alpha.jpg"]);
+    pressed("200 KB");
+  });
+
+  it.each(["?size=150kb", "?size=junk", ""])(
+    "%s sets nothing: No limit, as without a link (control)",
+    async (search) => {
+      at(search);
+      await mount(KINDS[0], ["alpha.jpg"]);
+      pressed("No limit");
+    },
+  );
+
+  it("the reader's choice wins: No limit pressed, then more images, stays No limit", async () => {
+    at("?size=200kb");
+    const { container } = render(
+      withAppRouter(<ImageToPdfRunner kind="jpg" />),
+    );
+    const add = (name: string) =>
+      fireEvent.change(container.querySelector('input[type="file"]')!, {
+        target: {
+          files: [
+            new File([new Uint8Array(JPEG_30X20)], name, {
+              type: "image/jpeg",
+            }),
+          ],
+        },
+      });
+    add("alpha.jpg");
+    await screen.findByText("alpha.jpg", undefined, { timeout: 4_000 });
+    pressed("200 KB");
+    fireEvent.click(sizes().getByRole("button", { name: "No limit" }));
+    add("bravo.jpg");
+    await screen.findByText("bravo.jpg", undefined, { timeout: 4_000 });
+    pressed("No limit");
+  });
+
+  it("the reader's choice wins even when the list empties and fills again", async () => {
+    at("?size=200kb");
+    const { container } = render(
+      withAppRouter(<ImageToPdfRunner kind="jpg" />),
+    );
+    const add = (name: string) =>
+      fireEvent.change(container.querySelector('input[type="file"]')!, {
+        target: {
+          files: [
+            new File([new Uint8Array(JPEG_30X20)], name, {
+              type: "image/jpeg",
+            }),
+          ],
+        },
+      });
+    add("alpha.jpg");
+    await screen.findByText("alpha.jpg", undefined, { timeout: 4_000 });
+    pressed("200 KB");
+    fireEvent.click(sizes().getByRole("button", { name: "No limit" }));
+    // Empty the list: the next pick is a "first images in" again.
+    fireEvent.click(screen.getByRole("button", { name: "Remove alpha.jpg" }));
+    expect(screen.queryByText("alpha.jpg")).toBeNull();
+    add("bravo.jpg");
+    await screen.findByText("bravo.jpg", undefined, { timeout: 4_000 });
+    pressed("No limit");
   });
 });

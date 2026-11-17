@@ -1,3 +1,4 @@
+import { getGuideBySlug } from "@/lib/guides";
 import { describe, expect, it } from "vitest";
 import {
   PDFArray,
@@ -460,6 +461,30 @@ describe("split: by file size", () => {
     }
     const all = (await Promise.all(files.map((f) => widths(f.bytes)))).flat();
     expect(all).toEqual(await widths(source));
+  });
+
+  // The Compress size guide's long-documents section (audit #2, 2026-11-17)
+  // promises this of the split it sends readers to. The sentence is read from
+  // the guide, so a rewrite that changes the promise lands here.
+  it("keeps the size guide's promise: no part over the size, unless it is one page bigger on its own", async () => {
+    const section = getGuideBySlug(
+      "how-to-compress-a-pdf-to-100-kb",
+    )!.sections.find((s) => s.id === "long-documents")!;
+    expect(section.body.join(" ")).toContain(
+      "Each part is built and measured, not estimated, so no part is over the size you typed, unless it is a single page that is bigger than that on its own. Such a page still becomes a file of its own, and the result says so.",
+    );
+    const source = await makeNoisyPdf([5, 20, 300, 10, 5]);
+    const target = 8_000;
+    const { files, oversized } = await splitPdfBySize(source, target, "doc");
+    const over = files.filter((f) => f.bytes.byteLength > target);
+    // Health: the run has both kinds of part, so neither check is vacuous.
+    expect(over.length).toBeGreaterThan(0);
+    expect(files.length).toBeGreaterThan(over.length);
+    for (const f of over) {
+      expect(f.indices).toHaveLength(1);
+      expect(oversized).toContain(f.indices[0]);
+    }
+    expect(oversized).toHaveLength(over.length);
   });
 
   it("refuses a target of zero", async () => {
