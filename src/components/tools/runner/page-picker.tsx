@@ -16,6 +16,10 @@
  * its typed box and writes the box back in `onChange` (page-picker-text.ts),
  * so the two cannot drift. Keyboard: one tab stop for the whole grid; the
  * arrow keys, Home and End move it; Space or Enter presses the focused tile.
+ * The page holding that stop also offers "View page N larger" as the next
+ * Tab (backlog #9, 2026-11-17): the page as it is in the file, which is what
+ * the tile shows too. In cut mode the last page has no cut, so while the last
+ * cut holds the stop the last page's button follows its neighbour's.
  *
  * Loaded only through `page-picker-lazy.tsx`, so its code — and the tiles and
  * thumbnail hook it brings — is fetched when a picker is first shown.
@@ -26,6 +30,7 @@ import type { Rotation } from "@/lib/pdf/types";
 import { cn } from "@/lib/utils";
 import { ChipButton, PreviewStatus } from "./runner-kit";
 import { PageTile } from "./page-tile";
+import { LazyPageZoomDialog, ZoomButton } from "./page-zoom-lazy";
 import {
   allIndices,
   evenPages,
@@ -83,6 +88,7 @@ export function PagePicker({
   const anchorRef = useRef<number | null>(null);
   // The page whose control holds the grid's one tab stop.
   const [active, setActive] = useState(0);
+  const [zoom, setZoom] = useState<number | null>(null);
   // In cut mode the last page has no control, so its neighbour holds the stop.
   const lastFocusable = mode === "cut" ? pageCount - 2 : pageCount - 1;
   const stop = Math.max(0, Math.min(active, lastFocusable));
@@ -96,7 +102,8 @@ export function PagePicker({
       gridRef.current?.querySelectorAll<HTMLElement>(
         "[data-picker-page] [tabindex]",
       ) ?? [],
-    );
+      // The enlarge buttons are Tab stops, not arrow-key stops.
+    ).filter((el) => !el.closest("[data-page-zoom]"));
   const pageOf = (el: Element | null) => {
     const slot = el?.closest<HTMLElement>("[data-picker-page]");
     return slot ? Number(slot.dataset.pickerPage) : null;
@@ -194,6 +201,22 @@ export function PagePicker({
               )}
             </>
           );
+          // Its tab stop follows the page's own control: the stop's page.
+          // In cut mode the last page has no control of its own, so its
+          // button is also a Tab stop while the last cut holds the stop —
+          // otherwise no key could reach it.
+          const zoomStop =
+            i === stop ||
+            (mode === "cut" && i === pageCount - 1 && stop === lastFocusable);
+          const zoomButton = (
+            <span data-page-zoom="" className="contents">
+              <ZoomButton
+                pageNumber={i + 1}
+                onClick={() => setZoom(i)}
+                tabIndex={zoomStop ? 0 : -1}
+              />
+            </span>
+          );
           const common = {
             label: tileLabel,
             rotation: rotations[i] ?? 0,
@@ -202,10 +225,13 @@ export function PagePicker({
             onEnterView: capped ? () => requestPage(i) : undefined,
           } as const;
           if (mode === "select") {
+            // The enlarge button sits beside the tile, not inside it: the
+            // tile is itself a button, and a button may not hold another.
             return (
-              <div key={i} data-picker-page={i} className="contents">
+              <div key={i} data-picker-page={i} className="relative">
                 <PageTile
                   {...common}
+                  className="h-full"
                   ariaLabel={line ? `${name}, ${line}` : name}
                   selectable
                   selected={value.has(i)}
@@ -219,6 +245,9 @@ export function PagePicker({
                     anchorRef.current = i;
                   }}
                 />
+                <span className="absolute top-2 right-2 z-10">
+                  {zoomButton}
+                </span>
               </div>
             );
           }
@@ -231,31 +260,43 @@ export function PagePicker({
                 cornerBadge={parts.length ? parts.join(", ") : undefined}
                 dimmed={parts.length === 0}
                 actions={
-                  i < pageCount - 1 ? (
-                    <button
-                      type="button"
-                      title={cutAfterLabel(i + 1)}
-                      aria-label={cutAfterLabel(i + 1)}
-                      aria-pressed={cut}
-                      aria-disabled={disabled || undefined}
-                      tabIndex={i === stop ? 0 : -1}
-                      onClick={() => change(toggleIndex(value, i))}
-                      className={cn(
-                        "rounded-ctl tap focus-visible:ring-accent/50 grid size-7 place-items-center border transition outline-none focus-visible:ring-2",
-                        cut
-                          ? "border-accent/40 bg-accent/10 text-accent"
-                          : "border-line bg-wash text-muted hover:text-fg",
-                      )}
-                    >
-                      <Scissors className="size-3.5" aria-hidden />
-                    </button>
-                  ) : undefined
+                  <>
+                    {i < pageCount - 1 && (
+                      <button
+                        type="button"
+                        title={cutAfterLabel(i + 1)}
+                        aria-label={cutAfterLabel(i + 1)}
+                        aria-pressed={cut}
+                        aria-disabled={disabled || undefined}
+                        tabIndex={i === stop ? 0 : -1}
+                        onClick={() => change(toggleIndex(value, i))}
+                        className={cn(
+                          "rounded-ctl tap focus-visible:ring-accent/50 grid size-7 place-items-center border transition outline-none focus-visible:ring-2",
+                          cut
+                            ? "border-accent/40 bg-accent/10 text-accent"
+                            : "border-line bg-wash text-muted hover:text-fg",
+                        )}
+                      >
+                        <Scissors className="size-3.5" aria-hidden />
+                      </button>
+                    )}
+                    {zoomButton}
+                  </>
                 }
               />
             </div>
           );
         })}
       </div>
+      {zoom !== null && (
+        <LazyPageZoomDialog
+          bytes={bytes}
+          pageCount={pageCount}
+          index={zoom}
+          onIndex={setZoom}
+          onClose={() => setZoom(null)}
+        />
+      )}
     </div>
   );
 }

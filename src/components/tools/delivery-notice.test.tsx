@@ -10,9 +10,10 @@
  */
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { DeliveryNotice } from "./delivery-notice";
+import { DeliveryNotice, deliveryConsequence } from "./delivery-notice";
 import type { Job } from "@/lib/jobs/types";
-import type { AiDeliveryMeta } from "@/lib/jobs/ai-results";
+import { buildAiResultMeta, type AiDeliveryMeta } from "@/lib/jobs/ai-results";
+import { WITHHELD_UNDERCOUNT_SENTENCE } from "@/lib/jobs/translate-withheld-copy";
 
 function job(delivery?: AiDeliveryMeta): Job {
   return {
@@ -61,22 +62,94 @@ describe("DeliveryNotice", () => {
     expect(screen.getByText(/Translated 8 of 12 pages/)).toBeInTheDocument();
   });
 
-  it("names the ALLOWANCE bound, and what to do about it", () => {
+  it("names the ALLOWANCE bound, and offers no step that cannot work", () => {
     render(
       <DeliveryNotice
         job={job({
           deliveredPages: 8,
           withheldPages: 4,
           boundBy: "characters",
+          // The worker's positive flag: this job declared a count.
+          counted: true,
         })}
       />,
     );
     const text = document.body.textContent ?? "";
     expect(text).toMatch(/allowance/i);
-    expect(
-      text,
-      "the notice says something is missing and not what to do about it",
-    ).toMatch(/separate document/i);
+    // INVERTED 2026-11-17: this required "separate document", the advice the
+    // notice gave. A rerun of those pages is declared by the same browser
+    // count and is refused the same way
+    // (`translate-withheld-remedy.chain.test.ts`), so the notice now says
+    // what happened, in the package marker's words, and no longer advises it.
+    expect(text).toContain(WITHHELD_UNDERCOUNT_SENTENCE);
+    expect(text).not.toMatch(/separate document/i);
+  });
+
+  // REVIEW, 2026-11-17. The web tier auto-deploys; the worker image is built
+  // by hand, later. So this panel meets results from the worker that is
+  // RUNNING, which writes no flag and whose package (chunking.ts at 76af2dee)
+  // still ends "Translate the remaining pages as a separate document." The
+  // flag was `undeclared?: true`, absent meaning declared, so every such
+  // result, OCR scans and API jobs included, was told more text was found
+  // than was counted. Every other test ran the new worker with the new panel.
+  it("an older worker's result keeps the old wording, which its package says", () => {
+    // What a worker without the flag persists, through the same boundary.
+    const persisted = buildAiResultMeta({
+      truncation: {
+        truncated: false,
+        charactersSent: 100,
+        charactersTotal: 100,
+        totalPages: 12,
+        lastCompletePage: 12,
+        cutMidPage: false,
+      },
+      delivery: { deliveredPages: 8, withheldPages: 4, boundBy: "characters" },
+    }).delivery!;
+    expect("counted" in persisted, "a flag appeared from nowhere").toBe(false);
+    // The panel's sentence verbatim at 76af2dee, the live web tier before
+    // this branch: typed, because it is history.
+    expect(deliveryConsequence(persisted)).toBe(
+      "The remaining pages held more text than this job's free daily allowance reserved for it, so they were left untranslated rather than cut short. They are marked in place in the package. Translate them as a separate document.",
+    );
+    expect(deliveryConsequence(persisted)).not.toContain(
+      WITHHELD_UNDERCOUNT_SENTENCE,
+    );
+  });
+
+  it("CONTROL: the flag survives the persistence boundary, and only on the characters bound", () => {
+    const base = {
+      truncation: {
+        truncated: false,
+        charactersSent: 100,
+        charactersTotal: 100,
+        totalPages: 12,
+        lastCompletePage: 12,
+        cutMidPage: false,
+      },
+    };
+    const characters = buildAiResultMeta({
+      ...base,
+      delivery: {
+        deliveredPages: 8,
+        withheldPages: 4,
+        boundBy: "characters",
+        counted: true,
+      },
+    }).delivery!;
+    expect(characters.counted).toBe(true);
+    expect(deliveryConsequence(characters)).toContain(
+      WITHHELD_UNDERCOUNT_SENTENCE,
+    );
+    const pages = buildAiResultMeta({
+      ...base,
+      delivery: {
+        deliveredPages: 8,
+        withheldPages: 4,
+        boundBy: "pages",
+        counted: true,
+      },
+    }).delivery!;
+    expect("counted" in pages).toBe(false);
   });
 
   it("names the PAGE bound differently, because the action differs", () => {

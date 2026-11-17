@@ -39,6 +39,14 @@
  *      "comes with it" where none did. The notice is main's again, and these
  *      hashes are history 1's, re-derived by running the same fixtures through
  *      main's own `engine.ts` (bf742a9a) rather than copied from this comment.
+ *   4. Re-recorded 2026-11-17, `withheld` ONLY, after one deliberate change:
+ *      its marker is characters-bound, and that arm no longer advises
+ *      "Translate the remaining pages as a separate document." (a rerun is
+ *      declared the same way and refused; `translate-withheld-remedy.chain.test.ts`).
+ *      Proved to be the only moved byte: with that one sentence put back, the
+ *      case reproduced history 1's hash, 49586f98…. The other four cases are
+ *      unchanged.
+ *        withheld     680153a9ee3dd3a8cc4edd5b4940773f869880832f309a88e5c7193a0a43c552
  *
  * Health: each case also asserts the shape it claims to be (call count, the
  * gap marker it should contain), so a fixture that silently stopped chunking
@@ -166,7 +174,7 @@ const CASES: Case[] = [
     limits: { delivery: { characters: 4_100 } },
     calls: 1,
     marker: /withheld|reserved|not translated/i,
-    sha256: "49586f980602d2d135258d3e8563a7f3b98afc4c88bc1a7b72b7b0101c3b8e9c",
+    sha256: "680153a9ee3dd3a8cc4edd5b4940773f869880832f309a88e5c7193a0a43c552",
   },
   {
     name: "interrupted",

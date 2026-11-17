@@ -176,7 +176,12 @@ describe("the ceiling message makes no identity claim", () => {
     // Still says what the docblock requires: whose limit it is, that it is
     // temporary, and that the file is fine.
     expect(AI_CEILING_REACHED_MESSAGE).toContain("a limit on our side");
-    expect(AI_CEILING_REACHED_MESSAGE).toContain("try again tomorrow");
+    // INVERTED 2026-11-17: this asserted "try again tomorrow" — an ETA the
+    // ceiling's window does not keep. `ai.spend` is a fixed day from its first
+    // spend, not a calendar day (`ratelimit/window-words.test.ts`), so the
+    // message says "later" and names no day.
+    expect(AI_CEILING_REACHED_MESSAGE).toContain("try again later");
+    expect(AI_CEILING_REACHED_MESSAGE).not.toMatch(/tomorrow/i);
     expect(AI_CEILING_REACHED_MESSAGE).toContain(
       "not a problem with your file",
     );

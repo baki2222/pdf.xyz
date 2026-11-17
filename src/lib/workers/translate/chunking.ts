@@ -36,6 +36,10 @@ import {
   separatorOverhead,
 } from "./page-markers";
 import { pagesLabel } from "./page-labels";
+import {
+  NOTHING_UNDERCOUNT_SENTENCE,
+  WITHHELD_UNDERCOUNT_SENTENCE,
+} from "@/lib/jobs/translate-withheld-copy";
 
 /** One provider call's worth of whole pages, in document order. */
 export interface TranslateChunk {
@@ -255,6 +259,12 @@ export interface DeliveryLimit {
   readonly characters: number;
   /** Total pages the job may translate; absent means unbounded. */
   readonly pages?: number;
+  /**
+   * `true` when the caller declared no character count, so `characters` is
+   * the flat fallback (`JobDeliveryCap.undeclared`). It picks the words a
+   * characters-bound withhold uses; it never touches the walk.
+   */
+  readonly undeclared?: true;
 }
 
 export interface CappedPlan {
@@ -402,6 +412,22 @@ export function capPagesToDelivery(
  * declaration was OF: under a selection the browser declared the chosen
  * pages, so "the document" would be the wrong one. For a whole-document job
  * both are byte-identical to what they were (the ZIP's characterisation SHAs).
+ *
+ * THE REMEDY IS PER BOUND (2026-11-17). Both bounds ended "Translate the
+ * remaining pages as a separate document." For the PAGE bound that works: a
+ * page count is exact, so the remaining pages are declared correctly the
+ * next time. For the CHARACTERS bound it does not: a rerun is declared by
+ * the same browser count, so its reservation is short in the same
+ * proportion and the rerun is refused before any model call
+ * (`translate-withheld-remedy.chain.test.ts`). That arm says what happened
+ * instead, in the panel's words ({@link WITHHELD_UNDERCOUNT_SENTENCE}).
+ *
+ * EXCEPT FOR A JOB THAT DECLARED NOTHING (review, 2026-11-17). A direct API
+ * caller, or a panel scan sent for OCR, counts nothing: its reservation is
+ * the flat fallback, so "more text than was counted" is false of it, and the
+ * remaining pages sent as another document get a fresh fallback of their own
+ * and are translated. That job keeps the separate-document remedy, which is
+ * true of it; the chain test runs both states.
  */
 export function withheldPagesMarker(
   pages: readonly number[],
@@ -421,7 +447,7 @@ export function withheldPagesMarker(
   return [
     "",
     `> \u26a0\ufe0f **${list} ${pages.length === 1 ? "is" : "are"} not translated.**`,
-    `> ${because} Everything above was translated, and nothing was charged beyond what was reserved. Translate the remaining pages as a separate document.`,
+    `> ${because} Everything above was translated, and nothing was charged beyond what was reserved. ${boundBy === "characters" && !limit.undeclared ? WITHHELD_UNDERCOUNT_SENTENCE : "Translate the remaining pages as a separate document."}`,
     "",
   ].join("\n");
 }
@@ -432,6 +458,16 @@ export function withheldPagesMarker(
  * `chosen` is true for a job that chose pages: the declaration was then of
  * the chosen pages, and "the document's first page" is not the first page
  * the walk met. Byte-identical for a whole-document job (`chosen` false).
+ *
+ * THE CHARACTERS ARM OFFERS NO STEP (review, 2026-11-17). It ended "Submit
+ * the document again with its real length, or split it into smaller files."
+ * Neither works from the panel: a visitor cannot set the count the browser
+ * declares, and this refusal fires only when the first page alone holds more
+ * than `declared × h` for the WHOLE declaration, so any smaller file holding
+ * that page is declared at most as much and is refused again
+ * (`translate-withheld-remedy.chain.test.ts` runs both reruns and reads this
+ * message). A declared job is told what happened, in the withheld marker's
+ * words; an undeclared one reserved a flat amount and is told nothing more.
  */
 export function nothingDeliverableMessage(
   boundBy: DeliveryBound,
@@ -441,7 +477,7 @@ export function nothingDeliverableMessage(
   const reserved = limit.characters.toLocaleString("en-US");
   const declared = (limit.pages ?? 0).toLocaleString("en-US");
   if (boundBy === "characters")
-    return `This job reserved enough of the daily allowance for ${reserved} characters of text, and ${chosen ? "the first page you chose" : "the document's first page"} alone holds more — so no page could be translated and nothing was sent to the AI model. Submit the document again with its real length, or split it into smaller files.`;
+    return `This job reserved enough of the daily allowance for ${reserved} characters of text, and ${chosen ? "the first page you chose" : "the document's first page"} alone holds more — so no page could be translated and nothing was sent to the AI model.${limit.undeclared ? "" : ` ${NOTHING_UNDERCOUNT_SENTENCE}`}`;
   return chosen
     ? `The pages you chose were submitted as ${declared} pages of text, which covers no complete page of them — so nothing was translated and nothing was sent to the AI model. Submit them again with their real page count.`
     : `This document was submitted as ${declared} pages of text, which covers no complete page of it — so nothing was translated and nothing was sent to the AI model. Submit the document again with its real page count.`;

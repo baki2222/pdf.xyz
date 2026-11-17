@@ -30,6 +30,7 @@ import {
 } from "@/lib/jobs/ai-read-limit";
 import {
   AI_ALLOWANCE_FACT,
+  AI_ALLOWANCE_REFUSED_WHOLE,
   AI_CHARACTER_ALLOWANCE_DELIVERED,
   aiAllowanceFactFor,
 } from "@/lib/jobs/ai-allowance";
@@ -123,6 +124,13 @@ import {
   US_LETTER_LABEL,
   inches,
 } from "@/lib/pdf/page-geometry";
+import {
+  DEFAULT_TEXT_PAGE_OPTIONS,
+  TEXT_FONT_SIZES,
+  TEXT_ORIENTATIONS,
+  TEXT_PAGE_SETUP_LABELS,
+  TEXT_PAGE_SIZES,
+} from "@/lib/pdf/text-page-options";
 import {
   RASTER_COLORS,
   RASTER_MAX_DEVICE_PX,
@@ -396,8 +404,30 @@ export const IMAGE_PAGE_FACT = `Each image goes on its own page, centred. Unless
  */
 export const TIFF_FACT = `Every page of a TIFF becomes a PDF page, in order, stored without loss at its size on paper (from the TIFF's resolution). Up to ${MAX_TIFF_PAGES} pages and ${MAX_TIFF_PAGE_PIXELS / 1_000_000} megapixels a page; ${orJoin([...new Set(Object.values(TIFF_COMPRESSIONS))])} TIFFs are read.`;
 
-/** Text and Markdown to PDF's page, as the engines lay it out. */
-export const TEXT_PAGE_FACT = `${US_LETTER_LABEL} portrait pages with ${inches(TEXT_PAGE_MARGIN_PT)} in margins and a page number (1 / N) at the foot of each page.`;
+/**
+ * Markdown to PDF's page, as its engine lays it out: one fixed page. It was
+ * Text to PDF's too (as TEXT_PAGE_FACT) until 2026-11-16, when Text to PDF
+ * got page setup (audit backlog #5) and the two sentences parted.
+ */
+export const MARKDOWN_PAGE_FACT = `${US_LETTER_LABEL} portrait pages with ${inches(TEXT_PAGE_MARGIN_PT)} in margins and a page number (1 / N) at the foot of each page.`;
+
+const TEXT_DEFAULT_ORIENTATION = TEXT_ORIENTATIONS.find(
+  (o) => o.id === DEFAULT_TEXT_PAGE_OPTIONS.orientation,
+)!.label.toLowerCase();
+
+/**
+ * Text to PDF's page: every choice its page setup offers (the tables its
+ * chips iterate, `@/lib/pdf/text-page-options`), the paper it starts on
+ * (the browser region's, as JPG/PNG to PDF: `imageDefaultPaperCopy`) and
+ * the rest of its start, the page this tool always drew.
+ */
+export const TEXT_PAGE_FACT = `${TEXT_PAGE_SETUP_LABELS.pageSize}: ${orJoin(TEXT_PAGE_SIZES.map((s) => s.label))}, starting on ${imageDefaultPaperCopy()}. ${TEXT_PAGE_SETUP_LABELS.orientation}: ${orJoin(TEXT_ORIENTATIONS.map((o) => o.label))}, starting on ${TEXT_DEFAULT_ORIENTATION}. ${TEXT_PAGE_SETUP_LABELS.fontSize}: ${orJoin(TEXT_FONT_SIZES.map(String))} pt, starting on ${DEFAULT_TEXT_PAGE_OPTIONS.fontSize} pt. Every page has ${inches(TEXT_PAGE_MARGIN_PT)} in margins and a page number (1 / N) at the foot.`;
+
+/**
+ * The same choices as one sentence for prose: what a reader can change, and
+ * where each starts. Read by Text to PDF's page and its guide.
+ */
+export const TEXT_PAGE_SETUP_SENTENCE = `Under ${TEXT_PAGE_SETUP_LABELS.pageSize}, choose ${orJoin(TEXT_PAGE_SIZES.map((s) => s.label))}; under ${TEXT_PAGE_SETUP_LABELS.orientation}, ${orJoin(TEXT_ORIENTATIONS.map((o) => o.label.toLowerCase()))}; and under ${TEXT_PAGE_SETUP_LABELS.fontSize}, ${orJoin(TEXT_FONT_SIZES.map(String))} pt. The paper starts on ${imageDefaultPaperCopy()}, and the text on ${DEFAULT_TEXT_PAGE_OPTIONS.fontSize} pt.`;
 
 /** What each block kind is called on the page. */
 const MARKDOWN_BLOCK_PHRASE: Record<MarkdownBlockKind, string> = {
@@ -769,7 +799,7 @@ const FACTS: Record<string, readonly ToolFact[]> = {
       value: `Markdown sources up to ${MAX_SOURCE_MB} MB, rendered and typeset in your browser.`,
     },
     { label: "Supported syntax", value: MARKDOWN_SYNTAX_FACT },
-    { label: "Page", value: TEXT_PAGE_FACT },
+    { label: "Page", value: MARKDOWN_PAGE_FACT },
   ],
   "grayscale-pdf": [
     {
@@ -1315,7 +1345,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: `What does the PDF from ${tool.name} look like?`,
-          answer: `${TEXT_PAGE_FACT} There is no page-size or margin setting.`,
+          answer: `${TEXT_PAGE_FACT} The margins and the font cannot be changed.`,
         },
       ];
     case "markdown-to-pdf":
@@ -1326,7 +1356,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: `What does the PDF from ${tool.name} look like?`,
-          answer: `${TEXT_PAGE_FACT} There is no page-size or margin setting.`,
+          answer: `${MARKDOWN_PAGE_FACT} There is no page-size or margin setting.`,
         },
       ];
     /*
@@ -2334,9 +2364,11 @@ export function factFaq(tool: Tool): readonly ToolFaqEntry[] {
       // CHANGED 2026-11-17 (audit #29 slice 7): the remedy joined, with the
       // scan limit beside it (this answer ships alone as FAQPage JSON-LD),
       // after `translatePageRange` was observed in production.
+      // CHANGED 2026-11-17 (review): "cannot be translated in a single day"
+      // was false of a fixed window (two can sit back to back).
       entries.push({
         question: `How much of my PDF can ${tool.name} translate in one run?`,
-        answer: `${TRANSLATE_MAX_INPUT_CHARS.toLocaleString("en-US")} characters of selectable text per pass — about ${translatePagesAtSparsest} sparsely-set ${pluralPages(translatePagesAtSparsest)}, or ${translatePagesAtDensest} ${pluralPages(translatePagesAtDensest)} of dense text. Translation writes roughly as much as it reads, so that ceiling is the model's output budget — far below the reading cap the other AI tools state. A longer document is not refused for length: it is split at page boundaries, translated a few pages at a time, then reassembled in order. A SINGLE page holding more than that many characters cannot be translated at all — it is skipped, and the result says so in place, at the point where that page was. The text sent for translation is charged against the free daily allowance when the job is created, so a document needing more than is left today is refused before it runs, with nothing charged, rather than half translated; one over ${AI_CHARACTER_ALLOWANCE_DELIVERED.toLocaleString("en-US")} characters, the whole day's allowance, cannot be translated in a single day. ${TRANSLATE_OVER_ALLOWANCE_REMEDY} ${TRANSLATE_PAGES_NEED_TEXT} If our server finds more text or more pages than the job reserved, translation stops there and a notice in place names the untranslated pages and why, so nothing stops silently.`,
+        answer: `${TRANSLATE_MAX_INPUT_CHARS.toLocaleString("en-US")} characters of selectable text per pass — about ${translatePagesAtSparsest} sparsely-set ${pluralPages(translatePagesAtSparsest)}, or ${translatePagesAtDensest} ${pluralPages(translatePagesAtDensest)} of dense text. Translation writes roughly as much as it reads, so that ceiling is the model's output budget — far below the reading cap the other AI tools state. A longer document is not refused for length: it is split at page boundaries, translated a few pages at a time, then reassembled in order. A SINGLE page holding more than that many characters cannot be translated at all — it is skipped, and the result says so in place, at the point where that page was. The text sent for translation is charged against the free daily allowance when the job is created, so ${AI_ALLOWANCE_REFUSED_WHOLE} is refused before it runs, with nothing charged, rather than half translated; one needing more than ${AI_CHARACTER_ALLOWANCE_DELIVERED.toLocaleString("en-US")} characters, the whole daily allowance, is refused even when none of it has been used. ${TRANSLATE_OVER_ALLOWANCE_REMEDY} ${TRANSLATE_PAGES_NEED_TEXT} If our server finds more text or more pages than the job reserved, translation stops there and a notice in place names the untranslated pages and why, so nothing stops silently.`,
       });
     } else if (tool.slug === CHAT_TOOL_SLUG) {
       // PER QUESTION: every question is its own job, and since L08 (9ebe3e6)

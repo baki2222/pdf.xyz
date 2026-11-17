@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { regionalChoice, useRegionalPaper } from "../use-regional-paper";
 import {
   ArrowDown,
   ArrowUp,
@@ -79,7 +80,12 @@ export function ScanRunner() {
   const [rejections, setRejections] = useState<Rejection[]>([]);
   const [loading, setLoading] = useState(0);
   const [enhancement, setEnhancement] = useState<ScanEnhancement>("document");
-  const [pageSize, setPageSize] = useState<ScanPageSizeId>("a4");
+  // The page starts on the browser region's paper (A4, or Letter in a
+  // Letter country) until a size is pressed (audit backlog #5).
+  const regional = useRegionalPaper();
+  const [chosenSize, setPageSize] = useState<ScanPageSizeId | null>(null);
+  const pageSize: ScanPageSizeId =
+    chosenSize ?? regionalChoice(SCAN_PAGE_SIZES, regional);
   const [progress, setProgress] = useState<string | null>(null);
   const idRef = useRef(0);
   const seededRef = useRef(false);
