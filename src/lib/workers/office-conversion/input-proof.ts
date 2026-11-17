@@ -40,6 +40,17 @@
  * or a blank or garbled baseline would make "the same" vacuous; and the
  * UTF-8 case's word must be in the Auto text, or it was not read as UTF-8.
  *
+ * And the FILE NAME in a CSV's header (2026-11-17, found in production): a
+ * CSV becomes one sheet named after the file LibreOffice opened, and Calc's
+ * default page style prints the sheet name at the top of every page. Every
+ * upload used to be written as `input.<ext>`, so every converted CSV said
+ * "input" there. Each CSV named with a non-Latin stem (`csvFileNames`) must
+ * print that stem and never "input"; the CONTROL, a CSV the user named
+ * `input.csv`, must print "input", or the header is not printed or not read
+ * and the other cases' "never input" proves nothing. Judged by
+ * {@link fileNameHeaderVerdict}, which `scripts/worker-prove-tools.ts` uses
+ * on the downloaded PDF too.
+ *
  * Pure: the runner and the extractor are passed in. `input-proof.test.ts`
  * holds the verdict to stand-ins that break each property in turn.
  */
@@ -84,6 +95,43 @@ export interface OfficeInputProofDeps {
   readonly libreofficeNoOptions: LibreOfficePdfRunner;
   /** Value-rich CSVs for the default-import comparison (see CsvDefaultCase). */
   readonly csvDefaults: readonly CsvDefaultCase[];
+  /** CSVs whose printed header must show their own stem (see CsvFileNameCase). */
+  readonly csvFileNames: readonly CsvFileNameCase[];
+}
+
+/**
+ * A CSV named with a stem its header must print (ADDED 2026-11-17). The
+ * `control` case is named `input.csv` and must print "input": the proof that
+ * the header is there to read.
+ */
+export interface CsvFileNameCase {
+  readonly label: string;
+  /** The upload's filename. */
+  readonly name: string;
+  /** The stem the header must show. */
+  readonly stem: string;
+  readonly build: () => Uint8Array;
+  readonly control?: boolean;
+}
+
+/** The name every upload was written under until 2026-11-17. */
+export const OLD_INPUT_STEM = "input";
+
+/**
+ * Does the PDF's text show `stem`, and does it show the old fixed name?
+ * Whitespace is removed and both are NFC-composed first, as an extractor may
+ * break a line or a word anywhere in a header.
+ */
+export function fileNameHeaderVerdict(
+  text: string,
+  stem: string,
+): { readonly shows: boolean; readonly showsInput: boolean } {
+  const squeeze = (s: string) => s.normalize("NFC").replace(/\s+/g, "");
+  const t = squeeze(text);
+  return {
+    shows: t.includes(squeeze(stem)),
+    showsInput: t.toLowerCase().includes(OLD_INPUT_STEM),
+  };
 }
 
 /**
@@ -450,6 +498,52 @@ export async function runOfficeInputProof(
       fail(
         `${label}: prints "${autoWords[i] ?? "(nothing)"}" where no options printed "${baseWords[i] ?? "(nothing)"}"`,
       );
+    }
+  }
+  // The file name in a CSV's header. See the header of this file.
+  if (!deps.csvFileNames.some((c) => c.control))
+    fail("the csv file-name cases hold no control; the proof needs one");
+  if (
+    !deps.csvFileNames.some(
+      (c) => !c.control && [...c.stem].some((ch) => ch.codePointAt(0)! > 0x24f),
+    )
+  )
+    fail("the csv file-name cases hold no non-Latin stem; the proof needs one");
+  for (const c of deps.csvFileNames) {
+    const label = `csv file name ${c.label}`;
+    const bytes = c.build();
+    const body = new TextDecoder().decode(bytes).toLowerCase();
+    if (body.includes(c.stem.toLowerCase()) || body.includes(OLD_INPUT_STEM)) {
+      fail(
+        `${label}: its own cells hold the stem or "input", so the header check proves nothing`,
+      );
+      continue;
+    }
+    const run = await runOfficeToPdf("excel-to-pdf", bytes, c.name, {
+      libreoffice: deps.libreoffice,
+    });
+    if (!run.ok) {
+      fail(`${label}: the engine answered ${run.kind}: ${run.message}`);
+      continue;
+    }
+    const text = await deps.extract(run.output);
+    const v = fileNameHeaderVerdict(text.text, c.stem);
+    const top = JSON.stringify(text.text.trim().split(/\r?\n/)[0] ?? "");
+    if (c.control) {
+      if (v.showsInput)
+        pass(`${label}: CONTROL, "input" printed, so the header is read`);
+      else
+        fail(
+          `${label}: CONTROL, "input" is not in its text, so no header was read and "never input" proves nothing (first line ${top})`,
+        );
+    } else if (!v.shows) {
+      fail(`${label}: its stem is not in its text (first line ${top})`);
+    } else if (v.showsInput) {
+      fail(
+        `${label}: its stem is printed, and so is "input" (first line ${top})`,
+      );
+    } else {
+      pass(`${label}: its stem printed, "input" nowhere`);
     }
   }
   return { ok, lines };

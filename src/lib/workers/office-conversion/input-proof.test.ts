@@ -21,12 +21,19 @@ import {
   CSV_CHARSET_CASES,
   CSV_CHOICE_CASES,
   CSV_DEFAULT_CASES,
+  CSV_FILE_NAME_CASES,
 } from "@/tests/csv-charset-fixtures";
+import { sanitizeInputStem } from "./input-name";
 import type { CsvCharset, CsvDelimiter, CsvImportChoice } from "./csv-import";
 import type { LibreOfficePdfRunner } from "./engine";
 import { LibreOfficeRunError } from "./errors";
 import { officeContentRefusal, SIGNED_OFFICE_INPUTS } from "./input-content";
-import { runOfficeInputProof, type OfficeInputProofDeps } from "./input-proof";
+import {
+  fileNameHeaderVerdict,
+  runOfficeInputProof,
+  type CsvFileNameCase,
+  type OfficeInputProofDeps,
+} from "./input-proof";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -68,13 +75,23 @@ async function lockedByJsZip(bytes: Uint8Array): Promise<boolean> {
  * A stand-in LibreOffice that lays out exactly the words in the file — and,
  * like the image's (PROVENANCE.txt), makes no PDF of a locked one.
  */
-const honest: LibreOfficePdfRunner = {
-  convertToPdf: async (input, _name, _run, _layout, csv) => {
+const honestWith = (
+  /** The stem the runner writes the upload under; null prints no header. */
+  headerStem: ((name: string) => string) | null,
+): LibreOfficePdfRunner => ({
+  convertToPdf: async (input, name, _run, _layout, csv) => {
     if (await lockedByJsZip(input)) throw new LibreOfficeRunError("no_output");
-    if (isCsv(input)) return pdfOf(readCsv(input, csv));
+    // A CSV's sheet is named after the file LibreOffice opened, and Calc
+    // prints the sheet name as the page header (production, 2026-11-17).
+    if (isCsv(input))
+      return pdfOf(
+        `${headerStem ? `${headerStem(name)}\n` : ""}${readCsv(input, csv)}`,
+      );
     return pdfOf(await wordsIn(input));
   },
-};
+});
+/** The runner since 2026-11-17: the user's own stem. */
+const honest = honestWith(sanitizeInputStem);
 
 /**
  * A CSV read as a LibreOffice honouring the choice would read it, by an
@@ -136,6 +153,7 @@ async function deps(
     csvChoices: CSV_CHOICE_CASES,
     libreofficeNoOptions: honest,
     csvDefaults: CSV_DEFAULT_CASES,
+    csvFileNames: CSV_FILE_NAME_CASES,
     ...over,
   };
 }
@@ -187,7 +205,9 @@ describe("the proof's verdict", () => {
           0,
         ) +
         // One line per default-import comparison (review 2026-11-17).
-        CSV_DEFAULT_CASES.length,
+        CSV_DEFAULT_CASES.length +
+        // One line per file-name header case, the control included.
+        CSV_FILE_NAME_CASES.length,
     );
   });
 
@@ -201,13 +221,15 @@ describe("the proof's verdict", () => {
     expect(result.ok).toBe(false);
     expect(
       result.lines.filter((l) => /is not in its text/.test(l)),
-      // Every fixture, the locked files' unlocked twin, every CSV, and the
-      // UTF-8 default-import case's word.
+      // Every fixture, the locked files' unlocked twin, every CSV, the
+      // UTF-8 default-import case's word, and every file-name header case
+      // (a stem, or the control's "input").
     ).toHaveLength(
       OFFICE_INPUT_FIXTURES.length +
         1 +
         CSV_CHARSET_CASES.length +
-        CSV_DEFAULT_CASES.filter((c) => c.encoding === "utf-8").length,
+        CSV_DEFAULT_CASES.filter((c) => c.encoding === "utf-8").length +
+        CSV_FILE_NAME_CASES.length,
     );
   });
 
@@ -312,7 +334,8 @@ describe("the CSV character-set cases", () => {
       (l) =>
         l.startsWith("FAIL  csv ") &&
         !l.startsWith("FAIL  csv choice ") &&
-        !l.startsWith("FAIL  csv default import "),
+        !l.startsWith("FAIL  csv default import ") &&
+        !l.startsWith("FAIL  csv file name "),
     );
   const nameOf = (line: string) => /FAIL {2}csv (\S+)/.exec(line)?.[1];
   const reading = (
@@ -533,6 +556,127 @@ describe("the CSV default import: Auto prints what no options printed (review 20
     expect(result.ok).toBe(false);
     expect(result.lines).toContain(
       "FAIL  the csv default import cases hold no utf-8 file; the proof needs one of each",
+    );
+  });
+});
+
+describe("the file name in a CSV's header (production, 2026-11-17)", () => {
+  const lines = (all: readonly string[], prefix: string) =>
+    all.filter((l) => l.startsWith(`${prefix}  csv file name `));
+  const nonLatin = CSV_FILE_NAME_CASES.filter((c) => !c.control);
+
+  it("health: the cases hold a control and three non-Latin stems, and an honest converter passes them all", async () => {
+    expect(CSV_FILE_NAME_CASES.filter((c) => c.control)).toHaveLength(1);
+    expect(nonLatin.map((c) => c.label)).toEqual([
+      "Cyrillic stem",
+      "Bengali stem",
+      "CJK stem",
+    ]);
+    for (const c of nonLatin) {
+      expect(sanitizeInputStem(c.name)).toBe(c.stem);
+      expect([...c.stem].every((ch) => ch.codePointAt(0)! > 0x24f)).toBe(true);
+    }
+    const result = await runOfficeInputProof(await deps());
+    expect(lines(result.lines, "FAIL")).toEqual([]);
+    expect(lines(result.lines, "ok  ")).toHaveLength(
+      CSV_FILE_NAME_CASES.length,
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("fails the runner as it was: every upload written as input.<ext>", async () => {
+    const result = await runOfficeInputProof(
+      await deps({ libreoffice: honestWith(() => "input") }),
+    );
+    expect(result.ok).toBe(false);
+    expect(lines(result.lines, "FAIL")).toEqual(
+      nonLatin.map((c) =>
+        expect.stringContaining(
+          `FAIL  csv file name ${c.label}: its stem is not in its text`,
+        ),
+      ),
+    );
+    // The control still passes: "input" IS printed, and read.
+    expect(lines(result.lines, "ok  ")).toEqual([
+      'ok    csv file name control, a file the user named input.csv: CONTROL, "input" printed, so the header is read',
+    ]);
+  });
+
+  it("fails a header that prints the stem AND input", async () => {
+    const result = await runOfficeInputProof(
+      await deps({
+        libreoffice: honestWith((n) => `${sanitizeInputStem(n)} input`),
+      }),
+    );
+    expect(lines(result.lines, "FAIL")).toHaveLength(nonLatin.length);
+    expect(lines(result.lines, "FAIL")[0]).toContain(
+      'its stem is printed, and so is "input"',
+    );
+  });
+
+  it("CONTROL: with no header printed at all, the control fails (the check is not blind)", async () => {
+    const result = await runOfficeInputProof(
+      await deps({ libreoffice: honestWith(null) }),
+    );
+    expect(lines(result.lines, "FAIL")).toContainEqual(
+      expect.stringContaining('CONTROL, "input" is not in its text'),
+    );
+  });
+
+  it("fails a run without a control or without a non-Latin stem", async () => {
+    const noControl = await runOfficeInputProof(
+      await deps({ csvFileNames: nonLatin }),
+    );
+    expect(noControl.lines).toContain(
+      "FAIL  the csv file-name cases hold no control; the proof needs one",
+    );
+    const latinOnly: CsvFileNameCase[] = [
+      { ...nonLatin[0]!, label: "latin", name: "towns.csv", stem: "towns" },
+      CSV_FILE_NAME_CASES.find((c) => c.control)!,
+    ];
+    const latin = await runOfficeInputProof(
+      await deps({ csvFileNames: latinOnly }),
+    );
+    expect(latin.lines).toContain(
+      "FAIL  the csv file-name cases hold no non-Latin stem; the proof needs one",
+    );
+  });
+
+  it("fails a case whose own cells hold the stem or the word input", async () => {
+    const result = await runOfficeInputProof(
+      await deps({
+        csvFileNames: [
+          ...CSV_FILE_NAME_CASES,
+          {
+            label: "vacuous",
+            name: `${nonLatin[0]!.stem}.csv`,
+            stem: nonLatin[0]!.stem,
+            build: () =>
+              enc.encode(`Region,input\nNorth,${nonLatin[0]!.stem}\n`),
+          },
+        ],
+      }),
+    );
+    expect(lines(result.lines, "FAIL")).toEqual([
+      'FAIL  csv file name vacuous: its own cells hold the stem or "input", so the header check proves nothing',
+    ]);
+  });
+
+  it("the verdict reads through line breaks and decomposed text", () => {
+    const stem = nonLatin[1]!.stem;
+    const split = `${[...stem].slice(0, 2).join("")}\n ${[...stem].slice(2).join("")}`;
+    expect(fileNameHeaderVerdict(split, stem)).toEqual({
+      shows: true,
+      showsInput: false,
+    });
+    expect(fileNameHeaderVerdict("In put\nrows", "rows")).toEqual({
+      shows: true,
+      showsInput: true,
+    });
+    // E + combining diaeresis, which NFC composes to YO.
+    const nfd = String.fromCodePoint(0x415, 0x308);
+    expect(fileNameHeaderVerdict(nfd, String.fromCodePoint(0x401)).shows).toBe(
+      true,
     );
   });
 });
