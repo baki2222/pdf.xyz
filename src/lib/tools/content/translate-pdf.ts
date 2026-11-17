@@ -28,6 +28,12 @@ import {
   TRANSLATE_PAGE_HEADINGS,
 } from "@/lib/jobs/translate-reading-copy";
 import { tools } from "@/lib/tools/catalog";
+import {
+  TRANSLATE_ONLY_CHOSEN_PAGES,
+  TRANSLATE_OVER_ALLOWANCE_REMEDY,
+  TRANSLATE_PAGE_CHOICE,
+  TRANSLATE_PAGES_NEED_TEXT,
+} from "@/lib/tools/translate-page-choice";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import {
   UNSUPPORTED_SCRIPTS,
@@ -254,7 +260,10 @@ const content: ToolContent = {
     // over the whole day's allowance "has to be split into smaller files
     // first", false for a run that chooses pages once the panel offers them.
     // Rewritten true with or without a page range; slice 7 adds the remedy.
-    `One pass carries up to ${PASS_CHARS} characters; longer documents are split at page boundaries, translated in order and reassembled. Your browser counts the text before anything uploads, so a file with no page that fits a pass is stopped without touching the allowance; a scan with no text layer is recognised on our server first when it can do that, and stopped the same way when it cannot. ${AI_ALLOWANCE_FACT} The allowance is charged when the job is created, just after the upload: a document needing more than is left today is refused whole with nothing charged rather than half translated, and one over ${DAY_CHARS} characters, the whole day's allowance, cannot be translated in a single day.`,
+    // CHANGED 2026-11-17 (audit #29 slice 7): the remedy and its two limits
+    // joined (`./translate-page-choice`), after `translatePageRange` was
+    // observed in production and a real pages-"2, 4" job was decoded.
+    `One pass carries up to ${PASS_CHARS} characters; longer documents are split at page boundaries, translated in order and reassembled. Your browser counts the text before anything uploads, so a file with no page that fits a pass is stopped without touching the allowance; a scan with no text layer is recognised on our server first when it can do that, and stopped the same way when it cannot. ${AI_ALLOWANCE_FACT} The allowance is charged when the job is created, just after the upload: a document needing more than is left today is refused whole with nothing charged rather than half translated, and one over ${DAY_CHARS} characters, the whole day's allowance, cannot be translated in a single day. ${TRANSLATE_OVER_ALLOWANCE_REMEDY} ${TRANSLATE_PAGES_NEED_TEXT} ${TRANSLATE_ONLY_CHOSEN_PAGES}`,
   ],
 
   useCases: [
@@ -346,6 +355,12 @@ const content: ToolContent = {
     {
       q: "Does the AI provider train on the document I translate?",
       a: "The provider receives the extracted text and any instruction you typed, not the PDF file, under agreements that prohibit training on data sent through the API. pdf.xyz cannot control what a provider does beyond those terms, so if they are not enough for a document, keep it out of every AI tool.",
+    },
+    {
+      // Added 2026-11-17 (audit #29 slice 7), after `translatePageRange` was
+      // observed in production. FAQPage JSON-LD comes from the same entry.
+      q: "Can I translate only some pages?",
+      a: `Yes. Before you press Translate PDF, you can ${TRANSLATE_PAGE_CHOICE} instead of the whole document. ${TRANSLATE_ONLY_CHOSEN_PAGES} ${TRANSLATE_PAGES_NEED_TEXT}`,
     },
     {
       q: "What happens if one page holds too much text?",
