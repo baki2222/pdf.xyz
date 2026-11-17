@@ -340,11 +340,21 @@ describe("links outside paragraphs: where they open, and where they only print",
     expect(all.map((i) => i.str).join("")).toContain("Note");
   });
 
-  it("a link in a table cell prints its label and address but does not open (the page says so)", async () => {
+  /**
+   * INVERTED 2026-11-17 (backlog #24). Until then this was "a link in a
+   * table cell prints its label and address but does not open (the page
+   * says so)" and asserted NO annotation: cells were drawn as plain text.
+   * Table cells now go through wrapRuns/drawSegments like paragraphs, so the
+   * same source must yield the annotation. Where its box sits is read in
+   * markdown-table-cells.test.ts.
+   */
+  it("a link in a table cell prints its label and address and opens", async () => {
     const bytes = await markdownToPdf(
       "| a | b |\n| - | - |\n| [x](https://example.com/t) | y |",
     );
-    expect(await links(bytes)).toEqual([]);
+    expect((await links(bytes)).map((l) => l.uri)).toEqual([
+      "https://example.com/t",
+    ]);
     const text = (await items(bytes)).map((i) => i.str).join("");
     expect(text).toContain("x (https://example.com/t)");
   });
@@ -372,12 +382,22 @@ describe("links outside paragraphs: where they open, and where they only print",
 });
 
 describe("bold italic", () => {
-  it("text that is both bold and italic is set in the bold face", async () => {
+  /**
+   * INVERTED 2026-11-17 (backlog #24). Until then this was "text that is
+   * both bold and italic is set in the bold face" and asserted `both` shared
+   * `heavy`'s font: there was no bold-italic face and bold won. Now it has a
+   * face of its own, neither the bold nor the oblique one; its /BaseFont
+   * (Helvetica-BoldOblique) is read in markdown-table-cells.test.ts.
+   */
+  it("text that is both bold and italic is set in a face of its own", async () => {
     const bytes = await markdownToPdf(
-      "Plain **heavy** then ***both*** and *slanted* end.",
+      "Plain **heavy** then ***both*** and *slanted* and **_under_** end.",
     );
     const all = await items(bytes);
-    expect(fontOf(all, "both").font).toBe(fontOf(all, "heavy").font);
+    expect(fontOf(all, "both").font).not.toBe(fontOf(all, "heavy").font);
     expect(fontOf(all, "both").font).not.toBe(fontOf(all, "slanted").font);
+    expect(fontOf(all, "both").font).not.toBe(fontOf(all, "Plain").font);
+    // Both spellings reach the same face.
+    expect(fontOf(all, "under").font).toBe(fontOf(all, "both").font);
   });
 });
