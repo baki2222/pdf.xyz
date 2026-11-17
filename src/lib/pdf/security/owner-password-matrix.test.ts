@@ -4,10 +4,13 @@ import { PDFDocument } from "pdf-lib";
 import {
   AES128_NO_GRANT_FIXTURE,
   AES256_BOTH_PASSWORDS_FIXTURE,
+  AES256_EMPTY_OWNER_FIXTURE,
   AES256_NO_GRANT_FIXTURE,
   FIXTURE_OPEN_PASSWORD,
   NO_ASSEMBLE_COPY_FIXTURE,
+  OPEN_PASSWORD_FIXTURE,
   OPEN_PASSWORD_RESTRICTED_FIXTURE,
+  VIEW_ONLY_FIXTURE,
   readRestrictedFixture,
   type GrantFixture,
 } from "@/tests/restricted-pdf-fixtures";
@@ -25,14 +28,20 @@ import { extractPdfImages } from "../extract-images";
 import type { LoadedPdf } from "@/components/tools/runner/use-single-pdf";
 import { unlockWithOwnerPassword } from "@/components/tools/runner/owner-unlock";
 import { grantAllows } from "@/components/tools/runner/restricted-grant";
-import { openWithPassword } from "./open-with-password";
+import { openWithPassword, type ToolGrant } from "./open-with-password";
 
 /**
  * THE OWNER'S RULE as a property (competitor-audit backlog #11): for every
  * tool that carries the owner-password field, every kind of password, and
- * every cipher, ONLY the owner password produces output. The open password
- * — empty, for a file that opens without one — and a wrong password, and no
- * password, never do.
+ * every cipher, nothing but the owner password lifts a restriction the
+ * author set. Merge PDF, Extract Pages and Delete Pages write a new file
+ * with no encryption, so for them ONLY the owner password produces output
+ * from a file whose author withholds anything. Rotate PDF (written back
+ * under the author's encryption) and Extract Images (no PDF written) lift
+ * nothing, so the open password serves them exactly when the author grants
+ * their one permission, and never otherwise (review 2026-11-17: refusing
+ * it there named restrictions rotation does not need). A wrong password,
+ * and no password, never produce output from a file that needs one.
  *
  * Each cell runs the composed chain the page runs: the field's check
  * (`unlockWithOwnerPassword`, `./owner-unlock`, the chunk the field fetches),
@@ -97,6 +106,15 @@ async function isUnencrypted(bytes: Uint8Array): Promise<number> {
   return (await PDFDocument.load(bytes)).getPageCount();
 }
 
+/** The grant tools' own gate, as each runner hands it to the field. */
+const GRANT: Partial<Record<OwnerPasswordTool, ToolGrant>> = {
+  "rotate-pdf": {
+    key: "assemble",
+    allows: (pdf) => grantAllows(pdf, "assemble"),
+  },
+  "extract-images": { key: "copy", allows: (pdf) => grantAllows(pdf, "copy") },
+};
+
 /**
  * The tool's own work on an opened file, or null when the tool's own gate
  * refuses it. Throws when the work fails — never a quiet "no output".
@@ -143,13 +161,23 @@ async function runTool(
 /** Does this (tool, kind, case) produce output? And which refusal if not. */
 async function cell(tool: OwnerPasswordTool, kind: Kind, c: Case) {
   const bytes = readRestrictedFixture(c.fixture.file);
+  return cellWith(tool, passwordFor(kind, c), c, bytes);
+}
+
+async function cellWith(
+  tool: OwnerPasswordTool,
+  password: string,
+  c: Case,
+  bytes: Uint8Array,
+) {
   const file = new File([bytes.slice()], c.fixture.file, {
     type: "application/pdf",
   });
   const unlocked = await unlockWithOwnerPassword(
     file,
     bytes,
-    passwordFor(kind, c),
+    password,
+    GRANT[tool],
   );
   if (unlocked.kind !== "opened") return { output: null, why: unlocked.kind };
   // What the runner takes (it reads the board itself from `plain`).
@@ -229,19 +257,174 @@ describe("the owner's rule: only the owner password produces output", () => {
     for (const c of CASES)
       it(`${tool} - ${c.fixture.file}`, async () => {
         const seen: Record<string, string> = {};
+        // The open password serves only a tool that lifts nothing, and only
+        // when the author grants what it does (/P bit 11 = 1024, bit 5 = 16).
+        const openServes =
+          c.open !== "" &&
+          tool in GRANT &&
+          c.fixture.permissions.includes(tool === "rotate-pdf" ? 1024 : 16);
         for (const kind of KINDS) {
           const { output, why } = await cell(tool, kind, c);
           seen[kind] = output ?? `refused (${why})`;
-          if (kind === "owner")
-            expect(output, `${tool}: the owner password`).toBeTruthy();
+          if (kind === "owner" || (kind === "open" && openServes))
+            expect(output, `${tool}: the ${kind} password`).toBeTruthy();
           else expect(output, `${tool}: the ${kind} password`).toBeNull();
         }
         // The refusals say which: a wrong password, a password that opens
         // the file but is not the owner's, and no password at all.
         expect(seen.wrong).toBe("refused (wrong-password)");
-        expect(seen.open).toBe("refused (withheld)");
+        if (!openServes) expect(seen.open).toBe("refused (withheld)");
         expect(seen.none).toBe(
           c.open === "" ? "refused (withheld)" : "refused (wrong-password)",
         );
       }, 60_000);
+});
+
+/**
+ * Review 2026-11-17, rule 2's shape: the open password must not lift a
+ * restriction by any OTHER road than the owner password. Two roads were
+ * open: an R5/R6 file whose /P was raised by editing it (/P is not
+ * encrypted) with a /Perms that no longer verifies, which the handler then
+ * trusted as written; and a file whose owner password is EMPTY, which
+ * opens "as owner" for anyone.
+ */
+describe("the owner's rule has no side door", () => {
+  const ascii = (text: string) =>
+    Uint8Array.from(text, (ch) => ch.codePointAt(0)!);
+  function indexOf(bytes: Uint8Array, text: string): number {
+    const needle = ascii(text);
+    outer: for (let i = 0; i + needle.length <= bytes.length; i += 1) {
+      for (let j = 0; j < needle.length; j += 1)
+        if (bytes[i + j] !== needle[j]) continue outer;
+      return i;
+    }
+    return -1;
+  }
+  /** Flip the first hex digit of /Perms: it no longer decrypts to "adb". */
+  function breakPerms(out: Uint8Array) {
+    const perms = indexOf(out, "/Perms <");
+    expect(perms, "the fixture's /Perms").toBeGreaterThan(0);
+    const at = perms + "/Perms <".length;
+    out[at] = out[at] === 0x30 ? 0x31 : 0x30;
+  }
+  /**
+   * `from` replaced by `to` (same length, so the xref still lines up) and,
+   * unless `keepPerms`, /Perms broken. Health-checked: the mutation landed,
+   * and only there.
+   */
+  function tamper(
+    original: Uint8Array,
+    from: string,
+    to: string,
+    keepPerms = false,
+  ): Uint8Array {
+    expect(to.length).toBe(from.length);
+    const out = original.slice();
+    const p = indexOf(out, from);
+    expect(p, `the fixture's ${from}`).toBeGreaterThan(0);
+    out.set(ascii(to), p);
+    if (!keepPerms) breakPerms(out);
+    let changed = 0;
+    for (let i = 0; i < out.length; i += 1)
+      if (out[i] !== original[i]) changed += 1;
+    expect(out.length).toBe(original.length);
+    expect(changed).toBeGreaterThan(keepPerms ? 0 : 1);
+    expect(changed).toBeLessThanOrEqual(from.length + (keepPerms ? 0 : 1));
+    return out;
+  }
+  // pypdf writes /P unsigned: 4294965956 is -1340, 4294967292 is -4.
+  const RAISE = ["/P 4294965956", "/P 4294967292"] as const;
+  const BOTH: Case = {
+    fixture: AES256_BOTH_PASSWORDS_FIXTURE,
+    open: FIXTURE_OPEN_PASSWORD,
+  };
+  const NO_OPEN: Case = { fixture: AES256_NO_GRANT_FIXTURE, open: "" };
+
+  it("a raised /P with a broken /Perms: the open password, or none, lifts nothing; the owner password still works", async () => {
+    for (const c of [BOTH, NO_OPEN]) {
+      const bytes = tamper(readRestrictedFixture(c.fixture.file), ...RAISE);
+      // The tamper is real: the file still opens with the open password,
+      // and only the fail-closed /Perms check keeps the raised /P out.
+      const read = await openWithPassword(bytes, c.open);
+      expect(read.kind).toBe("opened");
+      if (read.kind !== "opened") continue;
+      expect(read.pdf.unlocked).toBe(false);
+      expect(Object.values(read.permissions).some(Boolean)).toBe(false);
+      for (const tool of OWNER_PASSWORD_TOOLS) {
+        expect(
+          (await cellWith(tool, c.open, c, bytes)).why,
+          `${tool}: ${c.fixture.file}, open password`,
+        ).toBe("withheld");
+        // The rotated copy keeps the file's /Encrypt byte for byte, and
+        // pdf.js reads /P as written: the raised grant is what it reports.
+        const asWritten: Case = {
+          ...c,
+          fixture: {
+            ...c.fixture,
+            permissions: [4, 8, 16, 32, 256, 512, 1024, 2048],
+          },
+        };
+        expect(
+          (await cellWith(tool, c.fixture.owner, asWritten, bytes)).why,
+          `${tool}: ${c.fixture.file}, owner password`,
+        ).toBe("opened");
+      }
+    }
+  }, 120_000);
+
+  it("CONTROL: a raised /P with /Perms intact is cut back to the sealed grant", async () => {
+    const bytes = tamper(
+      readRestrictedFixture(BOTH.fixture.file),
+      ...RAISE,
+      true,
+    );
+    const read = await openWithPassword(bytes, BOTH.open);
+    expect(read.kind).toBe("opened");
+    if (read.kind !== "opened") return;
+    // The sealed grant, not the raised /P.
+    expect(read.permissions.print).toBe(true);
+    expect(read.permissions.copy).toBe(false);
+    expect(read.permissions.assemble).toBe(false);
+    for (const tool of OWNER_PASSWORD_TOOLS)
+      expect((await cellWith(tool, BOTH.open, BOTH, bytes)).why, tool).toBe(
+        "withheld",
+      );
+  }, 60_000);
+
+  it("qpdf's R6 view-only file, /P raised and /Perms broken, stays restricted with no password", async () => {
+    const bytes = tamper(
+      readRestrictedFixture(VIEW_ONLY_FIXTURE.file),
+      "/P -1340",
+      "/P -0004",
+    );
+    const c: Case = {
+      fixture: { ...VIEW_ONLY_FIXTURE, pageCount: 1 },
+      open: "",
+    };
+    for (const tool of ["merge-pdf", "extract-pages", "remove-pages"] as const)
+      expect((await cellWith(tool, "", c, bytes)).why, tool).toBe("withheld");
+  }, 60_000);
+
+  it("an EMPTY owner password opens it for anyone, and that lifts nothing", async () => {
+    const c: Case = { fixture: AES256_EMPTY_OWNER_FIXTURE, open: "" };
+    const bytes = readRestrictedFixture(c.fixture.file);
+    // Health check: it IS the shape the review found: "" opens as owner.
+    const read = await openWithPassword(bytes, "");
+    expect(read.kind).toBe("opened");
+    if (read.kind !== "opened") return;
+    expect(read.as).toBe("owner");
+    expect(read.pdf.unlocked).toBe(false);
+    for (const tool of OWNER_PASSWORD_TOOLS)
+      expect((await cellWith(tool, "", c, bytes)).why, tool).toBe("withheld");
+  }, 60_000);
+
+  it("CONTROL: the open password of a file whose author restricts nothing opens it in every tool", async () => {
+    const c: Case = {
+      fixture: OPEN_PASSWORD_FIXTURE,
+      open: FIXTURE_OPEN_PASSWORD,
+    };
+    const bytes = readRestrictedFixture(c.fixture.file);
+    for (const tool of OWNER_PASSWORD_TOOLS)
+      expect((await cellWith(tool, c.open, c, bytes)).why, tool).toBe("opened");
+  }, 60_000);
 });

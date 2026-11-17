@@ -13,7 +13,7 @@ script supplies the AES block operations from Node's own `crypto` module
 (one `node` process per call), which shares no code with pdf.xyz's
 handler either. The bytes pypdf writes are the same either way.
 
-    python -I make-owner.py <dir containing grant-base.pdf>
+    python -I make-owner.py <dir containing grant-base.pdf> [--only NAME]
 """
 
 import secrets
@@ -39,6 +39,11 @@ FILES = {
         "owner-both-test",
         "AES-256",
     ),
+    # Added 2026-11-17 (review): an EMPTY owner password. Anyone opens it
+    # "as owner" with no password, and that is not a person proving it, so
+    # it must stay restricted. Written alone with `--only`, so the files
+    # above keep their bytes.
+    "pypdf-r6-aes256-empty-owner.pdf": ("", "", "AES-256"),
 }
 
 NODE = r"""
@@ -92,10 +97,12 @@ def use_node_aes() -> None:
     _encryption.aes_ecb_decrypt = lambda k, d: node_aes("ecb-dec", k, b"", d)
 
 
-def main(folder: Path):
+def main(folder: Path, only: str | None = None):
     use_node_aes()
     base = folder / "grant-base.pdf"
     for name, (user, owner, algorithm) in FILES.items():
+        if only is not None and name != only:
+            continue
         writer = pypdf.PdfWriter(clone_from=str(base))
         writer.encrypt(
             user_password=user,
@@ -108,4 +115,7 @@ def main(folder: Path):
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]))
+    main(
+        Path(sys.argv[1]),
+        sys.argv[3] if len(sys.argv) > 3 and sys.argv[2] == "--only" else None,
+    )

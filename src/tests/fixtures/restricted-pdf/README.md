@@ -120,6 +120,12 @@ the grant below, and the open password where there is one.
 | `pypdf-r4-aes128-no-grant.pdf`       | pypdf    | V4 R4 | AES-128 | (none)        | 4, 512, 2048 (P −1340)            | `owner-aes128-test` |
 | `pypdf-r6-aes256-no-grant.pdf`       | pypdf    | V5 R6 | AES-256 | (none)        | 4, 512, 2048                      | `owner-aes256-test` |
 | `pypdf-r6-aes256-both-passwords.pdf` | pypdf    | V5 R6 | AES-256 | `open-test`   | 4, 512, 2048                      | `owner-both-test`   |
+| `pypdf-r6-aes256-empty-owner.pdf`    | pypdf    | V5 R6 | AES-256 | (none)        | 4, 512, 2048                      | (empty)             |
+
+The empty-owner file was added later (2026-11-17, review) and written alone,
+`python -I make-owner.py <this folder> --only pypdf-r6-aes256-empty-owner.pdf`,
+so the three above kept their bytes. Its owner password is EMPTY: anyone
+opens it "as owner" without typing one, and it must still stay restricted.
 
 Used by `src/lib/pdf/security/owner-password-matrix.test.ts` (every tool ×
 password kind × cipher) and `e2e/owner-password.spec.ts` (the five tools'

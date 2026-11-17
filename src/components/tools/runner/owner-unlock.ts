@@ -1,5 +1,8 @@
 import type { PdfPermissions } from "@/lib/jobs/pdf-permissions";
-import { openForCopy } from "@/lib/pdf/security/open-with-password";
+import {
+  openForCopy,
+  type ToolGrant,
+} from "@/lib/pdf/security/open-with-password";
 import type { ProtectedPdf } from "@/lib/pdf/security/protected-pdf";
 
 /**
@@ -10,7 +13,10 @@ import type { ProtectedPdf } from "@/lib/pdf/security/protected-pdf";
  * The decision is not made here. It is `openForCopy`, the one rule Grayscale
  * PDF already used (`./grayscale-unlock`): only the OWNER password may lift
  * the author's restrictions (/P), so the open password of a file whose
- * author withholds something — or no password — is refused.
+ * author withholds something — or no password — is refused. Rotate PDF and
+ * Extract Images lift nothing (the rotation is written under the author's
+ * encryption; no PDF is written at all), so for them the open password
+ * serves when the author grants the tool's one permission (`grant`).
  *
  * The opened file carries its `protection`, unlocked by the owner password:
  * Rotate PDF writes the rotation back under the author's own encryption
@@ -45,8 +51,13 @@ export async function unlockWithOwnerPassword(
   file: File,
   bytes: Uint8Array,
   password: string,
+  /**
+   * Rotate PDF and Extract Images, which make no unrestricted copy: the
+   * open password serves when the author grants the tool's one permission.
+   */
+  grant?: ToolGrant,
 ): Promise<OwnerUnlock> {
-  const result = await openForCopy(bytes, password);
+  const result = await openForCopy(bytes, password, grant);
   if (result.kind !== "opened") return result;
   return {
     kind: "opened",

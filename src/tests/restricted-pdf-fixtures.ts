@@ -229,3 +229,21 @@ export const AES256_BOTH_PASSWORDS_FIXTURE: GrantFixture = {
   objectStreams: false,
   pageCount: 2,
 };
+
+/**
+ * An EMPTY owner password (and no open password), added 2026-11-17 by
+ * review: anyone opens it "as owner" without typing anything, and that is
+ * not a person proving it, so its restrictions stay (`openForCopy` reads
+ * `ProtectedPdf.unlocked`, never `as === "owner"`). Written alone by
+ * `make-owner.py --only`.
+ */
+export const AES256_EMPTY_OWNER_FIXTURE: GrantFixture = {
+  file: "pypdf-r6-aes256-empty-owner.pdf",
+  producer: "pypdf",
+  v: 5,
+  r: 6,
+  owner: "",
+  permissions: [4, 512, 2048],
+  objectStreams: false,
+  pageCount: 2,
+};
