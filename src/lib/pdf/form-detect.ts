@@ -1037,10 +1037,14 @@ function rowTables(rules: readonly Line[], all: readonly Piece[]): Set<Line> {
  * above the line, and over it or over where its label would be.
  *
  * Only the FIRST line under the close is its signature line: no other of
- * `lines` (the page's rules of candidate length) lies between the close and
- * this line across its width. The Print name and Date lines of a sign-off
- * block are fields; every caption-only line within reach once read as a
- * signature.
+ * `lines` (the page's rules of candidate length and its underscore runs)
+ * lies between the close and this line across its width. The Print name and
+ * Date lines of a sign-off block are fields; every caption-only line within
+ * reach once read as a signature.
+ *
+ * The line may be drawn or typed: an underscore run with no label of its own
+ * under a close is the signature line too (only drawn lines were once
+ * asked, so a typed one was proposed as a field named after nothing).
  */
 function underSignOff(
   p: CardPage,
@@ -1048,7 +1052,7 @@ function underSignOff(
   lines: readonly Line[],
 ): boolean {
   const line = c.line;
-  if (c.rule !== "labelled-rule" || !line || c.leftLabel) return false;
+  if (!line || c.leftLabel) return false;
   return p.text.some(
     (t) =>
       t.upright &&
@@ -1221,9 +1225,10 @@ export function classifyPage(
 
   const comb = combSquares(lines.squares);
   const rowTable = rowTables(lines.rules, all);
-  const longRules = lines.rules.filter(
-    (r) => r.x1 - r.x0 >= DETECT.RULE_MIN_LEN,
-  );
+  const signOffLines = [
+    ...lines.rules.filter((r) => r.x1 - r.x0 >= DETECT.RULE_MIN_LEN),
+    ...runs.cands.flatMap((c) => (c.line ? [c.line] : [])),
+  ];
   const labelledSquares = cands.filter(
     (c) => c.square && c.labelState === "found",
   );
@@ -1235,7 +1240,7 @@ export function classifyPage(
     if (
       on("signature") &&
       ((c.label && DETECT.SIGNATURE_RE.test(c.label)) ||
-        underSignOff(p, c, longRules))
+        underSignOff(p, c, signOffLines))
     ) {
       exclude("signature", c.box);
       continue;

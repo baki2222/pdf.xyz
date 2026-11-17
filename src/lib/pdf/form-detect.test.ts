@@ -730,6 +730,43 @@ describe("exclusions, each at its boundary", () => {
       expect(r.excluded.map((e) => e.rule)).toEqual(["signature"]);
       expect(r.counts.signatureLines).toBe(1);
     });
+
+    // A letter's signature line typed as underscores was still proposed as
+    // a text field: the sign-off rule looked at drawn lines only (review
+    // finding; corpus N26). An unlabelled run under a close is the close's
+    // signature line too; a labelled one ("Date: ____") stays a field.
+    it("an unlabelled underscore run under a close is a signature line", () => {
+      const typed = (s: string) =>
+        pg({
+          text: [
+            txt("Yours sincerely,", 72, 520, { width: 80, size: 11 }),
+            txt(s, 72, 470, { width: 180, size: 11 }),
+            txt("John Smith", 72, 456, { width: 55, size: 11 }),
+          ],
+        });
+      const r = run(typed("______________________________"));
+      expect(r.proposals).toEqual([]);
+      expect(r.excluded.map((e) => e.rule)).toEqual(["signature"]);
+      expect(r.counts.signatureLines).toBe(1);
+      expect(props(typed("Date: ______________________"))).toEqual([
+        expect.objectContaining({ label: "Date", rule: "underscore-run" }),
+      ]);
+      // A run is a line for "the first line under the close" too: a second
+      // bare run under the signature's run is a field.
+      const two = run(
+        pg({
+          text: [
+            txt("Yours sincerely,", 72, 520, { width: 80, size: 11 }),
+            txt("______________________________", 72, 470, { width: 180 }),
+            txt("______________________________", 72, 445, { width: 180 }),
+          ],
+        }),
+      );
+      expect(two.excluded.map((e) => e.rule)).toEqual(["signature"]);
+      expect(two.proposals).toEqual([
+        expect.objectContaining({ rule: "underscore-run", y: 443 }),
+      ]);
+    });
   });
 
   it("counts signature lines", () => {
