@@ -43,6 +43,7 @@ import {
 import { RunBar } from "./run-bar";
 import { useUnsavedGuard } from "./use-unsaved-guard";
 import { PageTile, TileAction } from "./page-tile";
+import { LazyPageZoomDialog, ZoomButton } from "./page-zoom-lazy";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { usePdfThumbnails } from "./use-pdf-thumbnails";
 import {
@@ -107,6 +108,9 @@ function OrganizeEditor({
   const { announce, node: announcer } = useAnnouncer();
   const { thumbs, rendered, status, capped, eagerCount, requestPage } =
     usePdfThumbnails(pdf.bytes, pdf.pageCount);
+  // The enlarged page is the tile's: in the new order, turned as it will be
+  // written. Previous / Next walk the new order, not the file's.
+  const [zoom, setZoom] = useState<number | null>(null);
 
   // Every source page's upright size, so an inserted blank can match the tile
   // it goes beside. Read once per file (the editor is keyed by file); the
@@ -437,6 +441,13 @@ function OrganizeEditor({
             }}
             actions={
               <>
+                {/* A blank sheet has nothing to enlarge. */}
+                {!item.blank && (
+                  <ZoomButton
+                    pageNumber={item.sourceIndex + 1}
+                    onClick={() => setZoom(i)}
+                  />
+                )}
                 <TileAction
                   title={`Move ${nameOf(item, false)} left`}
                   onClick={() => move(i, i - 1)}
@@ -490,6 +501,17 @@ function OrganizeEditor({
           />
         ))}
       </ul>
+
+      {zoom !== null && (
+        <LazyPageZoomDialog
+          bytes={pdf.bytes}
+          pageCount={items.length}
+          pages={items}
+          index={zoom}
+          onIndex={setZoom}
+          onClose={() => setZoom(null)}
+        />
+      )}
 
       {error && <ErrorNote message={error} />}
 

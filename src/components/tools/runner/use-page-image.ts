@@ -51,6 +51,8 @@ export function usePageImageState(
   bytes: Uint8Array,
   index: number | null,
   targetWidth = 200,
+  /** Clockwise turn from the unrotated page, in place of its own /Rotate. */
+  rotation?: number,
 ): PageImageState {
   const [result, setResult] = useState<PageImageState>(LOADING);
   useEffect(() => {
@@ -64,6 +66,7 @@ export function usePageImageState(
           orientation: "displayed",
           targetWidth,
           pixelRatio: 2,
+          ...(rotation === undefined ? {} : { rotation }),
         });
         try {
           const thumb = await renderer.renderPage(index);
@@ -90,7 +93,7 @@ export function usePageImageState(
       setResult(LOADING);
       if (made) URL.revokeObjectURL(made);
     };
-  }, [bytes, index, targetWidth]);
+  }, [bytes, index, targetWidth, rotation]);
   return index === null ? IDLE : result;
 }
 
