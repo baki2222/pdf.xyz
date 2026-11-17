@@ -136,8 +136,16 @@ describe("readTablePreview - over the engine's own archive", () => {
     expect(set.tableFiles).toBe(many.length);
     expect(set.perPage).toBe(true);
     expect(set.pagesWithTables).toBe(7);
-    expect(set.tables.map((t) => t.table)).toEqual([1, 3, 5, 7, 8, 9]);
-    expect(set.tables.map((t) => t.page)).toEqual([1, 2, 3, 4, 5, 6]);
+    // Health: more pages than the cap, so the cap is what cuts.
+    expect(new Set(pages).size).toBeGreaterThan(MAX_PREVIEW_TABLES);
+    // The first table on each page, in order: tables 1, 3, 5, 7, 8, 9, 10.
+    const firsts = [1, 3, 5, 7, 8, 9, 10];
+    expect(set.tables.map((t) => t.table)).toEqual(
+      firsts.slice(0, MAX_PREVIEW_TABLES),
+    );
+    expect(set.tables.map((t) => t.page)).toEqual(
+      firsts.slice(0, MAX_PREVIEW_TABLES).map((n) => pages[n - 1]),
+    );
     expect(set.tables).toHaveLength(MAX_PREVIEW_TABLES);
   });
 
@@ -177,7 +185,7 @@ describe("readTablePreview - over the engine's own archive", () => {
     expect(set.perPage).toBe(false);
     expect(set.pagesWithTables).toBe(0);
     expect(set.tables.map((t) => [t.table, t.page])).toEqual(
-      [1, 2, 3, 4, 5, 6].map((n) => [n, null]),
+      Array.from({ length: MAX_PREVIEW_TABLES }, (_, i) => [i + 1, null]),
     );
   });
 
