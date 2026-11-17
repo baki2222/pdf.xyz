@@ -804,7 +804,13 @@ describe("Compress batch", { timeout: 30_000 }, () => {
       asFile(await plainPdf(2), "a.pdf"),
       asFile(await plainPdf(2), "b.pdf"),
     ]);
-    const remove = await screen.findByRole("button", { name: "Remove a.pdf" });
+    // The batch view is a lazy chunk (a skeleton until it loads); CI under
+    // load took longer than findBy's 1 s default (2026-11-17, #353's run).
+    const remove = await screen.findByRole(
+      "button",
+      { name: "Remove a.pdf" },
+      { timeout: 10_000 },
+    );
     remove.focus();
     fireEvent.click(remove);
     await waitFor(() =>
@@ -835,7 +841,11 @@ describe("Compress batch", { timeout: 30_000 }, () => {
     expect(container).not.toHaveTextContent(/no quality loss/i);
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /compress 3 pdfs/i }),
+      await screen.findByRole(
+        "button",
+        { name: /compress 3 pdfs/i },
+        { timeout: 10_000 },
+      ),
     );
     await screen.findByText(/batch complete/i, {}, { timeout: 10_000 });
 

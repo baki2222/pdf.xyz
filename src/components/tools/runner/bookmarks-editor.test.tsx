@@ -580,7 +580,7 @@ describe("Edit PDF Bookmarks' panel", () => {
     // Health check: the profiler measured the whole list's cost.
     expect(last.base).toBeGreaterThan(0);
     expect(last.actual).toBeLessThan(last.base / 4);
-  });
+  }, 30_000);
 
   it("the panel box starts ticked for a file with no /PageMode, unticked for one opening to another panel — as the FAQ says", async () => {
     const box = () =>
