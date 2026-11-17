@@ -35,6 +35,7 @@ import { COMPARE_RESULT_CHUNK } from "@/components/tools/runner/compare/compare-
 import { COMPARE_VIEWER_CHUNK } from "@/components/tools/runner/compare/compare-viewer";
 import { COMPARE_OVERLAY_CHUNK } from "@/components/tools/runner/compare/compare-overlay";
 import { COMPARE_REDLINE_CHUNK } from "@/components/tools/runner/compare/redline-html";
+import { REQUEST_FIELD_EDITOR_CHUNK } from "@/components/tools/request-field-editor";
 import { RESULT_ENDING_CHUNK } from "@/components/intent/result-ending-chunk";
 import { DROP_ENGINE_MARK } from "@/lib/intent/drop-engine";
 import { tools } from "@/lib/tools";
@@ -363,6 +364,18 @@ const OUR_LAZY: LazyLibrary[] = [
     what: "Compare PDF's HTML redline",
     marker: COMPARE_REDLINE_CHUNK,
     why: "the comparison fetches it when Download redline (HTML) is pressed or pointed at; a run that never downloads it never fetches it",
+    allowedAtLoad: {},
+  },
+  // Request Signatures' placement editor (audit #21, 2026-11-17): the sheet
+  // with every box on it, the drag, resize and keyboard handling, Add a box
+  // and the box list, with the layout geometry (`request-layout.ts`). The
+  // panel requests it WITH the PDF read (one round trip, not a waterfall)
+  // and keeps the state, so a visit that never brings a PDF never downloads
+  // it and the starting layout can still be sent without it.
+  {
+    what: "Request Signatures' placement editor",
+    marker: REQUEST_FIELD_EDITOR_CHUNK,
+    why: "fetched when a PDF is picked on Request Signatures",
     allowedAtLoad: {},
   },
   // Sign PDF's handwriting faces (audit sign-pdf#1, 2026-11-09). As first

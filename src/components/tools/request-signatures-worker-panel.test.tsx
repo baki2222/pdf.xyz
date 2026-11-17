@@ -22,11 +22,19 @@ import {
 import { PDFDocument } from "pdf-lib";
 import { getToolBySlug } from "@/lib/tools";
 import {
+  MAX_FIELD_LABEL_CHARS,
+  MAX_REQUEST_FIELDS,
+  MAX_REQUEST_MESSAGE_CHARS,
+  MAX_REQUEST_SIGNERS,
   MAX_REQUEST_TITLE_CHARS,
   MAX_SIGNER_EMAIL_CHARS,
   MAX_SIGNER_NAME_CHARS,
   signatureBlockFields,
+  type RequestSignatureField,
 } from "@/lib/jobs/request-signatures";
+import { JOB_LIMITS } from "@/lib/jobs/types";
+import { parseCreateJobRequest } from "@/lib/jobs/validation";
+import { resetUploadedThisSessionForTests } from "@/lib/uploads/session-uploads";
 import {
   PDF_ENCRYPTED_UNKNOWN_MESSAGE,
   PDF_NEEDS_PASSWORD_MESSAGE,
@@ -47,6 +55,10 @@ import {
   RequestSignaturesWorkerPanel,
   clampSignaturePage,
 } from "./request-signatures-worker-panel";
+
+/** Written here, not imported: the test holds the panel to this sentence. */
+const TOO_LONG_SENTENCE =
+  "This request is too long to send. Shorten the message or the labels, or remove some boxes.";
 
 // A ready deployment: since WP-10 the builder's Run waits on the page's
 // status check, so the "runnable" controls below need one to say yes.
@@ -173,7 +185,9 @@ describe("RequestBuilder signature page", () => {
     );
     // The sheet has the page's visible proportions (US Letter here).
     expect(preview.style.aspectRatio).toBe("612 / 792");
-    expect(screen.getByText(/Page 2 —/)).toBeInTheDocument();
+    // CHANGED 2026-11-17 (audit #21): the caption was "Page 2 — where each
+    // signer's fields will be added."; the sheet is now the placement editor.
+    expect(screen.getByText(/^Page 2 of 2\./)).toBeInTheDocument();
   });
 
   /**
@@ -385,5 +399,612 @@ describe("RequestBuilder signer rows", () => {
       "maxLength",
       String(MAX_REQUEST_TITLE_CHARS),
     );
+  });
+});
+
+/**
+ * Audit #21 (2026-11-17): the reader places the boxes. Every assertion here is
+ * made against the job options ON THE WIRE — the body the panel's own client
+ * POSTs to /api/jobs, captured by the fetch stub — and against the boxes the
+ * sheet draws, so "drawn = sent" is checked at the point of consumption, not
+ * between two values the panel computed.
+ */
+describe("RequestBuilder placement (audit #21)", { timeout: 30_000 }, () => {
+  interface WireBody {
+    tool: string;
+    options: {
+      signers: { name: string; email: string }[];
+      fields: RequestSignatureField[];
+      message?: string;
+      title?: string;
+    };
+  }
+  let jobs: WireBody[] = [];
+
+  beforeEach(() => {
+    jobs = [];
+    const reply = (status: number, value: unknown) => ({
+      ok: status < 400,
+      status,
+      headers: new Headers(),
+      json: async () => value,
+      text: async () => JSON.stringify(value),
+      arrayBuffer: async () => new ArrayBuffer(0),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown, init?: { body?: unknown }) => {
+        const url = String(input);
+        if (url === "/api/uploads")
+          return reply(200, {
+            slots: [
+              {
+                fileId: "f_panelTest0001",
+                filename: "contract.pdf",
+                url: "https://upload.invalid/slot",
+                method: "PUT",
+                headers: {},
+              },
+            ],
+          });
+        if (url === "https://upload.invalid/slot") return reply(200, {});
+        if (url === "/api/jobs") {
+          // The body as sent: an ArrayBuffer of the JSON (`jsonBody`).
+          const raw = init?.body;
+          const text =
+            typeof raw === "string"
+              ? raw
+              : new TextDecoder().decode(raw as ArrayBuffer);
+          jobs.push(JSON.parse(text) as WireBody);
+          return reply(400, { error: { code: "stop", message: "captured" } });
+        }
+        return reply(200, READY_WORKER_STATUS);
+      }),
+    );
+  });
+  afterEach(() => resetUploadedThisSessionForTests());
+
+  const runButton = () =>
+    screen.getByRole("button", { name: /Prepare signature request/ });
+
+  async function prepare(): Promise<WireBody> {
+    const before = jobs.length;
+    await waitFor(() =>
+      expect(runButton()).not.toHaveAttribute("aria-disabled", "true"),
+    );
+    fireEvent.click(runButton());
+    await waitFor(() => expect(jobs.length).toBe(before + 1), {
+      timeout: 20_000,
+    });
+    return jobs[jobs.length - 1]!;
+  }
+
+  async function ready(pages: number): Promise<HTMLElement> {
+    const { container } = render(<Builder />);
+    pick(container, await pdfFile(pages));
+    addSigner();
+    return screen.findByTestId("signature-page-preview");
+  }
+
+  const boxes = (sheet: HTMLElement) => [
+    ...sheet.querySelectorAll<HTMLElement>("[data-field-box]"),
+  ];
+  /**
+   * What the sheet draws for a box, back in the contract's unit: its outline
+   * (`[data-field-box]`), found from the box's button when given one — the
+   * button is the outline grown to a 24 px target, so it is not the field.
+   */
+  const drawnOf = (el: HTMLElement) => {
+    const outline = el.hasAttribute("data-field-box")
+      ? el
+      : el.parentElement!.querySelector<HTMLElement>(
+          `[data-field-box][data-of="${el.getAttribute("data-box-id")}"]`,
+        )!;
+    return {
+      x: parseFloat(outline.style.left) / 100,
+      y: parseFloat(outline.style.bottom) / 100,
+      width: parseFloat(outline.style.width) / 100,
+      height: parseFloat(outline.style.height) / 100,
+    };
+  };
+  const close = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+  const round4 = (n: number) => Math.round(n * 1e4) / 1e4;
+  const box = (name: RegExp) => screen.getByRole("button", { name });
+
+  it("untouched: the wire carries exactly signatureBlockFields, as drawn, and no message", async () => {
+    const sheet = await ready(2);
+    const body = await prepare();
+    expect(body.tool).toBe("request-signatures");
+    expect(body.options.fields).toEqual(signatureBlockFields(1, 2, true));
+    expect("message" in body.options).toBe(false);
+    const drawn = boxes(sheet).map(drawnOf);
+    body.options.fields.forEach((f, i) => {
+      for (const k of ["x", "y", "width", "height"] as const)
+        expect(close(drawn[i]![k], f[k]), `${i}.${k}`).toBe(true);
+    });
+  });
+
+  it("keyboard: arrows move 1 pt, Shift+arrows 10 pt, Up is up; drawn = sent", async () => {
+    const sheet = await ready(1);
+    const [start] = signatureBlockFields(1, 1, true);
+    const sig = box(/Signature box, page 1/);
+    sig.focus();
+    fireEvent.keyDown(sig, { key: "ArrowRight" });
+    fireEvent.keyDown(box(/Signature box, page 1/), {
+      key: "ArrowUp",
+      shiftKey: true,
+    });
+    const body = await prepare();
+    const sent = body.options.fields.find((f) => f.type === "signature")!;
+    // Independent arithmetic: Letter is 612 x 792 pt; 4-decimal fractions.
+    expect(sent.x).toBe(round4(start!.x + 1 / 612));
+    expect(sent.y).toBe(round4(round4(start!.y) + 10 / 792));
+    expect(sent.page).toBe(1);
+    const drawn = drawnOf(
+      boxes(sheet).find((b) => b.getAttribute("data-kind") === "signature")!,
+    );
+    for (const k of ["x", "y", "width", "height"] as const)
+      expect(close(drawn[k], sent[k]), k).toBe(true);
+    // The date box was not touched and is sent as it started.
+    expect(body.options.fields.find((f) => f.type === "date")).toEqual(
+      signatureBlockFields(1, 1, true)[1],
+    );
+  });
+
+  it("touch drag: 30 px on a 300 px sheet moves the box a tenth of the page; a 2 px wobble is a tap", async () => {
+    const sheet = await ready(1);
+    sheet.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        width: 300,
+        height: 388,
+        right: 300,
+        bottom: 388,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    const [start] = signatureBlockFields(1, 1, true);
+    const at = { pointerId: 1, pointerType: "touch", button: 0 };
+    // A tap: selects, does not move.
+    let sig = box(/Signature box, page 1/);
+    fireEvent.pointerDown(sig, { ...at, clientX: 100, clientY: 300 });
+    fireEvent.pointerMove(sig, { ...at, clientX: 102, clientY: 300 });
+    fireEvent.pointerUp(sig, { ...at, clientX: 102, clientY: 300 });
+    sig = box(/Signature box, page 1/);
+    expect(sig).toHaveAttribute("aria-pressed", "true");
+    expect(drawnOf(sig).x).toBe(start!.x);
+    // A drag.
+    fireEvent.pointerDown(sig, { ...at, clientX: 100, clientY: 300 });
+    fireEvent.pointerMove(sig, { ...at, clientX: 130, clientY: 300 });
+    fireEvent.pointerUp(sig, { ...at, clientX: 130, clientY: 300 });
+    const body = await prepare();
+    const sent = body.options.fields.find((f) => f.type === "signature")!;
+    expect(sent.x).toBe(round4(start!.x + 0.1));
+    expect(sent.y).toBe(round4(start!.y));
+  });
+
+  it("the resize handle: Down makes the box taller with its displayed top fixed", async () => {
+    await ready(1);
+    const sig = box(/Signature box, page 1/);
+    fireEvent.pointerDown(sig, {
+      pointerId: 1,
+      button: 0,
+      clientX: 1,
+      clientY: 1,
+    });
+    fireEvent.pointerUp(sig, {
+      pointerId: 1,
+      button: 0,
+      clientX: 1,
+      clientY: 1,
+    });
+    const before = drawnOf(box(/Signature box, page 1/));
+    const handle = screen.getByRole("button", {
+      name: "Resize Signer 1 Signature box",
+    });
+    fireEvent.keyDown(handle, { key: "ArrowDown", shiftKey: true });
+    const body = await prepare();
+    const sent = body.options.fields.find((f) => f.type === "signature")!;
+    expect(sent.height).toBeGreaterThan(before.height);
+    expect(sent.height - round4(before.height)).toBeCloseTo(10 / 792, 3);
+    expect(sent.y + sent.height).toBeCloseTo(before.y + before.height, 4);
+  });
+
+  it("Delete removes a box and moves focus on; Undo restores it; Start over restores the starting layout", async () => {
+    const sheet = await ready(1);
+    expect(boxes(sheet)).toHaveLength(2);
+    const sig = box(/Signature box, page 1/);
+    sig.focus();
+    fireEvent.keyDown(sig, { key: "Delete" });
+    expect(boxes(sheet)).toHaveLength(1);
+    await waitFor(() =>
+      expect(document.activeElement?.getAttribute("aria-label")).toMatch(
+        /Date box, page 1/,
+      ),
+    );
+    expect(screen.getByText("Removed Signer 1 Signature box")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(boxes(sheet)).toHaveLength(2);
+    // Customise, then Start over: the starting block comes back exactly.
+    fireEvent.keyDown(box(/Signature box, page 1/), { key: "ArrowLeft" });
+    expect(screen.queryByLabelText(/Signature page/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Start over" }));
+    expect(screen.getByLabelText(/Signature page/)).toBeInTheDocument();
+    const body = await prepare();
+    expect(body.options.fields).toEqual(signatureBlockFields(1, 1, true));
+  });
+
+  it("Add a box adds each type for the chosen signer on the page shown; Name is a text box labelled Name", async () => {
+    await ready(1);
+    for (const name of ["Signature", "Initials", "Date", "Name", "Text"])
+      fireEvent.click(screen.getByRole("button", { name }));
+    const body = await prepare();
+    const added = body.options.fields.slice(2);
+    expect(
+      added.map((f) => [f.type, f.label ?? null, f.signer, f.page]),
+    ).toEqual([
+      ["signature", null, 0, 1],
+      ["initials", null, 0, 1],
+      ["date", null, 0, 1],
+      ["text", "Name", 0, 1],
+      ["text", null, 0, 1],
+    ]);
+    for (const f of added) {
+      expect(f.x).toBeGreaterThanOrEqual(0);
+      expect(f.x + f.width).toBeLessThanOrEqual(1);
+      expect(f.y).toBeGreaterThanOrEqual(0);
+      expect(f.y + f.height).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it(`49 boxes: Add still works; ${MAX_REQUEST_FIELDS}: the add buttons are blocked, with the reason`, async () => {
+    await ready(1);
+    const sig = () => screen.getByRole("button", { name: "Signature" });
+    while (
+      screen.queryByText(
+        `Boxes (${MAX_REQUEST_FIELDS - 1} of ${MAX_REQUEST_FIELDS})`,
+      ) === null
+    )
+      fireEvent.click(sig());
+    expect(sig()).not.toHaveAttribute("aria-disabled");
+    expect(screen.queryByText(/can hold up to/)).toBeNull();
+    fireEvent.click(sig());
+    expect(
+      screen.getByText(
+        `Boxes (${MAX_REQUEST_FIELDS} of ${MAX_REQUEST_FIELDS})`,
+      ),
+    ).toBeInTheDocument();
+    expect(sig()).toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.getByText(
+        `A request can hold up to ${MAX_REQUEST_FIELDS} boxes. Remove one to add another.`,
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(sig());
+    const body = await prepare();
+    expect(body.options.fields).toHaveLength(MAX_REQUEST_FIELDS);
+  });
+
+  it("a box moved to another page is sent on that page; labels are sent as typed", async () => {
+    await ready(3);
+    fireEvent.change(screen.getByLabelText("Box 2 page"), {
+      target: { value: "1" },
+    });
+    fireEvent.change(screen.getByLabelText("Box 1 label"), {
+      target: { value: "  Signed by  " },
+    });
+    expect(screen.getByLabelText("Box 1 label")).toHaveAttribute(
+      "maxLength",
+      String(MAX_FIELD_LABEL_CHARS),
+    );
+    const body = await prepare();
+    expect(body.options.fields.map((f) => f.page).sort()).toEqual([1, 3]);
+    expect(body.options.fields.filter((f) => f.label)).toHaveLength(1);
+    expect(body.options.fields.find((f) => f.label)!.label).toBe("Signed by");
+  });
+
+  it("signers: a removed signer takes their boxes; a box whose row is blank blocks Prepare in words, never dropped", async () => {
+    const sheet = await ready(1);
+    fireEvent.click(screen.getByRole("button", { name: /Add signer/ }));
+    fireEvent.change(screen.getByLabelText("Signer 2 name"), {
+      target: { value: "Bob Builder" },
+    });
+    fireEvent.change(screen.getByLabelText("Signer 2 email"), {
+      target: { value: "bob@example.com" },
+    });
+    await waitFor(() => expect(boxes(sheet)).toHaveLength(4));
+    // Customise.
+    fireEvent.keyDown(box(/Signer 1, Ada Lovelace, Signature box/), {
+      key: "ArrowRight",
+    });
+    // Signer 2's row goes blank: their two boxes are orphans and block Prepare.
+    fireEvent.change(screen.getByLabelText("Signer 2 name"), {
+      target: { value: "" },
+    });
+    fireEvent.change(screen.getByLabelText("Signer 2 email"), {
+      target: { value: "" },
+    });
+    expect(
+      screen.getByText(
+        "Boxes 1 and 2 belong to signer 2, who has no name or email yet. Fill in that row or remove those boxes.",
+      ),
+    ).toBeInTheDocument();
+    expect(runButton()).toHaveAttribute("aria-disabled", "true");
+    expect(boxes(sheet)).toHaveLength(4);
+    // Removing the row removes their boxes, and Prepare sends signer 1's only.
+    fireEvent.click(screen.getByRole("button", { name: "Remove signer 2" }));
+    expect(boxes(sheet)).toHaveLength(2);
+    const body = await prepare();
+    expect(body.options.signers).toEqual([
+      { name: "Ada Lovelace", email: "ada@example.com" },
+    ]);
+    expect(body.options.fields.every((f) => f.signer === 0)).toBe(true);
+  });
+
+  it("a signer completed while customised gets a signature box; one left with none blocks Prepare", async () => {
+    const sheet = await ready(1);
+    fireEvent.keyDown(box(/Signature box, page 1/), { key: "ArrowRight" });
+    fireEvent.click(screen.getByRole("button", { name: /Add signer/ }));
+    fireEvent.change(screen.getByLabelText("Signer 2 name"), {
+      target: { value: "Cy Valid" },
+    });
+    fireEvent.change(screen.getByLabelText("Signer 2 email"), {
+      target: { value: "cy@example.com" },
+    });
+    await waitFor(() => expect(boxes(sheet)).toHaveLength(3));
+    const mine = box(/Signer 2, Cy Valid, Signature box/);
+    mine.focus();
+    fireEvent.keyDown(mine, { key: "Delete" });
+    expect(
+      screen.getByText("Signer 2 has no box to fill in. Add one for them."),
+    ).toBeInTheDocument();
+    expect(runButton()).toHaveAttribute("aria-disabled", "true");
+  });
+
+  // Review findings, 2026-11-17. Each reproduces the reviewer's exact sequence.
+  it(`${MAX_REQUEST_FIELDS} boxes, then a signer completed: no starter box past the limit; Prepare blocked in words`, async () => {
+    const sheet = await ready(1);
+    const sig = () => screen.getByRole("button", { name: "Signature" });
+    while (
+      screen.queryByText(
+        `Boxes (${MAX_REQUEST_FIELDS} of ${MAX_REQUEST_FIELDS})`,
+      ) === null
+    )
+      fireEvent.click(sig());
+    fireEvent.click(screen.getByRole("button", { name: /Add signer/ }));
+    fireEvent.change(screen.getByLabelText("Signer 2 name"), {
+      target: { value: "Cy Valid" },
+    });
+    fireEvent.change(screen.getByLabelText("Signer 2 email"), {
+      target: { value: "cy@example.com" },
+    });
+    // Was "Boxes (51 of 50)" with Prepare enabled; the worker refused it.
+    expect(
+      screen.getByText(
+        `Boxes (${MAX_REQUEST_FIELDS} of ${MAX_REQUEST_FIELDS})`,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Signer 2 has no box to fill in. Add one for them."),
+    ).toBeInTheDocument();
+    expect(runButton()).toHaveAttribute("aria-disabled", "true");
+    expect(boxes(sheet).length).toBeLessThanOrEqual(MAX_REQUEST_FIELDS);
+  });
+
+  it("Undo never reaches past a later signer edit: the edit and the added row survive", async () => {
+    const sheet = await ready(1);
+    const sig = box(/Signature box, page 1/);
+    sig.focus();
+    fireEvent.keyDown(sig, { key: "Delete" });
+    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Signer 1 email"), {
+      target: { value: "ada@corrected.example" },
+    });
+    // Was: Undo still offered, and it put back the old email and one row.
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    // And Add signer alone ends it too.
+    const date0 = box(/Date box, page 1/);
+    fireEvent.click(screen.getByRole("button", { name: "Text" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /^Remove box \d+, Signer 1 Text box/,
+      }),
+    );
+    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+    expect(date0).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Add signer/ }));
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    expect(screen.getByLabelText("Signer 1 email")).toHaveValue(
+      "ada@corrected.example",
+    );
+    expect(screen.getByLabelText("Signer 2 name")).toBeInTheDocument();
+    expect(boxes(sheet)).toHaveLength(1);
+    // Control: a blur that only marks the row touched keeps Undo.
+    const date = box(/Date box, page 1/);
+    date.focus();
+    fireEvent.keyDown(date, { key: "Delete" });
+    fireEvent.blur(screen.getByLabelText("Signer 1 email"));
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(boxes(sheet)).toHaveLength(1);
+  });
+
+  it("Undo of a box Remove restores only the boxes; Undo of a signer removal restores the row", async () => {
+    const sheet = await ready(1);
+    fireEvent.click(screen.getByRole("button", { name: /Add signer/ }));
+    fireEvent.change(screen.getByLabelText("Signer 2 name"), {
+      target: { value: "Bob Builder" },
+    });
+    fireEvent.change(screen.getByLabelText("Signer 2 email"), {
+      target: { value: "bob@example.com" },
+    });
+    await waitFor(() => expect(boxes(sheet)).toHaveLength(4));
+    fireEvent.keyDown(box(/Signer 1, Ada Lovelace, Signature box/), {
+      key: "ArrowRight",
+    });
+    const bin2 = screen.getByRole("button", { name: "Remove signer 2" });
+    bin2.focus();
+    fireEvent.click(bin2);
+    expect(boxes(sheet)).toHaveLength(2);
+    // The last row's bin is gone: focus is on a bin still there.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Remove signer 1" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(boxes(sheet)).toHaveLength(4);
+    expect(screen.getByLabelText("Signer 2 email")).toHaveValue(
+      "bob@example.com",
+    );
+  });
+
+  it("Start over, then Undo, then a signer edit: no extra box is handed out", async () => {
+    const sheet = await ready(1);
+    fireEvent.keyDown(box(/Signature box, page 1/), { key: "ArrowRight" });
+    fireEvent.click(screen.getByRole("button", { name: "Start over" }));
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(boxes(sheet)).toHaveLength(2);
+    fireEvent.change(screen.getByLabelText("Signer 1 name"), {
+      target: { value: "Ada King" },
+    });
+    // Was 3 boxes, and ["signature", "date", "signature"] sent.
+    expect(boxes(sheet)).toHaveLength(2);
+    const body = await prepare();
+    expect(body.options.fields.map((f) => f.type)).toEqual([
+      "signature",
+      "date",
+    ]);
+  });
+
+  it("keyboard only: Enter/Space on a box presses its toggle, so the resize handle is reachable without a pointer", async () => {
+    await ready(1);
+    const handleName = "Resize Signer 1 Signature box";
+    let sig = box(/Signature box, page 1/);
+    sig.focus();
+    // A keyboard press of a button is a click with detail 0.
+    fireEvent.click(sig, { detail: 0 });
+    sig = box(/Signature box, page 1/);
+    expect(sig).toHaveAttribute("aria-pressed", "true");
+    const handle = screen.getByRole("button", { name: handleName });
+    handle.focus();
+    const before = drawnOf(sig);
+    fireEvent.keyDown(handle, { key: "ArrowRight", shiftKey: true });
+    expect(drawnOf(box(/Signature box, page 1/)).width).toBeGreaterThan(
+      before.width,
+    );
+    // Pressed again from the keyboard, the toggle releases.
+    fireEvent.click(box(/Signature box, page 1/), { detail: 0 });
+    expect(box(/Signature box, page 1/)).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.queryByRole("button", { name: handleName })).toBeNull();
+  });
+
+  it("focus: Undo lands on the box it restored, Start over on Undo, a list bin on the next row's bin", async () => {
+    await ready(1);
+    const sig = box(/Signature box, page 1/);
+    sig.focus();
+    fireEvent.keyDown(sig, { key: "Delete" });
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() =>
+      expect(document.activeElement?.getAttribute("aria-label")).toMatch(
+        /Signature box, page 1/,
+      ),
+    );
+    fireEvent.keyDown(box(/Signature box, page 1/), { key: "ArrowLeft" });
+    fireEvent.click(screen.getByRole("button", { name: "Start over" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Undo" }),
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Text" }));
+    const bins = () =>
+      screen.getAllByRole("button", { name: /^Remove box \d+,/ });
+    expect(bins()).toHaveLength(3);
+    fireEvent.click(bins()[0]!);
+    await waitFor(() => expect(document.activeElement).toBe(bins()[0]));
+    // The last row's bin: focus goes to the row before.
+    fireEvent.click(bins()[1]!);
+    await waitFor(() => expect(document.activeElement).toBe(bins()[0]));
+    fireEvent.click(bins()[0]!);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Signature" }),
+      ),
+    );
+    // The list's signer badge is drawn in the panel's text colour.
+    fireEvent.click(screen.getByRole("button", { name: "Date" }));
+    const row = document.querySelector<HTMLElement>("[data-box-row]")!;
+    const badge = row.querySelector<HTMLElement>("span[aria-hidden]")!;
+    expect(badge.className).toContain("text-fg");
+    expect(badge.style.color).toBe("");
+  });
+
+  it("message: line breaks are sent as spaces, blank is not sent, counted and capped", async () => {
+    await ready(1);
+    const area = screen.getByLabelText(/Message to signers/);
+    expect(area).toHaveAttribute(
+      "maxLength",
+      String(MAX_REQUEST_MESSAGE_CHARS),
+    );
+    const nl = String.fromCharCode(10);
+    const tab = String.fromCharCode(9);
+    fireEvent.change(area, { target: { value: `a${nl}b${tab}c` } });
+    expect(screen.getByText(/5 of 1,000 characters/)).toBeInTheDocument();
+    const body = await prepare();
+    expect(body.options.message).toBe("a b c");
+    fireEvent.change(area, { target: { value: `  ${nl} ` } });
+    const blank = await prepare();
+    expect("message" in blank.options).toBe(false);
+  });
+
+  it("the 8 KB options ceiling: blocked in words exactly when the server's own validator refuses the same object", async () => {
+    const { container } = render(<Builder />);
+    pick(container, await pdfFile(1));
+    for (let i = 1; i <= MAX_REQUEST_SIGNERS; i += 1) {
+      if (i > 1)
+        fireEvent.click(screen.getByRole("button", { name: /Add signer/ }));
+      fireEvent.change(screen.getByLabelText(`Signer ${i} name`), {
+        target: { value: `${i}`.padEnd(MAX_SIGNER_NAME_CHARS, "n") },
+      });
+      fireEvent.change(screen.getByLabelText(`Signer ${i} email`), {
+        target: { value: `${"e".repeat(230)}${i}@example.com` },
+      });
+    }
+    await screen.findByTestId("signature-page-preview");
+    const empty = await prepare();
+    const size = (o: unknown) =>
+      new TextEncoder().encode(JSON.stringify(o)).byteLength;
+    const base = size(empty.options);
+    // `,"message":""` adds 13 bytes; fill the rest with a 3-byte character
+    // (built from its code point) and ASCII, to land on the limit exactly.
+    const room = JOB_LIMITS.maxOptionsBytes - base - 13;
+    const euro = String.fromCodePoint(0x20ac);
+    const threes = Math.floor(room / 3);
+    const atLimit = euro.repeat(threes) + "m".repeat(room - threes * 3);
+    expect(atLimit.length).toBeLessThanOrEqual(MAX_REQUEST_MESSAGE_CHARS);
+    const message = screen.getByLabelText(/Message to signers/);
+    fireEvent.change(message, { target: { value: atLimit } });
+    const full = await prepare();
+    // Health: the control really is AT the limit, and the server takes it.
+    expect(size(full.options)).toBe(JOB_LIMITS.maxOptionsBytes);
+    const accepted = parseCreateJobRequest(full);
+    expect(
+      accepted.ok,
+      JSON.stringify(accepted.ok ? null : accepted.error.body),
+    ).toBe(true);
+    expect(screen.queryByText(TOO_LONG_SENTENCE)).toBeNull();
+    // One byte more: the panel blocks, in words, and the server would refuse.
+    fireEvent.change(message, { target: { value: `${atLimit}m` } });
+    expect(screen.getByText(TOO_LONG_SENTENCE)).toBeInTheDocument();
+    expect(runButton()).toHaveAttribute("aria-disabled", "true");
+    const over = {
+      ...full,
+      options: { ...full.options, message: `${atLimit}m` },
+    };
+    expect(size(over.options)).toBe(JOB_LIMITS.maxOptionsBytes + 1);
+    expect(parseCreateJobRequest(over).ok).toBe(false);
   });
 });

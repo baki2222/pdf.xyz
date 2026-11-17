@@ -29,7 +29,11 @@ import {
  *    permissions and owner password byte for byte.
  *  - UNLOCKED (owner password verified): everything. The editor works on
  *    the decrypted copy and saves an UNENCRYPTED file — what Unlock PDF
- *    does on the server, here in the browser.
+ *    does on the server, here in the browser. Rotate PDF, unlocked by the
+ *    owner password typed under its refusal (`./open-with-password`),
+ *    still saves through {@link ProtectedPdf.saveChanges}: the rotation is
+ *    allowed, and the copy keeps the author's encryption
+ *    (`owner-password-matrix.test.ts`).
  *
  * The owner password is checked and dropped: this object holds no copy of
  * it, and nothing here logs it or sends it anywhere.
@@ -126,7 +130,10 @@ export class ProtectedPdf {
       plain: this.plain,
       edited,
       allowAnnotations: this.permissions.annotate,
-      allowRotation: this.#grantsAssembly,
+      // The owner password, typed (`./open-with-password`), waives the
+      // author's grant: a rotation is still written under the author's own
+      // encryption, so the copy keeps every restriction and password.
+      allowRotation: this.#grantsAssembly || this.#unlocked,
     });
   }
 
@@ -149,10 +156,13 @@ export class ProtectedPdf {
       if (!handler) return { kind: "needs-password" };
       const doc = await decryptDocument(bytes, handler, xref);
       const plain = await writePlain(doc);
-      return {
-        kind: "opened",
-        pdf: new ProtectedPdf(bytes, plain, handler, xref),
-      };
+      const pdf = new ProtectedPdf(bytes, plain, handler, xref);
+      // A TYPED password that is the owner's unlocks, as {@link unlock}
+      // would. Never the empty one: a file whose owner password is empty
+      // opens "as owner" for anyone, and that is not a person proving it.
+      if (password !== "" && handler.authenticatedAs === "owner")
+        pdf.#unlocked = true;
+      return { kind: "opened", pdf };
     } catch (err) {
       if (err instanceof UnsupportedEncryptionError)
         return { kind: "unsupported", reason: err.message };

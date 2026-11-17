@@ -1628,6 +1628,28 @@ const TOOL_PAGES_TO_COME = {
   //  with the whole oversize clause duplicated, Translate +837 (before
   //  `declareTranslateRun`, +46 of the +871).
   // Nothing allocated: every row has the headroom (test:bundle green).
+  // RETURNED, 2026-11-17, by Request Signatures' placement editor (audit
+  // #21: drag, resize, the arrow keys, Add a box per signer and type, the
+  // box list, a message box, the 8 KB options measure). Measured gzip -9
+  // over each page's first-load chunks (scripts/page-weight.ts's method),
+  // main 299547d9 and the branch, each built in E:/wreqsig from an empty
+  // .next, all 144 pages:
+  //  - tools/request-signatures 236,094 -> 234,449 (-1,645): the old
+  //    preview statically imported `clampPixelRatio` from render-utils,
+  //    which put render-utils and pdf-to-image's raster constants in this
+  //    page's first load; the editor draws through usePageImageState, in
+  //    its own chunk. The panel's own additions (the message box, the
+  //    signer ids, the options measure through the exported
+  //    `requestSignaturesJobOptions`, the editor's `import()`) sit inside
+  //    that figure.
+  //  - every other page -4..-9: the runtime's chunk map (the editor's chunk
+  //    is new) and the catalogue's shorter Request Signatures description.
+  //  - on demand: the editor's chunk, 14,963 raw / 5,812 gz (the editor,
+  //    request-layout.ts, use-page-image), requested WITH the PDF read and
+  //    bounded in lazy-chunks.test.ts. The stylesheet lost the two
+  //    arbitrary-value classes only the old preview used (its 220 px
+  //    width cap and its 8 px label size) and gained none: 15,285 ->
+  //    15,273 gz.
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -

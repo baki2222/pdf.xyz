@@ -63,6 +63,7 @@ import {
 } from "@/lib/workers/pdf-office-export/picture-limits";
 import { MAX_TOOL_NOTES } from "@/lib/jobs/tool-notes";
 import {
+  MAX_REQUEST_FIELDS,
   MAX_REQUEST_SIGNERS,
   REQUEST_PACKAGE_FILES,
 } from "@/lib/jobs/request-signatures";
@@ -905,7 +906,7 @@ const FACTS: Record<string, readonly ToolFact[]> = {
   "request-signatures": [
     {
       label: "Signers",
-      value: `Up to ${MAX_REQUEST_SIGNERS} per request, each given a named, fillable signature field — with a date field beside it if you ask for one.`,
+      value: `Up to ${MAX_REQUEST_SIGNERS} per request, each with at least one named, fillable box: a signature, initials, a date, a name or other text, on any page, up to ${MAX_REQUEST_FIELDS} boxes in all.`,
     },
   ],
   "ai-extract": [
@@ -1383,7 +1384,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: "Can I merge password-protected PDFs?",
-          answer: `Not while they are locked. A password-protected PDF is turned away when you add it, with a note saying so; remove the password with ${toolName("unlock-pdf")}, then add the unlocked copy.`,
+          answer: `Yes, with the owner password. A password-protected or restricted PDF is turned away when you add it, with a note saying so and an Owner password field under it; type the owner password there (or, for a file whose author set no restrictions, the password that opens it) and the file joins the merge, checked in your browser. Or remove the password with ${toolName("unlock-pdf")} first, then add the unlocked copy.`,
         },
         rebuildEntry(tool, "merge"),
       ];

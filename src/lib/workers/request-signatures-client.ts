@@ -37,23 +37,53 @@ export interface RequestSignaturesWorkerInput {
   deliver?: boolean;
 }
 
+/**
+ * Free text as the worker takes it: its parser refuses any C0 control
+ * character or DEL (`parseText`), and a textarea makes line breaks likely, so
+ * each run of them becomes one space. Blank after that means "not given".
+ */
+const sendable = (text: string | undefined) =>
+  text?.replace(/[\u0000-\u001F\u007F]+/g, " ").trim() || undefined;
+
+/**
+ * The exact `options` object a request's job is created with — one
+ * definition, so the panel can measure the bytes the server's 8 KB options
+ * ceiling will measure (`JOB_LIMITS.maxOptionsBytes`) before anything is
+ * uploaded, instead of a copy that could drift from what is sent. Title,
+ * message and box labels go through {@link sendable}; a field without a label
+ * is passed through as the same object, so an untouched layout is sent
+ * byte for byte as before.
+ */
+export function requestSignaturesJobOptions(
+  input: Omit<RequestSignaturesWorkerInput, "filename" | "bytes">,
+): Record<string, unknown> {
+  const jobOptions: Record<string, unknown> = {
+    signers: input.signers,
+    fields: input.fields.map((field) => {
+      if (field.label === undefined) return field;
+      const { label, ...rest } = field;
+      const text = sendable(label);
+      return text ? { ...rest, label: text } : rest;
+    }),
+  };
+  if (input.routing !== undefined) jobOptions.routing = input.routing;
+  const title = sendable(input.title);
+  if (title !== undefined) jobOptions.title = title;
+  const message = sendable(input.message);
+  if (message !== undefined) jobOptions.message = message;
+  if (input.deliver !== undefined) jobOptions.deliver = input.deliver;
+  return jobOptions;
+}
+
 export function runWorkerRequestSignatures(
   input: RequestSignaturesWorkerInput,
   options: PdfSecurityWorkerOptions = {},
 ): Promise<RequestSignaturesWorkerResult> {
-  const jobOptions: Record<string, unknown> = {
-    signers: input.signers,
-    fields: input.fields,
-  };
-  if (input.routing !== undefined) jobOptions.routing = input.routing;
-  if (input.title !== undefined) jobOptions.title = input.title;
-  if (input.message !== undefined) jobOptions.message = input.message;
-  if (input.deliver !== undefined) jobOptions.deliver = input.deliver;
   return runSecurityJob(
     "request-signatures",
     input.filename,
     input.bytes,
-    jobOptions,
+    requestSignaturesJobOptions(input),
     options,
   );
 }

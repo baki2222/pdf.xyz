@@ -17,6 +17,7 @@ import {
   readRestrictedFixture,
 } from "@/tests/restricted-pdf-fixtures";
 import { ToolRunner } from "./tool-runner";
+import { OWNER_PASSWORD_LABEL } from "@/lib/pdf/owner-password-copy";
 import { runnerMounted } from "@/tests/runner-mounted";
 import { GRANTED_NOTE, WITHHELD_MESSAGE } from "./restricted-grant";
 import { GRANT_PERMISSION_NAME } from "@/lib/pdf/restricted-grant-names";
@@ -149,7 +150,7 @@ describe("rotate-pdf: a PDF its author restricted", () => {
     expect(read.rotations).toEqual([90, 90]);
   }, 30_000);
 
-  it("assembly withheld: names the permission and the owner password, and offers no Apply", async () => {
+  it("assembly withheld: names the permission and the owner password, offers no Apply, and carries the owner-password field", async () => {
     await drop(NO_ASSEMBLE_COPY_FIXTURE.file);
     const alert = await screen.findByText(
       WITHHELD_MESSAGE.assemble,
@@ -163,6 +164,16 @@ describe("rotate-pdf: a PDF its author restricted", () => {
     expect(
       screen.getByRole("link", { name: /unlock pdf/i }).getAttribute("href"),
     ).toBe("/tools/unlock-pdf");
+    // 2026-11-17 (competitor-audit backlog #11): until then this refusal
+    // ended with Unlock PDF, an upload, as the only way forward. It now
+    // carries the owner-password field, checked in the browser; Unlock PDF
+    // stays as the alternative. What the field does with each kind of
+    // password is `owner-password-runners.test.tsx`.
+    expect(
+      await screen.findByLabelText(OWNER_PASSWORD_LABEL, undefined, {
+        timeout: 10_000,
+      }),
+    ).toBeTruthy();
     // And the way back is a real control.
     fireEvent.click(
       screen.getByRole("button", { name: /choose another pdf/i }),
