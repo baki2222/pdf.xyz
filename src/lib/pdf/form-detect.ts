@@ -306,7 +306,9 @@ export function emptyCounts(): DetectCounts {
  *  Text: where each character sits
  * ------------------------------------------------------------------ */
 
-const UNDERSCORE_RUN = /[_\uFF3F]{4,}/g;
+// Built from DETECT.UNDERSCORE_MIN, so the constant is the one that decides
+// (it once sat beside a literal {4,} that nothing tied it to).
+const UNDERSCORE_RUN = new RegExp(`[_\\uFF3F]{${DETECT.UNDERSCORE_MIN},}`, "g");
 const isUnderscore = (ch: string) => ch === "_" || ch === "\uFF3F";
 const isSpace = (ch: string) => /\s/.test(ch);
 
