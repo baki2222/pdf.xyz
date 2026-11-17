@@ -678,7 +678,11 @@ function FieldCard({
     <div
       data-field-card={draft.id}
       className="border-line bg-wash rounded-panel flex flex-col gap-4 border p-4 sm:p-5"
-      style={selected ? { borderColor: "var(--color-accent)" } : undefined}
+      // The raw `--sf-accent` token, not the accent's theme variable:
+      // Tailwind emits a theme variable once any scanned file names it (a
+      // comment included), and naming it here grew the shipped stylesheet,
+      // at its ceiling, by 32 B for one border.
+      style={selected ? { borderColor: "var(--sf-accent)" } : undefined}
       onFocusCapture={onSelect}
       onPointerDownCapture={onSelect}
     >
