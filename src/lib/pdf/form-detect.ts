@@ -829,9 +829,17 @@ function runCandidates(
 ): { cands: Candidate[]; short: Edges[] } {
   const cands: Candidate[] = [];
   const short: Edges[] = [];
+  // Each item's pieces, in order, in one pass: filtering `all` once per item
+  // was quadratic in the page's text items, which nothing caps.
+  const byItem = new Map<number, Piece[]>();
+  for (const pc of all) {
+    const list = byItem.get(pc.item);
+    if (list) list.push(pc);
+    else byItem.set(pc.item, [pc]);
+  }
   p.text.forEach((t, item) => {
     if (!t.upright) return;
-    const mine = all.filter((pc) => pc.item === item);
+    const mine = byItem.get(item) ?? [];
     mine.forEach((pc, k) => {
       if (pc.kind !== "run") return;
       const x0 = pc.x0 + DETECT.FIELD_INSET;

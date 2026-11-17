@@ -443,6 +443,28 @@ describe("underscore-run", () => {
   it("a run with no label is still proposed (underscores are a field on their own)", () => {
     expect(props(runItem("________", 60))[0]).toMatchObject({ label: null });
   });
+
+  // Each text item filtered every piece on the page to find its own:
+  // quadratic in text items, which nothing caps (2.2 s for a page of 20,000
+  // items through the reader; review finding).
+  it("finds each item's pieces in one pass, not one scan per item", () => {
+    const text: CardText[] = [];
+    for (let k = 0; k < 20_000; k++)
+      text.push(
+        txt("ab", 10 + (k % 75) * 8, 10 + Math.floor(k / 75) * 2.9, {
+          size: 2,
+          width: 2,
+        }),
+      );
+    text.push(txt("Name: ________", 10, 780, { size: 2, width: 40 }));
+    const t0 = performance.now();
+    const r = run(pg({ text }));
+    const ms = performance.now() - t0;
+    // Health: the one run among them is still found.
+    expect(r.counts.candidates).toBe(1);
+    // Measured before: about 1.5 s; after: well under 100 ms.
+    expect(ms).toBeLessThan(300);
+  });
 });
 
 describe("UNDERSCORE_EMS: placing a run inside its item", () => {
