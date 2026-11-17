@@ -39,17 +39,19 @@ test.describe("page boards · view a page larger", () => {
       await expect(dialog).toBeHidden();
       await expect(second).toBeFocused();
 
-      // Keyboard: Tab reaches page 3's button from page 3's own control.
-      const third = zoomButton(page, 3);
+      // Keyboard: Tab reaches the last page's button. Split's last page has
+      // no cut of its own, so from page 2's cut it is two Tabs (page 2's
+      // button, then page 3's); elsewhere one Tab from page 3's own control.
+      // (Until review, Split targeted page 2 here: page 3's button could not
+      // be reached by any key.)
+      const target = zoomButton(page, 3);
       const start =
         board.slug === "split-pdf"
-          ? // Split's last page has no cut; start from page 2's cut.
-            page.getByRole("button", { name: "Cut after page 2" })
+          ? page.getByRole("button", { name: "Cut after page 2" })
           : board.slug === "organize-pages"
             ? page.getByRole("button", { name: /^Reorder page 3/ })
             : // Resize's tiles add the page size to the name.
               page.getByRole("button", { name: /^Page 3(,|$)/ });
-      const target = board.slug === "split-pdf" ? second : third;
       await start.focus();
       let reached = false;
       for (let i = 0; i < 6 && !reached; i++) {
@@ -59,8 +61,7 @@ test.describe("page boards · view a page larger", () => {
       expect(reached, "Tab reaches the enlarge button").toBe(true);
       await page.keyboard.press("Enter");
       await expect(dialog).toBeVisible();
-      const n = board.slug === "split-pdf" ? 2 : 3;
-      expect(await shownAspect(dialog)).toBeCloseTo(aspect(n), 1);
+      expect(await shownAspect(dialog)).toBeCloseTo(aspect(3), 1);
       await page.keyboard.press("Escape");
       await expect(dialog).toBeHidden();
       await expect(target).toBeFocused();

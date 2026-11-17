@@ -18,7 +18,8 @@
  * arrow keys, Home and End move it; Space or Enter presses the focused tile.
  * The page holding that stop also offers "View page N larger" as the next
  * Tab (backlog #9, 2026-11-17): the page as it is in the file, which is what
- * the tile shows too.
+ * the tile shows too. In cut mode the last page has no cut, so while the last
+ * cut holds the stop the last page's button follows its neighbour's.
  *
  * Loaded only through `page-picker-lazy.tsx`, so its code — and the tiles and
  * thumbnail hook it brings — is fetched when a picker is first shown.
@@ -201,12 +202,18 @@ export function PagePicker({
             </>
           );
           // Its tab stop follows the page's own control: the stop's page.
+          // In cut mode the last page has no control of its own, so its
+          // button is also a Tab stop while the last cut holds the stop —
+          // otherwise no key could reach it.
+          const zoomStop =
+            i === stop ||
+            (mode === "cut" && i === pageCount - 1 && stop === lastFocusable);
           const zoomButton = (
             <span data-page-zoom="" className="contents">
               <ZoomButton
                 pageNumber={i + 1}
                 onClick={() => setZoom(i)}
-                tabIndex={i === stop ? 0 : -1}
+                tabIndex={zoomStop ? 0 : -1}
               />
             </span>
           );

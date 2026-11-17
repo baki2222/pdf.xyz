@@ -210,6 +210,42 @@ describe("Split · cut mode", () => {
   }, 30_000);
 });
 
+// Review of PR zoom, 2026-11-17: the last page's button was tabIndex -1 at
+// every stop, because the grid's stop is capped at the last CUT and the last
+// page has none. A keyboard user could not reach page 3's enlarge button.
+describe("Split · cut mode keyboard", () => {
+  it("lets Tab reach the last page's enlarge button from the last cut", async () => {
+    const bytes = await pagesPdf(3);
+    render(
+      <SplitEditor
+        pdf={{
+          file: new File([bytes.slice()], "deck.pdf", {
+            type: "application/pdf",
+          }),
+          bytes,
+          pageCount: 3,
+          rotations: [0, 0, 0],
+          digitalSignatures: countDigitalSignatures(bytes),
+        }}
+        onReset={() => {}}
+      />,
+    );
+    const last = await screen.findByRole("button", { name: zoomLabel(3) });
+    const tabStops = () =>
+      [1, 2, 3].map(
+        (n) => screen.getByRole("button", { name: zoomLabel(n) }).tabIndex,
+      );
+    // The stop starts on page 1: only page 1's button is a Tab stop.
+    expect(tabStops()).toEqual([0, -1, -1]);
+    screen.getByRole("button", { name: cutAfterLabel(2) }).focus();
+    // The last cut holds the stop: its page's button and the last page's.
+    await waitFor(() => expect(tabStops()).toEqual([-1, 0, 0]));
+    // Focus on the last page's button keeps the stop where it was.
+    last.focus();
+    await waitFor(() => expect(tabStops()).toEqual([-1, 0, 0]));
+  }, 30_000);
+});
+
 describe("PDF to PNG · select mode", () => {
   it("shows the page large and does not toggle the tile", async () => {
     const { container } = render(
