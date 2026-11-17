@@ -58,13 +58,20 @@ function oldSafeInputName(filename: string): string {
   return `input${ext || ".docx"}`;
 }
 
-/** THE predicate: what every stem the runner writes must satisfy. */
-const STEM_SHAPE = /^[\p{L}\p{M}\p{N}_][\p{L}\p{M}\p{N} _-]*$/u;
+/**
+ * THE predicate: what every stem the runner writes must satisfy. WAS a first
+ * character of `[\p{L}\p{M}\p{N}_]` and no check for invisible characters,
+ * so a stem made of the Hangul filler U+3164 (a letter that draws nothing) or
+ * one opening on a bare combining mark passed (review 2026-11-18).
+ */
+const STEM_SHAPE = /^[\p{L}\p{N}_][\p{L}\p{M}\p{N} _-]*$/u;
+const INVISIBLE = /[\p{Cf}\p{Default_Ignorable_Code_Point}]/u;
 const RESERVED =
   /^(?:con|prn|aux|nul|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3])$/i;
 function stemProblems(stem: string): string[] {
   const out: string[] = [];
   if (!STEM_SHAPE.test(stem)) out.push("shape");
+  if (INVISIBLE.test(stem)) out.push("invisible");
   if (stem !== stem.trimEnd()) out.push("trailing space");
   if (/ {2}/.test(stem)) out.push("double space");
   if ([...stem].length > INPUT_STEM_MAX_CODE_POINTS) out.push("code points");
@@ -114,6 +121,14 @@ const HOSTILE: readonly { name: string; raw: boolean }[] = [
   { name: "it's [draft] (v2).docx", raw: true },
   { name: "x.", raw: false },
   { name: "x..", raw: true },
+  // Invisible letters and marks (review 2026-11-18): each drew a blank header.
+  { name: `${cp(0x3164)}.csv`, raw: true },
+  { name: `${cp(0x115f)}.csv`, raw: true },
+  { name: `${cp(0xffa0)}${cp(0x1160)}.csv`, raw: true },
+  { name: `${cp(0xfe0f)}.csv`, raw: true },
+  { name: `${cp(0x034f)}.csv`, raw: true },
+  { name: `${cp(0x0301)}x.csv`, raw: true },
+  { name: `-${cp(0x0301)}x.csv`, raw: true },
 ];
 
 describe("sanitizeInputStem over a hostile corpus", () => {
@@ -181,6 +196,17 @@ describe("sanitizeInputStem over a hostile corpus", () => {
       "a\tb\nc.csv": "a b c",
       [`${cp(0x1f600)}report.csv`]: "report",
       "it's [draft] (v2).docx": "it s draft v2",
+      // Nothing visible is left, so the fallback, not a blank header.
+      [`${cp(0x3164)}.csv`]: INPUT_NAME_FALLBACK_STEM,
+      [`${cp(0x115f)}.csv`]: INPUT_NAME_FALLBACK_STEM,
+      [`${cp(0xffa0)}${cp(0x1160)}.csv`]: INPUT_NAME_FALLBACK_STEM,
+      [`${cp(0xfe0f)}.csv`]: INPUT_NAME_FALLBACK_STEM,
+      [`${cp(0x034f)}.csv`]: INPUT_NAME_FALLBACK_STEM,
+      // A combining mark with nothing to sit on is dropped at the start.
+      [`${cp(0x0301)}x.csv`]: "x",
+      [`-${cp(0x0301)}x.csv`]: "x",
+      // An invisible filler inside a word is dropped, not made a space.
+      [`a${cp(0x3164)}b.csv`]: "ab",
     };
     for (const [name, stem] of Object.entries(want))
       expect([name, sanitizeInputStem(name)]).toEqual([name, stem]);
@@ -193,10 +219,30 @@ describe("sanitizeInputStem over a hostile corpus", () => {
     // Four bytes each: the byte bound binds first, and no surrogate is split.
     const ext = sanitizeInputStem(`${CJK_EXT_B.repeat(100)}.csv`);
     expect(ext).toBe(CJK_EXT_B.repeat(Math.floor(INPUT_STEM_MAX_BYTES / 4)));
-    // Three bytes each, seven code points per word: cut mid-word, whole code points.
-    const bn = sanitizeInputStem(`${BENGALI.repeat(40)}.csv`);
-    expect([...bn].length).toBe(Math.floor(INPUT_STEM_MAX_BYTES / 3));
-    expect(BENGALI.repeat(40).startsWith(bn)).toBe(true);
+    // Three bytes each, seven code points per word: cut mid-word, never
+    // inside a grapheme cluster. WAS a code-point cut, which ended this name
+    // on a consonant whose vowel sign was cut off (review 2026-11-18).
+    const raw = BENGALI.repeat(40);
+    const bn = sanitizeInputStem(`${raw}.csv`);
+    const byBytes = Math.floor(INPUT_STEM_MAX_BYTES / 3);
+    expect(raw.startsWith(bn)).toBe(true);
+    expect(utf8(bn)).toBeLessThanOrEqual(INPUT_STEM_MAX_BYTES);
+    // CONTROL: the code-point cut here would split a cluster (the next code
+    // point is a mark), so this case can tell the two cuts apart.
+    expect([...raw][byBytes]).toMatch(/\p{M}/u);
+    const next = [...raw][[...bn].length]!;
+    expect(next).not.toMatch(/\p{M}/u);
+    expect([...bn].length).toBeLessThan(byBytes);
+    expect([...bn].length).toBeGreaterThanOrEqual(byBytes - BENGALI.length);
+    // The rest of the name starts a new cluster where the cut is made.
+    const segmenter = new Intl.Segmenter(undefined, {
+      granularity: "grapheme",
+    });
+    const ends = new Set<number>();
+    let at = 0;
+    for (const { segment } of segmenter.segment(raw))
+      ends.add((at += segment.length));
+    expect(ends.has(bn.length)).toBe(true);
   });
 });
 

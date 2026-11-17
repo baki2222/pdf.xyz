@@ -46,11 +46,23 @@ const WINDOWS_RESERVED =
 const utf8Bytes = (s: string) => new TextEncoder().encode(s).byteLength;
 
 /**
+ * Characters that draw nothing: format characters (a right-to-left override,
+ * a zero-width joiner) and every Default_Ignorable_Code_Point, which adds the
+ * ones that are letters or marks by category: the Hangul fillers U+115F,
+ * U+1160, U+3164 and U+FFA0 (Lo), the variation selectors and U+034F (Mn).
+ * ADDED 2026-11-18 (review): a name made only of U+3164 kept it, and the
+ * header looked blank instead of saying "document".
+ */
+const INVISIBLE = /[\p{Cf}\p{Default_Ignorable_Code_Point}]/u;
+
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/**
  * The user's file name without its directory and its last extension, kept
  * to letters, marks, digits, space, hyphen and underscore (any other run of
- * characters becomes one space), with no leading dot or hyphen, bounded in
- * code points and bytes (cut on a code-point boundary), and never empty or a
- * Windows device name.
+ * characters becomes one space; invisible ones are dropped), with no leading
+ * dot, hyphen or mark, bounded in code points and bytes (cut on a grapheme
+ * boundary), and never empty or a Windows device name.
  */
 export function sanitizeInputStem(filename: string): string {
   const base = filename.split(/[/\\]/).pop() ?? "";
@@ -59,9 +71,8 @@ export function sanitizeInputStem(filename: string): string {
   let stem = "";
   let pendingSpace = false;
   for (const ch of raw) {
-    // Format characters (a right-to-left override, a zero-width joiner) are
-    // dropped outright: they are invisible, so they never separate words.
-    if (/\p{Cf}/u.test(ch)) continue;
+    // Invisible characters are dropped outright: they never separate words.
+    if (INVISIBLE.test(ch)) continue;
     if (ALLOWED.test(ch) && !/\s/u.test(ch)) {
       if (pendingSpace && stem) stem += " ";
       pendingSpace = false;
@@ -71,19 +82,23 @@ export function sanitizeInputStem(filename: string): string {
       pendingSpace = true;
     }
   }
-  // No leading hyphen (an argv reader may take it for an option); dots never
+  // No leading hyphen (an argv reader may take it for an option), and no
+  // leading mark (a combining accent with nothing to sit on); dots never
   // survive the loop, so no leading dot either.
-  stem = stem.replace(/^[-\s]+/u, "");
+  stem = stem.replace(/^[-\s\p{M}]+/u, "");
+  // Cut on a grapheme boundary, so a long Bengali name never ends on a bare
+  // vowel sign: a cluster that does not fit whole is left out whole.
   let kept = "";
   let count = 0;
-  for (const ch of stem) {
+  for (const { segment } of graphemes.segment(stem)) {
+    const n = [...segment].length;
     if (
-      count + 1 > INPUT_STEM_MAX_CODE_POINTS ||
-      utf8Bytes(kept + ch) > INPUT_STEM_MAX_BYTES
+      count + n > INPUT_STEM_MAX_CODE_POINTS ||
+      utf8Bytes(kept + segment) > INPUT_STEM_MAX_BYTES
     )
       break;
-    kept += ch;
-    count += 1;
+    kept += segment;
+    count += n;
   }
   kept = kept.trimEnd();
   if (!kept) return INPUT_NAME_FALLBACK_STEM;
