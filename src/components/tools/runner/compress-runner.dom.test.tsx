@@ -62,7 +62,11 @@ import type { WorkerStatus } from "@/lib/workers/status";
 import { DevWorkerStore } from "@/lib/workers/store";
 import { encryptPdf } from "@/tests/encrypted-pdf";
 import { LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
-import { BATCH_RESTRICTED_NOTE } from "@/lib/pdf/compress-batch-copy";
+import {
+  BATCH_RESTRICTED_NOTE,
+  BATCH_TARGET_NOTE,
+  batchTargetAlreadyFits,
+} from "@/lib/pdf/compress-batch-copy";
 import { useWorkerStatus } from "../use-worker-status";
 import {
   colourImagePdf,
@@ -83,6 +87,7 @@ import { nativeArgs } from "@/lib/workers/compression/native";
 import { ToolRunProvider } from "./tool-context";
 import {
   PRESET_ALREADY_SMALLER_TITLE,
+  TARGET_SIZE_LABELS,
   TARGET_SIZE_PRESETS,
 } from "@/lib/pdf/compress-target";
 import { getGuideBySlug } from "@/lib/guides";
@@ -147,6 +152,8 @@ function answerWithLocalWorker(
     },
   });
   const uploads: Uint8Array[] = [];
+  /** The `options` of every job the browser created, as it sent them. */
+  const jobs: Record<string, unknown>[] = [];
   const json = (value: unknown, status = 200) =>
     new Response(JSON.stringify(value), { status });
   const reply = <T,>(
@@ -175,6 +182,7 @@ function answerWithLocalWorker(
           return put.ok ? json({}) : json({ error: put.reason }, 400);
         }
         if (url === "/api/jobs" && init?.method === "POST") {
+          jobs.push((parsed() as { options: Record<string, unknown> }).options);
           const created = await adapter.createJob(parsed());
           return reply(
             rewriteJob && created.ok
@@ -198,7 +206,7 @@ function answerWithLocalWorker(
       },
     ),
   );
-  return { uploads };
+  return { uploads, jobs };
 }
 
 /** Text a person would read — several pages, no object streams (so the repack shrinks it). */
@@ -1563,3 +1571,269 @@ describe("Compress: a size guide's ?size= link", { timeout: 30_000 }, () => {
     expect(hint()).not.toBeNull();
   });
 });
+
+describe(
+  "Compress batch on our secure server: Target size and Image quality (audit backlog #15)",
+  { timeout: 30_000 },
+  () => {
+    // Until this, a deep batch offered only Quality and Grayscale, though the
+    // single-file panel and the worker both took a target and a JPEG level.
+    // Through the REAL local-dev adapter (option parser, ladder, job record),
+    // with only Ghostscript played: its file is about `dpi` KB, so which rung
+    // shipped is readable from the size (as the single-file target tests).
+    const KB = 1024;
+    const DASH = String.fromCodePoint(0x2014);
+    const native: NativeCompressor = async (_input, ctx) =>
+      colourImagePdf({
+        components: ctx.options.grayscale ? 1 : 3,
+        size: 8,
+        pad: ctx.options.targetDpi * 256,
+      });
+
+    async function startDeepBatch(
+      files: File[],
+      rewriteJob?: Parameters<typeof answerWithLocalWorker>[1],
+    ) {
+      const worker = answerWithLocalWorker(native, rewriteJob);
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, files);
+      fireEvent.click(
+        await screen.findByRole(
+          "radio",
+          { name: /compress images on our server/i },
+          { timeout: 10_000 },
+        ),
+      );
+      return worker;
+    }
+
+    function pickLow() {
+      fireEvent.click(
+        screen.getByRole("button", { name: IMAGE_QUALITY_LABELS.disclosure }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Low" }));
+    }
+
+    const rowOf = (name: string) =>
+      within(screen.getByRole("list", { name: /files in this batch/i }))
+        .getByText(name)
+        .closest("li")!;
+
+    const bigPdf = () =>
+      colourImagePdf({ components: 3, size: 8, pad: (600 * KB) / 4 });
+
+    it("every file is sent the level; the target only to a file it is under, and the row that already fits says so", async () => {
+      const big = await bigPdf();
+      const small = await colourImagePdf({
+        components: 3,
+        size: 8,
+        pad: (150 * KB) / 4,
+      });
+      // Health check: the fixtures sit either side of the target.
+      expect(big.byteLength).toBeGreaterThan(200 * KB);
+      expect(small.byteLength).toBeLessThanOrEqual(200 * KB);
+      const { jobs } = await startDeepBatch([
+        asFile(big, "big.pdf"),
+        asFile(small, "small.pdf"),
+      ]);
+      fireEvent.click(screen.getByRole("button", { name: "200 KB" }));
+      expect(
+        screen.getByText(BATCH_TARGET_NOTE, { exact: false }),
+      ).toBeVisible();
+      pickLow();
+      fireEvent.click(
+        screen.getByRole("button", { name: /compress 2 pdfs on our server/i }),
+      );
+      await screen.findByText(/batch complete/i, {}, { timeout: 10_000 });
+
+      expect(jobs).toEqual([
+        {
+          profile: "deep",
+          targetDpi: 150,
+          targetBytes: 200 * KB,
+          imageQuality: "low",
+        },
+        // The worker refuses a target a file already fits (`invalid_target`),
+        // so it is left off this row rather than failing it.
+        { profile: "deep", targetDpi: 150, imageQuality: "low" },
+      ]);
+      const bigLine = within(rowOf("big.pdf")).getByText(
+        /under your 200 KB target/,
+      );
+      expect(bigLine.textContent).toMatch(
+        new RegExp(`^Now 15\\d\\.\\d KB ${DASH} under your 200 KB target\\.$`),
+      );
+      expect(bigLine).toHaveAttribute("data-target-met", "true");
+      const smallRow = rowOf("small.pdf");
+      expect(smallRow).toHaveTextContent(
+        batchTargetAlreadyFits(200 * KB, small.byteLength).text,
+      );
+      // Never told it met a target it was not sent.
+      expect(smallRow).not.toHaveTextContent(/under your 200 KB target/);
+      // This worker read the level, and its record says so: no warning.
+      expect(screen.queryByText(imageQualityNotApplied("low"))).toBeNull();
+    });
+
+    it("No target and Medium are the defaults, and a default batch sends what it always did", async () => {
+      const big = await bigPdf();
+      const { jobs } = await startDeepBatch([
+        asFile(big, "a.pdf"),
+        asFile(big, "b.pdf"),
+      ]);
+      expect(screen.getByRole("button", { name: "No target" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      expect(
+        screen.getByRole("button", { name: IMAGE_QUALITY_LABELS.disclosure }),
+      ).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(
+        screen.getByRole("button", { name: /compress 2 pdfs on our server/i }),
+      );
+      await screen.findByText(/batch complete/i, {}, { timeout: 10_000 });
+      expect(jobs).toEqual([
+        { profile: "deep", targetDpi: 150 },
+        { profile: "deep", targetDpi: 150 },
+      ]);
+      expect(screen.queryByText(/your .* target/i)).toBeNull();
+    });
+
+    it("a missed target is said plainly on its row, and the smallest file still downloads", async () => {
+      const big = await bigPdf();
+      await startDeepBatch([asFile(big, "a.pdf"), asFile(big, "b.pdf")]);
+      fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+      fireEvent.change(
+        screen.getByRole("textbox", { name: /custom target size in kb/i }),
+        { target: { value: "40" } },
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: /compress 2 pdfs on our server/i }),
+      );
+      await screen.findByText(/batch complete/i, {}, { timeout: 10_000 });
+      const line = within(rowOf("a.pdf")).getByText(/above your 40 KB target/);
+      expect(line).toHaveTextContent(
+        /^The smallest we could make is 7\d\.\d KB, above your 40 KB target\. Try Grayscale, or split the file\.$/,
+      );
+      expect(line).toHaveAttribute("data-target-met", "false");
+      expect(
+        screen.getByRole("button", { name: /download compressed a\.pdf/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("an invalid custom size holds the run and says what to type", async () => {
+      const big = await bigPdf();
+      const { jobs } = await startDeepBatch([
+        asFile(big, "a.pdf"),
+        asFile(big, "b.pdf"),
+      ]);
+      fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+      fireEvent.change(
+        screen.getByRole("textbox", { name: /custom target size in kb/i }),
+        { target: { value: "5" } },
+      );
+      expect(
+        screen.getAllByText(/enter a whole number of kb from 20/i)[0],
+      ).toBeVisible();
+      const run = screen.getByRole("button", {
+        name: /compress 2 pdfs on our server/i,
+      });
+      expect(run).toHaveAttribute("aria-disabled", "true");
+      fireEvent.click(run);
+      expect(jobs).toEqual([]);
+      // Control: a valid size frees it.
+      fireEvent.change(
+        screen.getByRole("textbox", { name: /custom target size in kb/i }),
+        { target: { value: "300" } },
+      );
+      expect(run).not.toHaveAttribute("aria-disabled");
+    });
+
+    it("a worker that did not apply the target or the level (an older image) is named on the row", async () => {
+      const big = await bigPdf();
+      // The record as an image older than both options writes it.
+      await startDeepBatch(
+        [asFile(big, "a.pdf"), asFile(big, "b.pdf")],
+        (job) => {
+          const results = job.results as {
+            compression: Record<string, unknown>;
+          };
+          const {
+            imageQuality: _q,
+            target: _t,
+            ...compression
+          } = results.compression;
+          void _q;
+          void _t;
+          return { ...job, results: { ...results, compression } };
+        },
+      );
+      fireEvent.click(screen.getByRole("button", { name: "200 KB" }));
+      pickLow();
+      fireEvent.click(
+        screen.getByRole("button", { name: /compress 2 pdfs on our server/i }),
+      );
+      await screen.findByText(/batch complete/i, {}, { timeout: 10_000 });
+      const row = rowOf("a.pdf");
+      expect(row).toHaveTextContent(
+        /did not apply your 200 KB target to this run/,
+      );
+      expect(row).toHaveTextContent(imageQualityNotApplied("low"));
+      expect(row.textContent).not.toContain(`${DASH} under your 200 KB target`);
+    });
+
+    it("the page says what a deep batch offers, in the panel's own words", () => {
+      const batch = compressContent.useCases!.find((u) =>
+        /folder of invoices/i.test(u.title),
+      )!.body;
+      expect(batch).toContain(TARGET_SIZE_LABELS.heading);
+      expect(batch).toContain(IMAGE_QUALITY_LABELS.heading);
+      expect(batch).toContain(BATCH_TARGET_NOTE);
+      // The claim this replaced: only Quality and Grayscale.
+      expect(batch).not.toMatch(/one Quality and Grayscale/i);
+    });
+  },
+);
+
+describe(
+  "Compress batch: a file that fit the target, made bigger by Grayscale (audit backlog #15)",
+  { timeout: 30_000 },
+  () => {
+    it("is not told it still fits: the row reads the gray copy it hands back", async () => {
+      const KB = 1024;
+      const { jobs } = answerWithLocalWorker(async () =>
+        colourImagePdf({ components: 1, size: 8, pad: (260 * KB) / 4 }),
+      );
+      const small = await colourImagePdf({
+        components: 3,
+        size: 8,
+        pad: (150 * KB) / 4,
+      });
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [asFile(small, "a.pdf"), asFile(small, "b.pdf")]);
+      fireEvent.click(
+        await screen.findByRole(
+          "radio",
+          { name: /compress images on our server/i },
+          { timeout: 10_000 },
+        ),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "200 KB" }));
+      fireEvent.click(screen.getByRole("checkbox", { name: /grayscale/i }));
+      fireEvent.click(
+        screen.getByRole("button", { name: /compress 2 pdfs on our server/i }),
+      );
+      await screen.findByText(/batch complete/i, {}, { timeout: 10_000 });
+      expect(jobs.every((o) => o.targetBytes === undefined)).toBe(true);
+      expect(jobs).toHaveLength(2);
+      const row = within(
+        screen.getByRole("list", { name: /files in this batch/i }),
+      )
+        .getByText("a.pdf")
+        .closest("li")!;
+      const line = within(row).getByText(/grayscale copy is/);
+      expect(line).toHaveAttribute("data-target-met", "false");
+      expect(line).toHaveTextContent(/above it\.$/);
+      expect(row).not.toHaveTextContent(/^.*Already fits/);
+    });
+  },
+);

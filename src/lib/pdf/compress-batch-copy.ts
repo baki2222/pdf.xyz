@@ -5,6 +5,14 @@
  * read it.
  */
 
+import {
+  KB,
+  MAX_TARGET_BYTES,
+  MIN_TARGET_BYTES,
+  targetLabel,
+} from "./compress-target";
+import { formatBytes } from "@/lib/utils";
+
 /** The batch's server choice: the single-file panel's own button label. */
 export const BATCH_DEEP_LABEL = "Compress images on our server";
 
@@ -22,3 +30,36 @@ export const BATCH_MODE_HEADING = "Where to compress";
  */
 export const BATCH_RESTRICTED_NOTE =
   "Compress it on its own to use our secure server.";
+
+/**
+ * Said under a batch's Target size, after the single-file hint (audit
+ * backlog #15): the target is for each file on its own, and our server
+ * refuses a target a file already fits, so such a file goes without it.
+ */
+export const BATCH_TARGET_NOTE =
+  "The size is for each file on its own. A file that already fits it is compressed at your Quality setting instead.";
+
+/**
+ * A batch row whose file already fit the target, so it was sent without it.
+ * `met` and the words are read from the file the row hands back: a Grayscale
+ * copy always ships, and can come back bigger than the file that fit.
+ */
+export function batchTargetAlreadyFits(
+  targetBytes: number,
+  deliveredBytes: number,
+): { met: boolean; text: string } {
+  const target = targetLabel(targetBytes);
+  if (deliveredBytes <= targetBytes) {
+    return {
+      met: true,
+      text: `Already fits your ${target} target, so it was compressed at your Quality setting.`,
+    };
+  }
+  return {
+    met: false,
+    text: `Your file already fit your ${target} target, so it was compressed at your Quality setting; the grayscale copy is ${formatBytes(deliveredBytes)}, above it.`,
+  };
+}
+
+/** What to type instead of a size no file of the batch can be sent. */
+export const BATCH_TARGET_INVALID = `Enter a whole number of KB from ${MIN_TARGET_BYTES / KB} to ${(MAX_TARGET_BYTES / KB).toLocaleString("en-US")}.`;
