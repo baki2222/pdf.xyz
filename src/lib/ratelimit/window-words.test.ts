@@ -13,8 +13,16 @@
  * does not come.
  *
  * KEPT, AND WHY (each a negative control below): "daily allowance", "resets
- * daily", "a day", "per day", "an hour", "the hourly limit", "in a single
- * day". They name the window's LENGTH, which is true, and no clock time.
+ * daily", "a day", "per day", "an hour", "the hourly limit". They name the
+ * window's LENGTH, which is true, and no clock time.
+ *
+ * "IN A SINGLE DAY" WAS KEPT HERE, AND IT WAS FALSE (review, 2026-11-17).
+ * Translate said a document over the whole allowance "cannot be translated
+ * in a single day", and this list licensed it as a length. A window starts
+ * at its first charge, so two can sit back to back: part A charged just
+ * before one expires and part B just after are translated minutes apart.
+ * "the day's allowance" reads as a calendar day in the same way. Both are
+ * now banned, with what shipped as their corpus.
  *
  * THE BAN LIST HAS A CORPUS IN BOTH DIRECTIONS (CLAUDE.md rule 1): every
  * calendar-day sentence this product shipped, verbatim from git with the
@@ -53,7 +61,10 @@ import {
   AI_CEILING_PAUSE,
   AI_CEILING_REACHED_MESSAGE,
 } from "@/lib/jobs/ai-spend-ceiling";
-import { WITHHELD_UNDERCOUNT_SENTENCE } from "@/lib/jobs/translate-withheld-copy";
+import {
+  NOTHING_UNDERCOUNT_SENTENCE,
+  WITHHELD_UNDERCOUNT_SENTENCE,
+} from "@/lib/jobs/translate-withheld-copy";
 import { RATE_LIMIT_DISCLOSURE } from "@/lib/privacy/rate-limits";
 import {
   WORKER_BATCH_PAUSED,
@@ -98,6 +109,11 @@ const CALENDAR_SHAPES: readonly { name: string; pattern: RegExp }[] = [
   { name: "left today", pattern: /\bleft today\b/i },
   { name: "tomorrow", pattern: /\btomorrow\b/i },
   { name: "the next day", pattern: /\b(?:until|by|on) the next day\b/i },
+  { name: "in a single day", pattern: /\bin a single day\b/i },
+  {
+    name: "the day's allowance",
+    pattern: new RegExp(`\\bthe (?:whole )?day[${RSQUO}']s allowance\\b`, "i"),
+  },
 ];
 
 const shapesIn = (text: string) =>
@@ -163,6 +179,14 @@ const SHIPPED: readonly { commit: string; text: string }[] = [
     commit: "4a316d24",
     text: "Separately, pdf.xyz's own daily AI processing limit can pause summaries for everyone until the next day.",
   },
+  {
+    commit: "a04fd656",
+    text: "one over 30,774 characters, the whole day's allowance, cannot be translated in a single day.",
+  },
+  {
+    commit: "8b24c50c",
+    text: "The page checks the file for text before sending it, and when it finds none the question stops there and takes nothing from the day's allowance.",
+  },
 ];
 
 /** Kept phrases: each names a length, not a clock time. Must match nothing. */
@@ -173,7 +197,8 @@ const KEPT = [
   "How many PDFs can I summarize per day?",
   "Each file counts as one of the 60 server jobs an hour that every visitor shares.",
   "Paused: the hourly limit was reached.",
-  "one over 30,774 characters, the whole day's allowance, cannot be translated in a single day.",
+  // Its replacement, which says what is true at any time (review, 2026-11-17).
+  "and one needing more than 30,774 characters, the whole daily allowance, is refused even when none of it has been used.",
   // "today" as "currently" and as a date, which the patterns must not read
   // as a reset.
   "Today every visitor's requests are counted together, in shared counters that hold no identifier.",
@@ -440,8 +465,8 @@ describe("the ban list has a corpus in both directions", () => {
   });
 
   it("health: the corpus is the size it was built at", () => {
-    expect(SHIPPED.length).toBe(13);
-    expect(CALENDAR_SHAPES.length).toBe(4);
+    expect(SHIPPED.length).toBe(15);
+    expect(CALENDAR_SHAPES.length).toBe(6);
   });
 
   it("positive control: a planted deferral is caught", () => {
@@ -465,6 +490,7 @@ describe("the ban list has a corpus in both directions", () => {
       AI_ALLOWANCE_REFUSED_WHOLE,
       AI_CEILING_PAUSE,
       WITHHELD_UNDERCOUNT_SENTENCE,
+      NOTHING_UNDERCOUNT_SENTENCE,
       RATE_LIMITED_MESSAGE,
     ])
       expect(shapesIn(text), text).toEqual([]);

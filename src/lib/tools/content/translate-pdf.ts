@@ -255,7 +255,10 @@ const content: ToolContent = {
     // over the whole day's allowance "has to be split into smaller files
     // first", false for a run that chooses pages once the panel offers them.
     // Rewritten true with or without a page range; slice 7 adds the remedy.
-    `One pass carries up to ${PASS_CHARS} characters; longer documents are split at page boundaries, translated in order and reassembled. Your browser counts the text before anything uploads, so a file with no page that fits a pass is stopped without touching the allowance; a scan with no text layer is recognised on our server first when it can do that, and stopped the same way when it cannot. ${AI_ALLOWANCE_FACT} The allowance is charged when the job is created, just after the upload: ${AI_ALLOWANCE_REFUSED_WHOLE} is refused whole with nothing charged rather than half translated, and one over ${DAY_CHARS} characters, the whole day's allowance, cannot be translated in a single day.`,
+    // CHANGED 2026-11-17 (review): it ended "cannot be translated in a single
+    // day", false of a fixed window stamped at its first charge (two windows
+    // can sit back to back), and said "the whole day's allowance".
+    `One pass carries up to ${PASS_CHARS} characters; longer documents are split at page boundaries, translated in order and reassembled. Your browser counts the text before anything uploads, so a file with no page that fits a pass is stopped without touching the allowance; a scan with no text layer is recognised on our server first when it can do that, and stopped the same way when it cannot. ${AI_ALLOWANCE_FACT} The allowance is charged when the job is created, just after the upload: ${AI_ALLOWANCE_REFUSED_WHOLE} is refused whole with nothing charged rather than half translated, and one needing more than ${DAY_CHARS} characters, the whole daily allowance, is refused even when none of it has been used.`,
   ],
 
   useCases: [

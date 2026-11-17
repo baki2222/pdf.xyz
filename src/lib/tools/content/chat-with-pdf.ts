@@ -212,7 +212,7 @@ const content: ToolContent = {
     },
     {
       q: "Why does it say my PDF has no text to answer from?",
-      a: `The file is most likely a scan or image-only PDF, so there is no selectable text to answer from. The page checks the file for text before sending it, and when it finds none the question stops there and takes nothing from the day's allowance. A file the page cannot open is sent on to our server, and if our server finds no text in it either, that refusal comes after the question has been charged. Run it through ${OCR_TOOL}, pressing the document's language under Languages, then ask the OCR'd copy; answers are only as good as the recognised text.`,
+      a: `The file is most likely a scan or image-only PDF, so there is no selectable text to answer from. The page checks the file for text before sending it, and when it finds none the question stops there and takes nothing from the daily allowance. A file the page cannot open is sent on to our server, and if our server finds no text in it either, that refusal comes after the question has been charged. Run it through ${OCR_TOOL}, pressing the document's language under Languages, then ask the OCR'd copy; answers are only as good as the recognised text.`,
     },
     {
       q: "What if the answer is in a part of the document it did not read?",
