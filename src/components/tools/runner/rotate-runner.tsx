@@ -43,7 +43,9 @@ import {
   type SinglePdfBatch,
 } from "./single-pdf-runner";
 import { usePdfThumbnails } from "./use-pdf-thumbnails";
-import type { LoadedPdf } from "./use-single-pdf";
+import { readPageBoard, type LoadedPdf } from "./use-single-pdf";
+import type { OwnerOpened } from "./owner-unlock";
+import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 import {
   RestrictedGrantNote,
   RestrictedGrantRefusal,
@@ -94,6 +96,19 @@ const OwnerOpenedNote = dynamic(() =>
  */
 export function RotateRunner() {
   const [owned, setOwned] = useState<LoadedPdf | null>(null);
+  // The owner password opened a refused file: its page board is read here,
+  // with what this page already loaded (`./owner-unlock` imports none of it).
+  const adoptOwned = async ({ file, plain, protection }: OwnerOpened) => {
+    const { pageCount, rotations } = await readPageBoard(plain, "pdf-lib");
+    setOwned({
+      file,
+      bytes: plain,
+      pageCount,
+      rotations,
+      digitalSignatures: countDigitalSignatures(plain),
+      protection,
+    });
+  };
   if (owned)
     return (
       <div className="flex flex-col gap-4">
@@ -120,7 +135,7 @@ export function RotateRunner() {
             key={`${error.file.name}:${error.file.size}:${error.file.lastModified}`}
             file={error.file}
             tool="rotate-pdf"
-            onOpened={setOwned}
+            onOpened={adoptOwned}
           />
         ) : null
       }
@@ -131,7 +146,7 @@ export function RotateRunner() {
             pdf={pdf}
             grant="assemble"
             onReset={reset}
-            onOpened={setOwned}
+            onOpened={adoptOwned}
           />
         ) : (
           <RotateEditor pdf={pdf} onReset={reset} />

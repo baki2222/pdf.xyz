@@ -37,7 +37,9 @@ import {
   SinglePdfRunner,
   type SinglePdfBatch,
 } from "./single-pdf-runner";
-import type { LoadedPdf } from "./use-single-pdf";
+import { readPageBoard, type LoadedPdf } from "./use-single-pdf";
+import type { OwnerOpened } from "./owner-unlock";
+import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 import { useZipDownload } from "./use-zip-download";
 import {
   RestrictedGrantNote,
@@ -87,6 +89,19 @@ const batch = (props: SinglePdfBatch) => <ExtractImagesBatch {...props} />;
  */
 export function ExtractImagesRunner() {
   const [owned, setOwned] = useState<LoadedPdf | null>(null);
+  // The owner password opened a refused file: its page board is read here,
+  // with what this page already loaded (`./owner-unlock` imports none of it).
+  const adoptOwned = async ({ file, plain, protection }: OwnerOpened) => {
+    const { pageCount, rotations } = await readPageBoard(plain, "pdf-lib");
+    setOwned({
+      file,
+      bytes: plain,
+      pageCount,
+      rotations,
+      digitalSignatures: countDigitalSignatures(plain),
+      protection,
+    });
+  };
   if (owned)
     return (
       <div className="flex flex-col gap-4">
@@ -110,7 +125,7 @@ export function ExtractImagesRunner() {
             key={`${error.file.name}:${error.file.size}:${error.file.lastModified}`}
             file={error.file}
             tool="extract-images"
-            onOpened={setOwned}
+            onOpened={adoptOwned}
           />
         ) : null
       }
@@ -121,7 +136,7 @@ export function ExtractImagesRunner() {
             pdf={pdf}
             grant="copy"
             onReset={reset}
-            onOpened={setOwned}
+            onOpened={adoptOwned}
           />
         ) : (
           <ExtractImagesEditor pdf={pdf} onReset={reset} />

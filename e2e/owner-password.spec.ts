@@ -138,12 +138,13 @@ async function open(page: Page, tool: OwnerPasswordTool, fixture: Fixture) {
   return page.getByLabel(OWNER_PASSWORD_LABEL, { exact: true });
 }
 
-async function submit(page: Page, password: string) {
+async function submit(page: Page, password: string, opens = false) {
   const field = page.getByLabel(OWNER_PASSWORD_LABEL, { exact: true });
   await field.fill(password);
   await page.getByRole("button", { name: OWNER_PASSWORD_BUTTON }).click();
-  // Cleared before the check returns: nothing is left in the field.
-  await expect(field).toHaveValue("");
+  // Cleared before the check returns: nothing is left in the field. (The
+  // owner password opens the file, and the field goes with the refusal.)
+  if (!opens) await expect(field).toHaveValue("");
 }
 
 /** The tool's own work after the owner password, checked on the download. */
@@ -256,7 +257,7 @@ for (const tool of TOOLS)
       await expect(page.locator("[data-owner-opened]")).toHaveCount(0);
 
       // The owner password: the tool runs, and the output is right.
-      await submit(page, fixture.owner);
+      await submit(page, fixture.owner, true);
       await expect(page.locator(`[data-owner-opened="${tool}"]`)).toBeVisible({
         timeout: 20_000,
       });

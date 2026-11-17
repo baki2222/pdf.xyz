@@ -65,7 +65,7 @@ import {
   HandoffProblem,
 } from "./handoff-notice";
 import { useToolHandoff } from "./use-tool-handoff";
-import type { LoadedPdf } from "./use-single-pdf";
+import type { OwnerOpened } from "./owner-unlock";
 
 interface MergeItem {
   id: string;
@@ -272,27 +272,28 @@ export function MergeRunner() {
   // The owner password opened a refused file: its decrypted copy joins the
   // list at the bottom, and its refusal goes.
   const adoptOwned = useCallback(
-    (rejected: Rejection, pdf: LoadedPdf) => {
+    async (rejected: Rejection, { file, plain, protection }: OwnerOpened) => {
+      const pageCount = await getPageCount(plain);
       const id = `f${idRef.current++}`;
       setRejections((prev) => prev.filter((r) => r !== rejected));
       setItems((prev) => [
         ...prev,
         {
           id,
-          name: pdf.file.name,
-          size: pdf.file.size,
-          bytes: pdf.bytes,
-          pageCount: pdf.pageCount,
+          name: file.name,
+          size: file.size,
+          bytes: plain,
+          pageCount,
           cover: null,
           seq: seqRef.current++,
-          modified: pdf.file.lastModified,
+          modified: file.lastModified,
           range: "",
           reverse: false,
         },
       ]);
-      if (pdf.protection?.unlocked) setOwnerOpened(true);
-      attachCover(id, pdf.bytes);
-      announce(`Added ${pdf.file.name}.`);
+      if (protection.unlocked) setOwnerOpened(true);
+      attachCover(id, plain);
+      announce(`Added ${file.name}.`);
     },
     [attachCover, announce],
   );
@@ -926,7 +927,7 @@ function RejectionsNote({
 }: {
   rejections: Rejection[];
   onDismiss: () => void;
-  onOwnerOpened: (rejected: Rejection, pdf: LoadedPdf) => void;
+  onOwnerOpened: (rejected: Rejection, opened: OwnerOpened) => Promise<void>;
 }) {
   if (rejections.length === 0) return null;
   return (
@@ -974,7 +975,7 @@ function RejectionsNote({
                   <OwnerPasswordField
                     file={r.file}
                     tool="merge-pdf"
-                    onOpened={(pdf) => onOwnerOpened(r, pdf)}
+                    onOpened={(opened) => onOwnerOpened(r, opened)}
                   />
                 </div>
               )}

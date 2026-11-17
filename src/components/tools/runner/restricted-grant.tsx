@@ -8,6 +8,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { ErrorNote } from "./runner-kit";
 import { FileHeader } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
+import type { OwnerOpened } from "./owner-unlock";
 
 /**
  * A restricted PDF (it opens without a password; its author set an owner
@@ -91,7 +92,7 @@ export function RestrictedGrantRefusal({
   grant: RestrictedGrant;
   onReset: () => void;
   /** The owner password opened it: the file, unlocked. */
-  onOpened: (pdf: LoadedPdf) => void;
+  onOpened: (opened: OwnerOpened) => Promise<void>;
 }) {
   return (
     <div data-restricted-withheld={grant} className="flex flex-col gap-4">

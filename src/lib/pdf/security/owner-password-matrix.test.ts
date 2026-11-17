@@ -152,7 +152,20 @@ async function cell(tool: OwnerPasswordTool, kind: Kind, c: Case) {
     passwordFor(kind, c),
   );
   if (unlocked.kind !== "opened") return { output: null, why: unlocked.kind };
-  const output = await runTool(tool, unlocked.pdf, c);
+  // What the runner takes (it reads the board itself from `plain`).
+  const { plain, protection } = unlocked.opened;
+  const output = await runTool(
+    tool,
+    {
+      file,
+      bytes: plain,
+      pageCount: c.fixture.pageCount,
+      rotations: Array.from({ length: c.fixture.pageCount }, () => 0),
+      digitalSignatures: 0,
+      protection,
+    },
+    c,
+  );
   return { output, why: output ? "opened" : "gate" };
 }
 

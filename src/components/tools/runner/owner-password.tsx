@@ -9,7 +9,7 @@ import {
   type OwnerPasswordTool,
 } from "@/lib/pdf/owner-password-copy";
 import { PasswordField, withheldWords } from "./password-field";
-import type { LoadedPdf } from "./use-single-pdf";
+import type { OwnerOpened } from "./owner-unlock";
 
 /**
  * The owner-password field under a restricted PDF's refusal in Merge PDF,
@@ -79,7 +79,11 @@ export function OwnerPasswordField({
 }: {
   file: File;
   tool: OwnerPasswordTool;
-  onOpened: (pdf: LoadedPdf) => void;
+  /**
+   * The file opened: the runner reads its page board and takes it. A
+   * rejection is said as {@link OWNER_UNSUPPORTED}.
+   */
+  onOpened: (opened: OwnerOpened) => Promise<void>;
 }) {
   const check = async (typed: string): Promise<string | null> => {
     try {
@@ -89,7 +93,7 @@ export function OwnerPasswordField({
       ]);
       const result = await unlockWithOwnerPassword(file, bytes, typed);
       if (result.kind === "opened") {
-        onOpened(result.pdf);
+        await onOpened(result.opened);
         return null;
       }
       return result.kind === "wrong-password"

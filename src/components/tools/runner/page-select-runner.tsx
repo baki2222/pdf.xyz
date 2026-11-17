@@ -44,7 +44,9 @@ import {
   SinglePdfRunner,
 } from "./single-pdf-runner";
 import { usePdfThumbnails } from "./use-pdf-thumbnails";
-import type { LoadedPdf } from "./use-single-pdf";
+import { readPageBoard, type LoadedPdf } from "./use-single-pdf";
+import type { OwnerOpened } from "./owner-unlock";
+import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 
 type Mode = "extract" | "delete";
 
@@ -141,6 +143,19 @@ export function PageSelectRunner({ mode }: { mode: Mode }) {
   const config = CONFIG[mode];
   const { slug: handoffSlug, name: toolName } = PAGE_SELECT_TOOLS[mode];
   const [owned, setOwned] = useState<LoadedPdf | null>(null);
+  // The owner password opened a refused file: its page board is read here,
+  // with what this page already loaded (`./owner-unlock` imports none of it).
+  const adoptOwned = async ({ file, plain, protection }: OwnerOpened) => {
+    const { pageCount, rotations } = await readPageBoard(plain, "pdf-lib");
+    setOwned({
+      file,
+      bytes: plain,
+      pageCount,
+      rotations,
+      digitalSignatures: countDigitalSignatures(plain),
+      protection,
+    });
+  };
   if (owned)
     return (
       <div className="flex flex-col gap-4">
@@ -169,7 +184,7 @@ export function PageSelectRunner({ mode }: { mode: Mode }) {
             key={`${error.file.name}:${error.file.size}:${error.file.lastModified}`}
             file={error.file}
             tool={handoffSlug}
-            onOpened={setOwned}
+            onOpened={adoptOwned}
           />
         ) : null
       }
