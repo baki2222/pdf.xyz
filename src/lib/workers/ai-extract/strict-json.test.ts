@@ -30,6 +30,7 @@ import {
   type AiExtractRun,
 } from "./engine";
 import { createAiExtractProcessor } from "../processor/ai-extract";
+import aiExtractContent from "@/lib/tools/content/ai-extract";
 
 const INPUT = new Uint8Array([1, 2, 3, 4]);
 const SCHEMA_OPTIONS: ExtractOptions = {
@@ -328,5 +329,70 @@ describe("an unusable reply: retry only where a retry can help, tokens on every 
       message: STRICT_REPLY_UNUSABLE,
     });
     expect(result.results?.ai?.usage).toEqual(SPENT);
+  });
+});
+
+/**
+ * The FAQ "Why did my extraction fail" describes BOTH arms above. It shipped
+ * (until 2026-11-18) saying, with no condition, that the server "can put the
+ * job back in its queue" and that the failure message says "a retry may
+ * succeed" - true of the prompt-only arm, false of the strict one. The copy
+ * now promises only what both arms do: the job MAY go back, and the message
+ * says WHETHER trying again could help. This pins that clause to each arm's
+ * real flag and message, so a third arm (or a reworded message) that says
+ * neither turns this red.
+ */
+describe("the FAQ's failure clause is true of both arms", () => {
+  const BROKEN = '{"invoice_number": "INV-42", "total": ';
+  const answer = (): string => {
+    const entry = aiExtractContent.faqs.find((f) =>
+      f.q.startsWith("Why did my extraction fail"),
+    );
+    if (!entry) throw new Error("the FAQ entry is gone - health check");
+    return entry.a;
+  };
+  /** What each arm's message says about trying again: the FAQ's promise. */
+  const VERDICT = {
+    retry: /Retrying may succeed\.$/,
+    noRetry: /so it was not retried\.$/,
+  };
+
+  it("the FAQ promises a conditional requeue and a message that says which", () => {
+    const a = answer();
+    expect(a).toContain(
+      "When the model's reply is not valid JSON, the job may go back in its queue for another attempt by itself.",
+    );
+    expect(a).toContain(
+      "If it still fails, there is nothing to download, and the message says whether trying again could help.",
+    );
+    // Neither arm's verdict is quoted as if it were the only one.
+    expect(a).not.toMatch(/retry may succeed|can put the job back/i);
+  });
+
+  it("prompt-only arm: retryable, and its message says a retry may help", async () => {
+    const { provider } = openai(jsonResponse(chat(BROKEN)));
+    const run = failure(
+      await runAiExtract(INPUT, PROMPT_OPTIONS, {
+        extract: extractor(),
+        provider,
+      }),
+    );
+    expect(run.retryable).toBe(true);
+    expect(run.message).toMatch(VERDICT.retry);
+    expect(run.message).not.toMatch(VERDICT.noRetry);
+  });
+
+  it("strict arm: not retryable, and its message says it was not retried", async () => {
+    const { provider } = openai(jsonResponse(chat(BROKEN)));
+    const run = failure(
+      await runAiExtract(INPUT, SCHEMA_OPTIONS, {
+        extract: extractor(),
+        provider,
+      }),
+    );
+    expect(run.retryable).toBe(false);
+    expect(run.message).toBe(STRICT_REPLY_UNUSABLE);
+    expect(run.message).toMatch(VERDICT.noRetry);
+    expect(run.message).not.toMatch(VERDICT.retry);
   });
 });
