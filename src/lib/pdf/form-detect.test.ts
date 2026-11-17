@@ -1,0 +1,925 @@
+import { describe, expect, it } from "vitest";
+import { validateFormFields } from "./create-forms";
+import {
+  DETECT,
+  DETECTION_RULES,
+  EXCLUSION_RULES,
+  charSpans,
+  classifyPage,
+  cleanLabel,
+  filterValid,
+  nameFor,
+  overlapsExisting,
+  proposalToDraftFields,
+  type CardPage,
+  type CardRect,
+  type CardSeg,
+  type CardText,
+  type ClassifyOptions,
+  type ExclusionRuleId,
+  type FieldProposal,
+} from "./form-detect";
+
+/**
+ * The classifier on hand-built pages (already in the page frame). Every
+ * threshold in DETECT is tested exactly AT its boundary and just OUTSIDE it,
+ * so changing a constant turns a test red ("change a constant to shake out
+ * guards"). The same rules on real PDFs read by pdf.js are run by
+ * form-detect.pdfjs.test.ts and form-detect.corpus.test.ts.
+ */
+
+const W = 612;
+const H = 792;
+
+function pg(parts: Partial<CardPage> = {}): CardPage {
+  return {
+    page: 1,
+    width: W,
+    height: H,
+    segs: [],
+    rects: [],
+    text: [],
+    widgets: [],
+    imageCover: 0,
+    ...parts,
+  };
+}
+
+function hseg(
+  x0: number,
+  x1: number,
+  y: number,
+  o: Partial<CardSeg> = {},
+): CardSeg {
+  return {
+    x0,
+    y0: y,
+    x1,
+    y1: y,
+    width: 1,
+    stroked: true,
+    filled: false,
+    lum: 0,
+    ...o,
+  };
+}
+
+function vseg(x: number, y0: number, y1: number): CardSeg {
+  return {
+    x0: x,
+    y0,
+    x1: x,
+    y1,
+    width: 1,
+    stroked: true,
+    filled: false,
+    lum: 0,
+  };
+}
+
+function rect(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  o: Partial<CardRect> = {},
+): CardRect {
+  return {
+    x0: x,
+    y0: y,
+    x1: x + w,
+    y1: y + h,
+    width: 1,
+    stroked: true,
+    filled: false,
+    lum: 0,
+    ...o,
+  };
+}
+
+function txt(
+  str: string,
+  x: number,
+  y: number,
+  o: Partial<CardText> = {},
+): CardText {
+  const size = o.size ?? 12;
+  return {
+    str,
+    x,
+    y,
+    width: str.length * 0.5 * size,
+    size,
+    upright: true,
+    ...o,
+  };
+}
+
+const run = (p: CardPage, o?: ClassifyOptions) => classifyPage(p, o);
+const props = (p: CardPage, o?: ClassifyOptions) => run(p, o).proposals;
+const firstRule = (p: CardPage, o?: ClassifyOptions) =>
+  run(p, o).excluded[0]?.rule;
+
+/** "Address:" (right edge 120) and a rule from 130 to 330 at y 600. */
+function labelledRule(
+  parts: { text?: CardText[]; segs?: CardSeg[] } = {},
+): CardPage {
+  return pg({
+    text: [txt("Address:", 72, 600, { width: 48 }), ...(parts.text ?? [])],
+    segs: parts.segs ?? [hseg(130, 330, 600)],
+  });
+}
+
+describe("rule tables", () => {
+  it("every id is unique and the tables are the documented size", () => {
+    const ids = [...DETECTION_RULES, ...EXCLUSION_RULES].map((r) => r.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(DETECTION_RULES).toHaveLength(3);
+    expect(EXCLUSION_RULES).toHaveLength(17);
+  });
+});
+
+describe("labelled-rule", () => {
+  it("proposes a field on a labelled line, inset 1 pt, 1 pt above it", () => {
+    expect(props(labelledRule())).toEqual([
+      expect.objectContaining({
+        rule: "labelled-rule",
+        type: "text",
+        label: "Address",
+        x: 131,
+        y: 601,
+        width: 198,
+        height: 17, // clamp(1.4 x 12) = 16.8, top 617.8 rounds to 618
+      }),
+    ]);
+  });
+
+  it("RULE_MIN_LEN: a 36 pt line is a candidate, 35.9 pt is not", () => {
+    expect(props(labelledRule({ segs: [hseg(130, 166, 600)] }))).toHaveLength(
+      1,
+    );
+    const short = run(labelledRule({ segs: [hseg(130, 165.9, 600)] }));
+    expect(short.proposals).toEqual([]);
+    expect(short.excluded).toEqual([]);
+  });
+
+  it("RULE_MAX_DY: a rise of 0.5 pt is level, 0.6 pt is not", () => {
+    expect(
+      props(labelledRule({ segs: [{ ...hseg(130, 330, 600), y1: 600.5 }] })),
+    ).toHaveLength(1);
+    expect(
+      props(labelledRule({ segs: [{ ...hseg(130, 330, 600), y1: 600.6 }] })),
+    ).toHaveLength(0);
+  });
+
+  it("RULE_MAX_WIDTH: a 2 pt stroke is a rule, 2.1 pt is not", () => {
+    expect(
+      props(labelledRule({ segs: [hseg(130, 330, 600, { width: 2 })] })),
+    ).toHaveLength(1);
+    expect(
+      props(labelledRule({ segs: [hseg(130, 330, 600, { width: 2.1 })] })),
+    ).toHaveLength(0);
+  });
+
+  it("RULE_MAX_WIDTH: a filled bar 2 pt tall is a rule, 2.1 pt is not", () => {
+    const bar = (h: number) =>
+      pg({
+        text: [txt("Address:", 72, 600, { width: 48 })],
+        rects: [
+          rect(130, 600 - h / 2, 200, h, { filled: true, stroked: false }),
+        ],
+      });
+    expect(props(bar(2))).toHaveLength(1);
+    expect(props(bar(2.1))).toHaveLength(0);
+  });
+
+  it("RULE_MERGE_GAP: pieces 1 pt apart are one line, 1.1 pt apart are not", () => {
+    const two = (gap: number) =>
+      labelledRule({
+        segs: [hseg(130, 150, 600), hseg(150 + gap, 170 + gap, 600)],
+      });
+    expect(props(two(1))).toEqual([
+      expect.objectContaining({ x: 131, width: 39 }),
+    ]);
+    expect(props(two(1.1))).toEqual([]);
+  });
+
+  it("LABEL_LEFT_GAP_RULE: a label ending 36 pt left of the line counts, 36.1 does not", () => {
+    const at = (right: number) =>
+      pg({
+        text: [txt("Address:", right - 48, 600, { width: 48 })],
+        segs: [hseg(130, 330, 600)],
+      });
+    expect(props(at(94))[0]?.label).toBe("Address");
+    expect(firstRule(at(93.9))).toBe("unlabelled");
+  });
+
+  it("a label must end left of the line (within 1 pt)", () => {
+    const at = (right: number) =>
+      pg({
+        text: [txt("Address:", right - 48, 600, { width: 48 })],
+        segs: [hseg(130, 330, 600)],
+      });
+    expect(props(at(131))).toHaveLength(1);
+    expect(firstRule(at(131.1))).toBe("unlabelled");
+  });
+
+  it("LABEL_BELOW_RULE: a label baseline 2 pt under the line counts, 2.1 does not", () => {
+    const at = (y: number) =>
+      pg({
+        text: [txt("Address:", 72, y, { width: 48 })],
+        segs: [hseg(130, 330, 600)],
+      });
+    expect(props(at(598))).toHaveLength(1);
+    expect(firstRule(at(597.9))).toBe("unlabelled");
+  });
+
+  it("LABEL_ABOVE_RULE_EMS: a label baseline 0.6 em over the line counts, more does not", () => {
+    const at = (y: number) =>
+      pg({
+        text: [txt("Address:", 72, y, { width: 48 })],
+        segs: [hseg(130, 330, 600)],
+      });
+    expect(props(at(607.2))).toHaveLength(1);
+    expect(firstRule(at(607.3))).toBe("unlabelled");
+  });
+
+  it("CAPTION_MIN / CAPTION_MAX: a caption top 1 to 14 pt under the line counts", () => {
+    // Caption size 10: top = baseline + 7.
+    const at = (top: number) =>
+      pg({
+        text: [txt("Date", 150, top - 7, { size: 10, width: 20 })],
+        segs: [hseg(150, 300, 550)],
+      });
+    expect(props(at(549))[0]?.label).toBe("Date");
+    expect(firstRule(at(549.1))).toBe("unlabelled");
+    expect(props(at(536))[0]?.label).toBe("Date");
+    expect(firstRule(at(535.9))).toBe("unlabelled");
+  });
+
+  it("CAPTION_SPAN: a caption must overlap the first 40% of the line", () => {
+    const at = (x: number) =>
+      pg({
+        text: [txt("Date", x, 540, { size: 10, width: 20 })],
+        segs: [hseg(150, 300, 550)],
+      });
+    expect(props(at(209.9))[0]?.label).toBe("Date");
+    expect(firstRule(at(210))).toBe("unlabelled");
+  });
+
+  it("TEXT_H_RULE: clamp(1.4 x label size, 14, 22)", () => {
+    const h = (size: number) =>
+      props(
+        pg({
+          text: [txt("Address:", 72, 600, { width: 48, size })],
+          segs: [hseg(130, 330, 600)],
+        }),
+      )[0]!.height;
+    expect(h(10)).toBe(14);
+    expect(h(15)).toBe(21);
+    expect(h(20)).toBe(22);
+  });
+
+  it("DEFAULT_SIZE: a line with no label text is measured at 10 pt", () => {
+    const p = props(pg({ segs: [hseg(130, 330, 600)] }), {
+      disable: new Set(["unlabelled"]),
+    });
+    expect(p[0]).toMatchObject({ label: null, height: 14 });
+  });
+});
+
+describe("underscore-run", () => {
+  const runItem = (str: string, width: number, o: Partial<CardText> = {}) =>
+    pg({ text: [txt(str, 100, 600, { width, ...o })] });
+
+  it("UNDERSCORE_MIN: four underscores are a run, three are not", () => {
+    expect(props(runItem("____", 40))).toHaveLength(1);
+    const three = run(runItem("___", 40));
+    expect(three.proposals).toEqual([]);
+    expect(three.counts.candidates).toBe(0);
+  });
+
+  it("reads full-width underscores (U+FF3F) too", () => {
+    const fw = String.fromCodePoint(0xff3f).repeat(4);
+    expect(props(runItem(fw, 40))).toHaveLength(1);
+  });
+
+  it("MIN_FIELD_W: 24 pt after the inset is a field, 23.9 pt is short-run", () => {
+    expect(props(runItem("____", 26))).toEqual([
+      expect.objectContaining({ width: 24 }),
+    ]);
+    expect(firstRule(runItem("____", 25.9))).toBe("short-run");
+  });
+
+  it("FIELD_INSET / RUN_BOTTOM_EMS / TEXT_H_RUN: the box over a run", () => {
+    // Baseline 601.8 at size 12: bottom = 601.8 - 1.8 = 600; height 14.4.
+    const p = props(pg({ text: [txt("____", 100, 601.8, { width: 40 })] }))[0]!;
+    expect(p).toMatchObject({ x: 101, y: 600, width: 38, height: 14 });
+  });
+
+  it("TEXT_H_RUN: clamp(1.2 x size, 12, 22)", () => {
+    const h = (size: number) =>
+      props(
+        pg({
+          text: [txt("____", 100, 600 + 0.15 * size, { width: 60, size })],
+        }),
+      )[0]!.height;
+    expect(h(5)).toBe(12);
+    expect(h(15)).toBe(18);
+    expect(h(20)).toBe(22);
+  });
+
+  it("takes the words before it in the same item as its label", () => {
+    const p = props(
+      pg({
+        text: [txt("Date ________ Place ________", 72, 650, { width: 200 })],
+      }),
+    );
+    expect(p.map((x) => x.label)).toEqual(["Date", "Place"]);
+  });
+
+  it("RUN_BASELINE_EMS: a label item within 0.3 em of the run's baseline counts", () => {
+    const at = (dy: number) =>
+      pg({
+        text: [
+          txt("Name:", 60, 600 + dy, { width: 30 }),
+          txt("________", 100, 600, { width: 60 }),
+        ],
+      });
+    expect(props(at(3.6))[0]?.label).toBe("Name");
+    expect(props(at(3.7))[0]?.label).toBeNull();
+  });
+
+  it("LABEL_LEFT_GAP: a run's label item ending 24 pt left counts, 24.1 does not", () => {
+    const at = (right: number) =>
+      pg({
+        text: [
+          txt("Name:", right - 30, 600, { width: 30 }),
+          txt("________", 100, 600, { width: 60 }),
+        ],
+      });
+    expect(props(at(76))[0]?.label).toBe("Name");
+    expect(props(at(75.9))[0]?.label).toBeNull();
+  });
+
+  it("a run with no label is still proposed (underscores are a field on their own)", () => {
+    expect(props(runItem("________", 60))[0]).toMatchObject({ label: null });
+  });
+});
+
+describe("UNDERSCORE_EMS: placing a run inside its item", () => {
+  it("known family: underscores at the family's width, the rest share what is left", () => {
+    // Helvetica-like: "Name: " is 38.676 at 12 pt, each "_" 6.672.
+    const t = txt("Name: ____", 72, 700, {
+      width: 38.676 + 4 * 6.672,
+      family: "sans-serif",
+    });
+    const spans = charSpans(t);
+    expect(spans[6]![0]).toBeCloseTo(72 + 38.676, 6);
+    expect(spans[9]![1]).toBeCloseTo(t.x + t.width, 6);
+  });
+
+  it("monospace: every character the same width", () => {
+    const t = txt("ab: ____", 0, 0, { width: 80, family: "monospace" });
+    expect(charSpans(t).map(([a, b]) => b - a)).toEqual(Array(8).fill(10));
+  });
+
+  it("unknown family: weights 0.5 / 0.278 / 0.5, scaled to the item's width", () => {
+    const t = txt("a ____", 0, 0, { width: 2.778 });
+    const spans = charSpans(t);
+    expect(spans[0]![1]).toBeCloseTo(0.5, 6);
+    expect(spans[1]![1] - spans[1]![0]).toBeCloseTo(0.278, 6);
+  });
+
+  it("falls back to scaling when the underscores alone would overflow the item", () => {
+    const t = txt("a ____", 0, 0, { width: 10, family: "serif" }); // 4 x 6 > 10
+    const spans = charSpans(t);
+    expect(spans.at(-1)![1]).toBeCloseTo(10, 6);
+  });
+});
+
+describe("square-checkbox", () => {
+  const box = (s: number, o: Partial<CardRect> = {}, hh = s) =>
+    pg({
+      rects: [rect(72, 500, s, hh, o)],
+      text: [txt("Yes", 72 + s + 6, 502, { size: 10, width: 15 })],
+    });
+
+  it("proposes the square inset by 1 pt, labelled from its right", () => {
+    expect(props(box(12))).toEqual([
+      expect.objectContaining({
+        type: "checkbox",
+        label: "Yes",
+        x: 73,
+        y: 501,
+        width: 10,
+        height: 10,
+      }),
+    ]);
+  });
+
+  it("SQUARE_MIN / SQUARE_MAX: 6 to 20 pt a side", () => {
+    expect(props(box(6))).toHaveLength(1);
+    expect(props(box(5.9))).toHaveLength(0);
+    expect(props(box(20))).toHaveLength(1);
+    expect(props(box(20.1))).toHaveLength(0);
+  });
+
+  it("SQUARE_SKEW: sides within 20% of the larger", () => {
+    expect(props(box(10, {}, 8))).toHaveLength(1);
+    expect(props(box(10, {}, 7.9))).toHaveLength(0);
+  });
+
+  it("LABEL_LEFT_GAP: a label starting 24 pt right of the square counts, 24.1 does not", () => {
+    const at = (gap: number) =>
+      pg({
+        rects: [rect(72, 500, 12, 12)],
+        text: [txt("Yes", 84 + gap, 502, { size: 10, width: 15 })],
+      });
+    expect(props(at(24))[0]?.label).toBe("Yes");
+    expect(firstRule(at(24.1))).toBe("unlabelled");
+  });
+
+  it("an unlabelled square is kept beside two labelled squares of its size", () => {
+    const col = (n: number) =>
+      pg({
+        rects: [500, 480, 460].slice(0, n).map((y) => rect(72, y, 12, 12)),
+        text: [
+          txt("A", 90, 502, { size: 10 }),
+          txt("B", 90, 482, { size: 10 }),
+        ],
+      });
+    // Two labelled squares, one bare: kept.
+    expect(props(col(3))).toHaveLength(3);
+    // One labelled square and one bare one: the bare one is unlabelled.
+    const two = pg({
+      rects: [rect(72, 500, 12, 12), rect(72, 480, 12, 12)],
+      text: [txt("A", 90, 502, { size: 10 })],
+    });
+    expect(run(two).excluded.map((e) => e.rule)).toEqual(["unlabelled"]);
+  });
+});
+
+describe("exclusions, each at its boundary", () => {
+  it("SIGNATURE_RE: sign / signed / signature / initials, as whole words", () => {
+    for (const label of [
+      "Sign",
+      "Signed",
+      "Signature",
+      "Initials",
+      "Sign here",
+    ])
+      expect(
+        firstRule(
+          pg({ text: [txt(`${label}: ________`, 72, 600, { width: 150 })] }),
+        ),
+      ).toBe("signature");
+    for (const label of ["Design", "Signal", "Assignment"])
+      expect(
+        props(
+          pg({ text: [txt(`${label}: ________`, 72, 600, { width: 150 })] }),
+        ),
+      ).toHaveLength(1);
+  });
+
+  it("counts signature lines", () => {
+    expect(
+      run(pg({ text: [txt("Signature: ________", 72, 600, { width: 150 })] }))
+        .counts.signatureLines,
+    ).toBe(1);
+  });
+
+  it("UNDERLINE_MAX_GAP: text 3 pt over the line underlines it, 3.1 pt does not", () => {
+    const at = (gap: number) =>
+      labelledRule({
+        text: [txt("Heading words", 150, 600 + gap, { width: 120 })],
+      });
+    expect(firstRule(at(3))).toBe("underline");
+    expect(firstRule(at(3.1))).not.toBe("underline");
+  });
+
+  it("UNDERLINE_SPAN: text along half the line underlines it, less does not", () => {
+    const at = (w: number) =>
+      labelledRule({ text: [txt("Heading", 130, 601, { width: w })] });
+    expect(firstRule(at(100))).toBe("underline");
+    expect(firstRule(at(99.9))).not.toBe("underline");
+  });
+
+  it("DIVIDER_SPAN: an unlabelled line 85% of the page wide is a divider", () => {
+    const at = (len: number) => pg({ segs: [hseg(40, 40 + len, 400)] });
+    expect(firstRule(at(0.85 * W))).toBe("full-width-divider");
+    expect(firstRule(at(0.85 * W - 0.1))).toBe("unlabelled");
+  });
+
+  it("a labelled line that wide is not a divider", () => {
+    const p = pg({
+      text: [txt("Notes:", 0, 400, { width: 30 })],
+      segs: [hseg(36, 576, 400)],
+    });
+    expect(props(p)).toHaveLength(1);
+  });
+
+  it("BAND_EDGE / BAND_SPAN: a line in the outer 8% wider than 70% of the page", () => {
+    const at = (y: number, len: number) =>
+      pg({
+        text: [txt("Co:", 2, y, { width: 18 })],
+        segs: [hseg(30, 30 + len, y)],
+      });
+    const edge = DETECT.BAND_EDGE * H;
+    expect(firstRule(at(edge - 0.1, 0.7 * W + 0.1))).toBe("page-band");
+    expect(props(at(edge, 0.7 * W + 0.1))).toHaveLength(1);
+    expect(props(at(edge - 0.1, 0.7 * W))).toHaveLength(1);
+    expect(firstRule(at(H - edge + 0.1, 0.7 * W + 0.1))).toBe("page-band");
+  });
+
+  it("BAND_REPEAT_EPS / BAND_REPEAT_PAGES: the same band line on another page", () => {
+    const p = pg({
+      text: [txt("Company Ltd", 130, 760, { width: 66 })],
+      segs: [hseg(200, 500, 760)],
+    });
+    const other = (d: number) => [[hseg(200 + d, 500 + d, 760 + d)]];
+    expect(firstRule(p, { repeatsAcrossPages: other(2) })).toBe("page-band");
+    expect(props(p, { repeatsAcrossPages: other(2.1) })).toHaveLength(1);
+    expect(props(p, { repeatsAcrossPages: [] })).toHaveLength(1);
+  });
+
+  it("a repeat outside the bands is not a band", () => {
+    const p = pg({
+      text: [txt("Name:", 90, 400, { width: 30 })],
+      segs: [hseg(130, 330, 400)],
+    });
+    expect(
+      props(p, { repeatsAcrossPages: [[hseg(130, 330, 400)]] }),
+    ).toHaveLength(1);
+  });
+
+  it("GRID_TOUCHES: three plumb lines across the line make a grid, two do not", () => {
+    const with_ = (xs: number[]) =>
+      labelledRule({
+        segs: [hseg(130, 330, 600), ...xs.map((x) => vseg(x, 580, 620))],
+      });
+    expect(firstRule(with_([130, 230, 330]))).toBe("table-grid");
+    expect(props(with_([130, 330]))).toHaveLength(1);
+  });
+
+  it("GRID_END_TOUCHES: an end met by two plumb lines (above and below) is a grid", () => {
+    const p = labelledRule({
+      segs: [hseg(130, 330, 600), vseg(130, 600, 620), vseg(130, 580, 600)],
+    });
+    expect(firstRule(p)).toBe("table-grid");
+  });
+
+  it("GRID_TOUCH_EPS: a plumb line 1 pt off touches, 1.1 pt off does not", () => {
+    const at = (d: number) =>
+      labelledRule({
+        segs: [
+          hseg(130, 330, 600),
+          vseg(129 - (d - 1), 580, 620),
+          vseg(230, 580, 620),
+          vseg(330, 600 + d, 620),
+        ],
+      });
+    expect(firstRule(at(1))).toBe("table-grid");
+    expect(props(at(1.1))).toHaveLength(1);
+  });
+
+  it("COMB_MIN / COMB_EPS: four adjoining equal squares are a comb, three are not", () => {
+    const row = (n: number, gap = 0) =>
+      pg({
+        rects: Array.from({ length: n }, (_, k) =>
+          rect(100 + k * (14 + gap), 400, 14, 14),
+        ),
+        text: Array.from({ length: n }, (_, k) =>
+          txt("x", 100 + k * (14 + gap) + 3, 416, { size: 4, width: 2 }),
+        ),
+      });
+    expect(run(row(4)).excluded.map((e) => e.rule)).toEqual(
+      Array(4).fill("comb"),
+    );
+    expect(run(row(3)).excluded.some((e) => e.rule === "comb")).toBe(false);
+    expect(run(row(4, 1)).excluded.map((e) => e.rule)).toEqual(
+      Array(4).fill("comb"),
+    );
+    expect(run(row(4, 1.1)).excluded.some((e) => e.rule === "comb")).toBe(
+      false,
+    );
+  });
+
+  it("a filled square is a bullet", () => {
+    const p = pg({
+      rects: [rect(72, 600, 8, 8, { filled: true, stroked: false })],
+      text: [txt("Point", 88, 601, { size: 10 })],
+    });
+    expect(firstRule(p)).toBe("bullet");
+  });
+
+  it("a candidate whose only label is turned text is rotated-label", () => {
+    const p = pg({
+      text: [txt("Name:", 128, 450, { upright: false, width: 12 })],
+      segs: [hseg(150, 350, 450)],
+    });
+    const r = run(p);
+    expect(r.excluded.map((e) => e.rule)).toEqual(["rotated-label"]);
+    expect(r.counts.rotatedText).toBe(1);
+  });
+
+  it("an upright label wins over turned text", () => {
+    const p = pg({
+      text: [
+        txt("Name:", 128, 450, { upright: false, width: 12 }),
+        txt("Name:", 100, 450, { width: 30 }),
+      ],
+      segs: [hseg(150, 350, 450)],
+    });
+    expect(props(p)[0]?.label).toBe("Name");
+  });
+
+  it("TEXT_DESCENT_EMS: text resting with its descent on the field's bottom overlaps it", () => {
+    // Field bottom 601. Size 10: descent 2.
+    const at = (b: number) =>
+      labelledRule({ text: [txt("note", 200, b, { size: 10, width: 20 })] });
+    expect(firstRule(at(602.9))).toBe("overlaps-text");
+    expect(firstRule(at(603))).toBe("no-clearance");
+  });
+
+  it("TEXT_ASCENT_EMS: text below whose ascent reaches the field's bottom overlaps it", () => {
+    const at = (b: number) =>
+      labelledRule({ text: [txt("note", 200, b, { size: 10, width: 20 })] });
+    expect(firstRule(at(594.1))).toBe("overlaps-text");
+    expect(props(at(594))).toHaveLength(1);
+  });
+
+  it("MIN_FIELD_H / CLEARANCE_GAP: a field squeezed to 10 pt stays, under 10 is no-clearance", () => {
+    const at = (b: number) =>
+      labelledRule({
+        text: [txt("Please print", 200, b, { size: 10, width: 60 })],
+      });
+    expect(props(at(612))).toEqual([
+      expect.objectContaining({ y: 601, height: 10 }),
+    ]);
+    expect(firstRule(at(611.9))).toBe("no-clearance");
+  });
+
+  it("IOU_EXISTING: IoU above 0.3 overlaps, at or below does not (no centre inside)", () => {
+    const a = { x0: 0, y0: 0, x1: 10, y1: 10 };
+    const b = (x: number) => ({ x0: x, y0: 0, x1: x + 10, y1: 10 });
+    expect(overlapsExisting(a, b(5.38))).toBe(true); // IoU 0.3004
+    expect(overlapsExisting(a, b(5.4))).toBe(false); // IoU 0.2987
+    // A centre inside wins whatever the IoU.
+    expect(
+      overlapsExisting(
+        { x0: 0, y0: 0, x1: 100, y1: 100 },
+        { x0: 40, y0: 40, x1: 45, y1: 45 },
+      ),
+    ).toBe(true);
+  });
+
+  it("existing-field and existing-draft; a card on another page does not count", () => {
+    const p = labelledRule();
+    const box = { x: 131, y: 601, width: 198, height: 17 };
+    const withField = { ...p, widgets: [box] };
+    expect(firstRule(withField)).toBe("existing-field");
+    expect(run(withField).counts.alreadyFields).toBe(1);
+    expect(firstRule(p, { drafts: [{ page: 1, ...box }] })).toBe(
+      "existing-draft",
+    );
+    expect(props(p, { drafts: [{ page: 2, ...box }] })).toHaveLength(1);
+  });
+
+  it("DUP_DY: squares whose bottoms are 4 pt apart are one field, 4.1 pt are two", () => {
+    const two = (dy: number) =>
+      pg({
+        rects: [rect(72, 500, 12, 12), rect(72, 500 + dy, 12, 12)],
+        text: [txt("Yes", 90, 506, { size: 10 })],
+      });
+    const r = run(two(4));
+    expect(r.proposals).toHaveLength(1);
+    expect(r.excluded.map((e) => e.rule)).toEqual(["duplicate"]);
+    expect(props(two(4.1))).toHaveLength(2);
+  });
+
+  it("DUP_OVERLAP: overlapping by half the shorter is a duplicate, less is not", () => {
+    const two = (dx: number) =>
+      pg({
+        rects: [rect(72, 500, 12, 12), rect(72 + dx, 500, 12, 12)],
+        text: [txt("Yes", 72 + dx + 18, 502, { size: 10 })],
+      });
+    expect(run(two(5)).excluded.map((e) => e.rule)).toContain("duplicate");
+    expect(run(two(5.1)).excluded.map((e) => e.rule)).not.toContain(
+      "duplicate",
+    );
+  });
+
+  it("a line and a run in the same place: the line's box, the run's label", () => {
+    const p = pg({
+      text: [
+        txt("Name:", 72, 400, { width: 30 }),
+        txt("____________", 110, 400, { width: 80 }),
+      ],
+      segs: [hseg(110, 190, 399)],
+    });
+    const r = run(p);
+    expect(r.proposals).toEqual([
+      expect.objectContaining({ rule: "labelled-rule", label: "Name", y: 400 }),
+    ]);
+    expect(r.excluded.map((e) => e.rule)).toEqual(["duplicate"]);
+  });
+
+  it("BOUND_EPS equals the engine's: the same box passes or fails both", () => {
+    // A field whose right edge rounds to 613.
+    const page = (w: number) =>
+      pg({
+        width: w,
+        text: [txt("Name:", 520, 600, { width: 30 })],
+        segs: [hseg(555, 614, 600)],
+      });
+    const spec = (w: number) =>
+      validateFormFields(
+        [
+          {
+            type: "text",
+            name: "a",
+            page: 1,
+            x: 556,
+            y: 601,
+            width: 57,
+            height: 17,
+          },
+        ],
+        [{ width: w, height: H }],
+      );
+    expect(props(page(612.5))).toHaveLength(1);
+    expect(spec(612.5)).toEqual([]);
+    expect(firstRule(page(612.4))).toBe("off-page");
+    expect(spec(612.4)).not.toEqual([]);
+    expect(DETECT.BOUND_EPS).toBe(0.5);
+  });
+
+  it("off-page below zero: a field starting left of the page", () => {
+    const p = pg({
+      text: [txt("A", -40, 600, { width: 5, upright: false })],
+      segs: [hseg(-2, 100, 600)],
+    });
+    expect(firstRule(p, { disable: new Set(["rotated-label"]) })).toBe(
+      "off-page",
+    );
+  });
+
+  it("CAPS.perPage: 60 proposals a page, the rest counted", () => {
+    const rects: CardRect[] = [];
+    const text: CardText[] = [];
+    for (let k = 0; k < 61; k++) {
+      const x = 20 + (k % 10) * 58;
+      const y = 40 + Math.floor(k / 10) * 40;
+      rects.push(rect(x, y, 12, 12));
+      text.push(txt("Opt", x + 16, y + 2, { size: 8, width: 12 }));
+    }
+    const r = run(pg({ rects, text }));
+    expect(r.proposals).toHaveLength(DETECT.CAPS.perPage);
+    expect(r.counts.capped).toBe(1);
+  });
+
+  it("disable: every exclusion id is a seam that can be turned off", () => {
+    const cases: [ExclusionRuleId, CardPage][] = [
+      ["unlabelled", pg({ segs: [hseg(130, 330, 600)] })],
+      ["short-run", pg({ text: [txt("____", 100, 600, { width: 20 })] })],
+      [
+        "signature",
+        pg({ text: [txt("Signature: ________", 72, 600, { width: 150 })] }),
+      ],
+    ];
+    for (const [id, p] of cases) {
+      expect(firstRule(p)).toBe(id);
+      const off = run(p, { disable: new Set([id]) });
+      expect(off.excluded.map((e) => e.rule)).not.toContain(id);
+      expect(off.proposals.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("cleanLabel", () => {
+  it("drops underscores, trailing colons and dashes, and extra spaces", () => {
+    expect(cleanLabel("  Full   name :  ")).toBe("Full name");
+    expect(cleanLabel("Date ____")).toBe("Date");
+    expect(cleanLabel("____")).toBeNull();
+    expect(cleanLabel("Amount -")).toBe("Amount");
+  });
+});
+
+describe("nameFor", () => {
+  const none = new Set<string>();
+
+  it("lower-cases, drops accents, joins words with _", () => {
+    expect(nameFor(`Pr${String.fromCodePoint(0xe9)}nom`, "text", none, 1)).toBe(
+      "prenom",
+    );
+    expect(nameFor("Full Name (as on passport)", "text", none, 1)).toBe(
+      "full_name_as_on_passport",
+    );
+  });
+
+  it("never contains a period, whatever the label", () => {
+    for (const label of [
+      "a.b",
+      "Mr. Smith",
+      "...",
+      "name.first",
+      "e.g. 3.5",
+      ".x.",
+    ])
+      expect(nameFor(label, "text", none, 1)).not.toContain(".");
+  });
+
+  it("prefixes a leading digit", () => {
+    expect(nameFor("1st line", "text", none, 1)).toBe("field_1st_line");
+  });
+
+  it("falls back to text_N / checkbox_N when nothing is left", () => {
+    const bengali = String.fromCodePoint(0x09a8, 0x09be, 0x09ae);
+    expect(nameFor(bengali, "text", none, 3)).toBe("text_3");
+    expect(nameFor(null, "checkbox", none, 2)).toBe("checkbox_2");
+    expect(nameFor("::", "text", none, 7)).toBe("text_7");
+  });
+
+  it("cuts to 40 characters", () => {
+    const n = nameFor("x".repeat(60), "text", none, 1);
+    expect(n).toHaveLength(40);
+  });
+
+  it("is unique: _2, _3, ...", () => {
+    expect(nameFor("Name", "text", new Set(["name"]), 1)).toBe("name_2");
+    expect(nameFor("Name", "text", new Set(["name", "name_2"]), 1)).toBe(
+      "name_3",
+    );
+  });
+
+  it("treats a taken dotted name as taking its group", () => {
+    expect(nameFor("Name", "text", new Set(["name.first"]), 1)).toBe("name_2");
+    expect(nameFor("Name", "text", new Set(["name", "name.first"]), 1)).toBe(
+      "name_2",
+    );
+  });
+
+  it("a name it gives passes the engine's validation against the dotted names", () => {
+    const reserved = ["name", "name.first", "mr"];
+    const name = nameFor("Mr. Name", "text", new Set(reserved), 1);
+    expect(
+      validateFormFields(
+        [{ type: "text", name, page: 1, x: 10, y: 10, width: 50, height: 15 }],
+        [{ width: W, height: H }],
+        reserved,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("proposalToDraftFields and filterValid", () => {
+  const prop = (o: Partial<FieldProposal>): FieldProposal => ({
+    key: "k",
+    page: 1,
+    x: 10,
+    y: 10,
+    width: 100,
+    height: 15,
+    type: "text",
+    label: "Name",
+    rule: "underscore-run",
+    ...o,
+  });
+
+  it("names each proposal against the taken names and each other", () => {
+    const specs = proposalToDraftFields(
+      [
+        prop({}),
+        prop({ y: 40 }),
+        prop({ type: "checkbox", label: null, width: 10, height: 10 }),
+      ],
+      ["name"],
+    );
+    expect(specs.map((s) => s.name)).toEqual([
+      "name_2",
+      "name_3",
+      "checkbox_1",
+    ]);
+    expect(specs[0]).toMatchObject({ type: "text", multiline: false });
+    expect(specs[0]).not.toHaveProperty("defaultValue");
+    expect(specs[2]).toMatchObject({ type: "checkbox", checked: false });
+  });
+
+  it("drops what the engine's validation refuses and counts it", () => {
+    const sizes = [{ width: W, height: H }];
+    const all = [prop({}), prop({ x: 600, y: 60 }), prop({ y: 90 })];
+    const { kept, invalid } = filterValid(all, (xs) =>
+      validateFormFields(proposalToDraftFields(xs), sizes),
+    );
+    expect(invalid).toBe(1);
+    expect(kept.map((p) => p.y)).toEqual([10, 90]);
+  });
+
+  it("keeps everything when validation passes; ignores errors with no index", () => {
+    expect(filterValid([1, 2], () => [{ index: -1 }])).toEqual({
+      kept: [1, 2],
+      invalid: 0,
+    });
+  });
+});
