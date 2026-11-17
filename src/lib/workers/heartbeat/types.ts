@@ -473,6 +473,23 @@ export interface HeartbeatCapabilities {
    * reads `true` on an observed heartbeat. The absence parses as `false`.
    */
   readonly translatePageRange: boolean;
+  /**
+   * This image's Excel to PDF reads a .csv with the delimiter and character
+   * set the job chose (`csvDelimiter`, `csvCharset`, competitor audit #18):
+   * it parses both strictly, refuses an unknown value, and opens the file
+   * with LibreOffice's CSV filter built from them.
+   *
+   * PROVEN AT START-UP (`office-conversion/csv-capability.ts`,
+   * `provesCsvImportOptions`) through the executor's order, with the image's
+   * own LibreOffice runner and a recording stand-in for the soffice process:
+   * the filter it would be handed must carry the chosen separator and
+   * character-set codes. An image built before the key IGNORES both options
+   * (its parser is lenient to unknown keys) and reads every CSV as comma
+   * separated, so the web offers the choices, and `POST /api/jobs` admits
+   * them, only while this reads `true` on an observed heartbeat. The absence
+   * parses as `false`.
+   */
+  readonly csvImportOptions: boolean;
 }
 
 /**

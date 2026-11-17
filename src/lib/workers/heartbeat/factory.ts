@@ -467,6 +467,38 @@ export async function runningWorkerTranslatesPageRanges(
   );
 }
 
+/**
+ * May Excel to PDF read a .csv with the delimiter and character set a person
+ * chose (competitor audit #18)? ONE pure predicate, read by the page's offer
+ * (`GET /api/worker/status`, which shows the two selects) and by the
+ * admission gate (`POST /api/jobs` for an Excel job carrying `csvDelimiter`
+ * or `csvCharset`), so the two cannot drift apart.
+ *
+ * The property is "the running image opens the CSV with the chosen
+ * separator and character set", not "the code is merged": an image built
+ * before the feature drops both keys without a word and reads the file as
+ * comma separated, which is the one-column printout the choice exists to
+ * fix. Only a fresh, observed heartbeat carrying `csvImportOptions: true`
+ * (proven at the daemon's start-up, `office-conversion/csv-capability.ts`)
+ * says so; a stale, absent or unreachable beat, or an older image's record
+ * (no key, parsed as false), says no.
+ */
+export function liveWorkerReadsCsvImportOptions(
+  liveness: HeartbeatLiveness,
+): boolean {
+  return liveness.observed && liveness.capabilities?.csvImportOptions === true;
+}
+
+/** The admission gate's question, read from the broker. See {@link liveWorkerReadsCsvImportOptions}. */
+export async function runningWorkerReadsCsvImportOptions(
+  env: EnvSource = process.env,
+  deps: HeartbeatRedisDeps = {},
+): Promise<boolean> {
+  return liveWorkerReadsCsvImportOptions(
+    await readWorkerHeartbeatLiveness(env, deps),
+  );
+}
+
 /** The admission gates' question, read from the broker. See {@link liveWorkerRendersHtmlZip}. */
 export async function runningWorkerRendersHtmlZip(
   env: EnvSource = process.env,

@@ -20,6 +20,12 @@ import {
   type SheetLayout,
 } from "./sheet-layout";
 import {
+  CSV_IMPORT_CSV_ONLY_MESSAGE,
+  acceptsCsvImport,
+  choosesCsvImport,
+  type CsvImportChoice,
+} from "./csv-import";
+import {
   EXCEL_TO_PDF_TOOL,
   POWERPOINT_TO_PDF_TOOL,
   WORD_TO_PDF_TOOL,
@@ -42,6 +48,8 @@ export interface LibreOfficePdfRunner {
     run?: RunControl,
     /** Excel to PDF's page layout; absent is LibreOffice's plain export. */
     layout?: SheetLayout,
+    /** A .csv's delimiter and character set (`./csv-import`); absent is Auto. */
+    csv?: CsvImportChoice,
   ): Promise<Uint8Array>;
 }
 
@@ -149,6 +157,8 @@ export async function runOfficeToPdf(
   signal?: AbortSignal,
   /** Excel to PDF's page layout (`./sheet-layout`); ignored by the others. */
   layout?: SheetLayout,
+  /** Excel to PDF's CSV choices (`./csv-import`); ignored by the others. */
+  csv?: CsvImportChoice,
 ): Promise<OfficeConversionRun> {
   if (!supportsOfficeInput(tool, filename)) {
     return {
@@ -209,6 +219,15 @@ export async function runOfficeToPdf(
   // Orientation and fit-to-width are written into the workbook's own page
   // setup before LibreOffice opens it (`./xlsx-page-setup`, loaded only
   // here). Refused, never ignored, on a file that rewrite cannot reach.
+  // A delimiter or character set is a .csv's alone. Refused, never ignored,
+  // on any other file, before anything is rewritten or converted.
+  const csvChosen = tool === EXCEL_TO_PDF_TOOL && choosesCsvImport(csv);
+  if (csvChosen && !acceptsCsvImport(filename))
+    return {
+      ok: false,
+      kind: "invalid_input",
+      message: CSV_IMPORT_CSV_ONLY_MESSAGE,
+    };
   let source = input;
   if (tool === EXCEL_TO_PDF_TOOL && layout && needsPageSetup(layout)) {
     if (!acceptsPageSetup(filename))
@@ -232,10 +251,19 @@ export async function runOfficeToPdf(
   }
   let output: Uint8Array;
   try {
-    // The layout goes to LibreOffice only for a spreadsheet that asked for
-    // more than the default, so every other run is called exactly as before.
-    output =
-      tool === EXCEL_TO_PDF_TOOL && layout?.onePagePerSheet
+    // The layout and the CSV choices go to LibreOffice only for a
+    // spreadsheet that asked for more than the default, so every other run
+    // is called exactly as before.
+    const onePage = tool === EXCEL_TO_PDF_TOOL && layout?.onePagePerSheet;
+    output = csvChosen
+      ? await deps.libreoffice.convertToPdf(
+          source,
+          filename,
+          signalOption(signal),
+          onePage ? layout : undefined,
+          csv,
+        )
+      : onePage
         ? await deps.libreoffice.convertToPdf(
             source,
             filename,

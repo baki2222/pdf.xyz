@@ -490,6 +490,7 @@ describe("advertised capabilities — the deploy gap becomes a reported state", 
     translateReadingOrder: false,
     translatePageMap: false,
     translatePageRange: false,
+    csvImportOptions: false,
     ...extra,
   });
 

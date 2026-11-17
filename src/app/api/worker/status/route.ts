@@ -21,6 +21,7 @@ import {
   liveWorkerSelectsChatPages,
   liveWorkerSummarizesPages,
   liveWorkerTranslatesPageRanges,
+  liveWorkerReadsCsvImportOptions,
   liveWorkerTranslatesScans,
   readWorkerHeartbeatLiveness,
 } from "@/lib/workers/heartbeat";
@@ -122,6 +123,12 @@ export async function GET(request: Request): Promise<Response> {
   // (`translate-page-range.route.test.ts` runs each beat through both
   // routes). An older image publishes no key; absent is false.
   const workerTranslatePageRange = liveWorkerTranslatesPageRanges(liveness);
+  // Excel to PDF's CSV Delimiter and Character set (competitor audit #18):
+  // offered only on a fresh beat that proves them. The SAME predicate
+  // `POST /api/jobs` admits an Excel job carrying them on
+  // (`csv-import.route.test.ts` runs each beat through both routes). An
+  // older image publishes no key; absent is false.
+  const workerCsvImportOptions = liveWorkerReadsCsvImportOptions(liveness);
 
   return respond(
     ok(
@@ -141,6 +148,7 @@ export async function GET(request: Request): Promise<Response> {
         workerChatRetrieval,
         workerSummarizePages,
         workerTranslatePageRange,
+        workerCsvImportOptions,
       ),
     ),
   );

@@ -203,6 +203,7 @@ describe("GET /api/worker/operations — daemon liveness heartbeat (Phase 30)", 
           translateReadingOrder: true,
           translatePageMap: true,
           translatePageRange: true,
+          csvImportOptions: true,
         },
         at: Date.now() - 10 * 60 * 1000, // 10 minutes old ⇒ far past the fresh window
       }),

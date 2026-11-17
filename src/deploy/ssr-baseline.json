@@ -2336,6 +2336,7 @@
       "robots": "index, follow",
       "h1": ["How to convert Excel to PDF"],
       "h2": [
+        "CSV files: separators and letters",
         "Common questions",
         "Formulas, sheets and macros",
         "How the pages are laid out",

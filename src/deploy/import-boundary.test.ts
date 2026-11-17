@@ -113,6 +113,11 @@ const ALLOWED = new Set(
     // Reached only by the daemon's proved-capability table, the in-image
     // proof script (`scripts/worker-summarize-pages-proof.ts`) and tests.
     "src/lib/workers/summarize/pages-capability.ts",
+    // Excel to PDF's CSV-choice proof (2026-11-17, competitor audit #18): it
+    // builds the image's own LibreOffice runner (`office-conversion/native`)
+    // around a recording stand-in for soffice. Reached only by the daemon's
+    // proved-capability table and tests.
+    "src/lib/workers/office-conversion/csv-capability.ts",
     "src/lib/workers/local-dev.ts",
     "src/lib/workers/daemon/runtime.ts",
     // 2026-11-15: the daemon's proved-capability table (every proof, incl.

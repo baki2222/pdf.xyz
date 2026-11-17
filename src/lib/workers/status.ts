@@ -163,6 +163,17 @@ export interface WorkerStatus {
    * Optional: absent reads as `false`.
    */
   translatePageRange?: boolean;
+  /**
+   * Whether Excel to PDF may offer a .csv's Delimiter and Character set
+   * (2026-11-17, competitor audit #18). True only when an OBSERVED heartbeat
+   * proves `csvImportOptions` (`liveWorkerReadsCsvImportOptions`, the
+   * predicate `POST /api/jobs` admits an Excel job carrying them on): an
+   * image built before the feature drops both silently and reads every CSV
+   * as comma separated, and the image ships separately from this web tier,
+   * so merged code is not evidence. Until it reads true the panel shows no
+   * CSV choice, exactly as before. Optional: absent reads as `false`.
+   */
+  csvImportOptions?: boolean;
 }
 
 const NO_COMPRESS: CompressCapability = {
@@ -299,6 +310,11 @@ export function buildWorkerStatus(
    * (`liveWorkerTranslatesPageRanges`, the predicate the admission gate uses).
    */
   workerTranslatePageRange?: boolean,
+  /**
+   * Whether the observed worker's heartbeat proves `csvImportOptions`
+   * (`liveWorkerReadsCsvImportOptions`, the predicate the admission gate uses).
+   */
+  workerCsvImportOptions?: boolean,
 ): WorkerStatus {
   const ocr = buildOcrCapability(
     mode,
@@ -334,6 +350,8 @@ export function buildWorkerStatus(
     workerObserved === true && workerSummarizePages === true;
   const translatePageRange =
     workerObserved === true && workerTranslatePageRange === true;
+  const csvImportOptions =
+    workerObserved === true && workerCsvImportOptions === true;
 
   if (mode === "local-dev") {
     const engines = DEEP_COMPRESSION_TOOLS.filter((tool) => tools?.[tool]);
@@ -359,6 +377,7 @@ export function buildWorkerStatus(
       chatRetrieval,
       summarizePages,
       translatePageRange,
+      csvImportOptions,
     };
   }
 
@@ -384,6 +403,7 @@ export function buildWorkerStatus(
       chatRetrieval,
       summarizePages,
       translatePageRange,
+      csvImportOptions,
     };
   }
 
@@ -411,5 +431,6 @@ export function buildWorkerStatus(
     chatRetrieval,
     summarizePages,
     translatePageRange,
+    csvImportOptions,
   };
 }

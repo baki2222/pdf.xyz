@@ -457,3 +457,37 @@ describe("the translatePageRange entry is a proof, not a constant", () => {
     );
   });
 });
+
+describe("the csvImportOptions entry is a proof, not a constant", () => {
+  /**
+   * Competitor audit #18 (2026-11-17). Every other test here spies on
+   * `prove`, so `csvImportOptions: { prove: () => true }` would pass them
+   * all; this holds the entry to the call, and `csv-capability.test.ts`
+   * holds the call to the image (it says NO for a processor that drops the
+   * options, a runner that ignores the choice, and a lenient parser). The
+   * proof stands soffice in with a recorder, so it answers YES without
+   * LibreOffice; whether LibreOffice is installed is the Office processor's
+   * own readiness, which gates the panel before this does.
+   */
+  it("answers true on this tree's registry", async () => {
+    expect(await PROVED_CAPABILITIES.csvImportOptions.prove({})).toBe(true);
+  });
+
+  it("is the call to provesCsvImportOptions, imported from csv-capability", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/lib/workers/daemon/proved-capabilities.ts"),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /^import \{ provesCsvImportOptions \} from "@\/lib\/workers\/office-conversion\/csv-capability";$/m,
+    );
+    const entry =
+      /^ {2}csvImportOptions: \{([\s\S]*?)\},?$/m.exec(source)?.[1] ?? "";
+    expect(entry, "no csvImportOptions entry in PROVED_CAPABILITIES").not.toBe(
+      "",
+    );
+    expect(entry).toMatch(
+      /prove: \(env\) => provesCsvImportOptions\(env\),\s*parse: bool/,
+    );
+  });
+});

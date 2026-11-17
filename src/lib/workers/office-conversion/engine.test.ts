@@ -77,3 +77,84 @@ describe("office-conversion engine", () => {
     ).resolves.toMatchObject({ ok: false, kind: "unreadable" });
   });
 });
+
+describe("a CSV's delimiter and character set (competitor audit #18)", () => {
+  const CSV = new TextEncoder().encode("a;b\n1;2\n");
+  const CHOSEN = { delimiter: "semicolon", charset: "windows-1251" } as const;
+
+  it("a choice reaches LibreOffice with the .csv, as the fifth argument", async () => {
+    const libreoffice = runner();
+    const result = await runOfficeToPdf(
+      "excel-to-pdf",
+      CSV,
+      "rows.csv",
+      { libreoffice },
+      undefined,
+      undefined,
+      CHOSEN,
+    );
+    expect(result.ok).toBe(true);
+    expect(libreoffice.convertToPdf).toHaveBeenCalledWith(
+      CSV,
+      "rows.csv",
+      {},
+      undefined,
+      CHOSEN,
+    );
+  });
+
+  it("so does one beside one page per sheet, with the layout", async () => {
+    const libreoffice = runner();
+    const layout = {
+      onePagePerSheet: true,
+      orientation: null,
+      fitColumnsToWidth: false,
+    };
+    await runOfficeToPdf(
+      "excel-to-pdf",
+      CSV,
+      "rows.csv",
+      { libreoffice },
+      undefined,
+      layout,
+      CHOSEN,
+    );
+    expect(libreoffice.convertToPdf).toHaveBeenCalledWith(
+      CSV,
+      "rows.csv",
+      {},
+      layout,
+      CHOSEN,
+    );
+  });
+
+  it("CONTROL: Auto on both is called exactly as before", async () => {
+    const libreoffice = runner();
+    await runOfficeToPdf(
+      "excel-to-pdf",
+      CSV,
+      "rows.csv",
+      { libreoffice },
+      undefined,
+      undefined,
+      { delimiter: null, charset: null },
+    );
+    expect(libreoffice.convertToPdf).toHaveBeenCalledWith(CSV, "rows.csv", {});
+  });
+
+  it("a choice on a file that is not a .csv is refused before LibreOffice runs", async () => {
+    const libreoffice = runner();
+    const result = await runOfficeToPdf(
+      "excel-to-pdf",
+      new TextEncoder().encode("xls bytes"),
+      "book.xls",
+      { libreoffice },
+      undefined,
+      undefined,
+      { delimiter: "tab", charset: null },
+    );
+    expect(result).toMatchObject({ ok: false, kind: "invalid_input" });
+    if (!result.ok) expect(result.message).toMatch(/\.csv files only/);
+    expect(libreoffice.convertToPdf).not.toHaveBeenCalled();
+  });
+});
