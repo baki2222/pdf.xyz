@@ -36,6 +36,7 @@ import {
   toggleIndex,
 } from "./selection";
 import { PageTile, TileAction } from "./page-tile";
+import { LazyPageZoomDialog, ZoomButton } from "./page-zoom-lazy";
 import {
   FileHeader,
   SinglePdfRunner,
@@ -109,6 +110,8 @@ function RotateEditor({
   const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
   const { thumbs, rendered, status, capped, eagerCount, requestPage } =
     usePdfThumbnails(pdf.bytes, pdf.pageCount);
+  // The enlarged page is turned as its tile is: as it will come out.
+  const [zoom, setZoom] = useState<number | null>(null);
 
   const changedCount = useMemo(
     () =>
@@ -263,36 +266,54 @@ function RotateEditor({
         className="border-line bg-wash rounded-panel grid max-h-[58vh] grid-cols-2 gap-3 overflow-auto border p-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8"
       >
         {rotations.map((rotation, i) => (
-          <PageTile
-            key={i}
-            label={`Page ${i + 1}`}
-            ariaLabel={`Page ${i + 1}`}
-            rotation={rotation}
-            thumbnail={thumbs[i]}
-            loading={status === "rendering"}
-            onEnterView={capped ? () => requestPage(i) : undefined}
-            selectable
-            selected={selected.has(i)}
-            onSelect={(shiftKey) => onSelectPage(i, shiftKey)}
-            actions={
-              <>
-                <TileAction
-                  title={`Rotate page ${i + 1} left`}
-                  onClick={() => rotateBy(-90, i)}
-                >
-                  <RotateCcw className="size-3.5" aria-hidden />
-                </TileAction>
-                <TileAction
-                  title={`Rotate page ${i + 1} right`}
-                  onClick={() => rotateBy(90, i)}
-                >
-                  <RotateCw className="size-3.5" aria-hidden />
-                </TileAction>
-              </>
-            }
-          />
+          // The enlarge button sits beside the tile, not inside it: the tile
+          // is itself a button, and a button may not hold another.
+          <div key={i} className="relative">
+            <PageTile
+              label={`Page ${i + 1}`}
+              ariaLabel={`Page ${i + 1}`}
+              rotation={rotation}
+              thumbnail={thumbs[i]}
+              loading={status === "rendering"}
+              onEnterView={capped ? () => requestPage(i) : undefined}
+              selectable
+              selected={selected.has(i)}
+              onSelect={(shiftKey) => onSelectPage(i, shiftKey)}
+              actions={
+                <>
+                  <TileAction
+                    title={`Rotate page ${i + 1} left`}
+                    onClick={() => rotateBy(-90, i)}
+                  >
+                    <RotateCcw className="size-3.5" aria-hidden />
+                  </TileAction>
+                  <TileAction
+                    title={`Rotate page ${i + 1} right`}
+                    onClick={() => rotateBy(90, i)}
+                  >
+                    <RotateCw className="size-3.5" aria-hidden />
+                  </TileAction>
+                </>
+              }
+              className="h-full"
+            />
+            <span className="absolute top-2 right-2 z-10">
+              <ZoomButton pageNumber={i + 1} onClick={() => setZoom(i)} />
+            </span>
+          </div>
         ))}
       </div>
+
+      {zoom !== null && (
+        <LazyPageZoomDialog
+          bytes={pdf.bytes}
+          pageCount={pdf.pageCount}
+          rotations={rotations}
+          index={zoom}
+          onIndex={setZoom}
+          onClose={() => setZoom(null)}
+        />
+      )}
 
       {error && <ErrorNote message={error} />}
 

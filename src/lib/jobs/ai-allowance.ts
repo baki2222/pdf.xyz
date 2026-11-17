@@ -526,13 +526,22 @@ const PER_CALL_UNITS = listed(
  *    network that can include AI work by someone else" while the bucket was
  *    one pool for the whole site (review, 2026-10-10). Its scope now comes
  *    from {@link SCOPE_WORDS}, like the offer's.
+ *  - it said "is used up for today" (2026-08-11 to 2026-11-17). The bucket
+ *    is a FIXED window of `windowSeconds` stamped at its first charge
+ *    (`ratelimit/redis.ts`, `PEXPIRE` only while `PTTL < 0`; a later charge
+ *    never moves it), not a calendar day: a connection charged at 22:00 is
+ *    still refused the next morning, so "for today" promised a reset that
+ *    does not come. "for now" claims no clock; the wait itself is said by the
+ *    browser from `Retry-After` (`@/lib/workers/read-error`).
+ *    `ratelimit/window-words.test.ts` bans the calendar shapes over every
+ *    source file and every evaluated sentence.
  * `ratelimit/allowance-copy.test.ts` holds it to every AI tool in the
  * catalogue (all of them or none), `tools/ai-allowance-per-tool.test.ts`
  * holds its per-run clause to the pages' own units, and
  * `ratelimit/keying-disclosure.test.tsx` holds its scope to the limiter.
  */
 const usedMessageIn = (scope: AllowanceScope) =>
-  `${SCOPE_WORDS[scope].allowance} is used up for today, or too little of it is left for this document. It covers ${AI_ALLOWANCE_CLAUSE}, shared across the AI tools: ${listed(Object.values(PER_CHARACTER_JOB_COST), "and")}, and ${PER_CALL_UNITS} never counts more than ${AI_PER_CALL_RUN_CEILING.toLocaleString("en-US")} of them. ${SCOPE_WORDS[scope].whoShares} The allowance resets daily.`;
+  `${SCOPE_WORDS[scope].allowance} is used up for now, or too little of it is left for this document. It covers ${AI_ALLOWANCE_CLAUSE}, shared across the AI tools: ${listed(Object.values(PER_CHARACTER_JOB_COST), "and")}, and ${PER_CALL_UNITS} never counts more than ${AI_PER_CALL_RUN_CEILING.toLocaleString("en-US")} of them. ${SCOPE_WORDS[scope].whoShares} The allowance resets daily.`;
 
 /**
  * Every allowance sentence, for one scope. The constants below are this, for
@@ -557,6 +566,20 @@ export const AI_ALLOWANCE_FACT = COPY.fact;
 
 /** The offer on the three `per-call` tools, for {@link ALLOWANCE_SCOPE}. */
 export const AI_PER_CALL_ALLOWANCE_FACT = COPY.perCallFact;
+
+/**
+ * Which document the allowance refuses whole: the clause the Translate page's
+ * intro and its tool fact both say, so the two cannot drift apart.
+ *
+ * It said "a document needing more than is left today" on both until
+ * 2026-11-17. The bucket is a fixed window from its first charge, not a
+ * calendar day (`ratelimit/redis.ts`), so "today" named a reset the limiter
+ * does not make; "the allowance has left" names only the quantity, which is
+ * what the limiter compares (`used + this job` against the bucket).
+ * `ratelimit/window-words.test.ts` holds both sentences to it.
+ */
+export const AI_ALLOWANCE_REFUSED_WHOLE =
+  "a document needing more than the allowance has left";
 
 /** The refusal, for {@link ALLOWANCE_SCOPE}. */
 export const AI_ALLOWANCE_USED_MESSAGE = COPY.usedMessage;

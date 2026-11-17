@@ -201,6 +201,24 @@ export interface AiDeliveryMeta {
    * reader with a number and nothing to do about it.
    */
   boundBy: "characters" | "pages";
+  /**
+   * `true` on a CHARACTERS-bound withhold of a job that declared a character
+   * count, so its reservation was a multiple of what the browser counted.
+   * Only then does the panel say "more text than was counted"
+   * (`WITHHELD_UNDERCOUNT_SENTENCE`).
+   *
+   * POSITIVE, SO A MISSING FIELD IS THE SAFE STATE (review, 2026-11-17). It
+   * was `undeclared?: true`, absent meaning declared. Only the new worker
+   * sets either, and the worker image is built by hand after the web tier
+   * deploys, so every result the running worker wrote lacked it and the
+   * panel read all of them as declared: OCR scans and API jobs included,
+   * where nothing was counted, while the package from that same worker
+   * still said "Translate the remaining pages as a separate document."
+   * Absent now means "not known to be counted", and the panel keeps the
+   * separate-document remedy, which is what an older worker's package says
+   * (`delivery-notice.test.tsx`, "an older worker's result").
+   */
+  counted?: true;
 }
 
 /**
@@ -488,6 +506,10 @@ export function buildAiResultMeta(raw: AiResultMeta): AiResultMeta {
           deliveredPages: count(rawDelivery.deliveredPages),
           withheldPages,
           boundBy: rawDelivery.boundBy,
+          ...(rawDelivery.counted === true &&
+          rawDelivery.boundBy === "characters"
+            ? { counted: true as const }
+            : {}),
         }
       : undefined;
 

@@ -307,27 +307,42 @@ const SPLIT_SHIPPED: readonly { at: string; sentence: string }[] = [
       /^Split it/,
     ),
   },
+  // UNDECLARED arms (merge with fix/allowance-window-words): a declared job
+  // on the characters bound is no longer told "as a separate document" (it
+  // would be undercounted again), so the sentence is derived from the arm
+  // that still writes it: an API caller or an OCR scan, which reserved a
+  // flat amount.
   {
-    at: "withheldPagesMarker, per job",
+    at: "withheldPagesMarker, undeclared, per job",
     sentence: sentenceWith(
-      withheldPagesMarker([2], "characters", { characters: 9 }, null),
+      withheldPagesMarker(
+        [2],
+        "characters",
+        { characters: 9, undeclared: true },
+        null,
+      ),
       /separate document/,
     ),
   },
+  // HISTORY, no longer derived (merge with fix/allowance-window-words): the
+  // characters-bound refusal ended with this until then, verbatim at
+  // 76af2dee; a declared job now gets NOTHING_UNDERCOUNT_SENTENCE and an
+  // undeclared one nothing more, and the test below holds both arms free of
+  // it.
   {
-    at: "nothingDeliverableMessage, characters, per job",
-    sentence: sentenceWith(
-      nothingDeliverableMessage("characters", { characters: 9 }, false),
-      /^Submit the document again/,
-    ),
+    at: "nothingDeliverableMessage, characters, per job, until the merge after #351",
+    sentence:
+      "Submit the document again with its real length, or split it into smaller files.",
   },
   {
-    at: "DeliveryNotice, characters bound, panel per job",
+    at: "DeliveryNotice, characters bound, undeclared, panel per job",
     sentence: sentenceWith(
       deliveryConsequence({
         boundBy: "characters",
         deliveredPages: 1,
         withheldPages: 1,
+        // No `counted` flag: an undeclared job's result, and any result an
+        // older worker wrote (review, 2026-11-17).
       }),
       /separate document/,
     ),
@@ -376,6 +391,21 @@ describe("the split-first advice is gone from Translate's served pages (slice 7)
 
   it("no served Translate sentence carries split-first advice", () => {
     expect(splitOffenders(COPY)).toEqual([]);
+  });
+
+  it("the characters-bound refusal carries no split advice in either arm", () => {
+    for (const limit of [
+      { characters: 9 },
+      { characters: 9, undeclared: true as const },
+    ])
+      for (const chosen of [false, true]) {
+        const text = nothingDeliverableMessage("characters", limit, chosen);
+        expect(text.length).toBeGreaterThan(40);
+        expect(
+          sentencesOf(text).flatMap(splitAdvice),
+          JSON.stringify(limit),
+        ).toEqual([]);
+      }
   });
 
   it("positive control: each shipped split sentence, planted in the intro, is caught", () => {

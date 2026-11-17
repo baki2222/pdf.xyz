@@ -74,6 +74,21 @@ export interface JobDeliveryCap {
    * extracted text). Absent means unbounded in this dimension, never zero.
    */
   readonly pages?: number;
+  /**
+   * `true` when the caller declared NO character count, so `characters` is
+   * the whole-call fallback rather than a multiple of anything counted.
+   * Absent means the count was declared.
+   *
+   * The worker cannot tell the two apart from `characters` (a declaration
+   * can land on the fallback's figure), and they need different words when
+   * pages are withheld. A declared job's reservation was short because the
+   * count was: a rerun of those pages is declared by the same count and is
+   * short again, so no rerun is offered. An undeclared job's reservation is
+   * a flat amount, and the remaining pages sent as another document get
+   * another one, so that remedy is true (`translate-withheld-remedy.chain
+   * .test.ts`, both states). A panel scan sent for OCR is undeclared too.
+   */
+  readonly undeclared?: true;
 }
 
 /**
@@ -92,7 +107,11 @@ export function readDeliveryCap(
   if (typeof value !== "object") {
     return { ok: false, reason: "the delivery cap is not an object" };
   }
-  const raw = value as { characters?: unknown; pages?: unknown };
+  const raw = value as {
+    characters?: unknown;
+    pages?: unknown;
+    undeclared?: unknown;
+  };
   if (
     typeof raw.characters !== "number" ||
     !Number.isFinite(raw.characters) ||
@@ -116,11 +135,18 @@ export function readDeliveryCap(
       };
     }
   }
+  if (raw.undeclared !== undefined && raw.undeclared !== true) {
+    return {
+      ok: false,
+      reason: "the delivery cap has an undeclared flag that is not true",
+    };
+  }
   return {
     ok: true,
     cap: {
       characters: raw.characters,
       ...(raw.pages !== undefined ? { pages: raw.pages } : {}),
+      ...(raw.undeclared === true ? { undeclared: true } : {}),
     },
   };
 }
@@ -162,6 +188,9 @@ export function deliveryCapFor(
     characters: Math.ceil(declared * limits.headroom),
     ...(request.declaredTextPages !== undefined
       ? { pages: request.declaredTextPages }
+      : {}),
+    ...(request.declaredCharacters === undefined
+      ? { undeclared: true as const }
       : {}),
   };
 }
