@@ -523,6 +523,91 @@ describe("exclusions, each at its boundary", () => {
       ).toHaveLength(1);
   });
 
+  // A letter's sign-off ("Yours sincerely," above a line, the printed name
+  // under it) was proposed as a text field named after the signer: the
+  // signature rule tested only the label, and the label was the caption
+  // "John Smith" (review finding; corpus N25).
+  describe("signature: a letter's sign-off", () => {
+    /** A 180 pt line at y 470 captioned "John Smith", `close` at y 470 + dy. */
+    const letter = (close: string | null, dy = 50, x = 72) =>
+      pg({
+        segs: [hseg(72, 252, 470)],
+        text: [
+          ...(close ? [txt(close, x, 470 + dy, { width: 80, size: 11 })] : []),
+          txt("John Smith", 72, 456, { width: 55, size: 11 }),
+          txt("Director", 72, 442, { width: 40, size: 11 }),
+        ],
+      });
+    // Every alternative of SIGNOFF_RE caught by some close, and every close
+    // caught by some alternative (CLAUDE.md, guards rule 1: both ways).
+    const CLOSES = [
+      "Yours sincerely,",
+      "Sincerely,",
+      "Kind regards,",
+      "Yours faithfully,",
+      "Yours truly,",
+      "Cordially,",
+      "Respectfully,",
+      "On behalf of Acme Ltd,",
+    ];
+    const alternatives = /\(([^()]*)\)/
+      .exec(DETECT.SIGNOFF_RE.source)![1]!
+      .split("|");
+
+    it("the close list and SIGNOFF_RE cover each other", () => {
+      expect(alternatives.length, "SIGNOFF_RE read as empty").toBeGreaterThan(
+        3,
+      );
+      for (const alt of alternatives)
+        expect(
+          CLOSES.filter((c) =>
+            new RegExp(`\\b${alt.replace(/ /g, "\\s+")}\\b`, "i").test(c),
+          ),
+          `no close exercises "${alt}"`,
+        ).not.toEqual([]);
+      for (const c of CLOSES)
+        expect(DETECT.SIGNOFF_RE.test(c), `"${c}" is not caught`).toBe(true);
+    });
+
+    it("a captioned line under a close is a signature line", () => {
+      for (const c of CLOSES) {
+        const r = run(letter(c));
+        expect(r.proposals, c).toEqual([]);
+        expect(r.excluded.map((e) => e.rule)).toEqual(["signature"]);
+        expect(r.counts.signatureLines).toBe(1);
+      }
+    });
+
+    it("without a close it stays a captioned field", () => {
+      expect(props(letter(null))).toEqual([
+        expect.objectContaining({ label: "John Smith" }),
+      ]);
+      expect(props(letter("Thank you for your order."))).toHaveLength(1);
+      expect(props(letter("Sincerity is our motto."))).toHaveLength(1);
+    });
+
+    it("SIGNOFF_ABOVE: a close 80 pt above the line counts, 80.1 pt does not", () => {
+      expect(firstRule(letter("Yours sincerely,", 80))).toBe("signature");
+      expect(props(letter("Yours sincerely,", 80.1))).toHaveLength(1);
+    });
+
+    it("a close below the line, or far to its side, does not count", () => {
+      expect(props(letter("Yours sincerely,", -40))).toHaveLength(1);
+      expect(props(letter("Yours sincerely,", 50, 400))).toHaveLength(1);
+    });
+
+    it("a line labelled to its left keeps its own label's verdict", () => {
+      const p = pg({
+        segs: [hseg(130, 330, 470)],
+        text: [
+          txt("Yours sincerely,", 72, 520, { width: 80, size: 11 }),
+          txt("Date:", 72, 470, { width: 30, size: 11 }),
+        ],
+      });
+      expect(props(p)).toEqual([expect.objectContaining({ label: "Date" })]);
+    });
+  });
+
   it("counts signature lines", () => {
     expect(
       run(pg({ text: [txt("Signature: ________", 72, 600, { width: 150 })] }))

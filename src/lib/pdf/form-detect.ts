@@ -166,6 +166,14 @@ export const DETECT = {
   COMB_EPS: 1,
   /** A label naming a signature line. */
   SIGNATURE_RE: /\b(sign(ature|ed)?|initials)\b/i,
+  /**
+   * A letter's complimentary close. A line with no label to its left (only a
+   * caption, the signer's printed name, or nothing) that has one of these up
+   * to SIGNOFF_ABOVE pt above it is a signature line too.
+   */
+  SIGNOFF_RE:
+    /\b(sincerely|regards|faithfully|truly|cordially|respectfully|on\s+behalf\s+of)\b/i,
+  SIGNOFF_ABOVE: 80,
   /** Overlap with an existing field or card: IoU above this, or a centre inside. */
   IOU_EXISTING: 0.3,
   /** Duplicates: bottoms within 4 pt and overlapping by half. */
@@ -1004,6 +1012,31 @@ function rowTables(rules: readonly Line[], all: readonly Piece[]): Set<Line> {
   return out;
 }
 
+/**
+ * A line with no label to its left under a letter's complimentary close
+ * ("Yours sincerely,"): the signature line of a sign-off, whose caption is
+ * the signer's printed name, not a field's label. The close is upright text
+ * matching {@link DETECT.SIGNOFF_RE}, up to {@link DETECT.SIGNOFF_ABOVE} pt
+ * above the line, and over it or over where its label would be.
+ */
+function underSignOff(p: CardPage, c: Candidate): boolean {
+  const line = c.line;
+  if (c.rule !== "labelled-rule" || !line || c.leftLabel) return false;
+  return p.text.some(
+    (t) =>
+      t.upright &&
+      t.y > line.y &&
+      t.y - line.y <= DETECT.SIGNOFF_ABOVE &&
+      overlap(
+        t.x,
+        t.x + Math.max(0, t.width),
+        line.x0 - DETECT.LABEL_LEFT_GAP_RULE,
+        line.x1,
+      ) > 0 &&
+      DETECT.SIGNOFF_RE.test(t.str),
+  );
+}
+
 /** Squares in a row of {@link DETECT.COMB_MIN} or more equal, adjoining ones. */
 function combSquares(squares: CardRect[]): Set<CardRect> {
   const eps = DETECT.COMB_EPS;
@@ -1162,7 +1195,10 @@ export function classifyPage(
   const survivors: Survivor[] = [];
   for (const c of cands) {
     // 3. Signature lines belong to Edit PDF's signature field.
-    if (on("signature") && c.label && DETECT.SIGNATURE_RE.test(c.label)) {
+    if (
+      on("signature") &&
+      ((c.label && DETECT.SIGNATURE_RE.test(c.label)) || underSignOff(p, c))
+    ) {
       exclude("signature", c.box);
       continue;
     }

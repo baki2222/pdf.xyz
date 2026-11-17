@@ -1214,6 +1214,32 @@ export const DETECT_CASES: readonly DetectCase[] = [
     at: { page: 1, x: 300, y: 705 },
   },
   {
+    id: "N25",
+    kind: "negative",
+    note: 'a business letter\'s sign-off: "Yours sincerely,", a line, the printed name and role under it',
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await text(page, H, "Acme Widgets Ltd", 72, 740, 16);
+      await text(
+        page,
+        H,
+        "Thank you for your order. We will ship it next week.",
+        72,
+        600,
+        11,
+      );
+      await text(page, H, "Yours sincerely,", 72, 520, 11);
+      rule(page, 72, 252, 470, 0.5);
+      await text(page, H, "John Smith", 72, 456, 11);
+      await text(page, H, "Director", 72, 442, 11);
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "signature",
+    at: { page: 1, x: 150, y: 475 },
+  },
+  {
     id: "N22",
     kind: "negative",
     note: "P4's line inside a form XObject whose /BBox [0 0 10 10] clips all of it away",
