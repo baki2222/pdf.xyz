@@ -13,22 +13,18 @@ import {
 } from "lucide-react";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
+  MAX_REQUEST_FIELDS,
+  MAX_REQUEST_MESSAGE_CHARS,
   MAX_REQUEST_SIGNERS,
   MAX_REQUEST_TITLE_CHARS,
   MAX_SIGNER_EMAIL_CHARS,
   MAX_SIGNER_NAME_CHARS,
   signatureBlockFields,
   signerRowProblem,
-  type RequestSignatureField,
   type RequestSignatureRouting,
 } from "@/lib/jobs/request-signatures";
-import {
-  readPdfFrames,
-  type PdfFrames,
-  type VisiblePageFrame,
-} from "@/lib/pdf/page-frame";
-import type { ThumbnailRenderer } from "@/lib/pdf/render";
-import { clampPixelRatio } from "@/lib/pdf/render-utils";
+import { readPdfFrames, type PdfFrames } from "@/lib/pdf/page-frame";
+import { announceOutcome } from "@/components/a11y/live-region";
 import {
   classifyPdfAccess,
   encryptedPdfMessage,
@@ -36,6 +32,7 @@ import {
 } from "@/lib/pdf/encryption";
 import {
   canRunRequestSignatures,
+  requestSignaturesJobOptions,
   runWorkerRequestSignatures,
   type RequestSignaturesWorkerResult,
 } from "@/lib/workers/request-signatures-client";
@@ -91,6 +88,8 @@ import {
 const STATUS_SLOT = "min-h-[23.5rem] sm:min-h-[15rem] lg:min-h-[15rem]";
 
 interface SignerDraft {
+  /** Stable for the row's life: boxes are owned by it, never by a position. */
+  id: number;
   name: string;
   email: string;
   /** Set once either input of the row loses focus; its problem shows then. */
@@ -107,117 +106,16 @@ export function clampSignaturePage(
   return Math.min(upper, Math.max(1, whole));
 }
 
-const FIELD_SHORT_LABEL: Record<RequestSignatureField["type"], string> = {
-  signature: "Signature",
-  initials: "Initials",
-  date: "Date",
-  text: "Text",
-};
+/** The placement editor's chunk: fetched with the PDF read, never with the page. */
+type EditorModule = typeof import("./request-field-editor");
+type LayoutField = import("./request-field-editor").LayoutField;
+const loadEditor = () => import("./request-field-editor");
 
-/**
- * The target page as the reader sees it, with the planned fields drawn on top.
- *
- * The request places fields blind — fractions of a page the user never looks at
- * — so without this the first time anyone saw where the boxes went was in the
- * downloaded PDF. The page is rendered in its DISPLAYED orientation (its own
- * `/Rotate` applied) and sized to the visible frame, the same frame the worker
- * resolves the fractions against, so a box drawn here is where the field lands.
- * A render failure keeps a blank sheet: the overlay is still true.
- */
-function SignaturePagePreview({
-  bytes,
-  frame,
-  page,
-  fields,
-}: {
-  bytes: Uint8Array;
-  frame: VisiblePageFrame;
-  page: number;
-  fields: RequestSignatureField[];
-}) {
-  const [thumb, setThumb] = useState<{
-    page: number;
-    url: string;
-    note?: string;
-  } | null>(null);
+const TOO_LONG =
+  "This request is too long to send. Shorten the message or the labels, or remove some boxes.";
 
-  useEffect(() => {
-    let active = true;
-    let url: string | null = null;
-    let renderer: ThumbnailRenderer | null = null;
-    (async () => {
-      try {
-        // Loaded with the preview, not with the page: statically imported,
-        // the renderer rode this page's first load, and the page budget's
-        // additions split it out of the chunk it shared there: +688 B gz on
-        // this page against main (review r3, 2026-11-14).
-        const { createThumbnailRenderer } = await import("@/lib/pdf/render");
-        renderer = await createThumbnailRenderer(bytes, {
-          orientation: "displayed",
-          pixelRatio: clampPixelRatio(window.devicePixelRatio || 1),
-          targetWidth: 280,
-        });
-        const rendered = await renderer.renderPage(page - 1);
-        if (!rendered) return;
-        if (!active) {
-          URL.revokeObjectURL(rendered.url);
-          return;
-        }
-        url = rendered.url;
-        setThumb({ page, url: rendered.url, note: rendered.note });
-      } catch {
-        // No preview image; the blank sheet and the overlay still render.
-      } finally {
-        await renderer?.destroy();
-      }
-    })();
-    return () => {
-      active = false;
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [bytes, page]);
-
-  const shown = thumb?.page === page ? thumb : null;
-  const image = shown?.url ?? null;
-  return (
-    <figure className="flex flex-col items-center gap-2">
-      <div
-        data-testid="signature-page-preview"
-        className="rounded-sheet relative w-full max-w-[220px] overflow-hidden bg-white shadow-md ring-1 ring-black/10"
-        style={{ aspectRatio: `${frame.width} / ${frame.height}` }}
-      >
-        {image && (
-          // eslint-disable-next-line @next/next/no-img-element -- a blob: URL of a local render
-          <img
-            src={image}
-            alt={shown?.note ?? ""}
-            draggable={false}
-            className="absolute inset-0 size-full"
-          />
-        )}
-        {fields.map((field, index) => (
-          <span
-            key={index}
-            data-field-box=""
-            className="border-accent bg-accent/15 text-accent rounded-tag absolute flex items-start overflow-hidden border border-dashed px-0.5 text-[8px] leading-tight font-semibold"
-            style={{
-              left: `${field.x * 100}%`,
-              bottom: `${field.y * 100}%`,
-              width: `${field.width * 100}%`,
-              height: `${field.height * 100}%`,
-            }}
-            aria-hidden
-          >
-            {field.signer + 1} · {FIELD_SHORT_LABEL[field.type]}
-          </span>
-        ))}
-      </div>
-      <figcaption className="text-muted text-center text-xs">
-        Page {page} — where each signer&apos;s fields will be added.
-      </figcaption>
-    </figure>
-  );
-}
+const tooManyBoxes = (count: number) =>
+  `A request can hold up to ${MAX_REQUEST_FIELDS} boxes, and this one has ${count}. Remove ${count - MAX_REQUEST_FIELDS} to send it.`;
 
 export function RequestSignaturesWorkerPanel({ tool }: { tool: Tool }) {
   const pickRefuse = usePickRefusal(tool);
@@ -328,13 +226,51 @@ export function RequestBuilder({
   const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
   const [picked, setPicked] = useState<PickedPdf | null>(null);
+  const nextSignerId = useRef(2);
   const [signers, setSigners] = useState<SignerDraft[]>([
-    { name: "", email: "" },
+    { id: 1, name: "", email: "" },
   ]);
   const [routing, setRouting] = useState<RequestSignatureRouting>("sequential");
   const [page, setPage] = useState(1);
   const [includeDate, setIncludeDate] = useState(true);
   const [title, setTitle] = useState("");
+  const [message, setMessage] = useState("");
+  // The placement editor (audit #21): its chunk, the reader's own layout
+  // (null while it is still the starting block), the page shown, and one
+  // level of undo for the two destructive changes.
+  const [editor, setEditor] = useState<EditorModule | null>(null);
+  const [custom, setCustom] = useState<LayoutField[] | null>(null);
+  const [shownPage, setShownPage] = useState(1);
+  // The undo slot. `signers` only when the change removed a signer row: a box
+  // Remove or Start over never touched the rows, so Undo must not put back
+  // rows edited since (review 2026-11-17: a corrected email was undone with
+  // a box). `given` is the set as it stood, so Undo restores it with the
+  // layout and a restored custom layout does not hand out a second box.
+  const [undo, setUndo] = useState<{
+    signers?: SignerDraft[];
+    custom: LayoutField[] | null;
+    given: Set<number>;
+    note: string;
+  } | null>(null);
+  // Owners already given a box while customised: a signer who removed all of
+  // theirs is not handed a new one behind their back.
+  const given = useRef(new Set<number>());
+  // A removed signer row takes its bin with it; focus goes to a bin that is
+  // still there (the row before), never to <body>.
+  const signerListRef = useRef<HTMLDivElement | null>(null);
+  const focusSignerBin = useRef<number | null>(null);
+  useEffect(() => {
+    const index = focusSignerBin.current;
+    if (index === null) return;
+    focusSignerBin.current = null;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    const bins = signerListRef.current?.querySelectorAll<HTMLButtonElement>(
+      "button[data-signer-bin]",
+    );
+    if (!bins || bins.length === 0) return;
+    bins[Math.min(index, bins.length - 1)]!.focus();
+  });
   const job = useWorkerJob<RequestSignaturesWorkerResult>({
     tool: "request-signatures",
     resume: (id, controls) =>
@@ -356,12 +292,22 @@ export function RequestBuilder({
     [signers],
   );
   const invalidRows = rowChecks.some((row) => row.problem !== null);
-  const cleanSigners = useMemo(
-    () =>
-      signers
-        .filter((_, i) => !rowChecks[i]!.blank)
-        .map((s) => ({ name: s.name.trim(), email: s.email.trim() })),
+  const sent = useMemo(
+    () => signers.filter((_, i) => !rowChecks[i]!.blank),
     [signers, rowChecks],
+  );
+  const cleanSigners = useMemo(
+    () => sent.map((s) => ({ name: s.name.trim(), email: s.email.trim() })),
+    [sent],
+  );
+  const ownerIds = useMemo(() => sent.map((s) => s.id), [sent]);
+  const ownerIndex = useMemo(
+    () => new Map(ownerIds.map((id, i) => [id, i])),
+    [ownerIds],
+  );
+  const rows = useMemo(
+    () => signers.map((s, i) => ({ ...s, number: i + 1 })),
+    [signers],
   );
   const pageCount =
     picked?.status === "read" ? picked.info.frames.length : null;
@@ -373,20 +319,86 @@ export function RequestBuilder({
   const reading = picked?.status === "reading";
   // An encrypted PDF is refused by the worker (it cannot add fields to a locked
   // file), so the run is blocked here and the unlock route offered instead.
+  // The exact layout the request will carry — the preview draws THIS, not a copy.
+  // An invalid row is drawn too: it blocks the run until it is fixed, and is
+  // then sent as drawn. Until the reader touches the layout it is literally
+  // the starting block, so the default request is byte-identical to the one
+  // sent before the editor existed; after, it is the reader's boxes.
+  const fields = useMemo(
+    () =>
+      custom && editor
+        ? editor.toRequestFields(custom, ownerIndex)
+        : signatureBlockFields(cleanSigners.length, page, includeDate),
+    [custom, editor, ownerIndex, cleanSigners.length, page, includeDate],
+  );
+  // The server refuses job settings over 8 KB at the web tier, after the
+  // upload; ten signers, fifty labelled boxes and a long message do not fit.
+  // So the EXACT object the client sends is measured here, first.
+  const optionBytes = useMemo(
+    () =>
+      new TextEncoder().encode(
+        JSON.stringify(
+          requestSignaturesJobOptions({
+            signers: cleanSigners,
+            fields,
+            routing,
+            title,
+            message,
+          }),
+        ),
+      ).byteLength,
+    [cleanSigners, fields, routing, title, message],
+  );
+  // The box count is checked here too, not only by the Add buttons: any
+  // route that grows the layout (a signer's starter box) is held to the
+  // worker's own limit before anything is uploaded.
+  const blockedBy = invalidRows
+    ? null
+    : (fields.length > MAX_REQUEST_FIELDS
+        ? tooManyBoxes(fields.length)
+        : null) ||
+      (custom && editor?.layoutProblem(custom, rows, ownerIndex)) ||
+      (optionBytes > JOB_LIMITS.maxOptionsBytes ? TOO_LONG : null);
   const canRun =
     file != null &&
     cleanSigners.length > 0 &&
     !invalidRows &&
+    !blockedBy &&
     !busy &&
     !reading &&
     !encrypted;
-  // The exact layout the request will carry — the preview draws THIS, not a copy.
-  // An invalid row is drawn too: it blocks the run until it is fixed, and is
-  // then sent as drawn.
-  const fields = useMemo(
-    () => signatureBlockFields(cleanSigners.length, page, includeDate),
-    [cleanSigners.length, page, includeDate],
-  );
+
+  /** Every layout change; Remove and Start over can be undone, once. */
+  const changeLayout = (
+    next: LayoutField[] | null,
+    change: { say: string; undoable?: boolean },
+    prior?: SignerDraft[],
+  ) => {
+    setUndo(
+      change.undoable
+        ? {
+            ...(prior ? { signers: prior } : {}),
+            custom,
+            given: new Set(given.current),
+            note: change.say,
+          }
+        : null,
+    );
+    if (next) for (const f of next) given.current.add(f.owner);
+    else given.current.clear();
+    setCustom(next);
+    if (change.say) announceOutcome(change.say);
+  };
+
+  /** Undo the last undoable change: the rows only when it removed one. */
+  const undoLast = () => {
+    if (!undo) return;
+    if (undo.signers) setSigners(undo.signers);
+    given.current = new Set(undo.given);
+    setCustom(undo.custom);
+    setUndo(null);
+    announceOutcome("Undone.");
+  };
 
   // Read the picked PDF in the browser (nothing is uploaded) for its page count
   // and each page's visible frame. The signature page defaults to the LAST page —
@@ -399,6 +411,9 @@ export function RequestBuilder({
       const token = pickToken.current;
       setFile(next);
       setOutcome(null);
+      setCustom(null);
+      setUndo(null);
+      given.current.clear();
       if (!next) {
         setPicked(null);
         return;
@@ -411,6 +426,8 @@ export function RequestBuilder({
         } catch {
           bytes = null;
         }
+        // The editor's chunk, requested WITH the read, not after it.
+        loadEditor().then(setEditor, () => {});
         const info = bytes ? await readPdfFrames(bytes) : null;
         const lock = !bytes
           ? null
@@ -423,6 +440,7 @@ export function RequestBuilder({
         if (bytes && info) {
           setPicked({ status: "read", bytes, info, lock });
           setPage(info.frames.length);
+          setShownPage(info.frames.length);
         } else {
           setPicked({ status: "unreadable", bytes, lock });
         }
@@ -434,29 +452,61 @@ export function RequestBuilder({
     pickFile(files[0] ?? null),
   );
 
-  const updateSigner = useCallback(
-    (index: number, patch: Partial<SignerDraft>) => {
-      setSigners((prev) =>
-        prev.map((s, i) => (i === index ? { ...s, ...patch } : s)),
+  const updateSigner = (index: number, patch: Partial<SignerDraft>) => {
+    const next = signers.map((s, i) => (i === index ? { ...s, ...patch } : s));
+    setSigners(next);
+    // A signer completed while the layout is the reader's own gets one
+    // signature box on the page shown, so nobody is sent without a box.
+    const row = next[index]!;
+    const frame =
+      picked?.status === "read" ? picked.info.frames[shownPage - 1] : null;
+    if (
+      custom &&
+      editor &&
+      frame &&
+      // Never past the worker's box limit: a full layout leaves the signer
+      // with no box, which `layoutProblem` then blocks Prepare on in words.
+      custom.length < MAX_REQUEST_FIELDS &&
+      !given.current.has(row.id) &&
+      (row.name.trim() || row.email.trim()) &&
+      !signerRowProblem(row)
+    )
+      changeLayout(editor.addStarterField(custom, row.id, shownPage, frame), {
+        say: `Added a Signature box for signer ${index + 1} on page ${shownPage}`,
+      });
+    // An edit to a row ends Undo's reach, so Undo can never take the edit
+    // back with it (a blur that only marks the row touched changes nothing).
+    else if ("name" in patch || "email" in patch) setUndo(null);
+  };
+  const addSigner = () => {
+    if (signers.length >= MAX_REQUEST_SIGNERS) return;
+    setSigners([
+      ...signers,
+      { id: nextSignerId.current++, name: "", email: "" },
+    ]);
+    setUndo(null);
+  };
+  const removeSigner = (index: number) => {
+    if (signers.length <= 1) return;
+    const gone = signers[index]!;
+    setSigners(signers.filter((_, i) => i !== index));
+    focusSignerBin.current = Math.max(0, index - 1);
+    const theirs = custom?.filter((f) => f.owner === gone.id).length ?? 0;
+    if (custom && theirs > 0)
+      changeLayout(
+        custom.filter((f) => f.owner !== gone.id),
+        {
+          say: `Removed signer ${index + 1} and ${theirs === 1 ? "their box" : `their ${theirs} boxes`}`,
+          undoable: true,
+        },
+        signers,
       );
-    },
-    [],
-  );
-  const addSigner = useCallback(() => {
-    setSigners((prev) =>
-      prev.length >= MAX_REQUEST_SIGNERS
-        ? prev
-        : [...prev, { name: "", email: "" }],
-    );
-  }, []);
-  const removeSigner = useCallback((index: number) => {
-    setSigners((prev) =>
-      prev.length <= 1 ? prev : prev.filter((_, i) => i !== index),
-    );
-  }, []);
+    else setUndo(null);
+  };
 
   const start = useCallback(async () => {
-    if (!file || cleanSigners.length === 0 || invalidRows || !available) return;
+    if (!file || cleanSigners.length === 0 || invalidRows || blockedBy) return;
+    if (!available) return;
     await run(async (controls) => {
       const result = await runWorkerRequestSignatures(
         {
@@ -470,7 +520,10 @@ export function RequestBuilder({
           // The exact layout the preview draws (`fields` above).
           fields,
           routing,
-          ...(title.trim() ? { title: title.trim() } : {}),
+          // The builder trims both, turns control characters into spaces
+          // and leaves out a blank one: the object measured above.
+          title,
+          message,
         },
         controls,
       );
@@ -481,9 +534,11 @@ export function RequestBuilder({
     picked,
     cleanSigners,
     invalidRows,
+    blockedBy,
     fields,
     routing,
     title,
+    message,
     run,
     available,
   ]);
@@ -535,7 +590,7 @@ export function RequestBuilder({
       {/* The verdict's own sentence; ErrorNote adds the link to Unlock PDF. */}
       {lock !== null && <ErrorNote message={lock} />}
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2" ref={signerListRef}>
         <div className="flex items-center justify-between">
           <span className="text-faint kicker inline-flex items-center gap-1.5">
             <Users className="size-3.5" aria-hidden />
@@ -590,7 +645,8 @@ export function RequestBuilder({
                 onClick={() => removeSigner(index)}
                 aria-disabled={signers.length <= 1 || undefined}
                 aria-label={`Remove signer ${index + 1}`}
-                className="text-muted hover:text-err rounded-ctl shrink-0 p-1.5 transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
+                data-signer-bin=""
+                className="text-muted hover:text-err rounded-ctl tap shrink-0 p-1.5 transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
               >
                 <Trash2 className="size-4" aria-hidden />
               </button>
@@ -618,21 +674,31 @@ export function RequestBuilder({
             <option value="parallel">Parallel — everyone at once</option>
           </select>
         </label>
-        <label className="text-muted flex flex-col gap-1 text-xs">
-          {pageCount !== null
-            ? `Signature page (of ${pageCount})`
-            : "Signature page"}
-          <input
-            type="number"
-            min={1}
-            max={pageCount ?? undefined}
-            value={page}
-            onChange={(e) =>
-              setPage(clampSignaturePage(Number(e.target.value), pageCount))
-            }
-            className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
-          />
-        </label>
+        {/* Once the reader has moved or added boxes, these two would
+            silently overwrite that work, so the editor says they no longer
+            apply and offers Start over instead. */}
+        {!custom && (
+          <label className="text-muted flex flex-col gap-1 text-xs">
+            {pageCount !== null
+              ? `Signature page (of ${pageCount})`
+              : "Signature page"}
+            <input
+              type="number"
+              min={1}
+              max={pageCount ?? undefined}
+              value={page}
+              onChange={(e) => {
+                const next = clampSignaturePage(
+                  Number(e.target.value),
+                  pageCount,
+                );
+                setPage(next);
+                setShownPage(next);
+              }}
+              className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
+            />
+          </label>
+        )}
         <label className="text-muted flex flex-col gap-1 text-xs sm:col-span-2">
           Request title (optional)
           <input
@@ -644,35 +710,76 @@ export function RequestBuilder({
             className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
           />
         </label>
-        <label className="text-muted flex items-center gap-2 text-sm sm:col-span-2">
-          <input
-            type="checkbox"
-            checked={includeDate}
-            onChange={(e) => setIncludeDate(e.target.checked)}
-            className="border-line-strong bg-wash rounded-ctl size-4"
-          />
-          Add a date field next to each signature
-        </label>
+        <div className="flex flex-col gap-1 sm:col-span-2">
+          <label className="text-muted flex flex-col gap-1 text-xs">
+            Message to signers (optional)
+            <textarea
+              rows={3}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              maxLength={MAX_REQUEST_MESSAGE_CHARS}
+              aria-describedby="request-message-hint"
+              className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
+            />
+          </label>
+          <p id="request-message-hint" className="text-muted text-xs">
+            Written into README.txt and manifest.json. Nobody is emailed. Line
+            breaks become spaces. {message.length.toLocaleString("en-US")} of{" "}
+            {MAX_REQUEST_MESSAGE_CHARS.toLocaleString("en-US")} characters
+          </p>
+        </div>
+        {!custom && (
+          <label className="text-muted flex items-center gap-2 text-sm sm:col-span-2">
+            <input
+              type="checkbox"
+              checked={includeDate}
+              onChange={(e) => setIncludeDate(e.target.checked)}
+              className="border-line-strong bg-wash rounded-ctl size-4"
+            />
+            Add a date field next to each signature
+          </label>
+        )}
       </div>
 
       {picked?.status === "read" &&
         !encrypted &&
         (() => {
-          const frame = picked.info.frames[page - 1];
+          const frame = picked.info.frames[shownPage - 1];
           if (!frame) return null;
-          return cleanSigners.length > 0 ? (
-            <SignaturePagePreview
+          if (!custom && cleanSigners.length === 0)
+            return (
+              <p className="text-muted text-center text-xs">
+                Add a signer to preview where their fields go on page {page}.
+              </p>
+            );
+          return editor ? (
+            <editor.RequestFieldEditor
               bytes={picked.bytes}
-              frame={frame}
+              frames={picked.info.frames}
+              signers={rows}
+              ownerIds={ownerIds}
               page={page}
-              fields={fields}
+              includeDate={includeDate}
+              custom={custom}
+              onCustom={(next, change) => changeLayout(next, change)}
+              shownPage={shownPage}
+              onShownPage={setShownPage}
+              note={undo?.note ?? null}
+              onUndo={undo ? undoLast : null}
             />
           ) : (
-            <p className="text-muted text-center text-xs">
-              Add a signer to preview where their fields go on page {page}.
-            </p>
+            // Still, in the page's own shape, while the editor's chunk arrives.
+            <div
+              className="bg-wash rounded-sheet w-full self-center"
+              style={{
+                aspectRatio: `${frame.width} / ${frame.height}`,
+                maxWidth: 420,
+              }}
+            />
           );
         })()}
+
+      {blockedBy && <p className="text-warn text-xs">{blockedBy}</p>}
 
       <WorkerGate
         reserve={STATUS_SLOT}

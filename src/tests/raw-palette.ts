@@ -95,7 +95,10 @@ export const RAW_COLOUR_ALLOWANCE: Record<string, Record<string, string>> = {
     "bg-white/90": PAPER,
     "ring-black/10": `${PAPER} (its edge)`,
   },
-  "src/components/tools/request-signatures-worker-panel.tsx": {
+  // Request Signatures' page sheet. Moved 2026-11-17 (audit #21) from
+  // request-signatures-worker-panel.tsx, whose preview it was, to the
+  // placement editor that draws the page now.
+  "src/components/tools/request-field-editor.tsx": {
     "bg-white": PAPER,
     "ring-black/10": `${PAPER} (its edge)`,
   },

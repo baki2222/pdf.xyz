@@ -166,7 +166,7 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
   ],
   "request-signatures": [
     "Upload your PDF over an encrypted connection.",
-    `Add up to ${MAX_REQUEST_SIGNERS} signers — a name and an email each — with “Add signer”, then choose the “Signing order”, the “Signature page” their fields go on, and whether each signature gets a date field beside it.`,
+    `Add up to ${MAX_REQUEST_SIGNERS} signers — a name and an email each — with “Add signer”, choose the “Signing order”, then drag each signer's boxes into place on the preview and add more under “Add a box”.`,
     "Press “Prepare signature request”: our secure server adds a named, fillable field for each signer and deletes the input when the job finishes.",
     `Download the ZIP — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes — and send ${REQUEST_PACKAGE_FILES.prepared} to your signers yourself: pdf.xyz does not email it or track who has signed.`,
   ],
