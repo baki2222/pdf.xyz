@@ -10,6 +10,7 @@ import {
   relatedGuides,
   type Guide,
 } from "@/lib/guides";
+import type { GuideSizeTable } from "@/lib/guides/types";
 import { getToolBySlug } from "@/lib/tools";
 import type { Tool } from "@/lib/tools/types";
 import { Container } from "@/components/ui/container";
@@ -78,6 +79,72 @@ export async function generateMetadata({
  * the computed size in the browser.
  */
 const PROSE = "text-fg max-w-[33em] text-base leading-7";
+
+/**
+ * A size guide's table (audit #2): one row per size, each with its own
+ * anchor and a link that opens the tool with that size set. The row header
+ * holds only the size and its bytes, which a screen reader repeats for every
+ * cell; the link sits in "How to choose it", as one way to choose. Styled with
+ * class names the stylesheet already ships, plus inline styles, so the page
+ * adds nothing to the shared CSS.
+ */
+const CELL = { verticalAlign: "top" } as const;
+function SizeTable({ table }: { table: GuideSizeTable }) {
+  return (
+    <div className="overflow-x-auto">
+      <table
+        className="text-fg w-full text-left text-sm"
+        style={{ borderCollapse: "collapse" }}
+      >
+        <caption className="text-muted text-left text-sm">
+          {table.caption}
+        </caption>
+        <thead>
+          <tr className="border-line border-b">
+            {table.columns.map((column) => (
+              <th
+                key={column}
+                scope="col"
+                className="py-2 pr-3 font-semibold"
+                style={CELL}
+              >
+                {column}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {table.rows.map((row) => (
+            <tr
+              key={row.anchor}
+              id={row.anchor}
+              className="border-line scroll-mt-24 border-b"
+            >
+              <th scope="row" className="py-2 pr-3" style={CELL}>
+                <span className="block font-semibold">{row.label}</span>
+                <span className="text-muted block text-xs">
+                  {row.bytes.toLocaleString("en-US")} bytes at most
+                </span>
+              </th>
+              <td className="py-2 pr-3" style={CELL}>
+                {row.choose}
+                <Link
+                  href={row.href}
+                  className="text-accent mt-1 block font-medium underline underline-offset-2"
+                >
+                  {row.linkText}
+                </Link>
+              </td>
+              <td className="py-2 pr-3" style={CELL}>
+                {row.portal}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 /** A list of links to other guides, under whichever heading the page uses. */
 function GuideLinks({ list }: { list: readonly Guide[] }) {
@@ -302,6 +369,7 @@ export default async function GuidePage({
                     {paragraph}
                   </p>
                 ))}
+                {section.table && <SizeTable table={section.table} />}
               </section>
             ))}
 
