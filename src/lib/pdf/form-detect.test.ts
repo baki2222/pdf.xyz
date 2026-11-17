@@ -1027,15 +1027,39 @@ describe("exclusions, each at its boundary", () => {
       expect(ruled(stack(false))).toBe(4);
     });
 
-    it("stacked lines with one caption each are a form, not a table", () => {
-      const p = rows({
+    /** Three lines captioned Full name / Street / City, and `more` text. */
+    const stacked = (more: CardText[] = []) =>
+      rows({
         ys: [600, 570, 540],
         text: [
           txt("Full name", 132, 588, { width: 45, size: 10 }),
           txt("Street", 132, 558, { width: 30, size: 10 }),
           txt("City", 132, 528, { width: 20, size: 10 }),
+          ...more,
         ],
       });
+
+    it("stacked lines with one caption each are a form, not a table", () => {
+      const p = stacked();
+      expect(ruled(p)).toBe(0);
+      expect(props(p).map((f) => f.label)).toEqual([
+        "Full name",
+        "Street",
+        "City",
+      ]);
+    });
+
+    // Only the text BETWEEN two rules counts, but nothing tested either
+    // bound: deleting one stayed green, and then a two-column header or
+    // footer anywhere above or below made a form of stacked captioned lines
+    // a table (review finding; corpus P25).
+    it("two-column text above or below the stack is not one of its rows", () => {
+      const p = stacked([
+        txt("Part 2", 135, 700, { width: 30, size: 10 }),
+        txt("Ref 123", 300, 700, { width: 35, size: 10 }),
+        txt("Page 1 of 2", 135, 480, { width: 50, size: 10 }),
+        txt("Form A-12", 300, 480, { width: 45, size: 10 }),
+      ]);
       expect(ruled(p)).toBe(0);
       expect(props(p).map((f) => f.label)).toEqual([
         "Full name",

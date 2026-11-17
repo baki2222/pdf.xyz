@@ -979,6 +979,31 @@ export const DETECT_CASES: readonly DetectCase[] = [
     at: { page: 1, x: 150, y: 563 },
   },
   {
+    id: "P25",
+    kind: "positive",
+    note: "three captioned lines (Full name / Street / City) with a two-column header above and footer below: a form, not a table",
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const [i, s] of ["Full name", "Street", "City"].entries()) {
+        rule(page, 130, 450, 600 - 30 * i, 0.5);
+        await text(page, H, s, 132, 588 - 30 * i, 10);
+      }
+      await text(page, H, "Part 2", 135, 700, 10);
+      await text(page, H, "Ref 123", 300, 700, 10);
+      await text(page, H, "Page 1 of 2", 135, 480, 10);
+      await text(page, H, "Form A-12", 300, 480, 10);
+      return save(d);
+    },
+    expect: ["Full name", "Street", "City"].map((label, i) => ({
+      rule: "labelled-rule" as const,
+      type: "text" as const,
+      label,
+      page: 1,
+      box: ruleBox(130, 450, 600 - 30 * i, 10),
+    })),
+  },
+  {
     id: "P24",
     kind: "positive",
     note: "P4's line under a `W n` clip set under a translating `cm` that moves the clip onto the line: kept",
