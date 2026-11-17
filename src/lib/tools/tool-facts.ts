@@ -1601,11 +1601,11 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
           question: `Can ${tool.name} add a signature field?`,
           answer: `No. It adds ${listed(
             NEW_FIELD_TYPES.map((t) => FIELD_TYPE_FACT[t]),
-          )}, placed by coordinates. ${toolName("edit-pdf")} can: drag out a signature field, or any of those fields, onto the page with the tools in its ${EDITOR_FORMS_GROUP} group, in your browser, ready for someone to sign. To sign a document yourself, use ${toolName("sign-pdf")}.`,
+          )}. ${toolName("edit-pdf")} can: drag out a signature field, or any of those fields, onto the page with the tools in its ${EDITOR_FORMS_GROUP} group, in your browser, ready for someone to sign. To sign a document yourself, use ${toolName("sign-pdf")}.`,
         },
         {
           question: "How do I place a field?",
-          answer: `By numbers: pick the “Page”, then set “X” and “Y” — points from the page's bottom-left corner, ${PT_PER_INCH} to an inch — and the field's “Width” and “Height”.`,
+          answer: `On the page preview: select the field, then click where its bottom-left corner belongs, drag its box, or move it with the arrow keys. Or type it: pick the “Page”, then set “X” and “Y” — points from the page's bottom-left corner, ${PT_PER_INCH} to an inch. Either way the field's card shows the numbers, and its “Width” and “Height” are typed there.`,
         },
       ];
     case "extract-images":
