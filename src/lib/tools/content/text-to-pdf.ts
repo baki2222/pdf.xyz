@@ -8,6 +8,7 @@ import {
   UNSUPPORTED_SCRIPTS,
 } from "@/lib/pdf/font-packs";
 import { TEXT_BATCH_TOOLS, batchLimitsSentence } from "@/lib/batch/tools";
+import { TEXT_PAGE_SETUP_SENTENCE } from "@/lib/tools/tool-facts";
 
 /**
  * Facts this copy leans on, each read from the code that makes it true:
@@ -38,11 +39,13 @@ import { TEXT_BATCH_TOOLS, batchLimitsSentence } from "@/lib/batch/tools";
  *    `unicode-font.ts`: once per loaded tab (a client-side navigation away and
  *    back keeps it; a reload does not), and a failed fetch is not cached.
  *
- * Layout facts (US Letter, Courier for WinAnsi text, file name as a running
- * heading and as the PDF Title, "page / total" footer, tabs to a fixed run of
- * spaces, over-long words broken, whitespace-led wrapping) are from
- * `src/lib/pdf/text-to-pdf.ts`; none of its internal numbers is exported, so
- * none is stated here.
+ * Layout facts (Courier for WinAnsi text, file name as a running heading and
+ * as the PDF Title, "page / total" footer, tabs to a fixed run of spaces,
+ * over-long words broken, whitespace-led wrapping) are from
+ * `src/lib/pdf/text-to-pdf.ts`. The page setup (sizes, orientation, text
+ * size, and the regional paper it starts on) is TEXT_PAGE_SETUP_SENTENCE,
+ * read from `src/lib/pdf/text-page-options.ts`; until 2026-11-16 the page
+ * was fixed US Letter and this page said so (audit backlog #5).
  *
  * Behaviours checked by running `textToPdf` against the shipped Noto TTFs in
  * `public/fonts` (re-run 2026-09-27 by the reviewer, not only read):
@@ -107,7 +110,7 @@ const content: ToolContent = {
   metaDescription: `Turn a .txt file or pasted text into a paginated PDF with page numbers. Converted in your browser, nothing uploaded, sources up to ${MAX_SOURCE_MB} MB.`,
 
   intro: [
-    `Paste text into the box or drop in a .txt file, press Create PDF, and you get a US Letter document with a page-of-total counter in the footer and a small heading on every page: the loaded file's name minus the extension, or "text" for pasted text. Long lines wrap at spaces, a word too long for one line is broken, tabs become spaces, Windows and old Mac line endings are normalised, and blank lines and leading indentation are kept.`,
+    `Paste text into the box or drop in a .txt file, press Create PDF, and you get a PDF with a page-of-total counter in the footer and a small heading on every page: the loaded file's name minus the extension, or "text" for pasted text. ${TEXT_PAGE_SETUP_SENTENCE} Long lines wrap at spaces, a word too long for one line is broken, tabs become spaces, Windows and old Mac line endings are normalised, and blank lines and leading indentation are kept.`,
     `Everything happens inside this browser tab, and your text is not uploaded anywhere. The cap is ${MAX_SOURCE_MB} MB: a file is checked by its size when you load it, and the text is checked again, in UTF-8 bytes, when you convert. A file that starts with a byte-order mark is read in the UTF-8 or UTF-16 encoding it declares; otherwise its bytes are inspected and it is read as UTF-16, UTF-8 or Windows-1252 (ANSI), and a note under the box names the encoding whenever it had to be assumed.`,
     `Western European text is set in Courier, one of the standard fonts PDF readers supply themselves, so no font is downloaded or embedded. ${monospaceClaimSentence()} Where Courier cannot draw a character but that face can, as with Polish or Russian letters (even one in the file name), the monospace face (Geist Mono) is fetched from pdf.xyz's own server and embedded with only the characters you used, so columns aligned with spaces stay aligned as long as each line fits the page width. Any other character, such as Greek, Chinese or Bengali, in the text or its file name, switches the whole body to a proportional Noto face, and space-aligned columns then stop lining up.`,
   ],
@@ -119,7 +122,7 @@ const content: ToolContent = {
     },
     {
       title: "Print or share notes from a plain-text app",
-      body: "Notes exported from a phone app, a Notepad file or a text-only journal become numbered US Letter pages, each headed with the note's file name.",
+      body: "Notes exported from a phone app, a Notepad file or a text-only journal become numbered pages, each headed with the note's file name.",
     },
     {
       title: "Submit text where only PDF is accepted",
@@ -142,7 +145,7 @@ const content: ToolContent = {
     },
     {
       title: "Check and edit it",
-      body: 'Edit in the box if needed; the figure beside the Text content heading shows the character count and size as you type. The PDF heading is the loaded file\'s name even after you edit the text, or "text" if you only pasted.',
+      body: 'Edit in the box if needed; the figure beside the Text content heading shows the character count and size as you type. The PDF heading is the loaded file\'s name even after you edit the text, or "text" if you only pasted. Below the box, set the Page size, Orientation and Text size if you want to change them.',
     },
     {
       title: "Convert the text",
@@ -168,8 +171,8 @@ const content: ToolContent = {
       a: `Beyond Western European characters, text in ${scripts} gets a bundled face embedded in the file: the Geist Mono monospace face where it can draw every character, as for Polish or Russian, and otherwise a Noto face.${rtlSentence}${emojiSentence} Any other script without a bundled font is refused with the offending characters shown; the converter never swaps a character it cannot draw for a placeholder. One document cannot mix scripts that need different fonts, and the file name counts as part of the document here, so put, say, Chinese and Bengali passages in separate files.`,
     },
     {
-      q: "Is there a setting for A4, another font or wider margins?",
-      a: "There is none: every PDF is US Letter with fixed margins and text size, and the page heading doubles as the document's Title property. For headings, lists or code blocks, write Markdown and use Markdown to PDF.",
+      q: "Can I choose A4, landscape, a bigger text size or another font?",
+      a: `Yes for the paper size, the orientation and the text size, but not the font. ${TEXT_PAGE_SETUP_SENTENCE} The font and the margins are fixed, and the page heading doubles as the document's Title property. For headings, lists or code blocks, write Markdown and use Markdown to PDF.`,
     },
     {
       q: "My file is .log, .csv or saved in another encoding. What do I do?",

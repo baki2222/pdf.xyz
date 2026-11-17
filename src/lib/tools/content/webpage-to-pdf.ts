@@ -1,6 +1,10 @@
 import type { ToolContent } from "./types";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
-import { htmlLayoutAnswer } from "@/lib/tools/html-layout-copy";
+import {
+  HTML_AUTO_SIZE,
+  HTML_START_SIZE,
+  htmlLayoutAnswer,
+} from "@/lib/tools/html-layout-copy";
 import {
   WEBPAGE_OVERLAY_ANSWER,
   WEBPAGE_PRINT_STYLES_SENTENCE,
@@ -94,7 +98,7 @@ const content: ToolContent = {
   metaDescription: `Paste a public link and Chromium on pdf.xyz's secure server loads the live page, runs its scripts and prints it to a PDF with real, selectable text.`,
 
   intro: [
-    `Webpage to PDF turns a web address into a PDF without you opening the page. Paste the link and a headless copy of Chromium, the engine behind Chrome and Edge, loads it, lets its JavaScript run for a fixed budget of page time, and prints it to PDF with backgrounds included and any page size the site's print stylesheet sets. Text stays text, so the PDF can be searched and copied from. ${WEBPAGE_PRINT_STYLES_SENTENCE}`,
+    `Webpage to PDF turns a web address into a PDF without you opening the page. Paste the link and a headless copy of Chromium, the engine behind Chrome and Edge, loads it, lets its JavaScript run for a fixed budget of page time, and prints it to PDF with backgrounds included. Page size starts on ${HTML_START_SIZE}; choose ${HTML_AUTO_SIZE} to use the page size the site's print stylesheet sets. Text stays text, so the PDF can be searched and copied from. ${WEBPAGE_PRINT_STYLES_SENTENCE}`,
     `pdf.xyz's secure server fetches the page, not your browser. The job carries only the address you typed, sent over TLS, and the site sees our server's visit with none of your cookies. The temporary folder Chromium runs in is removed after each render, the download link lapses after ${LINK_MINUTES} minutes, and a storage rule on a daily cycle erases the stored copy after that. The full address is deleted from the job queue when the job finishes; the job's status record keeps only the PDF's file name, built from the site and path without the query string, until that record times out.`,
     `Our server arrives as a signed-out stranger, so members-only walls and paywalls come along, and so do cookie banners, though ticking ${WEBPAGE_CAPTURE_LABELS.hideOverlays} removes the common ones. ${WEBPAGE_STAMP_SENTENCE} Addresses written as localhost or as a private IPv4 number are refused before any job starts. For an HTML file on your computer, use HTML to PDF instead.`,
   ],
@@ -117,7 +121,7 @@ const content: ToolContent = {
     },
     {
       title: "Check how your own site prints",
-      body: `By default the PDF shows the result of your print CSS rather than your screen layout, including any @page size it sets, with backgrounds printed and no header or footer lines added; untick ${WEBPAGE_CAPTURE_LABELS.printStyles} to print the screen layout for comparison. The site must be reachable from the public internet: a localhost address is refused, and a preview that only resolves inside your office network cannot be reached.`,
+      body: `By default the PDF shows the result of your print CSS rather than your screen layout, with backgrounds printed and no header or footer lines added; untick ${WEBPAGE_CAPTURE_LABELS.printStyles} to print the screen layout for comparison, and choose “As the page sets it” under Page size to print on the @page size your stylesheet sets. The site must be reachable from the public internet: a localhost address is refused, and a preview that only resolves inside your office network cannot be reached.`,
     },
   ],
 
