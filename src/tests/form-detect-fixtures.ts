@@ -1476,6 +1476,16 @@ export const DETECT_CASES: readonly DetectCase[] = [
     expect: "none",
   },
   {
+    id: "N29",
+    kind: "negative",
+    note: "P4's line under a `W n` clip to [0 0 10 10] with a page-sized `W n` clip nested inside it: still clipped away",
+    build: () =>
+      addressWith(
+        "q 0 0 10 10 re W n q 0 0 612 792 re W n 0.5 w 130 600 m 330 600 l S Q Q",
+      ),
+    expect: "none",
+  },
+  {
     id: "N27",
     kind: "negative",
     note: "a box beside a label stroked 3 w under cm [1 0 0 0 0 600] (det 0): pdf.js paints nothing",

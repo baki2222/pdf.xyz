@@ -508,6 +508,37 @@ describe("scanPaths", () => {
       ]);
     });
 
+    // No case nested one clip in another, so a union in place of the
+    // intersection, or a new `W` replacing the clip, stayed green, and a
+    // line an outer clip hides came back (review finding; corpus N29).
+    it("nested clips intersect: an inner clip never widens an outer one", () => {
+      const nested = (outer: number[], inner: number[]) =>
+        scan([
+          [OPS.save, []],
+          ...clipTo(outer[0]!, outer[1]!, outer[2]!, outer[3]!),
+          [OPS.save, []],
+          ...clipTo(inner[0]!, inner[1]!, inner[2]!, inner[3]!),
+          line,
+          [OPS.restore, []],
+          [OPS.restore, []],
+        ]).segs;
+      expect(nested([0, 0, 10, 10], [0, 0, 612, 792])).toEqual([]);
+      expect(nested([0, 0, 612, 792], [0, 0, 10, 10])).toEqual([]);
+      // Control: both clips hold the line.
+      expect(nested([0, 0, 612, 792], [100, 580, 300, 40])).toHaveLength(1);
+      // A form's /BBox inside a `W` clip intersects it too, both ways.
+      const formIn = (clip: number[], bbox: number[]) =>
+        scan([
+          ...clipTo(clip[0]!, clip[1]!, clip[2]!, clip[3]!),
+          [OPS.paintFormXObjectBegin, [[1, 0, 0, 1, 0, 0], bbox]],
+          line,
+          [OPS.paintFormXObjectEnd, []],
+        ]).segs;
+      expect(formIn([0, 0, 10, 10], [0, 0, 612, 792])).toEqual([]);
+      expect(formIn([0, 0, 612, 792], [0, 0, 10, 10])).toEqual([]);
+      expect(formIn([0, 0, 612, 792], [0, 0, 612, 792])).toHaveLength(1);
+    });
+
     it("a transparency group's bbox clips like a form's", () => {
       const r = scan([
         [
