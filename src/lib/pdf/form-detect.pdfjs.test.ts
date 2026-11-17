@@ -134,6 +134,33 @@ describe("what the reader counts", () => {
         onPage: () => during.abort(),
       }),
     ).rejects.toMatchObject({ name: "AbortError" });
+    // An abort once every page is read, while the pages are classified:
+    // the classify loop never looked at the signal, so the run went on and
+    // resolved (review finding).
+    const classifying = new AbortController();
+    await expect(
+      detectFormFields(bytes, {
+        loadReader: legacyPdfjs,
+        signal: classifying.signal,
+        onPage: (done, total) => {
+          if (done === total) classifying.abort();
+        },
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    // And the classify loop yields between pages, so an abort that arrives
+    // while it runs (two macrotasks after the last page is read, here) is
+    // seen before the run ends.
+    const later = new AbortController();
+    await expect(
+      detectFormFields(bytes, {
+        loadReader: legacyPdfjs,
+        signal: later.signal,
+        onPage: (done, total) => {
+          if (done === total)
+            setTimeout(() => setTimeout(() => later.abort(), 0), 0);
+        },
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
   });
 });
 

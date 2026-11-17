@@ -937,23 +937,55 @@ function inBand(y: number, height: number): boolean {
   return y < DETECT.BAND_EDGE * height || y > (1 - DETECT.BAND_EDGE) * height;
 }
 
+/** Band-rule cells: BAND_REPEAT_EPS wide, so a repeat is in a neighbour. */
+const bandCell = (y: number, x0: number) =>
+  `${Math.round(y / DETECT.BAND_REPEAT_EPS)}|${Math.round(x0 / DETECT.BAND_REPEAT_EPS)}`;
+
+/** Each page's band lines by cell, built once per list (the reader hands the same list for every page it compares). */
+const BAND_INDEX = new WeakMap<readonly CardSeg[], Map<string, CardSeg[]>>();
+
+function bandIndex(segs: readonly CardSeg[]): Map<string, CardSeg[]> {
+  let index = BAND_INDEX.get(segs);
+  if (index) return index;
+  index = new Map();
+  for (const s of segs) {
+    const k = bandCell((s.y0 + s.y1) / 2, Math.min(s.x0, s.x1));
+    const list = index.get(k);
+    if (list) list.push(s);
+    else index.set(k, [s]);
+  }
+  BAND_INDEX.set(segs, index);
+  return index;
+}
+
+/**
+ * On how many pages this line appears, itself included. Each other page's
+ * lines are looked up by cell: scanning every list for every line cost
+ * pages^2 x lines^2 for a run (24 s for 50 pages of 2,000 band lines).
+ */
 function repeatedOn(
   line: Line,
   others: readonly CardSeg[][] | undefined,
 ): number {
   if (!others) return 1;
   const eps = DETECT.BAND_REPEAT_EPS;
+  const yc = Math.round(line.y / eps);
+  const xc = Math.round(line.x0 / eps);
+  const cells: string[] = [];
+  for (const dy of [-1, 0, 1])
+    for (const dx of [-1, 0, 1]) cells.push(`${yc + dy}|${xc + dx}`);
   let pages = 1;
   for (const segs of others) {
-    if (
-      segs.some(
+    const index = bandIndex(segs);
+    const hit = cells.some((k) =>
+      (index.get(k) ?? []).some(
         (s) =>
           Math.abs(Math.min(s.x0, s.x1) - line.x0) <= eps &&
           Math.abs(Math.max(s.x0, s.x1) - line.x1) <= eps &&
           Math.abs((s.y0 + s.y1) / 2 - line.y) <= eps,
-      )
-    )
-      pages++;
+      ),
+    );
+    if (hit) pages++;
   }
   return pages;
 }

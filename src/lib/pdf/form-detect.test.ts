@@ -874,6 +874,35 @@ describe("exclusions, each at its boundary", () => {
     ).toHaveLength(1);
   });
 
+  // Every band line scanned every other page's whole list of band lines:
+  // pages^2 x lines^2 for a run, 24 s for 50 pages of 2,000 (review
+  // finding). Each page's lines are now indexed once and looked up.
+  it("the repeat check is a lookup: 2,100 band lines against 49 pages", () => {
+    const bandSegs = (dx: number) => {
+      const out: CardSeg[] = [];
+      for (let r = 0; r < 105; r++)
+        for (const y of [1 + 0.6 * r, H - 1 - 0.6 * r])
+          for (let c = 0; c < 10; c++)
+            out.push(hseg(10 + 58 * c + dx, 60 + 58 * c + dx, y));
+      return out;
+    };
+    const p = pg({ segs: bandSegs(0) });
+    const others = Array.from({ length: 49 }, () => bandSegs(5));
+    const t0 = performance.now();
+    const r = run(p, { repeatsAcrossPages: others });
+    const ms = performance.now() - t0;
+    // Health: every line was a band candidate that asked for repeats.
+    expect(r.counts.candidates).toBe(2100);
+    expect(r.excluded.map((e) => e.rule)).not.toContain("page-band");
+    // A match on one other page still makes it a band.
+    const twice = run(pg({ segs: bandSegs(0).slice(0, 1) }), {
+      repeatsAcrossPages: [...others, bandSegs(0)],
+    });
+    expect(twice.excluded.map((e) => e.rule)).toEqual(["page-band"]);
+    // Measured before: about 590 ms; after: under 50 ms.
+    expect(ms).toBeLessThan(250);
+  });
+
   it("GRID_TOUCHES: three plumb lines across the line make a grid, two do not", () => {
     const with_ = (xs: number[]) =>
       labelledRule({

@@ -285,8 +285,8 @@ function abortError(): Error {
 
 /**
  * Read a PDF and propose fields, page by page. Pages are read in order, one
- * at a time; `signal` is checked between pages and an abort throws an
- * `AbortError`. Pages past {@link DETECT.CAPS.pages} are reported skipped.
+ * at a time; `signal` is checked between pages, while reading and while
+ * classifying, and an abort throws an `AbortError`. Pages past {@link DETECT.CAPS.pages} are reported skipped.
  * Classification waits until every page is read, because the band rule
  * compares lines across pages; what is kept meanwhile is each page's
  * primitives, bounded by the walker's caps.
@@ -420,10 +420,14 @@ export async function detectFormFields(
       await macrotask();
     }
 
-    // Classify, now that every page's band lines are known.
+    // Classify, now that every page's band lines are known. The signal is
+    // checked, and a macrotask awaited, between pages here too: a long run
+    // could not be cancelled once every page was read.
     const lines = new Map(read.map((r) => [r.page, bandLines(r.card)]));
     let runTotal = 0;
     for (const r of read) {
+      await macrotask();
+      if (o.signal?.aborted) throw abortError();
       const { card, viewport, origin } = r;
       if (r.painted === 0 && r.textItems === 0) {
         outcome.set(r.page, { page: r.page, outcome: "nothing-drawn" });
