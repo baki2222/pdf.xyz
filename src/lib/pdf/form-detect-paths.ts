@@ -11,6 +11,15 @@
  * painted in near-white are dropped, because a white line on a white page is
  * not something a reader sees.
  *
+ * CLIPPING, for the same reason: a line clipped away is not on the page. The
+ * clip is kept as a BOX, the intersection of the bounding boxes of every
+ * `W`/`W*` path, form /BBox and group bbox in force (saved and restored with
+ * the rest of the state). What falls outside it is dropped, a line across
+ * its edge is trimmed, a filled box is cut to it and an outlined box is cut
+ * into its visible edges. A clip that is not a rectangle is read as its
+ * bounding box, so a line inside that box but outside the shape is kept.
+ * Soft masks and images are not clipped.
+ *
  * THE PDF.JS 6 LAYOUT this depends on (pdfjs-dist 6.2.108, `buildPath` in
  * pdf.worker.mjs; the same reading as page-scan.ts in the PDF to Office
  * export): every path arrives as ONE `constructPath` operator whose
@@ -114,6 +123,10 @@ export interface OpsLike {
   eoFillStroke: number;
   closeFillStroke: number;
   closeEOFillStroke: number;
+  clip?: number;
+  eoClip?: number;
+  beginGroup?: number;
+  endGroup?: number;
   paintImageXObject?: number;
   paintInlineImageXObject?: number;
   paintImageMaskXObject?: number;
@@ -219,11 +232,86 @@ export function colourLum(args: unknown): number {
   return 0;
 }
 
+/** [x0, y0, x1, y1] in user space after the CTM; empty when x0 > x1 or y0 > y1. */
+type ClipBox = [number, number, number, number];
+
 interface GState {
   ctm: Matrix;
   lineWidth: number;
   strokeLum: number;
   fillLum: number;
+  /**
+   * The bounding box of the clip: every `W`/`W*` path, form /BBox and group
+   * bbox in force, intersected. null: nothing clips.
+   */
+  clip: ClipBox | null;
+}
+
+/** The bounding box of `box` (a [x0, y0, x1, y1] in the space `m` maps from). */
+function boxUnder(m: Matrix, box: readonly number[]): ClipBox {
+  const corners = [
+    apply(m, box[0]!, box[1]!),
+    apply(m, box[2]!, box[1]!),
+    apply(m, box[0]!, box[3]!),
+    apply(m, box[2]!, box[3]!),
+  ];
+  const xs = corners.map((p) => p[0]);
+  const ys = corners.map((p) => p[1]);
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+
+/** Four finite numbers, as a box, or null. */
+function asBox(value: unknown): number[] | null {
+  if (!value || typeof (value as ArrayLike<number>).length !== "number")
+    return null;
+  const a = Array.from(value as ArrayLike<number>).slice(0, 4);
+  return a.length === 4 && a.every((n) => Number.isFinite(n)) ? a : null;
+}
+
+function intersect(a: ClipBox | null, b: ClipBox): ClipBox {
+  if (!a) return b;
+  return [
+    Math.max(a[0], b[0]),
+    Math.max(a[1], b[1]),
+    Math.min(a[2], b[2]),
+    Math.min(a[3], b[3]),
+  ];
+}
+
+/**
+ * The part of the segment p-q inside `clip` widened by `pad` (Liang-Barsky),
+ * or null when none of it is.
+ */
+function clipSegment(
+  p: [number, number],
+  q: [number, number],
+  clip: ClipBox,
+  pad: number,
+): [[number, number], [number, number]] | null {
+  const dx = q[0] - p[0];
+  const dy = q[1] - p[1];
+  let t0 = 0;
+  let t1 = 1;
+  const edges: [number, number][] = [
+    [-dx, p[0] - (clip[0] - pad)],
+    [dx, clip[2] + pad - p[0]],
+    [-dy, p[1] - (clip[1] - pad)],
+    [dy, clip[3] + pad - p[1]],
+  ];
+  for (const [den, num] of edges) {
+    if (den === 0) {
+      if (num < 0) return null;
+      continue;
+    }
+    const t = num / den;
+    if (den < 0) t0 = Math.max(t0, t);
+    else t1 = Math.min(t1, t);
+    if (t0 > t1) return null;
+  }
+  return [
+    [p[0] + t0 * dx, p[1] + t0 * dy],
+    [p[0] + t1 * dx, p[1] + t1 * dy],
+  ];
 }
 
 interface SubPath {
@@ -326,11 +414,20 @@ export function scanPaths(
   let ignored = 0;
   let capped: PathScan["capped"] = false;
 
-  let st: GState = { ctm: IDENTITY, lineWidth: 1, strokeLum: 0, fillLum: 0 };
+  let st: GState = {
+    ctm: IDENTITY,
+    lineWidth: 1,
+    strokeLum: 0,
+    fillLum: 0,
+    clip: null,
+  };
   const stack: GState[] = [];
   // Form XObjects entered; those past the cap are skipped whole.
   let depth = 0;
   let deepFrom = Infinity;
+  // A `W` / `W*` marks the NEXT path as a clip, which takes effect once that
+  // path is painted (or ended by `n`): it never clips its own painting.
+  let pendingClip = false;
 
   const strokeOps = new Set([OPS.stroke, OPS.closeStroke]);
   const fillOps = new Set([OPS.fill, OPS.eoFill]);
@@ -347,6 +444,154 @@ export function scanPaths(
       OPS.paintImageMaskXObject,
     ].filter((n): n is number => typeof n === "number"),
   );
+  const clipOps = new Set(
+    [OPS.clip, OPS.eoClip].filter((n): n is number => typeof n === "number"),
+  );
+
+  /** A segment, trimmed to the clip (widened by half its stroke). */
+  const pushSeg = (
+    p: [number, number],
+    q: [number, number],
+    width: number,
+    stroked: boolean,
+    filled: boolean,
+    lum: number,
+  ) => {
+    let a = p;
+    let b = q;
+    if (st.clip) {
+      const cut = clipSegment(p, q, st.clip, stroked ? width / 2 : 0);
+      if (!cut) return;
+      [a, b] = cut;
+    }
+    segs.push({
+      x0: a[0],
+      y0: a[1],
+      x1: b[0],
+      y1: b[1],
+      width,
+      stroked,
+      filled,
+      lum,
+    });
+  };
+
+  /**
+   * A Rect, against the clip: kept whole inside it, dropped outside it, and
+   * across its edge trimmed (a fill) or cut into its visible edges (an
+   * outline, whose cut sides were never drawn).
+   */
+  const pushRect = (
+    r: [number, number, number, number],
+    level: number,
+    plumb: number,
+    stroked: boolean,
+    filled: boolean,
+    lum: number,
+  ) => {
+    const width = Math.max(level, plumb);
+    const c = st.clip;
+    const pad = stroked ? width / 2 : 0;
+    const [x0, y0, x1, y1] = r;
+    if (
+      !c ||
+      (x0 >= c[0] - pad &&
+        y0 >= c[1] - pad &&
+        x1 <= c[2] + pad &&
+        y1 <= c[3] + pad)
+    ) {
+      rects.push({ x0, y0, x1, y1, width, stroked, filled, lum });
+      return;
+    }
+    if (!stroked) {
+      const t: ClipBox = [
+        Math.max(x0, c[0]),
+        Math.max(y0, c[1]),
+        Math.min(x1, c[2]),
+        Math.min(y1, c[3]),
+      ];
+      if (t[0] < t[2] && t[1] < t[3])
+        rects.push({
+          x0: t[0],
+          y0: t[1],
+          x1: t[2],
+          y1: t[3],
+          width,
+          stroked,
+          filled,
+          lum,
+        });
+      return;
+    }
+    pushSeg([x0, y0], [x1, y0], level, stroked, filled, lum);
+    pushSeg([x1, y0], [x1, y1], plumb, stroked, filled, lum);
+    pushSeg([x1, y1], [x0, y1], level, stroked, filled, lum);
+    pushSeg([x0, y1], [x0, y0], plumb, stroked, filled, lum);
+  };
+
+  /** The path's bounding box after the CTM, for a `W` waiting on it. */
+  const pathBox = (args: unknown[]): ClipBox | null => {
+    const mm = asBox(args[2]);
+    if (mm) return boxUnder(st.ctm, mm);
+    const holder = args[1] as unknown[] | null | undefined;
+    const data = Array.isArray(holder) ? holder[0] : undefined;
+    if (!data || typeof (data as ArrayLike<number>).length !== "number")
+      return null;
+    const pts = subPaths(data as ArrayLike<number>, st.ctm).flatMap(
+      (sp) => sp.pts,
+    );
+    if (pts.length === 0) return null;
+    const xs = pts.map((p) => p[0]);
+    const ys = pts.map((p) => p[1]);
+    return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  };
+
+  /** Read one painted path; true when the primitive cap was reached. */
+  const paintPath = (paintOp: number, args: unknown[]): boolean => {
+    if (paintOp === OPS.endPath) return false; // a clip only
+    let stroked = strokeOps.has(paintOp) || bothOps.has(paintOp);
+    let filled = fillOps.has(paintOp) || bothOps.has(paintOp);
+    if (!stroked && !filled) return false;
+    painted++;
+    // Read args[1][0], the pdf.js 6 place for the data (see the docblock).
+    const holder = args[1] as unknown[] | null | undefined;
+    const data = Array.isArray(holder) ? holder[0] : undefined;
+    if (
+      !data ||
+      typeof (data as ArrayLike<number>).length !== "number" ||
+      typeof (data as ArrayLike<number>)[0] !== "number"
+    )
+      return false;
+    // Fill-and-stroke in a near-white fill is a stroked outline; a
+    // near-white stroke around a dark fill is a filled shape.
+    if (stroked && filled) {
+      if (st.fillLum >= NEAR_WHITE_LUM) filled = false;
+      else if (st.strokeLum >= NEAR_WHITE_LUM) stroked = false;
+    }
+    const lum = stroked ? st.strokeLum : st.fillLum;
+    if (lum >= NEAR_WHITE_LUM) return false;
+    const across = (dx: number, dy: number) =>
+      strokeAcross(st.ctm, st.lineWidth, dx, dy);
+    for (const sp of subPaths(data as ArrayLike<number>, st.ctm)) {
+      const r = asRect(sp);
+      if (r) {
+        // Its level edges and its plumb edges.
+        pushRect(r, across(1, 0), across(0, 1), stroked, filled, lum);
+      } else {
+        // Every lineTo, a two-point `m l` subpath included.
+        for (const [a, b] of sp.lines) {
+          const p = sp.pts[a]!;
+          const q = sp.pts[b]!;
+          pushSeg(p, q, across(q[0] - p[0], q[1] - p[1]), stroked, filled, lum);
+        }
+      }
+      if (segs.length + rects.length > maxPrimitives) {
+        capped = "primitives";
+        return true;
+      }
+    }
+    return false;
+  };
 
   const total = fnArray.length;
   const n = Math.min(total, maxOps);
@@ -367,6 +612,10 @@ export function scanPaths(
       stack.push({ ...st });
       const matrix = asMatrix(args[0]);
       if (matrix) st = { ...st, ctm: concat(st.ctm, matrix) };
+      // The form's /BBox, in form space: it clips what the form draws.
+      const bbox = asBox(args[1]);
+      if (bbox)
+        st = { ...st, clip: intersect(st.clip, boxUnder(st.ctm, bbox)) };
       continue;
     }
     if (fn === OPS.paintFormXObjectEnd) {
@@ -388,6 +637,20 @@ export function scanPaths(
       stack.push({ ...st });
     } else if (fn === OPS.restore) {
       st = stack.pop() ?? st;
+    } else if (OPS.beginGroup !== undefined && fn === OPS.beginGroup) {
+      // A form with a /Group hands its bbox here, not to the form begin
+      // (pdf.js 6 `buildFormXObject`). The bbox is in form space, under the
+      // form's matrix, which the form begin that follows then applies.
+      stack.push({ ...st });
+      const g = args[0] as { matrix?: unknown; bbox?: unknown } | undefined;
+      const bbox = asBox(g?.bbox);
+      if (bbox) {
+        const m = asMatrix(g?.matrix);
+        const under = m ? concat(st.ctm, m) : st.ctm;
+        st = { ...st, clip: intersect(st.clip, boxUnder(under, bbox)) };
+      }
+    } else if (OPS.endGroup !== undefined && fn === OPS.endGroup) {
+      st = stack.pop() ?? st;
     } else if (fn === OPS.transform) {
       const m = asMatrix(args);
       if (m) st = { ...st, ctm: concat(st.ctm, m) };
@@ -398,6 +661,8 @@ export function scanPaths(
       st = { ...st, strokeLum: colourLum(args) };
     } else if (fn === OPS.setFillRGBColor || fn === OPS.setFillGray) {
       st = { ...st, fillLum: colourLum(args) };
+    } else if (clipOps.has(fn)) {
+      pendingClip = true;
     } else if (imageOps.has(fn)) {
       painted++;
       const corners = [
@@ -415,68 +680,11 @@ export function scanPaths(
         y1: Math.max(...ys),
       });
     } else if (fn === OPS.constructPath) {
-      const paintOp = args[0] as number;
-      if (paintOp === OPS.endPath) continue; // a clip only
-      let stroked = strokeOps.has(paintOp) || bothOps.has(paintOp);
-      let filled = fillOps.has(paintOp) || bothOps.has(paintOp);
-      if (!stroked && !filled) continue;
-      painted++;
-      // Read args[1][0], the pdf.js 6 place for the data (see the docblock).
-      const holder = args[1] as unknown[] | null | undefined;
-      const data = Array.isArray(holder) ? holder[0] : undefined;
-      if (
-        !data ||
-        typeof (data as ArrayLike<number>).length !== "number" ||
-        typeof (data as ArrayLike<number>)[0] !== "number"
-      )
-        continue;
-      // Fill-and-stroke in a near-white fill is a stroked outline; a
-      // near-white stroke around a dark fill is a filled shape.
-      if (stroked && filled) {
-        if (st.fillLum >= NEAR_WHITE_LUM) filled = false;
-        else if (st.strokeLum >= NEAR_WHITE_LUM) stroked = false;
-      }
-      const lum = stroked ? st.strokeLum : st.fillLum;
-      if (lum >= NEAR_WHITE_LUM) continue;
-      const across = (dx: number, dy: number) =>
-        strokeAcross(st.ctm, st.lineWidth, dx, dy);
-      for (const sp of subPaths(data as ArrayLike<number>, st.ctm)) {
-        const r = asRect(sp);
-        if (r) {
-          rects.push({
-            x0: r[0],
-            y0: r[1],
-            x1: r[2],
-            y1: r[3],
-            // Its level edges and its plumb edges, the thicker of the two.
-            width: Math.max(across(1, 0), across(0, 1)),
-            stroked,
-            filled,
-            lum,
-          });
-        } else {
-          // Every lineTo, a two-point `m l` subpath included.
-          for (const [a, b] of sp.lines) {
-            const p = sp.pts[a]!;
-            const q = sp.pts[b]!;
-            segs.push({
-              x0: p[0],
-              y0: p[1],
-              x1: q[0],
-              y1: q[1],
-              width: across(q[0] - p[0], q[1] - p[1]),
-              stroked,
-              filled,
-              lum,
-            });
-          }
-        }
-        if (segs.length + rects.length > maxPrimitives) {
-          capped = "primitives";
-          break;
-        }
-      }
-      if (capped === "primitives") {
+      const clipBox = pendingClip ? pathBox(args) : null;
+      pendingClip = false;
+      const stop = paintPath(args[0] as number, args);
+      if (clipBox) st = { ...st, clip: intersect(st.clip, clipBox) };
+      if (stop) {
         i++;
         break;
       }

@@ -13,7 +13,7 @@ import {
  * pinned by H1/H2/H3 in form-detect.corpus.test.ts.
  */
 
-const OPS: OpsLike = {
+const OPS = {
   save: 10,
   restore: 11,
   transform: 12,
@@ -34,8 +34,12 @@ const OPS: OpsLike = {
   eoFillStroke: 25,
   closeFillStroke: 26,
   closeEOFillStroke: 27,
+  clip: 29,
+  eoClip: 30,
+  beginGroup: 76,
+  endGroup: 77,
   paintImageXObject: 85,
-};
+} satisfies OpsLike;
 
 const M = 0;
 const L = 1;
@@ -279,6 +283,167 @@ describe("scanPaths", () => {
     ]);
     expect(r.segs[0]).toMatchObject({ x0: 30, y0: 40 });
     expect(r.segs[1]).toMatchObject({ x0: 0, y0: 0 });
+  });
+
+  // Clipping was not applied at all once: a rule clipped away by a form's
+  // /BBox or by `W n` was invisible on the page and still had a field
+  // proposed on it (review finding; corpus N22, N23 and the control P16).
+  describe("clipping", () => {
+    const line = path(OPS.stroke, M, 130, 600, L, 330, 600);
+    const clipTo = (x: number, y: number, w: number, h: number): Op[] => [
+      [OPS.clip, []],
+      path(OPS.endPath, ...re(x, y, w, h)),
+    ];
+
+    it("a `W n` clip hides a line outside it, and `Q` lifts the clip", () => {
+      const r = scan([
+        [OPS.save, []],
+        ...clipTo(0, 0, 10, 10),
+        line,
+        [OPS.restore, []],
+        line,
+      ]);
+      expect(r.segs).toEqual([expect.objectContaining({ x0: 130, x1: 330 })]);
+    });
+
+    it("eoClip clips the same way", () => {
+      const r = scan([
+        [OPS.eoClip, []],
+        path(OPS.endPath, ...re(0, 0, 10, 10)),
+        line,
+      ]);
+      expect(r.segs).toEqual([]);
+    });
+
+    it("trims a line that runs out of the clip to the part inside", () => {
+      // Line width 0: the clip is widened by half the stroke (see below).
+      const r = scan([
+        ...clipTo(0, 0, 200, 792),
+        [OPS.setLineWidth, [0]],
+        line,
+      ]);
+      expect(r.segs).toEqual([
+        expect.objectContaining({ x0: 130, y0: 600, x1: 200, y1: 600 }),
+      ]);
+    });
+
+    it("a clip set with a paint op applies after it, not to it", () => {
+      const r = scan([
+        [OPS.clip, []],
+        path(OPS.stroke, ...re(0, 0, 10, 10)),
+        line,
+      ]);
+      expect(r.rects).toHaveLength(1);
+      expect(r.segs).toEqual([]);
+    });
+
+    it("clips in user space, under the CTM the clip was set in", () => {
+      const r = scan([
+        [OPS.save, []],
+        [OPS.transform, [1, 0, 0, 1, 120, 590]],
+        ...clipTo(0, 0, 300, 20),
+        [OPS.restore, []],
+        line,
+      ]);
+      expect(r.segs).toHaveLength(1);
+      const kept = scan([
+        [OPS.transform, [1, 0, 0, 1, 120, 590]],
+        ...clipTo(0, 0, 300, 20),
+        [OPS.transform, [1, 0, 0, 1, -120, -590]],
+        line,
+      ]);
+      expect(kept.segs).toHaveLength(1);
+      const gone = scan([
+        [OPS.transform, [1, 0, 0, 1, 120, 0]],
+        ...clipTo(0, 0, 300, 20),
+        [OPS.transform, [1, 0, 0, 1, -120, 0]],
+        line,
+      ]);
+      expect(gone.segs).toEqual([]);
+    });
+
+    it("a form XObject's /BBox clips what it draws, and stops at its end", () => {
+      const r = scan([
+        [
+          OPS.paintFormXObjectBegin,
+          [
+            [1, 0, 0, 1, 0, 0],
+            [0, 0, 10, 10],
+          ],
+        ],
+        line,
+        [OPS.paintFormXObjectEnd, []],
+        line,
+      ]);
+      expect(r.segs).toHaveLength(1);
+      // The BBox is in form space: under the form's matrix it moves too.
+      const moved = scan([
+        [
+          OPS.paintFormXObjectBegin,
+          [
+            [1, 0, 0, 1, 120, 590],
+            [0, 0, 300, 20],
+          ],
+        ],
+        path(OPS.stroke, M, 10, 10, L, 210, 10),
+        [OPS.paintFormXObjectEnd, []],
+      ]);
+      expect(moved.segs).toEqual([
+        expect.objectContaining({ x0: 130, y0: 600, x1: 330 }),
+      ]);
+    });
+
+    it("a transparency group's bbox clips like a form's", () => {
+      const r = scan([
+        [
+          OPS.beginGroup,
+          [{ matrix: [1, 0, 0, 1, 0, 0], bbox: [0, 0, 10, 10] }],
+        ],
+        [OPS.paintFormXObjectBegin, [[1, 0, 0, 1, 0, 0], null]],
+        line,
+        [OPS.paintFormXObjectEnd, []],
+        [OPS.endGroup, [{}]],
+        line,
+      ]);
+      expect(r.segs).toHaveLength(1);
+    });
+
+    it("drops a Rect outside the clip, trims a filled one, and cuts a stroked one into its visible edges", () => {
+      const clip = clipTo(0, 0, 100, 100);
+      expect(
+        scan([...clip, path(OPS.stroke, ...re(200, 200, 12, 12))]).rects,
+      ).toEqual([]);
+      const filled = scan([...clip, path(OPS.fill, ...re(50, 50, 100, 2))]);
+      expect(filled.rects).toEqual([
+        expect.objectContaining({ x0: 50, y0: 50, x1: 100, y1: 52 }),
+      ]);
+      const stroked = scan([
+        ...clip,
+        [OPS.setLineWidth, [0]],
+        path(OPS.stroke, ...re(90, 40, 20, 20)),
+      ]);
+      expect(stroked.rects).toEqual([]);
+      // Bottom and top cut at x = 100, the left edge whole, the right one gone.
+      expect(
+        stroked.segs.map((s) => [s.x0, s.y0, s.x1, s.y1].map(Math.round)),
+      ).toEqual([
+        [90, 40, 100, 40],
+        [100, 60, 90, 60],
+        [90, 60, 90, 40],
+      ]);
+    });
+
+    it("keeps a line whose stroke touches the clip's edge", () => {
+      // BBox [0 0 400 600] and a 1 pt line at y = 600.4: half of it shows.
+      const at = (y: number) =>
+        scan([
+          ...clipTo(0, 0, 400, 600),
+          [OPS.setLineWidth, [1]],
+          path(OPS.stroke, M, 130, y, L, 330, y),
+        ]).segs;
+      expect(at(600.4)).toHaveLength(1);
+      expect(at(600.6)).toEqual([]);
+    });
   });
 
   it("caps form depth: deeper content is skipped and counted", () => {

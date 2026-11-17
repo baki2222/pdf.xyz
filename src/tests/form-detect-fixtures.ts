@@ -257,6 +257,18 @@ function raw(page: PDFPage, content: string) {
   page.node.addContentStream(ctx.register(ctx.stream(content)));
 }
 
+/**
+ * A form XObject drawing `content`, clipped to `bbox` (its /BBox, in form
+ * space), painted on the page with `Do`.
+ */
+function formXObject(page: PDFPage, content: string, bbox: number[]) {
+  const ctx = page.doc.context;
+  const ref = ctx.register(
+    ctx.stream(content, { Type: "XObject", Subtype: "Form", BBox: bbox }),
+  );
+  raw(page, `q ${page.node.newXObject("Fc", ref).asString()} Do Q`);
+}
+
 /** "Address:" where P4 draws it, with `content` as the page's only lines. */
 async function addressWith(content: string): Promise<Uint8Array> {
   const d = await doc();
@@ -760,6 +772,29 @@ export const DETECT_CASES: readonly DetectCase[] = [
     ],
   },
 
+  {
+    id: "P16",
+    kind: "positive",
+    note: "P4's line inside a form XObject whose /BBox holds all of it: clipping keeps it",
+    // The positive control for N22: a clip that drops everything would pass N22.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await text(page, H, "Address:", P4.labelX, P4.y);
+      formXObject(page, "0.5 w 130 600 m 330 600 l S", [120, 590, 340, 610]);
+      return save(d);
+    },
+    expect: [
+      {
+        rule: "labelled-rule",
+        type: "text",
+        label: "Address",
+        page: 1,
+        box: ruleBox(P4.x0, P4.x1, P4.y, 12),
+      },
+    ],
+  },
+
   // ---------------------------------------------------------- negatives
   {
     id: "N1",
@@ -1115,6 +1150,27 @@ export const DETECT_CASES: readonly DetectCase[] = [
     // sqrt(|det|) is 1 here, so a width read that way calls the bar 1 pt.
     build: () =>
       addressWith("q 0 G 0.125 0 0 8 0 0 cm 1 w 1040 75 m 2640 75 l S Q"),
+    expect: "none",
+  },
+  {
+    id: "N22",
+    kind: "negative",
+    note: "P4's line inside a form XObject whose /BBox [0 0 10 10] clips all of it away",
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await text(page, H, "Address:", P4.labelX, P4.y);
+      formXObject(page, "0.5 w 130 600 m 330 600 l S", [0, 0, 10, 10]);
+      return save(d);
+    },
+    expect: "none",
+  },
+  {
+    id: "N23",
+    kind: "negative",
+    note: "P4's line drawn under a `W n` clip to [0 0 10 10]: clipped away",
+    build: () =>
+      addressWith("q 0 0 10 10 re W n 0.5 w 130 600 m 330 600 l S Q"),
     expect: "none",
   },
 

@@ -212,4 +212,26 @@ describe("walker controls on pdf.js's own operator lists", () => {
     expect(scan.segs).toEqual([]);
     expect(scan.rects).toEqual([]);
   });
+
+  it("H4: N22's form begin carries its /BBox and N23 has a clip op; both lines are in the list and clipped out", async () => {
+    // Pins where pdf.js 6 puts what the walker clips with: a move would read
+    // every clipped line as visible again (or, worse, every line as hidden;
+    // P16 is the control for that).
+    const form = await opList(caseById("N22"));
+    const begin = Array.from(form.ops.fnArray).indexOf(
+      form.OPS.paintFormXObjectBegin,
+    );
+    expect(begin, "N22 drew no form XObject").toBeGreaterThanOrEqual(0);
+    expect(
+      Array.from(form.ops.argsArray[begin][1] as ArrayLike<number>),
+    ).toEqual([0, 0, 10, 10]);
+    const clip = await opList(caseById("N23"));
+    expect(Array.from(clip.ops.fnArray)).toContain(clip.OPS.clip);
+    for (const { ops, OPS, paths } of [form, clip]) {
+      expect(paths, "the line is not in the operator list").toBeGreaterThan(0);
+      const scan = scanPaths(ops.fnArray, ops.argsArray, OPS);
+      expect(scan.painted).toBeGreaterThan(0);
+      expect(scan.segs).toEqual([]);
+    }
+  });
 });
