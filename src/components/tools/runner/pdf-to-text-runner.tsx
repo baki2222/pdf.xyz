@@ -36,6 +36,8 @@ import {
 import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
+
+type AiResultViews = typeof import("../ai-result-views");
 import {
   NoSelectableTextNote,
   OCR_TOOL_HREF,
@@ -78,8 +80,21 @@ function PdfToTextEditor({
   onReset: () => void;
   extract: (bytes: Uint8Array) => Promise<ExtractedPdfText>;
 }) {
-  const { busy, error, result, run } = useAsyncRun<ExtractedPdfText>();
-  const onRun = () => run(() => extract(pdf.bytes));
+  const { busy, error, result, run } = useAsyncRun<
+    ExtractedPdfText & { views: AiResultViews }
+  >();
+  // The text box comes from the AI result views chunk, fetched BESIDE the
+  // extraction (never after it, and never with the page): the box draws at
+  // most PAGE_TEXT_LIMIT characters, so a whole book is not put in the DOM.
+  // A failed fetch fails the run, and the next press tries again.
+  const onRun = () =>
+    run(async () => {
+      const [text, views] = await Promise.all([
+        extract(pdf.bytes),
+        import("../ai-result-views"),
+      ]);
+      return { ...text, views };
+    });
 
   if (result) {
     const filename = textOutputName(pdf.file.name);
@@ -111,9 +126,13 @@ function PdfToTextEditor({
         {result.hasText ? (
           <div className="flex flex-col gap-4">
             {empty.length > 0 && <EmptyPagesNote pages={empty} />}
-            <div className="border-line text-fg bg-canvas rounded-panel max-h-72 overflow-auto border p-4 text-sm leading-6 whitespace-pre-wrap">
-              {result.text}
-            </div>
+            {/* A named, focusable region: a keyboard can scroll it (axe
+                scrollable-region-focusable, found on the result 2026-11-17). */}
+            <result.views.LongText
+              label="Extracted text"
+              text={result.text}
+              className="border-line text-fg bg-canvas rounded-panel focus-visible:ring-ok/50 max-h-72 overflow-auto border p-4 text-sm leading-6 whitespace-pre-wrap outline-none focus-visible:ring-2"
+            />
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
               <button
                 type="button"
@@ -135,7 +154,13 @@ function PdfToTextEditor({
                   use is pasting it into an email or a spreadsheet, and
                   selecting a whole document in the box above is close to
                   impossible on a phone (audit pdf-to-text#5). */}
-              <CopyTextButton text={result.text} label="Copy text" />
+              <CopyTextButton
+                text={result.text}
+                label="Copy text"
+                {...(result.views.cutForPage(result.text).cut
+                  ? { failed: result.views.COPY_FAILED_CUT }
+                  : {})}
+              />
             </div>
           </div>
         ) : (

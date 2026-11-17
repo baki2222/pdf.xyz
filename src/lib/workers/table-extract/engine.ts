@@ -1,12 +1,6 @@
 import JSZip from "jszip";
 import { CSV_BOM, toCsv } from "../ooxml/csv";
-import {
-  SheetStyles,
-  STYLES_CONTENT_TYPE_OVERRIDE,
-  stylesRelationship,
-  worksheetXml,
-  xmlEscape,
-} from "../ooxml/sheet-cells";
+import { buildWorkbook } from "../ooxml/workbook-write";
 import {
   COMBINED_SHEET_NAME,
   COMBINED_ZIP_FILES,
@@ -150,60 +144,9 @@ export type TableExtractRun =
 // (`ai-extract-package.ts`), so both files neutralise formulas the same way.
 export { CSV_BOM, CSV_FORMULA_LEADS, toCsv } from "../ooxml/csv";
 
-/** One worksheet of the workbook: its tab name and its rows. */
-interface TableSheet {
-  name: string;
-  rows: string[][];
-}
-
-/** Build a single XLSX workbook, one worksheet per entry of `sheets`. */
-async function buildXlsx(sheetsIn: readonly TableSheet[]): Promise<Uint8Array> {
-  // Cells, column letters and number rules are shared with PDF to Excel —
-  // see `../ooxml/sheet-cells`. Sheets first: they register the formats that
-  // `xl/styles.xml` must declare.
-  const styles = new SheetStyles();
-  const sheets = sheetsIn.map((sheet) => worksheetXml(sheet.rows, styles));
-  const zip = new JSZip();
-  const sheetOverrides = sheetsIn
-    .map(
-      (_, i) =>
-        `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`,
-    )
-    .join("");
-  zip.file(
-    "[Content_Types].xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheetOverrides}${STYLES_CONTENT_TYPE_OVERRIDE}</Types>`,
-  );
-  zip.file(
-    "_rels/.rels",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
-  );
-  zip.file(
-    "xl/_rels/workbook.xml.rels",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheetsIn
-      .map(
-        (_, i) =>
-          `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`,
-      )
-      .join(
-        "",
-      )}${stylesRelationship(`rId${sheetsIn.length + 1}`)}</Relationships>`,
-  );
-  zip.file(
-    "xl/workbook.xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheetsIn
-      .map(
-        (sheet, i) =>
-          `<sheet name="${xmlEscape(sheet.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`,
-      )
-      .join("")}</sheets></workbook>`,
-  );
-  sheets.forEach((sheet, i) =>
-    zip.file(`xl/worksheets/sheet${i + 1}.xml`, sheet),
-  );
-  zip.file("xl/styles.xml", styles.xml());
-  return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));
-}
+// The workbook writer (`buildWorkbook`) moved to `../ooxml/workbook-write`
+// on 2026-11-17, unchanged, so AI Data Extraction builds its XLSX in the
+// browser with the writer this engine uses.
 
 function sameRow(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((cell, i) => cell === b[i]);
@@ -265,7 +208,7 @@ export async function buildTablesZip(
     zip.file(COMBINED_ZIP_FILES.csv, CSV_BOM + toCsv(rows));
     zip.file(
       "tables.xlsx",
-      await buildXlsx([{ name: COMBINED_SHEET_NAME, rows }]),
+      await buildWorkbook([{ name: COMBINED_SHEET_NAME, rows }]),
     );
   } else {
     tables.forEach((table, i) =>
@@ -273,7 +216,7 @@ export async function buildTablesZip(
     );
     zip.file(
       "tables.xlsx",
-      await buildXlsx(
+      await buildWorkbook(
         tables.map((table, i) => ({
           name: `Table ${i + 1} (p${table.pageNumber})`,
           rows: table.rows,

@@ -197,7 +197,7 @@ const content: ToolContent = {
     },
     {
       title: "Read the answer and its citations",
-      body: `Each exchange is added to the conversation above the question box: your question, then the model's answer with any [p.N] markers it wrote. Beneath it, a button named after the ZIP (lease.pdf gives ${EXAMPLE_ZIP}) saves the package the page already holds: answer.md, answer.txt, manifest.json and README.txt. Select a [p.N] marker to see that page.`,
+      body: `Each exchange is added to the conversation above the question box: your question, then the model's answer with any [p.N] markers it wrote. Beneath it, a button named after the ZIP (lease.pdf gives ${EXAMPLE_ZIP}) saves the package the page already holds: answer.md, answer.txt, manifest.json and README.txt, and Copy answer puts that answer on your clipboard. Select a [p.N] marker to see that page. Under the conversation, Copy conversation and Download conversation (.md) give you every question and answer so far, [p.N] markers included, built by the page without another request.`,
     },
     {
       title: "Ask a follow-up",
@@ -220,7 +220,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens to the conversation if I reload the page?",
-      a: "It starts over. Nothing carries over on our secure server from one question to the next: the conversation lives in this page, which re-sends the recent exchanges with each follow-up and uploads the PDF again. Removing the file or reloading the page starts a new conversation.",
+      a: "It starts over. Nothing carries over on our secure server from one question to the next: the conversation lives in this page, which re-sends the recent exchanges with each follow-up and uploads the PDF again. Removing the file or reloading the page starts a new conversation, so press Download conversation (.md) first to keep it.",
     },
     {
       q: "How many questions can I ask in a day?",
