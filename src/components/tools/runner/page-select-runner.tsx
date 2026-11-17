@@ -2,14 +2,7 @@
 
 import { RunReason } from "@/components/tools/runner/run-reason";
 import { useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
-import {
-  Download,
-  FileOutput,
-  Maximize2,
-  MousePointerClick,
-  Trash2,
-} from "lucide-react";
+import { Download, FileOutput, MousePointerClick, Trash2 } from "lucide-react";
 import { deletePages, extractPages } from "@/lib/pdf/engine";
 import { parsePageList } from "@/lib/pdf/ranges";
 import { downloadBytes } from "@/lib/pdf/browser";
@@ -37,23 +30,13 @@ import {
   selectRange,
   toggleIndex,
 } from "./selection";
-import { PageTile, TileAction } from "./page-tile";
+import { PageTile } from "./page-tile";
+import { LazyPageZoomDialog, ZoomButton } from "./page-zoom-lazy";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { usePdfThumbnails } from "./use-pdf-thumbnails";
 import type { LoadedPdf } from "./use-single-pdf";
 
 type Mode = "extract" | "delete";
-
-/**
- * Each tile's enlarge button (audit remove-pages#3) — the page's copy quotes
- * its shape. The dialog it opens loads with next/dynamic on the first press.
- */
-export const zoomLabel = (pageNumber: number) =>
-  `View page ${pageNumber} larger`;
-
-const PageZoomDialog = dynamic(() =>
-  import("./page-zoom-dialog").then(({ PageZoomDialog }) => PageZoomDialog),
-);
 
 interface ModeConfig {
   actionIcon: typeof FileOutput;
@@ -317,16 +300,14 @@ function PageSelectEditor({
               className="h-full"
             />
             <span className="absolute top-2 right-2 z-10">
-              <TileAction onClick={() => setZoom(i)} title={zoomLabel(i + 1)}>
-                <Maximize2 className="size-3.5" aria-hidden />
-              </TileAction>
+              <ZoomButton pageNumber={i + 1} onClick={() => setZoom(i)} />
             </span>
           </div>
         ))}
       </div>
 
       {zoom !== null && (
-        <PageZoomDialog
+        <LazyPageZoomDialog
           bytes={pdf.bytes}
           pageCount={pdf.pageCount}
           index={zoom}
