@@ -18,6 +18,18 @@
  * The page bound is held as a CONTROL: its advice does work, because a page
  * count is exact, and its arms are unchanged.
  *
+ * So is a job that DECLARED NOTHING (review, 2026-11-17): a direct API
+ * caller, or a panel scan sent for OCR. Its reservation is the flat fallback,
+ * nothing was counted, and the remaining pages sent as another document get a
+ * fresh fallback and ARE translated. The first version of this file covered
+ * declared jobs only and gave that job "more text than was counted", which is
+ * false of it. It now keeps the separate-document remedy, on both surfaces.
+ *
+ * The cap crosses the queue as JSON and is re-read by `readDeliveryCap`, and
+ * the panel reads the meta after `buildAiResultMeta`: the two boundaries that
+ * rebuild these objects field by field, so a flag either one drops is lost
+ * here too.
+ *
  * The last block pins the two surfaces to ONE sentence: the package's marker
  * and the panel's notice, for the same job record.
  */
@@ -35,8 +47,14 @@ import {
 import {
   AI_DELIVERY_LIMITS,
   aiReservationGiven,
+  readDeliveryCap,
+  type JobDeliveryCap,
 } from "@/lib/jobs/delivery-cap";
-import { WITHHELD_UNDERCOUNT_SENTENCE } from "@/lib/jobs/translate-withheld-copy";
+import { buildAiResultMeta, type AiDeliveryMeta } from "@/lib/jobs/ai-results";
+import {
+  NOTHING_UNDERCOUNT_SENTENCE,
+  WITHHELD_UNDERCOUNT_SENTENCE,
+} from "@/lib/jobs/translate-withheld-copy";
 import { deliveryConsequence } from "@/components/tools/delivery-notice";
 import type {
   AiCompletionRequest,
@@ -112,6 +130,19 @@ async function job(
     AI_DELIVERY_LIMITS,
     false,
   );
+  const run = await runUnder(worker, reservation.delivery!, pages);
+  return { ...run, declared, reservation };
+}
+
+/** The engine under `delivery`, after the queue's JSON and its re-read. */
+async function runUnder(
+  worker: TranslateExtracted,
+  delivery: JobDeliveryCap,
+  pages: PageSpan[] | null = null,
+) {
+  const read = readDeliveryCap(JSON.parse(JSON.stringify(delivery)));
+  if (!read.ok || !read.cap)
+    throw new Error("the cap did not survive the queue");
   const provider = recorder();
   const options: TranslateOptions = pages
     ? { ...BASE, pages: pages.map(([a, b]) => [a, b] as const) }
@@ -120,9 +151,26 @@ async function job(
     extract: async () => worker,
     provider,
     now: NOW,
-    limits: { delivery: reservation.delivery! },
+    limits: { delivery: read.cap },
   });
-  return { result, provider, declared, reservation };
+  return { result, provider };
+}
+
+/** The delivery block as the panel reads it, after the persistence boundary. */
+function persisted(delivery: AiDeliveryMeta | undefined): AiDeliveryMeta {
+  const built = buildAiResultMeta({
+    truncation: {
+      truncated: false,
+      charactersSent: 1,
+      charactersTotal: 1,
+      totalPages: 1,
+      lastCompletePage: 1,
+      cutMidPage: false,
+    },
+    ...(delivery ? { delivery: JSON.parse(JSON.stringify(delivery)) } : {}),
+  });
+  if (!built.delivery) throw new Error("the delivery block was dropped");
+  return built.delivery;
 }
 
 async function translationMd(output: Uint8Array): Promise<string> {
@@ -165,6 +213,11 @@ describe("a characters-bound withhold: the old remedy, run", () => {
     if (result.ok) return;
     expect(result.kind).toBe("over_reservation");
     expect(provider.calls).toHaveLength(0);
+    // The refusal the reader gets offers no rerun either: it shipped as
+    // "Submit the document again with its real length, or split it into
+    // smaller files.", and this rerun IS a smaller file.
+    expect(result.message).toContain(NOTHING_UNDERCOUNT_SENTENCE);
+    expect(result.message).not.toMatch(/split|smaller file|again/i);
   });
 
   it("page 3 CHOSEN from the same document is refused the same way", async () => {
@@ -173,6 +226,9 @@ describe("a characters-bound withhold: the old remedy, run", () => {
     if (result.ok) return;
     expect(result.kind).toBe("over_reservation");
     expect(provider.calls).toHaveLength(0);
+    expect(result.message).toContain("the first page you chose");
+    expect(result.message).toContain(NOTHING_UNDERCOUNT_SENTENCE);
+    expect(result.message).not.toMatch(/split|smaller file|again/i);
   });
 
   it("so the package says what happened and offers no separate-document step", async () => {
@@ -181,6 +237,60 @@ describe("a characters-bound withhold: the old remedy, run", () => {
     const md = await translationMd(result.output);
     expect(md).toContain(WITHHELD_UNDERCOUNT_SENTENCE);
     expect(md).not.toMatch(/separate document/i);
+    const panel = deliveryConsequence(persisted(result.meta.delivery));
+    expect(panel).toContain(WITHHELD_UNDERCOUNT_SENTENCE);
+    expect(panel).not.toMatch(/separate document/i);
+  });
+});
+
+describe("CONTROL: a job that declared NOTHING keeps the separate-document remedy, which works", () => {
+  // A direct API caller, or a panel scan sent for OCR: no count, so the
+  // reservation is the flat fallback (10,258 x 4 = 41,032 characters).
+  const undeclared = () =>
+    aiReservationGiven("translate-pdf", {}, AI_DELIVERY_LIMITS, false)
+      .delivery!;
+  const PER_PAGE = 5_000;
+
+  it("health: the reservation is the fallback, flagged, and the fixture overruns it", () => {
+    const cap = undeclared();
+    expect(cap).toEqual({
+      characters: Math.ceil(
+        AI_DELIVERY_LIMITS.fallbackCharacters * AI_DELIVERY_LIMITS.headroom,
+      ),
+      undeclared: true,
+    });
+    expect(PER_PAGE).toBeLessThan(CEILING);
+    expect(20 * PER_PAGE).toBeGreaterThan(cap.characters);
+  });
+
+  it("says nothing was counted wrongly, offers the rerun, and the rerun translates more", async () => {
+    const first = await runUnder(documentOf(20, PER_PAGE), undeclared());
+    if (!first.result.ok) throw new Error(first.result.message);
+    const delivery = first.result.meta.delivery;
+    expect(delivery).toEqual({
+      deliveredPages: 8,
+      withheldPages: 12,
+      boundBy: "characters",
+      undeclared: true,
+    });
+
+    const md = await translationMd(first.result.output);
+    expect(md).toContain(
+      "Translate the remaining pages as a separate document.",
+    );
+    expect(md).not.toContain(WITHHELD_UNDERCOUNT_SENTENCE);
+    const panel = deliveryConsequence(persisted(delivery));
+    expect(panel).toContain("Translate them as a separate document.");
+    expect(panel).not.toContain(WITHHELD_UNDERCOUNT_SENTENCE);
+
+    // The advice, run: the 12 remaining pages as their own document.
+    const rerun = await runUnder(documentOf(12, PER_PAGE), undeclared());
+    expect(rerun.result.ok, rerun.result.ok ? "" : rerun.result.message).toBe(
+      true,
+    );
+    if (!rerun.result.ok) return;
+    expect(rerun.result.meta.delivery?.deliveredPages).toBe(8);
+    expect(rerun.provider.calls.length).toBeGreaterThan(0);
   });
 });
 

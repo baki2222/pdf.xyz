@@ -28,6 +28,8 @@ import { WITHHELD_UNDERCOUNT_SENTENCE } from "@/lib/jobs/translate-withheld-copy
  * rerun of those pages is declared by the same browser count and is short in
  * the same proportion (`translate-withheld-remedy.chain.test.ts`). It now says
  * what happened, in the package marker's words, and offers no false step.
+ * A job that declared no count (a scan sent for OCR) reserved a flat amount,
+ * and another document gets another one, so it keeps that remedy.
  *
  * ── COMPUTED FROM THE JOB RECORD, NOT FROM THE MODEL'S WORDS ────────────────
  *
@@ -65,6 +67,8 @@ export function deliverySummary(delivery: AiDeliveryMeta): string {
 export function deliveryConsequence(delivery: AiDeliveryMeta): string {
   return delivery.boundBy === "characters"
     ? "The remaining pages held more text than this job's free daily allowance reserved for it, so they were left untranslated rather than cut short. They are marked in place in the package. " +
-        WITHHELD_UNDERCOUNT_SENTENCE
+        (delivery.undeclared
+          ? "Translate them as a separate document."
+          : WITHHELD_UNDERCOUNT_SENTENCE)
     : "The document held more pages of text than were declared for it, so the remainder was left untranslated. They are marked in place in the package. Upload it again to translate the rest.";
 }

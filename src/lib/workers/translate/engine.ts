@@ -1201,6 +1201,7 @@ export async function runTranslate(
               deliveredPages: translatedPages.length,
               withheldPages: withheld.pages.length,
               boundBy: capped!.boundBy!,
+              ...(limit.undeclared ? { undeclared: true as const } : {}),
             },
           }
         : {}),

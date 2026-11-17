@@ -17,8 +17,16 @@
  * WHY "MORE TEXT THAN WAS COUNTED", NOT "ON THESE PAGES". The reservation is
  * spent in page order, so a page can be withheld because EARLIER pages held
  * more than was counted; the withheld page itself may hold less. What is
- * always true of a characters-bound withhold is the document's (or the chosen
- * pages') total: the server read more than `declared × h ≥ declared`.
+ * always true of a characters-bound withhold OF A DECLARED JOB is the
+ * document's (or the chosen pages') total: the server read more than
+ * `declared × h ≥ declared`.
+ *
+ * ONLY A DECLARED JOB (review, 2026-11-17). A job that declared no count (a
+ * direct API caller, or a panel scan sent for OCR) reserved the flat
+ * fallback: nothing was counted, so this sentence is false of it, and the
+ * remaining pages sent as another document get a fresh fallback and are
+ * translated. Both surfaces branch on the cap's `undeclared` flag and keep
+ * the separate-document remedy for that job; the chain test runs it.
  *
  * The PAGE bound keeps its own remedies, which do work: a page count the
  * browser declares is exact (pdf.js and the worker agree on pages), so the
@@ -27,3 +35,14 @@
  */
 export const WITHHELD_UNDERCOUNT_SENTENCE =
   "Our server found more text than was counted before the upload, so these pages could not be translated in this job.";
+
+/**
+ * The same fact, said by the refusal when the reservation covered no page at
+ * all (`nothingDeliverableMessage`), for a declared job. It replaced "Submit
+ * the document again with its real length, or split it into smaller files.",
+ * neither of which a panel visitor can do to any effect: the browser sets the
+ * count, and a smaller file holding that first page is short in the same
+ * proportion.
+ */
+export const NOTHING_UNDERCOUNT_SENTENCE =
+  "Our server found more text than was counted before the upload.";

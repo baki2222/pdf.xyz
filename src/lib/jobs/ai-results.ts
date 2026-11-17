@@ -201,6 +201,13 @@ export interface AiDeliveryMeta {
    * reader with a number and nothing to do about it.
    */
   boundBy: "characters" | "pages";
+  /**
+   * `true` when the job declared no character count, so its reservation was
+   * the flat fallback (`JobDeliveryCap.undeclared`). The panel then keeps the
+   * separate-document remedy, which works for such a job and not for a
+   * declared one. Absent means declared.
+   */
+  undeclared?: true;
 }
 
 /**
@@ -488,6 +495,9 @@ export function buildAiResultMeta(raw: AiResultMeta): AiResultMeta {
           deliveredPages: count(rawDelivery.deliveredPages),
           withheldPages,
           boundBy: rawDelivery.boundBy,
+          ...(rawDelivery.undeclared === true
+            ? { undeclared: true as const }
+            : {}),
         }
       : undefined;
 
