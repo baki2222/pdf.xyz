@@ -207,13 +207,61 @@ describe("scanPaths", () => {
     expect(r.segs[0]).toMatchObject({ width: 1, lum: 0 });
   });
 
-  it("scales line width by sqrt(|det CTM|)", () => {
+  it("scales line width by the CTM: a uniform scale scales it", () => {
     const r = scan([
       [OPS.transform, [2, 0, 0, 2, 0, 0]],
       [OPS.setLineWidth, [0.5]],
       path(OPS.stroke, M, 0, 0, L, 10, 0),
     ]);
     expect(r.segs[0]!.width).toBeCloseTo(1, 6);
+  });
+
+  // This test used to read "scales line width by sqrt(|det CTM|)", and it
+  // held only for a uniform scale. Under cm [0.125 0 0 8] sqrt(|det|) is 1,
+  // so a 1 w line drawn level came out 1 pt thick while it shows as an 8 pt
+  // bar (review finding; corpus N21 and P15). The thickness is measured
+  // ACROSS each segment: lineWidth x |det M| / |M u|.
+  it("measures thickness across each segment under a stretched CTM", () => {
+    const squash = scan([
+      [OPS.transform, [0.125, 0, 0, 8, 0, 0]],
+      [OPS.setLineWidth, [1]],
+      path(OPS.stroke, M, 0, 0, L, 100, 0, L, 100, 10),
+    ]);
+    expect(squash.segs[0]!.width).toBeCloseTo(8, 6); // level: stretched
+    expect(squash.segs[1]!.width).toBeCloseTo(0.125, 6); // plumb: squashed
+    const stretch = scan([
+      [OPS.transform, [8, 0, 0, 0.125, 0, 0]],
+      [OPS.setLineWidth, [4]],
+      path(OPS.stroke, M, 0, 0, L, 10, 0),
+    ]);
+    expect(stretch.segs[0]!.width).toBeCloseTo(0.5, 6);
+  });
+
+  it("measures across a segment under a rotation and a shear", () => {
+    // A quarter turn swaps nothing in thickness.
+    const turned = scan([
+      [OPS.transform, [0, 2, -2, 0, 0, 0]],
+      [OPS.setLineWidth, [0.5]],
+      path(OPS.stroke, M, 0, 0, L, 10, 0),
+    ]);
+    expect(turned.segs[0]!.width).toBeCloseTo(1, 6);
+    // Shear [1 0 1 1]: a level line stays level and its thickness is the
+    // vertical extent of the stroke, lineWidth x 1.
+    const sheared = scan([
+      [OPS.transform, [1, 0, 1, 1, 0, 0]],
+      [OPS.setLineWidth, [2]],
+      path(OPS.stroke, M, 0, 0, L, 10, 0),
+    ]);
+    expect(sheared.segs[0]!.width).toBeCloseTo(2, 6);
+  });
+
+  it("gives a Rect the thickness of its thickest edge", () => {
+    const r = scan([
+      [OPS.transform, [0.125, 0, 0, 8, 0, 0]],
+      [OPS.setLineWidth, [1]],
+      path(OPS.stroke, ...re(0, 0, 800, 2)),
+    ]);
+    expect(r.rects[0]!.width).toBeCloseTo(8, 6);
   });
 
   it("enters a form XObject with its matrix and leaves it at its end", () => {

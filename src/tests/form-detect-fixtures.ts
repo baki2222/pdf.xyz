@@ -248,6 +248,24 @@ function square(
   });
 }
 
+/**
+ * Append a content stream written as PDF operators, for the shapes pdf-lib's
+ * drawing calls cannot make (a stretched `cm`, a clip, a bare `m l l l f`).
+ */
+function raw(page: PDFPage, content: string) {
+  const ctx = page.doc.context;
+  page.node.addContentStream(ctx.register(ctx.stream(content)));
+}
+
+/** "Address:" where P4 draws it, with `content` as the page's only lines. */
+async function addressWith(content: string): Promise<Uint8Array> {
+  const d = await doc();
+  const page = d.addPage(LETTER);
+  await text(page, H, "Address:", P4.labelX, P4.y);
+  raw(page, content);
+  return save(d);
+}
+
 async function save(d: PDFDocument): Promise<Uint8Array> {
   return d.save({ useObjectStreams: false });
 }
@@ -723,6 +741,25 @@ export const DETECT_CASES: readonly DetectCase[] = [
     ],
   },
 
+  {
+    id: "P15",
+    kind: "positive",
+    note: "P4's line drawn 4 w under cm [8 0 0 0.125]: 0.5 pt thick as displayed",
+    // The stroke is thin ACROSS the line (4 x 0.125), though sqrt(|det|) is 1
+    // and would read it as 4 pt thick.
+    build: () =>
+      addressWith("q 0 G 8 0 0 0.125 0 0 cm 4 w 16.25 4800 m 41.25 4800 l S Q"),
+    expect: [
+      {
+        rule: "labelled-rule",
+        type: "text",
+        label: "Address",
+        page: 1,
+        box: ruleBox(P4.x0, P4.x1, P4.y, 12),
+      },
+    ],
+  },
+
   // ---------------------------------------------------------- negatives
   {
     id: "N1",
@@ -1070,6 +1107,15 @@ export const DETECT_CASES: readonly DetectCase[] = [
     expect: "none",
     decidedBy: "invalid",
     at: { page: 1, x: 350, y: 605 },
+  },
+  {
+    id: "N21",
+    kind: "negative",
+    note: "an 8 pt black bar beside a label, drawn 1 w under cm [0.125 0 0 8]: a bar, not a rule",
+    // sqrt(|det|) is 1 here, so a width read that way calls the bar 1 pt.
+    build: () =>
+      addressWith("q 0 G 0.125 0 0 8 0 0 cm 1 w 1040 75 m 2640 75 l S Q"),
+    expect: "none",
   },
 
   // ---------------------------------------------------------- outcomes

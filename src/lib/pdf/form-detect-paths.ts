@@ -40,7 +40,11 @@ export interface Seg {
   y0: number;
   x1: number;
   y1: number;
-  /** Stroke width after the CTM (line width x sqrt(|det CTM|)). */
+  /**
+   * Stroke thickness after the CTM, measured ACROSS the segment (see
+   * {@link strokeAcross}); a CTM that stretches one axis more than the other
+   * makes it depend on the segment's direction.
+   */
   width: number;
   stroked: boolean;
   filled: boolean;
@@ -54,6 +58,7 @@ export interface Rect {
   y0: number;
   x1: number;
   y1: number;
+  /** Stroke thickness of its thickest edge, after the CTM. */
   width: number;
   stroked: boolean;
   filled: boolean;
@@ -145,6 +150,32 @@ export function concat(ctm: readonly number[], m: readonly number[]): Matrix {
 
 function apply(m: Matrix, x: number, y: number): [number, number] {
   return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+}
+
+/**
+ * The thickness, after the CTM, of a stroke `lineWidth` wide along a segment
+ * whose direction AFTER the CTM is (dx, dy). The stroke is lineWidth wide
+ * across the segment's pre-CTM direction u; after the CTM that becomes
+ * lineWidth x |det M| / |M u|, which is lineWidth x |adj(M) d| for the unit
+ * after-CTM direction d (adj(M) = |det M| x M^-1, so no division by det).
+ * A zero-length segment has no direction: sqrt(|det M|) is used.
+ */
+export function strokeAcross(
+  ctm: readonly number[],
+  lineWidth: number,
+  dx: number,
+  dy: number,
+): number {
+  const a = ctm[0]!;
+  const b = ctm[1]!;
+  const c = ctm[2]!;
+  const d = ctm[3]!;
+  const len = Math.hypot(dx, dy);
+  if (!(len > 0)) return lineWidth * Math.sqrt(Math.abs(a * d - b * c));
+  const ux = dx / len;
+  const uy = dy / len;
+  // adj of the linear part [[a c], [b d]] is [[d -c], [-b a]].
+  return lineWidth * Math.hypot(d * ux - c * uy, -b * ux + a * uy);
 }
 
 function asMatrix(value: unknown): Matrix | null {
@@ -407,9 +438,8 @@ export function scanPaths(
       }
       const lum = stroked ? st.strokeLum : st.fillLum;
       if (lum >= NEAR_WHITE_LUM) continue;
-      const width =
-        st.lineWidth *
-        Math.sqrt(Math.abs(st.ctm[0] * st.ctm[3] - st.ctm[1] * st.ctm[2]));
+      const across = (dx: number, dy: number) =>
+        strokeAcross(st.ctm, st.lineWidth, dx, dy);
       for (const sp of subPaths(data as ArrayLike<number>, st.ctm)) {
         const r = asRect(sp);
         if (r) {
@@ -418,7 +448,8 @@ export function scanPaths(
             y0: r[1],
             x1: r[2],
             y1: r[3],
-            width,
+            // Its level edges and its plumb edges, the thicker of the two.
+            width: Math.max(across(1, 0), across(0, 1)),
             stroked,
             filled,
             lum,
@@ -433,7 +464,7 @@ export function scanPaths(
               y0: p[1],
               x1: q[0],
               y1: q[1],
-              width,
+              width: across(q[0] - p[0], q[1] - p[1]),
               stroked,
               filled,
               lum,
