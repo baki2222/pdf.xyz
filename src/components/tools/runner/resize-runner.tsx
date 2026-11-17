@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import { regionalChoice, useRegionalPaper } from "../use-regional-paper";
 import { Download, Scaling } from "lucide-react";
 import {
   MAX_RESIZE_SIDE_PT,
@@ -70,9 +71,15 @@ export function ResizeEditor({
   pdf: LoadedPdf;
   onReset: () => void;
 }) {
-  const [sizeId, setSizeId] = useState<ResizeSizeId>("a4");
+  // The target starts on the browser region's paper (A4, or Letter in a
+  // Letter country) until a size is pressed (audit backlog #5).
+  const regional = useRegionalPaper();
+  const [chosenSize, setSizeId] = useState<ResizeSizeId | null>(null);
+  const sizeId: ResizeSizeId =
+    chosenSize ?? regionalChoice(RESIZE_SIZES, regional);
   const [unit, setUnit] = useState<LengthUnit>("mm");
   // The custom size, in points, so changing the unit never changes it.
+  // Pressing Custom copies the size in effect into it.
   const [custom, setCustom] = useState({ width: A4.width, height: A4.height });
   const [orientation, setOrientation] = useState<ResizeOrientation>("match");
   const [mode, setMode] = useState<ResizeMode>("fit");
@@ -167,7 +174,13 @@ export function ResizeEditor({
               </ChipButton>
             ))}
             <ChipButton
-              onClick={() => setSizeId("custom")}
+              onClick={() => {
+                // Custom opens on the size in effect, so a Letter browser
+                // sees Letter here rather than A4 (review 2026-11-17).
+                if (sizeId !== "custom")
+                  setCustom({ width: target.width, height: target.height });
+                setSizeId("custom");
+              }}
               disabled={busy}
               active={sizeId === "custom"}
             >

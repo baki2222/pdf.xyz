@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Download, NotebookText } from "lucide-react";
 import {
   BOOKLET_BINDINGS,
@@ -19,8 +19,10 @@ import {
   type BookletFlip,
   type BookletOptions,
   type BookletResult,
+  type BookletSheetId,
   type BookletSide,
 } from "@/lib/pdf/booklet";
+import { regionalChoice, useRegionalPaper } from "../../use-regional-paper";
 import { N_UP_MARGINS } from "@/lib/pdf/n-up";
 import { inches } from "@/lib/pdf/page-geometry";
 import { downloadBytes } from "@/lib/pdf/browser";
@@ -130,9 +132,20 @@ export function BookletEditor({
   pdf: LoadedPdf;
   onReset: () => void;
 }) {
-  const [options, setOptions] = useState<BookletOptions>({
-    ...DEFAULT_BOOKLET_OPTIONS,
-  });
+  // The sheet starts on the browser region's paper (A4, or Letter in a
+  // Letter country) until one is pressed (audit backlog #5); the engine's
+  // own default stays the one its copy describes.
+  const regional = useRegionalPaper();
+  const [chosen, setOptions] = useState<
+    Omit<BookletOptions, "sheet"> & { sheet: BookletSheetId | null }
+  >({ ...DEFAULT_BOOKLET_OPTIONS, sheet: null });
+  const options = useMemo<BookletOptions>(
+    () => ({
+      ...chosen,
+      sheet: chosen.sheet ?? regionalChoice(BOOKLET_SHEETS, regional),
+    }),
+    [chosen, regional],
+  );
   const { busy, error, result, run, reset } = useAsyncRun<BookletResult>();
   const set = (next: Partial<BookletOptions>) => {
     if (!busy) setOptions((prev) => ({ ...prev, ...next }));
