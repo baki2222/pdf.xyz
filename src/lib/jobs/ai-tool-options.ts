@@ -24,7 +24,7 @@
  * against the route's over a corpus of good and bad bags.
  */
 import type { ParseResult } from "./responses";
-import { parseExtractOptions } from "./ai-extract";
+import { parseExtractOptions } from "./ai-extract-options";
 import { parseChatOptions } from "./chat-with-pdf";
 import { parseSummarizeOptions } from "./summarize-pdf";
 import { parseTranslateOptions } from "./translate-pdf";
