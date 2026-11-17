@@ -102,4 +102,9 @@ export const RAW_COLOUR_ALLOWANCE: Record<string, Record<string, string>> = {
     "bg-white": PAPER,
     "ring-black/10": `${PAPER} (its edge)`,
   },
+  // Create Fillable Forms' page preview (backlog #17, 2026-11-17).
+  "src/components/tools/runner/create-forms-preview.tsx": {
+    "bg-white": PAPER,
+    "ring-black/10": `${PAPER} (its edge)`,
+  },
 };
