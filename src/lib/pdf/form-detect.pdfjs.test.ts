@@ -6,7 +6,7 @@ import {
   readFormContext,
   validateFormFields,
 } from "./create-forms";
-import { proposalToDraftFields, charSpans, DETECT } from "./form-detect";
+import { proposalToDraftFields, charSpans } from "./form-detect";
 import {
   DETECT_CASES,
   O2_CONTENT,
@@ -70,7 +70,7 @@ describe("what the reader counts", () => {
   it("pages past the cap are counted as not searched", async () => {
     const run = await runCase(byId("O5"));
     expect(run.report.pages).toHaveLength(55);
-    expect(run.report.counts.pagesNotSearched).toBe(55 - DETECT.CAPS.pages);
+    expect(run.report.counts.pagesNotSearched).toBe(5);
   }, 60_000);
 
   it("CAPS.perRun: 300 proposals a run, the rest counted", async () => {
@@ -92,9 +92,12 @@ describe("what the reader counts", () => {
     const found = report.pages.flatMap((p) =>
       p.outcome === "found" ? p.proposals : [],
     );
-    expect(found).toHaveLength(DETECT.CAPS.perRun);
-    expect(report.counts.capped).toBe(6 * 51 - DETECT.CAPS.perRun);
-    expect(report.counts.proposals).toBe(DETECT.CAPS.perRun);
+    // Literals from the brief. Read from DETECT.CAPS, this test held any
+    // cap under 306: perRun 150 kept 150 and capped 156, self-consistent
+    // and green (review finding).
+    expect(found).toHaveLength(300);
+    expect(report.counts.capped).toBe(6);
+    expect(report.counts.proposals).toBe(300);
   }, 60_000);
 
   it("reports progress after each page, and an abort stops the run", async () => {

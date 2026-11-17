@@ -137,6 +137,83 @@ describe("rule tables", () => {
     expect(DETECTION_RULES).toHaveLength(3);
     expect(EXCLUSION_RULES).toHaveLength(17);
   });
+
+  // The independent second bound on every threshold (CLAUDE.md, guards
+  // rule 3): a literal table typed from the brief, so a constant changed by
+  // a factor turns this red even where a test computes its boundary from
+  // DETECT (the CAPS.perRun and BAND_EDGE tests once did, and survived
+  // perRun 300 -> 150 and BAND_EDGE 0.08 -> 0.16). Values marked "review"
+  // were added by the review round, not by the brief.
+  it("every DETECT value is the brief's (a literal table, not a read-back)", () => {
+    const { SIGNATURE_RE, SIGNOFF_RE, ...numbers } = DETECT;
+    expect(numbers).toStrictEqual({
+      UNDERSCORE_MIN: 4,
+      UNDERSCORE_EMS: {
+        underscore: { "sans-serif": 0.556, serif: 0.5, monospace: 0.6 },
+        unknownUnderscore: 0.5,
+        space: 0.278,
+        other: 0.5,
+      },
+      FIELD_INSET: 1,
+      MIN_FIELD_W: 24,
+      RULE_MIN_LEN: 36,
+      RULE_MAX_DY: 0.5,
+      RULE_MAX_WIDTH: 2,
+      RULE_MERGE_GAP: 1,
+      LABEL_LEFT_GAP_RULE: 36,
+      LABEL_LEFT_GAP: 24,
+      LABEL_BELOW_RULE: 2,
+      LABEL_ABOVE_RULE_EMS: 0.6,
+      RUN_BASELINE_EMS: 0.3,
+      CAPTION_MIN: 1,
+      CAPTION_MAX: 14,
+      CAPTION_SPAN: 0.4,
+      TEXT_H_RUN: { ems: 1.2, min: 12, max: 22 },
+      TEXT_H_RULE: { ems: 1.4, min: 14, max: 22 },
+      RUN_BOTTOM_EMS: 0.15,
+      RULE_BOTTOM_GAP: 1,
+      DEFAULT_SIZE: 10,
+      CLEARANCE_GAP: 1,
+      MIN_FIELD_H: 10,
+      TEXT_DESCENT_EMS: 0.2,
+      TEXT_ASCENT_EMS: 0.7,
+      SQUARE_MIN: 6,
+      SQUARE_MAX: 20,
+      SQUARE_SKEW: 0.2,
+      SQUARE_INSET: 1,
+      JOIN_EPS: 0.5, // review
+      UNDERLINE_MAX_GAP: 3,
+      UNDERLINE_SPAN: 0.5,
+      DIVIDER_SPAN: 0.85,
+      BAND_EDGE: 0.08,
+      BAND_SPAN: 0.7,
+      BAND_REPEAT_EPS: 2,
+      BAND_REPEAT_PAGES: 2,
+      GRID_TOUCH_EPS: 1,
+      GRID_END_TOUCHES: 2,
+      GRID_TOUCHES: 3,
+      GRID_ROWS_MIN: 3, // review
+      GRID_ROW_EPS: 2, // review
+      GRID_PITCH_EPS: 2, // review
+      GRID_COLUMN_GAP: 24, // review
+      COMB_MIN: 4,
+      COMB_EPS: 1,
+      SIGNOFF_ABOVE: 80, // review
+      IOU_EXISTING: 0.3,
+      DUP_DY: 4,
+      DUP_OVERLAP: 0.5,
+      BOUND_EPS: 0.5,
+      CAPS: { perPage: 60, perRun: 300, pages: 50 },
+    });
+    expect([SIGNATURE_RE.source, SIGNATURE_RE.flags]).toEqual([
+      String.raw`\b(sign(ature|ed)?|initials)\b`,
+      "i",
+    ]);
+    expect([SIGNOFF_RE.source, SIGNOFF_RE.flags]).toEqual([
+      String.raw`\b(sincerely|regards|faithfully|truly|cordially|respectfully|on\s+behalf\s+of)\b`,
+      "i",
+    ]);
+  });
 });
 
 describe("labelled-rule", () => {
@@ -972,7 +1049,7 @@ describe("exclusions, each at its boundary", () => {
       text.push(txt("Opt", x + 16, y + 2, { size: 8, width: 12 }));
     }
     const r = run(pg({ rects, text }));
-    expect(r.proposals).toHaveLength(DETECT.CAPS.perPage);
+    expect(r.proposals).toHaveLength(60);
     expect(r.counts.capped).toBe(1);
   });
 
