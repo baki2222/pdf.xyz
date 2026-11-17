@@ -438,8 +438,27 @@ describe("this browser's storage", () => {
       }),
     );
     expect(readSavedSchemas(store)).toHaveLength(MAX_SAVED_SCHEMAS);
-    // Storage text too large to be ours is not read at all.
-    put("x".repeat(MAX_SAVED_SCHEMAS * MAX_SCHEMA_FILE_BYTES + 1));
+  });
+
+  it("storage text longer than every schema at its largest is not read at all", () => {
+    // History: this was checked with "x".repeat(limit + 1), which is not
+    // JSON, so the parse refused it and the test passed with the limit
+    // deleted. The store here is WELL-FORMED (JSON allows whitespace), so
+    // only the length limit can turn it away; the control one character
+    // shorter is read.
+    const store = memoryStorage();
+    const limit = MAX_SAVED_SCHEMAS * MAX_SCHEMA_FILE_BYTES;
+    const body = JSON.stringify({ version: 1, schemas: [schema("Padded")] });
+    const padded = (length: number) =>
+      `${body.slice(0, -1)}${" ".repeat(length - body.length)}}`;
+    for (const length of [limit, limit + 1]) {
+      const text = padded(length);
+      expect(text).toHaveLength(length);
+      expect(JSON.parse(text)).toEqual(JSON.parse(body));
+    }
+    store.map.set(SAVED_SCHEMAS_KEY, padded(limit));
+    expect(readSavedSchemas(store).map((s) => s.name)).toEqual(["Padded"]);
+    store.map.set(SAVED_SCHEMAS_KEY, padded(limit + 1));
     expect(readSavedSchemas(store)).toEqual([]);
   });
 });
