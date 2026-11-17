@@ -440,6 +440,47 @@ describe("square-checkbox", () => {
     expect(firstRule(at(24.1))).toBe("unlabelled");
   });
 
+  // A square drawn as four separate stroked lines (generated forms do this)
+  // was neither proposed nor excluded: each edge was a line too short to be
+  // a candidate (review finding; corpus P18). It is now joined into the
+  // Rect a `re` would have given.
+  describe("a square drawn as four separate lines", () => {
+    // In drawing order, each edge its own `m l S`, as the finding drew it.
+    const edges = (dTop = 0, dRight = 0): CardSeg[] => [
+      hseg(72, 84, 500),
+      vseg(84 + dRight, 500, 512),
+      hseg(84, 72, 512 + dTop),
+      vseg(72, 512, 500),
+    ];
+    const four = (e: CardSeg[], label = true) =>
+      pg({
+        segs: e,
+        text: label ? [txt("Yes", 90, 502, { size: 10, width: 15 })] : [],
+      });
+
+    it("is proposed exactly as the same square drawn with `re`", () => {
+      expect(props(four(edges()))).toEqual(props(box(12)));
+      expect(props(four(edges()))).toHaveLength(1);
+    });
+
+    it("unlabelled, it is explained (`unlabelled`), not silently dropped", () => {
+      expect(run(four(edges(), false)).excluded.map((e) => e.rule)).toEqual([
+        "unlabelled",
+      ]);
+    });
+
+    it("JOIN_EPS: corners 0.5 pt apart still meet, 0.6 pt apart do not", () => {
+      expect(props(four(edges(0.5)))).toHaveLength(1);
+      expect(props(four(edges(0.6)))).toEqual([]);
+      expect(props(four(edges(0, 0.5)))).toHaveLength(1);
+      expect(props(four(edges(0, 0.6)))).toEqual([]);
+    });
+
+    it("three of the four edges are not a square", () => {
+      expect(props(four(edges().slice(0, 3)))).toEqual([]);
+    });
+  });
+
   it("an unlabelled square is kept beside two labelled squares of its size", () => {
     const col = (n: number) =>
       pg({

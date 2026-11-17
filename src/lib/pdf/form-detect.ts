@@ -133,6 +133,11 @@ export const DETECT = {
   SQUARE_MAX: 20,
   SQUARE_SKEW: 0.2,
   SQUARE_INSET: 1,
+  /**
+   * A square drawn as four separate lines: corners meeting within this are
+   * joined into the box a `re` would have drawn.
+   */
+  JOIN_EPS: 0.5,
   /** Underline: a baseline 0..3 pt above the line along half its length. */
   UNDERLINE_MAX_GAP: 3,
   UNDERLINE_SPAN: 0.5,
@@ -452,12 +457,108 @@ function isSquare(r: CardRect): boolean {
   );
 }
 
+/**
+ * Boxes drawn as four separate stroked lines (generated forms often draw a
+ * checkbox that way), joined into the Rect a `re` would have given, so they
+ * are read, and excluded, exactly as one. Only edges a square could have
+ * (SQUARE_MIN to SQUARE_MAX long) are tried, and each corner is looked up in
+ * a map, so the cost stays linear in the page's segments.
+ */
+function joinSquares(segs: readonly CardSeg[]): {
+  rects: CardRect[];
+  used: Set<CardSeg>;
+} {
+  const eps = DETECT.JOIN_EPS;
+  const fits = (len: number) =>
+    len >= DETECT.SQUARE_MIN - eps && len <= DETECT.SQUARE_MAX + eps;
+  type Level = { x0: number; x1: number; y: number; s: CardSeg };
+  type Plumb = { x: number; y0: number; y1: number; s: CardSeg };
+  const key = (a: number, b: number) => `${Math.round(a)}|${Math.round(b)}`;
+  const levels = new Map<string, Level[]>();
+  const plumbs = new Map<string, Plumb[]>();
+  const add = <T>(m: Map<string, T[]>, k: string, v: T) => {
+    const list = m.get(k);
+    if (list) list.push(v);
+    else m.set(k, [v]);
+  };
+  const near = <T>(m: Map<string, T[]>, a: number, b: number): T[] => {
+    const out: T[] = [];
+    for (const da of [-1, 0, 1])
+      for (const db of [-1, 0, 1])
+        out.push(...(m.get(key(a + da, b + db)) ?? []));
+    return out;
+  };
+  const bottoms: Level[] = [];
+  for (const s of segs) {
+    if (!s.stroked) continue;
+    const dx = Math.abs(s.x1 - s.x0);
+    const dy = Math.abs(s.y1 - s.y0);
+    if (dy <= eps && fits(dx)) {
+      const l = {
+        x0: Math.min(s.x0, s.x1),
+        x1: Math.max(s.x0, s.x1),
+        y: (s.y0 + s.y1) / 2,
+        s,
+      };
+      add(levels, key(l.x0, l.y), l);
+      bottoms.push(l);
+    } else if (dx <= eps && fits(dy)) {
+      const v = {
+        x: (s.x0 + s.x1) / 2,
+        y0: Math.min(s.y0, s.y1),
+        y1: Math.max(s.y0, s.y1),
+        s,
+      };
+      add(plumbs, key(v.x, v.y0), v);
+    }
+  }
+  const used = new Set<CardSeg>();
+  const rects: CardRect[] = [];
+  const close = (a: number, b: number) => Math.abs(a - b) <= eps;
+  for (const b of bottoms) {
+    if (used.has(b.s)) continue;
+    const free = <T extends { s: CardSeg }>(xs: T[]) =>
+      xs.filter((x) => !used.has(x.s) && x.s !== b.s);
+    for (const left of free(near(plumbs, b.x0, b.y))) {
+      if (!close(left.x, b.x0) || !close(left.y0, b.y)) continue;
+      const right = free(near(plumbs, b.x1, b.y)).find(
+        (v) =>
+          v !== left &&
+          close(v.x, b.x1) &&
+          close(v.y0, b.y) &&
+          close(v.y1, left.y1),
+      );
+      if (!right) continue;
+      const top = free(near(levels, b.x0, left.y1)).find(
+        (l) => close(l.x0, b.x0) && close(l.x1, b.x1) && close(l.y, left.y1),
+      );
+      if (!top) continue;
+      const four = [b, left, right, top];
+      four.forEach((e) => used.add(e.s));
+      rects.push({
+        x0: Math.min(b.x0, top.x0, left.x),
+        y0: Math.min(b.y, left.y0, right.y0),
+        x1: Math.max(b.x1, top.x1, right.x),
+        y1: Math.max(top.y, left.y1, right.y1),
+        width: Math.max(...four.map((e) => e.s.width)),
+        stroked: true,
+        filled: false,
+        lum: Math.max(...four.map((e) => e.s.lum)),
+      });
+      break;
+    }
+  }
+  return { rects, used };
+}
+
 /** The page's level rules, plumb lines and squares. */
 function readLines(p: CardPage): PageLines {
   const raw: Line[] = [];
   const verticals: PageLines["verticals"] = [];
   const squares: CardRect[] = [];
+  const joined = joinSquares(p.segs);
   for (const s of p.segs) {
+    if (joined.used.has(s)) continue;
     const dy = Math.abs(s.y1 - s.y0);
     const dx = Math.abs(s.x1 - s.x0);
     if (!s.stroked || s.width > DETECT.RULE_MAX_WIDTH) continue;
@@ -475,7 +576,7 @@ function readLines(p: CardPage): PageLines {
       });
     }
   }
-  for (const r of p.rects) {
+  for (const r of [...p.rects, ...joined.rects]) {
     const w = r.x1 - r.x0;
     const h = r.y1 - r.y0;
     if (isSquare(r)) {

@@ -789,6 +789,30 @@ export const DETECT_CASES: readonly DetectCase[] = [
     ],
   },
   {
+    id: "P18",
+    kind: "positive",
+    note: "a 12 pt square drawn as four separate stroked lines, labelled to its right",
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await text(page, H, "Yes", 90, 482, 10);
+      raw(
+        page,
+        "72 480 m 84 480 l S 84 480 m 84 492 l S 84 492 m 72 492 l S 72 492 m 72 480 l S",
+      );
+      return save(d);
+    },
+    expect: [
+      {
+        rule: "square-checkbox",
+        type: "checkbox",
+        label: "Yes",
+        page: 1,
+        box: squareBox(72, 480, 12),
+      },
+    ],
+  },
+  {
     id: "P16",
     kind: "positive",
     note: "P4's line inside a form XObject whose /BBox holds all of it: clipping keeps it",
