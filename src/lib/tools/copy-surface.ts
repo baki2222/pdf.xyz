@@ -170,6 +170,10 @@ export function copyFiles(): string[] {
     // to the picker's hook.
     path.join(ROOT, "src", "lib", "jobs", "ocr-start-copy.ts"),
     path.join(ROOT, "src", "lib", "jobs", "pdf-security.ts"),
+    // AI Data Extraction's option parser (2026-11-17), moved out of
+    // ai-extract.ts so the panel's first load does not carry it: the
+    // refusals a job and a schema file share. Walked from its first day.
+    path.join(ROOT, "src", "lib", "jobs", "ai-extract-options.ts"),
     // The page-selection option's refusals (2026-11-16, Summarize page
     // ranges): what `POST /api/jobs` answers a malformed `pages` list. The
     // panel parses before upload, so a reader meets them only through a
