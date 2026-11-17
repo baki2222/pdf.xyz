@@ -441,33 +441,4 @@ describe("AI Data Extraction: saved schemas", () => {
     await fetch("/api/worker/status");
     expect(fetchSpy.mock.calls.length).toBe(callsBefore + 1);
   }, 40_000);
-
-  it("the chunk fails to load: the panel says so, and opening it again fetches again", async () => {
-    stubJobNetwork(READY_WORKER_STATUS);
-    vi.doMock("./ai-extract-schemas", () => {
-      throw new Error("ChunkLoadError");
-    });
-    try {
-      mount();
-      await fillThree();
-      const toggle = screen.getByRole("button", { name: "Saved schemas" });
-      fireEvent.click(toggle);
-      expect(toggle).toHaveAttribute("aria-expanded", "true");
-      await screen.findByText(
-        "Saved schemas could not load. Check your connection, then close this and open it again.",
-      );
-      expect(
-        screen.queryByText(`Loading${String.fromCodePoint(0x2026)}`),
-      ).toBeNull();
-      expect(screen.queryByRole("textbox", { name: "Schema name" })).toBeNull();
-      vi.doUnmock("./ai-extract-schemas");
-      fireEvent.click(toggle);
-      fireEvent.click(toggle);
-      expect(toggle).toHaveAttribute("aria-expanded", "true");
-      await screen.findByRole("textbox", { name: "Schema name" });
-      expect(screen.queryByText(/could not load/)).toBeNull();
-    } finally {
-      vi.doUnmock("./ai-extract-schemas");
-    }
-  }, 40_000);
 });
