@@ -130,7 +130,9 @@ describe("worker-prove-tools — the OCR proofs are wired where they can run", (
     // restricted by its author, and the open-password control) read their
     // input from a committed fixture (`make`). The ordering rule is about an
     // input CARRIED from an earlier spec, so it is asked of those alone.
-    expect(refusals).toHaveLength(3);
+    // Since 2026-11-17 a fourth, from a committed fixture too: a restricted
+    // PDF sent with a WRONG owner password (competitor-audit backlog #11).
+    expect(refusals).toHaveLength(4);
     const carried = refusals.filter((s) => s.props.has("from"));
     expect(carried).toHaveLength(1);
     const refusal = carried[0]!;
