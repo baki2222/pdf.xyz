@@ -1344,7 +1344,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: "Can I merge password-protected PDFs?",
-          answer: `Not while they are locked. A password-protected PDF is turned away when you add it, with a note saying so; remove the password with ${toolName("unlock-pdf")}, then add the unlocked copy.`,
+          answer: `Yes, with the owner password. A password-protected or restricted PDF is turned away when you add it, with a note saying so and an Owner password field under it; type the owner password there and the file joins the merge, checked in your browser. Or remove the password with ${toolName("unlock-pdf")} first, then add the unlocked copy.`,
         },
         rebuildEntry(tool, "merge"),
       ];
