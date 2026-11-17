@@ -605,11 +605,7 @@ export function SummaryResultBody({
         text or Markdown. The ZIP adds a manifest recording the model and honest
         scope.
       </p>
-      <views.LongText
-        label="Summary"
-        text={summary.text}
-        className="border-line text-fg bg-canvas rounded-panel focus-visible:ring-ok/50 max-h-96 overflow-auto border p-4 text-sm leading-6 whitespace-pre-wrap outline-none focus-visible:ring-2"
-      />
+      <views.SummaryBox text={summary.text} />
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
         <CopyTextButton
           text={summary.text}

@@ -16,6 +16,7 @@ import { toTsv } from "@/lib/workers/ooxml/csv";
 import { buildWorkbook } from "@/lib/workers/ooxml/workbook-write";
 import { CopyTextButton } from "./copy-text-button";
 import { AI_RESULT_CHUNK } from "./ai-result-chunk";
+import { MarkdownText } from "./ai-markdown";
 import {
   PAGE_CELL_LIMIT,
   PAGE_COLUMN_LIMIT,
@@ -27,7 +28,9 @@ import {
  * The AI results ON THE PAGE (competitor audit #4 and #16): AI Data
  * Extraction's table with Copy as table, Copy JSON and Download XLSX; Chat
  * with PDF's Copy answer, Copy conversation and Markdown download; and the
- * capped box PDF to Text, Summarize PDF and Chat with PDF show long text in.
+ * capped box PDF to Text, Summarize PDF and Chat with PDF show long text in;
+ * and the summary and the chat answers drawn as formatted Markdown
+ * (`./ai-markdown`, and `./chat-answer` for an answer's page buttons).
  *
  * ONE lazy chunk, fetched with the result and never with the page: each
  * caller reaches it through `import("./ai-result-views")` as its run starts
@@ -79,18 +82,29 @@ export function LongText({
   text,
   className,
   label,
+  headingBase,
 }: {
   text: string;
   className: string;
   /** Names the box as a focusable region (Summary); none for a plain box. */
   label?: string;
+  /**
+   * Draw the text as formatted Markdown, its shallowest heading at this
+   * level; absent, the text is drawn as it is.
+   */
+  headingBase?: number;
 }) {
   const { shown, cut } = cutForPage(text);
   const box = {
     "data-chunk": AI_RESULT_CHUNK,
     "data-long-text": cut ? "cut" : "whole",
     className,
-    children: shown,
+    children:
+      headingBase === undefined ? (
+        shown
+      ) : (
+        <MarkdownText text={shown} headingBase={headingBase} />
+      ),
   };
   return (
     <>
@@ -104,6 +118,26 @@ export function LongText({
     </>
   );
 }
+
+/**
+ * Summarize PDF's Summary box: the model's Markdown drawn formatted, capped
+ * like every long text. It sits in the result card under an h3, so the
+ * summary's shallowest heading is an h4 (e2e/ai-results.spec.ts reads the
+ * served page's outline). Copy summary and both downloads stay the source.
+ */
+export function SummaryBox({ text }: { text: string }) {
+  return (
+    <LongText
+      label="Summary"
+      text={text}
+      headingBase={4}
+      className="border-line text-fg bg-canvas rounded-panel focus-visible:ring-ok/50 max-h-96 overflow-auto border p-4 text-sm leading-6 whitespace-pre-wrap outline-none focus-visible:ring-2"
+    />
+  );
+}
+
+/** A chat answer, formatted, with its page buttons: lazy, like the rest. */
+export { ChatAnswer } from "./chat-answer";
 
 /**
  * The note under a box that shows only part of `text`, or nothing when it

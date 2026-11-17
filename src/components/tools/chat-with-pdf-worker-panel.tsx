@@ -59,7 +59,6 @@ import {
   WorkerGate,
   WorkerPanelShell,
 } from "./worker-panel-shell";
-import { ChatAnswer } from "./chat-answer";
 
 type AiResultViews = typeof import("./ai-result-views");
 
@@ -377,8 +376,9 @@ function ChatBuilder({
   const { busy, setOutcome, run } = job;
 
   /**
-   * Copy answer, Copy conversation and the Markdown download, and the box
-   * that caps a long answer: the AI result views chunk, fetched as a question
+   * Copy answer, Copy conversation and the Markdown download, the box that
+   * caps a long answer, and the answer drawn formatted with its page buttons:
+   * the AI result views chunk, fetched as a question
    * is asked (or an answer is picked up) and never with the page. A failed
    * fetch is tried again the next time either happens.
    */
@@ -710,7 +710,7 @@ function Transcript({
   /** The document held, if any: only its own answers' citations open it. */
   doc: { token: number; pageCount: number } | null;
   onOpen: (page: number) => void;
-  /** The lazy result views, once fetched: Copy answer and the answer cap. */
+  /** The lazy result views, once fetched: the formatted answer, Copy answer and the cap. */
   views: AiResultViews | null;
 }) {
   return (
@@ -734,18 +734,26 @@ function Transcript({
               consequence="An answer that says the document does not mention something may only mean it is not in the pages that were read."
             />
             {entry.answer !== null ? (
-              // The model's answer verbatim, exactly as shipped in the package — never a
-              // paraphrase, and never anything the panel composed itself.
+              // The model's answer as shipped in the package — never a
+              // paraphrase, and never anything the panel composed itself:
+              // formatted, with its page buttons, by the lazy views; as it is
+              // until they arrive.
               <>
-                <ChatAnswer
-                  answer={
-                    views ? views.cutForPage(entry.answer).shown : entry.answer
-                  }
-                  pageCount={doc?.pageCount ?? null}
-                  onOpen={
-                    doc !== null && entry.docToken === doc.token ? onOpen : null
-                  }
-                />
+                {views ? (
+                  <views.ChatAnswer
+                    answer={views.cutForPage(entry.answer).shown}
+                    pageCount={doc?.pageCount ?? null}
+                    onOpen={
+                      doc !== null && entry.docToken === doc.token
+                        ? onOpen
+                        : null
+                    }
+                  />
+                ) : (
+                  <p className="text-muted text-sm leading-relaxed whitespace-pre-wrap">
+                    {entry.answer}
+                  </p>
+                )}
                 {views && <views.TextCutNote text={entry.answer} />}
                 {/* Under EVERY answer, and not conditional on citations: an
                   ungrounded answer has none to point at. */}
