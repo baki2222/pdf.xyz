@@ -15,6 +15,12 @@ import {
   ORIENTATION_CHOICE_WORDS,
   ORIENTATION_LABEL,
 } from "@/lib/workers/office-conversion/sheet-layout";
+import {
+  CSV_CHARSETS,
+  CSV_CHARSET_LABEL,
+  CSV_DELIMITERS,
+  CSV_DELIMITER_LABEL,
+} from "@/lib/workers/office-conversion/csv-import";
 import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
 
 /*
@@ -91,15 +97,21 @@ import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
  *
  * NOT stated, because no real job has checked it: whether every sheet is
  * exported, whether print areas are honoured, how charts render, what an
- * encrypted workbook does on the worker, and which CSV delimiter is assumed
- * (the CSV use case says the page has no such option, which is true).
+ * encrypted workbook does on the worker.
  *
- * The CSV ENCODING is stated, since 2026-11-07: a CSV whose bytes are UTF-8
- * is imported as UTF-8 and any other is left to LibreOffice's Western
- * default (office-conversion/native.ts `csvImportFilter`). Production's
- * "excel-to-pdf (csv)" proof found UTF-8 "Zürich" printed as mojibake before
- * that; `pnpm worker:office-input-proof` now converts one CSV of each
- * encoding in the image (`src/tests/csv-charset-fixtures.ts`).
+ * The CSV DELIMITER AND CHARACTER SET are stated, since 2026-11-17
+ * (competitor audit #18): a .csv gets the panel's Delimiter and Character
+ * set selects (office-conversion/csv-import.ts, shown only for a .csv and
+ * only while the live worker proves `csvImportOptions`), and the worker
+ * opens it with LibreOffice's CSV filter built from them
+ * (office-conversion/csv-filter.ts): Auto-detect keeps the separator every
+ * one of the first lines shares, or a comma; Auto reads UTF-8, UTF-16 with a
+ * byte-order mark, and anything else as Windows-1252. WAS, until 2026-11-17:
+ * "There is no delimiter option, so check the columns split as expected",
+ * true then, false the day the selects shipped. `pnpm
+ * worker:office-input-proof` converts one CSV per choice in the image, each
+ * beside a control with the wrong choice that must come out wrong
+ * (`src/tests/csv-charset-fixtures.ts`).
  */
 
 /** Where Excel removes a password: the words the engine's refusal uses. */
@@ -121,6 +133,17 @@ const CEILING_MB = Math.round((CEILING?.bytes ?? 0) / MB);
 const TIMEOUT_DEFAULT_SECONDS = Math.round(officeDefaults.timeoutMs / 1000);
 const LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
 const EXAMPLE_IN = "Q3 budget.xlsx";
+
+/** "Comma, Semicolon, Tab or Pipe": the select's choices besides Auto-detect. */
+const DELIMITER_WORDS = listOf(
+  CSV_DELIMITERS.flatMap((d) => (d.value ? [d.label] : [])),
+  "or",
+);
+/** The character sets a reader can choose, besides Auto. */
+const CHARSET_WORDS = listOf(
+  CSV_CHARSETS.flatMap((c) => (c.value ? [c.label] : [])),
+  "or",
+);
 const EXAMPLE_OUT = officePdfOutputName(EXAMPLE_IN);
 
 /**
@@ -172,7 +195,7 @@ const content: ToolContent = {
     },
     {
       title: "Make a CSV export readable",
-      body: "Bank, CRM and analytics exports arrive as raw delimited text. Converting paginates them with plain default formatting, since a CSV stores none. A CSV saved as UTF-8, with or without a byte-order mark, keeps letters such as ü and é; one saved in another encoding is read as Western European text. There is no delimiter option, so check the columns split as expected.",
+      body: `Bank, CRM and analytics exports arrive as raw delimited text. Converting paginates them with plain default formatting, since a CSV stores none. When you add a .csv, two settings appear. ${CSV_DELIMITER_LABEL} starts on Auto-detect, which looks at the first lines and picks the separator they all share, or a comma; choose ${DELIMITER_WORDS} if the columns come out wrong. ${CSV_CHARSET_LABEL} starts on Auto, which reads a file saved as UTF-8, or as UTF-16 with a byte-order mark, and anything else as Western European text; for a Cyrillic, Central European or Japanese export, choose its character set: ${CHARSET_WORDS}.`,
     },
     {
       title: "Try an old .xls from a colleague",
@@ -187,7 +210,7 @@ const content: ToolContent = {
     },
     {
       title: "Start the conversion",
-      body: `With the file in place, change the layout only if you need to: for an .xlsx, pick ${ORIENTATION_CHOICE_WORDS} under ${ORIENTATION_LABEL} and tick ${FIT_COLUMNS_TO_WIDTH_LABEL} so every column fits across the page; for any spreadsheet, tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page instead. Then press Convert to PDF. The button shows where the job is: "Uploading your file…", then "Waiting for our server…" while it is queued, "Converting to PDF…" while LibreOffice renders it, and "Downloading the result…" as the finished PDF comes back. A Cancel button below it stops the job while it runs.`,
+      body: `With the file in place, change the layout only if you need to: for an .xlsx, pick ${ORIENTATION_CHOICE_WORDS} under ${ORIENTATION_LABEL} and tick ${FIT_COLUMNS_TO_WIDTH_LABEL} so every column fits across the page; for any spreadsheet, tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page instead. For a .csv, check ${CSV_DELIMITER_LABEL} and ${CSV_CHARSET_LABEL}. Then press Convert to PDF. The button shows where the job is: "Uploading your file…", then "Waiting for our server…" while it is queued, "Converting to PDF…" while LibreOffice renders it, and "Downloading the result…" as the finished PDF comes back. A Cancel button below it stops the job while it runs.`,
     },
     {
       title: "Save the converted PDF",

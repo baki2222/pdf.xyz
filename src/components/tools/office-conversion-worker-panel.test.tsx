@@ -31,6 +31,13 @@ import {
   ORIENTATION_LABEL,
   PAGE_SETUP_XLSX_ONLY_NOTE,
 } from "@/lib/workers/office-conversion/sheet-layout";
+import {
+  CSV_CHARSETS,
+  CSV_CHARSET_LABEL,
+  CSV_DELIMITERS,
+  CSV_DELIMITER_LABEL,
+  CSV_IMPORT_HINT,
+} from "@/lib/workers/office-conversion/csv-import";
 import { getToolBySlug } from "@/lib/tools";
 import type { Tool } from "@/lib/tools/types";
 import type { WorkerStatus } from "@/lib/workers/status";
@@ -299,5 +306,118 @@ describe("Excel to PDF: the layout controls reach the job", () => {
     expect(
       screen.queryByRole("combobox", { name: ORIENTATION_LABEL }),
     ).toBeNull();
+  });
+});
+
+/*
+ * Competitor audit #18 (2026-11-17): a .csv's Delimiter and Character set,
+ * from the selects a reader uses (found by role and name) to the job the
+ * worker receives. Shown only for a .csv, and only while the live status
+ * proves `csvImportOptions` — an older worker would drop both.
+ */
+describe("Excel to PDF: a CSV's delimiter and character set reach the job", () => {
+  const PROVED: WorkerStatus = { ...READY, csvImportOptions: true };
+
+  async function pick(status: WorkerStatus, slug: string, filename: string) {
+    resetWorkerStatusForTests({ sleep: () => Promise.resolve() });
+    const network = stubJobNetwork(status);
+    render(
+      <InToolPage tool={tool(slug)}>
+        <OfficeConversionWorkerPanel tool={tool(slug)} />
+      </InToolPage>,
+    );
+    const input = await waitFor(() => {
+      const el = document.querySelector<HTMLInputElement>('input[type="file"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    fireEvent.change(input, {
+      target: { files: [new File(["a;b\n"], filename)] },
+    });
+    await screen.findByText(filename);
+    // The selects wait on the status, so let the run button settle first.
+    const run = await screen.findByRole("button", {
+      name: OFFICE_CONVERSION_RUN_LABEL,
+    });
+    await waitFor(() => expect(run).not.toBeDisabled());
+    return network;
+  }
+
+  async function convert(network: JobNetwork) {
+    fireEvent.click(
+      screen.getByRole("button", { name: OFFICE_CONVERSION_RUN_LABEL }),
+    );
+    await waitFor(() => expect(network.jobBodies).toHaveLength(1));
+    return network.jobBodies[0]!.options;
+  }
+
+  const delimiter = () =>
+    screen.queryByRole("combobox", { name: CSV_DELIMITER_LABEL });
+  const charset = () =>
+    screen.queryByRole("combobox", { name: CSV_CHARSET_LABEL });
+
+  it("a .csv shows both selects, with every choice, Auto first", async () => {
+    await pick(PROVED, "excel-to-pdf", "rows.csv");
+    const options = (el: HTMLElement | null) =>
+      [...(el as HTMLSelectElement).options].map((o) => o.textContent);
+    expect(options(delimiter())).toEqual(CSV_DELIMITERS.map((d) => d.label));
+    expect(options(charset())).toEqual(CSV_CHARSETS.map((c) => c.label));
+    expect((delimiter() as HTMLSelectElement).value).toBe("");
+    expect(screen.getByText(CSV_IMPORT_HINT)).toBeInTheDocument();
+  });
+
+  it("Semicolon and Windows-1251 are in the job's options", async () => {
+    const network = await pick(PROVED, "excel-to-pdf", "rows.csv");
+    fireEvent.change(delimiter()!, { target: { value: "semicolon" } });
+    fireEvent.change(charset()!, { target: { value: "windows-1251" } });
+    expect(await convert(network)).toEqual({
+      csvDelimiter: "semicolon",
+      csvCharset: "windows-1251",
+    });
+  });
+
+  it("every choice of each select reaches the job as its own value", async () => {
+    for (const d of CSV_DELIMITERS.filter((x) => x.value)) {
+      cleanup();
+      const network = await pick(PROVED, "excel-to-pdf", "rows.csv");
+      fireEvent.change(delimiter()!, { target: { value: d.value } });
+      expect(await convert(network)).toEqual({ csvDelimiter: d.value });
+    }
+    for (const c of CSV_CHARSETS.filter((x) => x.value)) {
+      cleanup();
+      const network = await pick(PROVED, "excel-to-pdf", "rows.csv");
+      fireEvent.change(charset()!, { target: { value: c.value } });
+      expect(await convert(network)).toEqual({ csvCharset: c.value });
+    }
+  });
+
+  it("CONTROL: left on Auto, a .csv carries the empty bag it always did", async () => {
+    const network = await pick(PROVED, "excel-to-pdf", "rows.csv");
+    expect(delimiter()).not.toBeNull();
+    expect(await convert(network)).toEqual({});
+  });
+
+  it("an .xlsx shows neither", async () => {
+    await pick(PROVED, "excel-to-pdf", "wide.xlsx");
+    // Health: the panel's other controls rendered, so absence means something.
+    expect(
+      screen.getByRole("combobox", { name: ORIENTATION_LABEL }),
+    ).toBeVisible();
+    expect(delimiter()).toBeNull();
+    expect(charset()).toBeNull();
+  });
+
+  it("a worker that does not prove csvImportOptions shows neither, and the job carries no CSV key", async () => {
+    const network = await pick(READY, "excel-to-pdf", "rows.csv");
+    expect(READY.csvImportOptions).not.toBe(true);
+    expect(delimiter()).toBeNull();
+    expect(charset()).toBeNull();
+    expect(await convert(network)).toEqual({});
+  });
+
+  it("CONTROL: Word's panel shows neither, even for a proving worker", async () => {
+    await pick(PROVED, "word-to-pdf", "letter.docx");
+    expect(delimiter()).toBeNull();
+    expect(charset()).toBeNull();
   });
 });

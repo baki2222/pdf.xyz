@@ -287,6 +287,10 @@ import {
   ORIENTATION_LABEL,
 } from "@/lib/workers/office-conversion/sheet-layout";
 import {
+  CSV_CHARSET_LABEL,
+  CSV_DELIMITER_LABEL,
+} from "@/lib/workers/office-conversion/csv-import";
+import {
   PDFA_LEVEL_LABEL,
   PDFA_LEVEL_NAMES,
 } from "@/lib/workers/pdf-archive/levels";
@@ -4912,6 +4916,14 @@ export const guides: Guide[] = [
         ],
       },
       {
+        id: "csv-separators-and-letters",
+        heading: "CSV files: separators and letters",
+        body: [
+          `A CSV is plain text, so it does not say which character separates its columns or which character set its letters were saved in. When you add a .csv, the tool shows two settings for that. ${CSV_DELIMITER_LABEL} starts on Auto-detect: it looks at the first lines and picks the separator they all share, and uses a comma when none fits. Choose Comma, Semicolon, Tab or Pipe if the columns come out wrong; many European exports use a semicolon, and one column of whole lines is the sign.`,
+          `${CSV_CHARSET_LABEL} starts on Auto, which reads a file saved as UTF-8, or as UTF-16 that starts with a byte-order mark, and anything else as Windows-1252, the Western European set. A Cyrillic, Central European or Japanese file saved by an older program is usually in another set: choose Windows-1251, ISO-8859-2 or Shift-JIS, and the letters come out as they were typed.`,
+        ],
+      },
+      {
         id: "what-carries-over",
         heading: "Formulas, sheets and macros",
         body: [
@@ -4944,6 +4956,11 @@ export const guides: Guide[] = [
         answer: `Excel workbooks in .xlsx or the older .xls format, CSV files and OpenDocument spreadsheets (.ods), one per conversion, up to ${ceilingMb("excel-to-pdf")} MB. A macro-enabled .xlsm is refused; save a copy as .xlsx and convert that.`,
       },
       {
+        question:
+          "Why did my CSV come out as one column, or with strange letters?",
+        answer: `One column means the file uses a separator other than the one it was read with, often a semicolon; strange letters mean it was saved in another character set. Set ${CSV_DELIMITER_LABEL} and ${CSV_CHARSET_LABEL} in the tool, both shown when you add a .csv, and convert again.`,
+      },
+      {
         question: "Can I convert a password-protected workbook?",
         answer:
           "No. The page has no password field, so a workbook that asks for a password to open cannot be converted. Remove the password in your spreadsheet app, save a copy, and convert the copy.",
@@ -4954,7 +4971,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-08",
+    updated: "2026-11-17",
   },
   {
     slug: "how-to-convert-powerpoint-to-pdf",
