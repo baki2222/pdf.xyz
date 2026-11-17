@@ -174,7 +174,32 @@ describe("pollJobToTerminal", () => {
       expect(result.message).toMatch(/canceled/i);
       expect(result.stillRunning).toBe(false);
     }
-    expect(calls()).toBe(1);
+    // INVERTED 2026-11-17: this was `toBe(1)` — the loop read once more after
+    // the cancel and learned of it only from the rejected `fetch`. A `fetch`
+    // that does not reject an aborted signal (every test stub that ignores
+    // `init`) then kept the loop polling its whole budget; see the test below.
+    expect(calls()).toBe(0);
+  });
+
+  it("stops at the next read after a cancel, even through a fetch that ignores the signal", async () => {
+    const controller = new AbortController();
+    // Answers "still running" forever and never looks at `signal`.
+    const { impl, calls } = scriptedFetch([{ kind: "job", job: RUNNING }]);
+    let sleeps = 0;
+    const result = await pollJobToTerminal({
+      ...base,
+      maxPollAttempts: 150,
+      fetchImpl: impl,
+      signal: controller.signal,
+      sleepImpl: async () => {
+        sleeps += 1;
+        if (sleeps === 3) controller.abort();
+      },
+    });
+    expect(result).toMatchObject({ ok: false, stillRunning: false });
+    if (!result.ok) expect(result.message).toMatch(/canceled/i);
+    // Positive control on the counter: it saw the reads before the cancel.
+    expect(calls()).toBe(2);
   });
 
   it("returns a terminal job without polling at all", async () => {
