@@ -183,6 +183,10 @@ describe("markdown-to-pdf: the page describes what the renderer draws", () => {
    * The sentences that shipped, verbatim (the size range interpolated as it
    * rendered), and the shapes that ban them.
    */
+  // Built from code points (the sentences added since backlog #24): the
+  // tool layer has turned escapes raw before (invisible-characters note).
+  const Z_DOT = String.fromCodePoint(0x017c);
+  const RIGHT_ARROW = String.fromCodePoint(0x2192);
   const SHIPPED = [
     "Lines break only at spaces.",
     "A long unbroken string, such as a URL or a minified line of code, is not split and can run off the right edge of the page.",
@@ -211,9 +215,24 @@ describe("markdown-to-pdf: the page describes what the renderer draws", () => {
     // with no scope, while a table cell's link only prints, and a relative
     // link said to print "the same way" as a blue, underlined web link.
     "A link prints as its label followed by the address in parentheses, in blue and underlined, and a web or email address (http, https or mailto) opens when the label or address is clicked; a relative link such as docs/setup.md prints the same way but does not open.",
-    "Bold, italic and code are styled, links print with their URL and open when clicked, and images print as their alt text and URL.",
-    "One character outside that set anywhere in the text or the file name, even a Polish ż or an arrow such as →, moves the body text to a single regular-weight Noto face: headings then differ by size only, quotes are upright, and inline bold and italics print in that same face, though links still open when clicked.",
+    // Two more sentences of that review's corpus are true since backlog #24
+    // and live in RETIRED below, with the ban that caught them.
+    // Backlog #24 (2026-11-17): table cells draw styled runs and open their
+    // links, and text that is both bold and italic has a face of its own.
+    "Turn Markdown into a styled PDF in your browser: headings, lists, quotes, code and tables. Web links open when clicked, except in tables.",
+    "A web or email address (http, https or mailto) is printed in blue and underlined and opens when the label or address is clicked, in a paragraph, list item, quote or heading; in a table cell it prints but does not open.",
+    "Bold, italic and code are styled, links print with their URL and, outside table cells, open when clicked, and images print as their alt text and URL.",
+    `One character outside that set anywhere in the text or the file name, even a Polish ${Z_DOT} or an arrow such as ${RIGHT_ARROW}, moves the body text to a single regular-weight Noto face: headings then differ by size only, quotes are upright, and inline bold and italics print in that same face, though links outside table cells still open when clicked.`,
+    "A link keeps its address in parentheses, and outside table cells it opens when clicked if that address is http, https or mailto.",
+    "For Western European text, in paragraphs, list items and quotes, bold text is set in the bold face, italics in the oblique face, and backtick code in the monospaced face on a light grey wash; text that is both bold and italic is set in the bold face, and headings and table cells keep their one face.",
     "Besides the tool's own code, the only other thing it may fetch is Noto font data from pdf.xyz's own server, when your text or file name goes beyond the Western European set: usually one file, from 137.8 KB for Bengali to 10.1 MB for Chinese, and a second only if the first cannot shape every character.",
+    // The review of backlog #24 (2026-11-17): the runner tile said bold and
+    // italic are styled with no scope, while a document with one character
+    // outside Western European text sets them in the same Noto face as the
+    // body (the page's own Alphabets answer says so). It shipped through
+    // backlog #24, vouched for by RETIRED below, whose ban only asked about
+    // links.
+    "Bold, italic and code are styled, links print with their URL and open when clicked, and images print as their alt text and URL.",
   ];
   const BANNED: RegExp[] = [
     // Wrapping said to happen only at spaces, or long text said to overflow.
@@ -239,11 +258,51 @@ describe("markdown-to-pdf: the page describes what the renderer draws", () => {
     // Inline styling said to be dropped, and links said not to open.
     /\b(?:bold|italics?)\b[^.]*\b(?:plain (?:body )?text|flattened)\b/i,
     /\bnot clickable\b/i,
-    // Links said to open with no word on table cells, where they do not, and
-    // a relative link said to print like a web link.
-    /^(?!.*\btable cells?\b).*\blinks?\b.*\bopens? when\b.*\bclicked\b/i,
+    // A relative link said to print like a web link.
     /\bprints? the same way but does not open\b/i,
+    // Links said not to open in tables (backlog #24: they do), and both
+    // bold and italic said to be set in the bold face, or table cells in one
+    // face (it has a face of its own, and cells draw every style).
+    /\b(?:except in|outside(?: of)?) tables?(?: cells?)?\b/i,
+    /\btable cells?\b[^.;]*\bdoes not open\b/i,
+    /\bboth bold and italic\b[^.;]*\bset in the bold face\b/i,
+    /\btable cells? keeps? (?:their|its) one face\b/i,
+    // Bold and italic said to be styled with no Western European scope.
+    /^(?!.*\bWestern European\b).*\bbold, italic\b[^.;]*\bstyled\b/i,
   ];
+
+  /**
+   * A ban the renderer outgrew, kept with the sentences it caught. From the
+   * review of markdown-to-pdf#6 (2026-11-08) until backlog #24 (2026-11-17)
+   * a table cell's link printed but did not open, so "links open when
+   * clicked" with no word on table cells was banned. Cells open their links
+   * now, so the LINK clause of each sentence below is true: the ban would
+   * forbid honest copy, and the page's tile and FAQ say them again. This
+   * vouches for that clause only, which is all the ban ever asked about;
+   * the rest of each sentence answers to the live bans. Until the review of
+   * backlog #24 this list held the tile with its unscoped "bold, italic
+   * and code are styled", false for any non-Western document, and called
+   * the whole sentence true.
+   */
+  const RETIRED = {
+    ban: /^(?!.*\btable cells?\b).*\blinks?\b.*\bopens? when\b.*\bclicked\b/i,
+    nowTrue: [
+      "For Western European text, bold, italic and code are styled; links print with their URL and open when clicked, and images print as their alt text and URL.",
+      `One character outside that set anywhere in the text or the file name, even a Polish ${Z_DOT} or an arrow such as ${RIGHT_ARROW}, moves the body text to a single regular-weight Noto face: headings then differ by size only, quotes are upright, and inline bold and italics print in that same face, though links still open when clicked.`,
+    ],
+  };
+
+  it("the retired ban still catches its sentences, which no live ban does (history)", () => {
+    for (const sentence of RETIRED.nowTrue) {
+      expect(RETIRED.ban.test(sentence), sentence).toBe(true);
+      expect(
+        BANNED.filter((p) => p.test(sentence)).map(String),
+        sentence,
+      ).toEqual([]);
+    }
+    // Retired, not merely moved: no live ban is the old one.
+    expect(BANNED.map(String)).not.toContain(String(RETIRED.ban));
+  });
 
   it("the banned shapes and the sentences that shipped catch each other (both directions)", () => {
     const uncaught = SHIPPED.filter((s) => !BANNED.some((p) => p.test(s)));
@@ -264,7 +323,9 @@ describe("markdown-to-pdf: the page describes what the renderer draws", () => {
   });
 
   describe("each banned claim is false of the renderer (the bans' licence)", () => {
-    it("a link opens in a paragraph and a heading, and not in a table cell", async () => {
+    // INVERTED 2026-11-17 (backlog #24): until then "...and not in a table
+    // cell", asserting 0 annotations for the cell; a cell's link opens now.
+    it("a link opens in a paragraph, a heading and a table cell", async () => {
       const annots = async (markdown: string) => {
         const doc = await PDFDocument.load(await markdownToPdf(markdown));
         const found = doc.getPages()[0]!.node.lookup(PDFName.of("Annots"));
@@ -273,7 +334,7 @@ describe("markdown-to-pdf: the page describes what the renderer draws", () => {
       const link = "[x](https://example.com/t)";
       expect(await annots(`Text ${link}.`)).toBe(1);
       expect(await annots(`# Head ${link}`)).toBe(1);
-      expect(await annots(`| a | b |\n| - | - |\n| ${link} | y |`)).toBe(0);
+      expect(await annots(`| a | b |\n| - | - |\n| ${link} | y |`)).toBe(1);
       // The relative link's colour is read in markdown-runs.test.ts.
     });
 

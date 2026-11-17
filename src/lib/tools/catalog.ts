@@ -451,13 +451,14 @@ export const tools: Tool[] = [
       // said there was no table kind. Both went stale: GFM tables and rules
       // joined MARKDOWN_BLOCK_KINDS (L09), and bold, italics, backtick code
       // and clickable links joined with markdown-runs.ts (audit
-      // markdown-to-pdf#6). Not promised, because not always drawn: a working
-      // link inside a table cell (it prints only), and bold or italics at
-      // all — a document with one character outside Western European text
-      // is set in one Noto face with no bold or oblique (unicode-font.ts
-      // `embedDrawingFont`; no font pack has a bold weight).
+      // markdown-to-pdf#6). Not promised, because not always drawn: bold or
+      // italics at all — a document with one character outside Western
+      // European text is set in one Noto face with no bold or oblique
+      // (unicode-font.ts `embedDrawingFont`; no font pack has a bold weight).
+      // WAS "Web links open when clicked, except in tables." until backlog
+      // #24 drew table cells through the styled-run path, links included.
       // stale-page-claims.test.ts runs the parser for each claim here.
-      `Turn Markdown into a styled PDF in your browser: headings, lists, quotes, code and tables. Web links open when clicked, except in tables. Up to ${MAX_SOURCE_MB} MB.`,
+      `Turn Markdown into a styled PDF in your browser: headings, lists, quotes, code and tables. Web links open when clicked, in tables too. Up to ${MAX_SOURCE_MB} MB.`,
     category: "convert-to",
     icon: "markdown",
     // Client, not hybrid: the only implementation is the in-browser runner
