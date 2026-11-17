@@ -274,6 +274,39 @@ describe("the PDF reader (health and controls)", () => {
     expect(faceOf("mono")).toBe("Courier");
   });
 
+  /**
+   * The page says text that is both bold and italic is set in the bold
+   * oblique face in quotes too. Until review of backlog #24 the italic
+   * toggle applied to it as well, so in a quote (already italic) both
+   * spellings came out in Helvetica-Bold, upright, while the copy said
+   * otherwise. This ties the copy to the renderer for quotes, a table in a
+   * quote, and the header row.
+   */
+  it("text that is both bold and italic is bold oblique inside a quote too", async () => {
+    const { runs } = await readPdf(
+      await markdownToPdf(
+        [
+          "> plain ***both*** and **_both2_** end",
+          "",
+          "> | ***head*** | h |",
+          "> | - | - |",
+          "> | ***cell*** | **_cell2_** |",
+          "",
+          "| ***top*** | t |",
+          "| - | - |",
+          "| x | y |",
+        ].join("\n"),
+      ),
+    );
+    const faceOf = (word: string) =>
+      runs.find((run) => run.text.includes(word))?.face;
+    // Health: the quote around them is still italic, so the toggle is live.
+    expect(faceOf("plain")).toBe("Helvetica-Oblique");
+    for (const word of ["both", "both2", "head", "cell", "cell2", "top"]) {
+      expect(faceOf(word), word).toBe("Helvetica-BoldOblique");
+    }
+  });
+
   it("finds the grid, and the cell predicate rejects a box across a rule", async () => {
     const { runs, rules } = await readPdf(await markdownToPdf(TABLE));
     const vertical = rules.filter((r) => r.x1 === r.x2);
