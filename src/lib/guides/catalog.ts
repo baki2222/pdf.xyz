@@ -353,6 +353,7 @@ import {
 } from "@/lib/pdf/header-footer";
 import { textPdfOutputName } from "@/lib/pdf/text-to-pdf";
 import {
+  MAX_REQUEST_FIELDS,
   MAX_REQUEST_SIGNERS,
   REQUEST_PACKAGE_FILES,
   signatureRequestOutputName,
@@ -6085,7 +6086,7 @@ export const guides: Guide[] = [
     slug: "how-to-prepare-a-pdf-for-others-to-sign",
     title: "How to prepare a PDF for other people to sign",
     description:
-      "Add a named signature box, and a date box, for each signer on one PDF, then send the prepared file yourself. pdf.xyz emails no one and collects nothing.",
+      "Place signature, initials, date and text boxes for each signer on a PDF, then send the prepared file yourself. pdf.xyz emails no one and collects nothing.",
     tools: ["request-signatures", "fill-forms", "sign-pdf"],
     keywords: [
       "how to prepare a pdf for someone to sign",
@@ -6096,16 +6097,16 @@ export const guides: Guide[] = [
       "add a signature box to a pdf",
     ],
     intro: [
-      `To get a PDF ready for other people to sign, open ${nameOf("request-signatures")}, add the PDF, list each signer's name and email, pick the page for the signature block, and press Prepare signature request. Our secure server adds a fillable signature box for each signer, with a date box beside it unless you untick that option, and you download a ZIP holding the prepared PDF.`,
+      `To get a PDF ready for other people to sign, open ${nameOf("request-signatures")}, add the PDF, list each signer's name and email, check where their boxes sit on the preview, and press Prepare signature request. Each signer starts with a fillable signature box, with a date box beside it unless you untick that option, and you can move, resize and add boxes before you prepare. You download a ZIP holding the prepared PDF.`,
       "Know this before you start: pdf.xyz does not contact your signers. There is no email, no signing page, no reminder and no tracking. The names and addresses you type are written into the package, not used to reach anyone, so you send the prepared PDF yourself, and each signer types into their own boxes.",
       `${nameOf("request-signatures")} runs on our secure server, not in your browser. Your PDF, up to ${ceilingMb("request-signatures")} MB, and the signers' names and addresses travel over an encrypted connection. The PDF you sent is deleted when the job ends, and our server's link to the ZIP, which carries those names and addresses, stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
     ],
     steps: [
       `Open the ${nameOf("request-signatures")} tool. Prepare signature request works once the status badge reads Secure server.`,
       "Drop one PDF on the box that says “Add your PDF, or browse”, or click it to choose the file. Its page count appears beside its name once your browser has read it.",
-      `Under Signers, type each person's Full name and email address. Add signer adds a row, up to ${MAX_REQUEST_SIGNERS}. A row without a name or a valid-looking email is left out.`,
-      "Choose Sequential — one at a time or Parallel — everyone at once under Signing order. Signature page starts on the last page; change it if the block belongs elsewhere, and check the preview of that page.",
-      "Fill Request title (optional) if the package should name the agreement, and untick Add a date field next to each signature for signature boxes only.",
+      `Under Signers, type each person's Full name and email address. Add signer adds a row, up to ${MAX_REQUEST_SIGNERS}. A row with anything in it needs both a name and a valid-looking email: until it has them, it says what is missing and Prepare signature request stays disabled.`,
+      "Choose Sequential — one at a time or Parallel — everyone at once under Signing order. Signature page starts on the last page and sets where the boxes start. On the preview, drag a box to move it or drag its corner to resize it. Under Add a box, pick a signer and press Signature, Initials, Date, Name or Text to add a box to the page shown; Previous page and Next page turn the preview.",
+      "Fill Request title (optional) and Message to signers (optional) if the package should carry them, and untick Add a date field next to each signature for signature boxes only.",
       "Press Prepare signature request. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job until the package is back in the page.",
       `Press Download ${SIGN_REQUEST_EXAMPLE_ZIP}, the button named after your file: contract.pdf comes back as ${SIGN_REQUEST_EXAMPLE_ZIP}. Save it before you close the tab.`,
       `Unzip it and send ${REQUEST_PACKAGE_FILES.prepared} to your signers yourself.`,
@@ -6123,8 +6124,8 @@ export const guides: Guide[] = [
         id: "where-the-boxes-go",
         heading: "Where the boxes go",
         body: [
-          "The boxes are placed for you, near the left edge just above the foot of the chosen page as it is displayed, so a rotation or crop the page carries is taken into account. Signer 1's box is lowest and each further signer's sits above it, with the date box to its right. Rows keep one height for a short list and shrink as more signers are added, so the block still fits the page.",
-          "There is no dragging. The boxes are outlines with no background, laid over whatever is printed there, so choose a page with blank space at the foot. The preview shows each signer's boxes on the page before anything is sent.",
+          `Each signer starts with a signature box near the left edge, just above the foot of the page you pick, with the date box to its right; signer 1's is lowest. From there you can drag any box, resize it from its corner, send it to another page from the box list, or remove it, and add boxes for initials, a date, a name or other text, up to ${MAX_REQUEST_FIELDS} in one request.`,
+          "Positions are measured on the page as it is displayed, so a rotation or crop the page carries is taken into account. The boxes are outlines with no background, laid over whatever is printed there, so put them on blank space.",
         ],
       },
       {
@@ -6157,11 +6158,11 @@ export const guides: Guide[] = [
       {
         question: "Can I move the boxes?",
         answer:
-          "No. They are placed automatically near the foot of the chosen page, signer 1 lowest. Pick a page with blank space at the bottom, and check the preview before you prepare the request.",
+          "Yes. Drag a box on the preview, or select it and use the arrow keys; drag its corner to resize it. You can also add initials, date, name and text boxes, and put boxes on any page.",
       },
       {
         question: "How many people can sign one PDF?",
-        answer: `Up to ${MAX_REQUEST_SIGNERS}, each with their own signature box and, unless you untick the option, a date box, all on the one page you choose.`,
+        answer: `Up to ${MAX_REQUEST_SIGNERS}, each with at least one box of their own. Boxes can go on any page, up to ${MAX_REQUEST_FIELDS} in one request.`,
       },
       {
         question: "Why can't I prepare a password-protected PDF?",
@@ -6169,7 +6170,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-10-31",
+    updated: "2026-11-17",
   },
   {
     slug: "how-to-extract-data-from-a-pdf-with-ai",

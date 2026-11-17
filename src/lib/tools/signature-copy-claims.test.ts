@@ -16,6 +16,17 @@
  *    page" and told readers to "choose a PNG ... with a transparent
  *    background"; every opaque upload has its paper keyed out by default.
  *
+ * WHAT SHIPPED until 2026-11-17 (audit #21), true of the fixed block it was
+ * written over and false once the placement editor landed: Request
+ * Signatures said its server "stacks one fillable signature box per signer
+ * near the bottom", that the boxes are "placed automatically" / "placed for
+ * you", "There is no dragging.", "all on the one page you choose", and its
+ * FAQ and guide answered "Can I drag/move the boxes?" with "No.". The reader
+ * now drags, resizes, adds (per type and signer) and moves boxes between
+ * pages. A bare "No." has no words a clause pattern can catch, so the FAQ
+ * half is a RELATIONSHIP below: a question about moving the boxes may not be
+ * answered "No".
+ *
  * Each claim is a pattern held to the shipped sentences in BOTH directions,
  * read over every string every tool page serves and every guide (discovered,
  * not named — a third page repeating it is caught too), and refuted by RUNNING
@@ -45,6 +56,13 @@ import {
   type RgbaImage,
 } from "@/lib/pdf/signature-image";
 import { signatureBlockFields } from "@/lib/jobs/request-signatures";
+import { readPdfFrames } from "@/lib/pdf/page-frame";
+import {
+  addField,
+  moveField,
+  startingLayout,
+  toRequestFields,
+} from "@/lib/signatures/request-layout";
 import { runSignatureRequest } from "@/lib/workers/request-signatures/engine";
 import { signatureRequestDeps } from "@/lib/workers/request-signatures/native";
 
@@ -55,6 +73,25 @@ const SHIPPED = [
   "A JPEG cannot be transparent, so the paper around your ink, white or the grey of a scan, lands on the page with it.",
   "A PNG avoids that only if its background really is transparent; a signature drawn on the pad always is, because the pad exports ink with nothing behind it.",
   "Under Upload, choose a PNG of your scanned signature with a transparent background, and the page shows through around the ink instead of a rectangle of paper.",
+  // Request Signatures, served until 2026-11-17 (audit #21).
+  "Our server stacks one fillable signature box per signer near the bottom of that page, each with a date box beside it unless you untick that option.",
+  "No. They are placed automatically near the left edge, just above the bottom of the chosen page as it is displayed, so any rotation or crop the page carries is taken into account.",
+  "The boxes are placed for you, near the left edge just above the foot of the chosen page as it is displayed, so a rotation or crop the page carries is taken into account.",
+  "There is no dragging.",
+  "No. They are placed automatically near the foot of the chosen page, signer 1 lowest.",
+  "Up to 10, each with their own signature box and, unless you untick the option, a date box, all on the one page you choose.",
+];
+
+/**
+ * The FAQ pairs that answered "No" while the boxes were fixed (tool page and
+ * guide), kept as the positive control for the question-answer rule.
+ */
+const SHIPPED_NO_PAIRS: { question: string; answer: string }[] = [
+  {
+    question: "Can I drag the boxes somewhere else?",
+    answer: SHIPPED[7]!,
+  },
+  { question: "Can I move the boxes?", answer: SHIPPED[10]! },
 ];
 
 /** One claim may be made in one clause. */
@@ -106,11 +143,16 @@ async function signPlacesInTheDisplayedFrame() {
   expect(Math.abs(img.box[1] - 24)).toBeLessThan(0.5);
 }
 
-/** Request Signatures on a /Rotate 90 page: the box sits where the panel drew it. */
-async function requestPlacesInTheDisplayedFrame() {
-  const fields = signatureBlockFields(1, 1, false);
+type RequestField = ReturnType<typeof signatureBlockFields>[number];
+
+/**
+ * Run `fields` through the real engine on `pdf` and read each field back as a
+ * viewer displays it: its rect in the viewport (y down from the top), and its
+ * widget rotation against the page's.
+ */
+async function requestAsViewed(pdf: Uint8Array, fields: RequestField[]) {
   const run = await runSignatureRequest(
-    await rotatedPage(90),
+    pdf,
     {
       signers: [{ name: "Ada Signer", email: "ada@example.com" }],
       fields,
@@ -128,29 +170,115 @@ async function requestPlacesInTheDisplayedFrame() {
     const doc = await task.promise;
     const page = await doc.getPage(1);
     const viewport = page.getViewport({ scale: 1 });
-    const [ann] = (await page.getAnnotations()) as {
+    const annotations = (await page.getAnnotations()) as {
       rect: [number, number, number, number];
       rotation: number;
     }[];
-    expect(page.rotate).toBe(90);
-    expect(ann, "the field is on the page").toBeDefined();
     const [a, b, c, d, e, f] = viewport.transform as number[];
-    const xs = [ann!.rect[0], ann!.rect[2]];
-    const ys = [ann!.rect[1], ann!.rect[3]];
-    const vx = xs.flatMap((x) => ys.map((y) => a! * x + c! * y + e!));
-    const vy = xs.flatMap((x) => ys.map((y) => b! * x + d! * y + f!));
-    const field = fields[0]!;
-    // Viewport y runs down from the top; the field's y is up from the bottom.
-    expect(Math.abs(Math.min(...vx) - field.x * viewport.width)).toBeLessThan(
-      1.5,
-    );
-    expect(
-      Math.abs(Math.max(...vy) - (1 - field.y) * viewport.height),
-    ).toBeLessThan(1.5);
-    expect(ann!.rotation, "turned to read upright").toBe(page.rotate);
+    return {
+      rotate: page.rotate,
+      width: viewport.width,
+      height: viewport.height,
+      boxes: annotations.map((ann) => {
+        const xs = [ann.rect[0], ann.rect[2]];
+        const ys = [ann.rect[1], ann.rect[3]];
+        const vx = xs.flatMap((x) => ys.map((y) => a! * x + c! * y + e!));
+        const vy = xs.flatMap((x) => ys.map((y) => b! * x + d! * y + f!));
+        return {
+          left: Math.min(...vx),
+          right: Math.max(...vx),
+          top: Math.min(...vy),
+          bottom: Math.max(...vy),
+          rotation: ann.rotation,
+        };
+      }),
+    };
   } finally {
     await task.destroy();
   }
+}
+
+/** Each requested field sits where it was asked to, as displayed, within `tol` pt. */
+function expectPlaced(
+  seen: Awaited<ReturnType<typeof requestAsViewed>>,
+  fields: RequestField[],
+  tol: number,
+) {
+  expect(seen.boxes, "every field is on the page").toHaveLength(fields.length);
+  fields.forEach((field, i) => {
+    const box = seen.boxes[i]!;
+    // Viewport y runs down from the top; the field's y is up from the bottom.
+    expect(Math.abs(box.left - field.x * seen.width)).toBeLessThan(tol);
+    expect(
+      Math.abs(box.right - (field.x + field.width) * seen.width),
+    ).toBeLessThan(tol);
+    expect(Math.abs(box.bottom - (1 - field.y) * seen.height)).toBeLessThan(
+      tol,
+    );
+    expect(
+      Math.abs(box.top - (1 - field.y - field.height) * seen.height),
+    ).toBeLessThan(tol);
+    expect(box.rotation, "turned to read upright").toBe(seen.rotate);
+  });
+}
+
+/**
+ * Request Signatures on a /Rotate 90 page: the boxes sit where the panel drew
+ * them — the starting block's box, and (since 2026-11-17) an asymmetric one
+ * in the top-right corner, which a mapping that swapped or mirrored an axis
+ * would put somewhere else.
+ */
+async function requestPlacesInTheDisplayedFrame() {
+  const fields: RequestField[] = [
+    ...signatureBlockFields(1, 1, false),
+    {
+      signer: 0,
+      page: 1,
+      type: "initials",
+      x: 0.85,
+      y: 0.9,
+      width: 0.1,
+      height: 0.05,
+      required: true,
+    },
+  ];
+  const seen = await requestAsViewed(await rotatedPage(90), fields);
+  expect(seen.rotate).toBe(90);
+  expectPlaced(seen, fields, 1.5);
+}
+
+/** A /Rotate 90 Letter page with an inset CropBox. */
+async function rotatedCroppedPage(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage(LETTER);
+  page.setCropBox(36, 48, 540, 696);
+  page.setRotation(degrees(90));
+  return doc.save();
+}
+
+/**
+ * Refutes "the boxes cannot be moved, resized or added" by RUNNING the
+ * editor's own operations (`@/lib/signatures/request-layout`): the starting
+ * layout, its signature box moved to the top-right, an Initials box added —
+ * on a turned, cropped page, through the real engine, read by pdf.js.
+ */
+async function requestBoxesMoveAndAdd() {
+  const pdf = await rotatedCroppedPage();
+  const read = await readPdfFrames(pdf);
+  const frame = read!.frames[0]!;
+  const start = startingLayout([7], 1, false);
+  const moved = [moveField(start[0]!, 1, 1, frame)];
+  const layout = addField(moved, "initials", 7, 1, frame);
+  const fields = toRequestFields(layout, new Map([[7, 0]]));
+  // Health: the move did something, and the add added exactly one box.
+  expect(fields[0]).not.toEqual(signatureBlockFields(1, 1, false)[0]);
+  expect(fields[0]!.x + fields[0]!.width).toBeCloseTo(1, 3);
+  expect(fields[0]!.y + fields[0]!.height).toBeCloseTo(1, 3);
+  expect(fields).toHaveLength(start.length + 1);
+  expect(fields[1]!.type).toBe("initials");
+  const seen = await requestAsViewed(pdf, fields);
+  expect(seen.rotate).toBe(90);
+  expectPlaced(seen, fields, 1);
 }
 
 interface Claim {
@@ -168,6 +296,17 @@ const CLAIMS: Claim[] = [
       await signPlacesInTheDisplayedFrame();
       await requestPlacesInTheDisplayedFrame();
     },
+  },
+  {
+    says: "the boxes cannot be moved, resized or added",
+    patterns: [
+      /\bplaced automatically\b/i,
+      /\bplaced for you\b/i,
+      /\bno (?:dragging|drag)\b/i,
+      /\bstacks? one\b[^.;]*\bper signer\b/i,
+      /\ball on the one page\b/i,
+    ],
+    refute: requestBoxesMoveAndAdd,
   },
   {
     says: "a drawn signature is sized as the whole pad",
@@ -228,6 +367,32 @@ function servedFields(tool: Tool): string[] {
   ];
 }
 
+/** Every FAQ pair a reader of a Request Signatures page or guide is served. */
+function requestFaqs(): { where: string; question: string; answer: string }[] {
+  const out: { where: string; question: string; answer: string }[] = [];
+  for (const tool of tools)
+    if (tool.slug === "request-signatures")
+      for (const f of pageFaq(tool))
+        out.push({ where: tool.slug, question: f.question, answer: f.answer });
+  for (const guide of guides)
+    if (guide.tools[0] === "request-signatures")
+      for (const f of guide.faq)
+        out.push({
+          where: `guide ${guide.slug}`,
+          question: f.question,
+          answer: f.answer,
+        });
+  return out;
+}
+
+/** A question about moving the boxes… */
+const ABOUT_MOVING_BOXES =
+  /\b(?:drag|move|reposition|resize|place)\b[^?]*\bbox(?:es)?\b/i;
+/** …may not be answered "No". */
+const ANSWERED_NO = /^No\b/;
+const refusesToMove = (f: { question: string; answer: string }) =>
+  ABOUT_MOVING_BOXES.test(f.question) && ANSWERED_NO.test(f.answer.trim());
+
 function surfaces(): { where: string; text: string }[] {
   const out: { where: string; text: string }[] = [];
   for (const tool of tools)
@@ -262,6 +427,33 @@ describe("the signature pages describe the placement and cleanup that ship", () 
 
   for (const { says, refute } of CLAIMS)
     it(`the code does not do it: ${says}`, refute, 30_000);
+
+  it("no Request Signatures FAQ answers a question about moving the boxes with No", () => {
+    // Positive control: the pairs served while the boxes were fixed are caught.
+    for (const pair of SHIPPED_NO_PAIRS)
+      expect(refusesToMove(pair), pair.question).toBe(true);
+    // …and a Yes to the same question is not.
+    expect(
+      refusesToMove({
+        question: SHIPPED_NO_PAIRS[0]!.question,
+        answer: "Yes.",
+      }),
+    ).toBe(false);
+    const live = requestFaqs();
+    // Health: the tool page and its guide were read, and the rule has
+    // questions to ask of (a walk that found none would pass vacuously).
+    expect(live.some((f) => f.where === "request-signatures")).toBe(true);
+    expect(live.some((f) => f.where.startsWith("guide "))).toBe(true);
+    const asked = live.filter((f) => ABOUT_MOVING_BOXES.test(f.question));
+    expect(
+      asked.length,
+      asked.map((f) => f.question).join(" | "),
+    ).toBeGreaterThanOrEqual(2);
+    const offenders = live
+      .filter(refusesToMove)
+      .map((f) => `${f.where}: ${f.question} ${f.answer}`);
+    expect(offenders, offenders.join("\n")).toEqual([]);
+  });
 
   it("no page or guide says it", () => {
     const all = surfaces();
