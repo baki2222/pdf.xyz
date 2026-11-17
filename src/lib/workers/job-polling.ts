@@ -136,6 +136,33 @@ const defaultSleep = (ms: number): Promise<void> =>
 export async function pollJobToTerminal(
   options: PollJobOptions,
 ): Promise<PollJobResult> {
+  inFlight += 1;
+  try {
+    return await pollUntilTerminal(options);
+  } finally {
+    inFlight -= 1;
+  }
+}
+
+/**
+ * Loops of {@link pollJobToTerminal} that have started and not yet returned.
+ *
+ * Read by the suite's leak guard (`src/tests/poll-leak-guard.ts`), and by
+ * nothing in the product. A loop nobody aborts keeps polling for up to
+ * `maxPollAttempts` reads — two minutes at the default cadence — through
+ * whatever `fetch` is on `globalThis` when each read starts. Under vitest's
+ * `isolate: false` that is the NEXT test file's stub: on 2026-11-17 a run
+ * left by `html-render-worker-panel.test.tsx` sent `/api/jobs/undefined`
+ * into `worker-batch-handoff.dom.test.tsx`, which failed for it.
+ */
+export function pollsInFlight(): number {
+  return inFlight;
+}
+let inFlight = 0;
+
+async function pollUntilTerminal(
+  options: PollJobOptions,
+): Promise<PollJobResult> {
   const {
     fetchImpl,
     pollIntervalMs,
@@ -176,6 +203,17 @@ export async function pollJobToTerminal(
         : backoffMs(pollIntervalMs, consecutiveFailures),
     );
     attempts += 1;
+    // Stopped while asleep: no read. A real `fetch` would reject an aborted
+    // signal, but a test's stub need not, and a loop that read on would
+    // poll out its whole budget for a run nobody is waiting on.
+    if (signal?.aborted) {
+      return {
+        ok: false,
+        message: "The run was canceled.",
+        jobId,
+        stillRunning: false,
+      };
+    }
 
     // Every network hazard funnels through here: a rejection and a non-2xx are
     // the same event to a user, and both are retried the same way.

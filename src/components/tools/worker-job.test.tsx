@@ -452,6 +452,46 @@ describe("useWorkerJob — the run always stops", () => {
     expect(sessionStorage.getItem(STORAGE_KEY("extract-tables"))).toBeNull();
   });
 
+  it("unmounting mid-run aborts the run, keeps the job offered back, and sends no DELETE", async () => {
+    const fetchSpy = vi.fn(async () => new Response(null));
+    vi.stubGlobal("fetch", fetchSpy);
+    const { result, unmount } = renderHook(() =>
+      useWorkerJob<{ ok: true }>({
+        tool: "extract-tables",
+        resume: async () => ({ ok: true }),
+      }),
+    );
+    const seen: { signal?: AbortSignal } = {};
+    let settled: Promise<unknown> = Promise.resolve();
+    act(() => {
+      settled = result.current.run(
+        (controls) =>
+          new Promise((resolve) => {
+            seen.signal = controls.signal;
+            controls.onJobCreated(JOB_ID);
+            controls.signal.addEventListener("abort", () =>
+              resolve({ ok: false, message: "canceled", stillRunning: false }),
+            );
+          }),
+      );
+    });
+    await waitFor(() => expect(seen.signal).toBeDefined());
+    // Positive control: the run is live and its job saved before unmount.
+    expect(seen.signal!.aborted).toBe(false);
+    expect(sessionStorage.getItem(STORAGE_KEY("extract-tables"))).toContain(
+      JOB_ID,
+    );
+    unmount();
+    expect(seen.signal!.aborted).toBe(true);
+    await settled;
+    // Navigating away is not "Cancel the job": the id stays to be offered
+    // back, and the server's job is left to finish.
+    expect(sessionStorage.getItem(STORAGE_KEY("extract-tables"))).toContain(
+      JOB_ID,
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("storage that throws does not break a run", async () => {
     const setItem = vi
       .spyOn(Storage.prototype, "setItem")
