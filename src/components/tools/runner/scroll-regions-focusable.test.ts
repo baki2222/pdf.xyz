@@ -18,9 +18,20 @@
  * `aria-label` or `aria-labelledby`, or a `LongText` given a `label`, which
  * renders exactly that: checked below by rendering it), or be listed in
  * EXEMPT with the reason. An exemption of kind "children" names the tag
- * inside the box that a keyboard lands on, and that tag must really be
- * inside it: axe passes a scrolling box that holds something focusable,
- * because tabbing to that thing scrolls the box.
+ * inside the box that a keyboard lands on (axe passes a scrolling box that
+ * holds something focusable, because tabbing to that thing scrolls the box).
+ * Two things are checked about that tag, not one:
+ *
+ *  - it TAKES FOCUS: it is one of FOCUSABLE_TAGS, or a component defined
+ *    under the runner tree whose own JSX renders one (followed through
+ *    components, so MergeTile counts because it renders PageTile, which
+ *    renders a button). A tag that only happens to be inside the box (li,
+ *    span, div) licenses nothing. Until 2026-11-18 only the second check
+ *    existed, and an exemption reading `via: "li"` stayed green.
+ *  - it is INSIDE the box: written in the box's JSX, or, when the box
+ *    renders `{children}`, written inside every call site of the component
+ *    that owns the box. (The toolbar's Strip once passed with `via:
+ *    "children"`, which verified nothing.)
  *
  * Health checks: the found set is bounded both ways and printed by name,
  * the predicates are first run on planted snippets that must pass and fail,
@@ -45,7 +56,10 @@ type Exemption =
       /** A piece of the box's className (or style) text, unique in the file. */
       match: string;
       kind: "children";
-      /** A tag rendered inside the box that takes keyboard focus. */
+      /**
+       * A tag rendered inside the box that takes keyboard focus: a
+       * FOCUSABLE_TAGS member or a runner component that renders one.
+       */
       via: string;
       reason: string;
     }
@@ -64,7 +78,7 @@ const EXEMPT: Exemption[] = [
     match: "[touch-action:pan-x_pan-y] overflow-auto",
     kind: "other-lane",
     reason:
-      "the editor's page view ([data-editor-viewport], tabIndex={-1}): sweep finding F1, fixed in lane A (fix/editor-viewport-focusable), which owns this file. Delete this entry when that lands: the check below fails on a stale exemption.",
+      "the editor's page view ([data-editor-viewport], tabIndex={-1}): sweep finding F1, fixed in lane A (branch fix/editor-viewport-keyboard-scroll, worktree E:/wa11y-editor), which owns this file. Delete this entry when that lands: the check below fails on a stale exemption, so whichever of the two lanes merges second deletes it on the merged head.",
   },
   {
     file: `${R}editor/wysiwyg-editor.tsx`,
@@ -86,9 +100,9 @@ const EXEMPT: Exemption[] = [
     file: `${R}editor/toolbar.tsx`,
     match: "overflow-x-auto px-1 py-1",
     kind: "children",
-    via: "children",
+    via: "ToolButton",
     reason:
-      "a role=toolbar row whose children are the editor's tool buttons (passed in as children)",
+      "the Strip, a role=toolbar row: it renders {children}, and its call site passes the editor's ToolButtons, each a button",
   },
   {
     file: `${R}editor/thumbnail-rail.tsx`,
@@ -157,6 +171,14 @@ const EXEMPT: Exemption[] = [
   },
 ];
 
+/**
+ * Native tags that take keyboard focus by themselves. (An `a` needs an href
+ * and an input must not be hidden; every exemption below that leans on one
+ * was read for that.) Components are not listed: they are FOLLOWED, see
+ * takesFocus.
+ */
+const FOCUSABLE_TAGS = new Set(["button", "a", "input", "select", "textarea"]);
+
 const OVERFLOW_CLASS = /^(?:[\w-]+:)*overflow-(?:x-|y-)?(?:auto|scroll)$/;
 const OVERFLOW_STYLE_KEYS = new Set(["overflow", "overflowX", "overflowY"]);
 
@@ -170,6 +192,16 @@ interface Box {
   attrs: Map<string, ts.JsxAttribute>;
   /** Tag names rendered inside the element, and `children` if it renders them. */
   inner: Set<string>;
+  /** The nearest enclosing capitalised function or const: the component. */
+  owner: string | undefined;
+}
+
+/** Every component definition and call site under the scanned sources. */
+interface SourceIndex {
+  /** Component name to the tags its definition renders (one set per definition). */
+  defs: Map<string, Set<string>[]>;
+  /** Component name to the tags written inside each of its call sites. */
+  uses: Map<string, Set<string>[]>;
 }
 
 function sourceFiles(dir: string, out: string[] = []): string[] {
@@ -218,14 +250,123 @@ function overflowStyle(attr: ts.JsxAttribute | undefined): boolean {
   );
 }
 
-function findBoxes(fileName: string, text: string, file: string): Box[] {
-  const source = ts.createSourceFile(
+function parse(fileName: string, text: string): ts.SourceFile {
+  return ts.createSourceFile(
     fileName,
     text,
     ts.ScriptTarget.Latest,
     true,
     fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
+}
+
+/** JSX tag names written anywhere under `node`, and `children` if read. */
+function tagsIn(
+  node: ts.Node,
+  source: ts.SourceFile,
+  out = new Set<string>(),
+): Set<string> {
+  const walk = (n: ts.Node) => {
+    if (ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) {
+      out.add(n.tagName.getText(source));
+    } else if (ts.isIdentifier(n) && n.text === "children") {
+      out.add("children");
+    }
+    n.forEachChild(walk);
+  };
+  walk(node);
+  return out;
+}
+
+const COMPONENT = /^[A-Z]/;
+
+/** The capitalised name a function or const declaration gives, if any. */
+function componentName(node: ts.Node): string | undefined {
+  if (ts.isFunctionDeclaration(node) && node.name) {
+    return COMPONENT.test(node.name.text) ? node.name.text : undefined;
+  }
+  if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+    return COMPONENT.test(node.name.text) ? node.name.text : undefined;
+  }
+  return undefined;
+}
+
+function indexSources(
+  files: { fileName: string; text: string }[],
+): SourceIndex {
+  const index: SourceIndex = { defs: new Map(), uses: new Map() };
+  const push = (map: Map<string, Set<string>[]>, k: string, v: Set<string>) =>
+    map.set(k, [...(map.get(k) ?? []), v]);
+  for (const { fileName, text } of files) {
+    const source = parse(fileName, text);
+    const visit = (node: ts.Node) => {
+      const name = componentName(node);
+      const body = ts.isFunctionDeclaration(node)
+        ? node.body
+        : ts.isVariableDeclaration(node)
+          ? node.initializer
+          : undefined;
+      if (name && body) push(index.defs, name, tagsIn(body, source));
+      if (ts.isJsxElement(node)) {
+        const inside = new Set<string>();
+        node.children.forEach((c) => tagsIn(c, source, inside));
+        push(index.uses, node.openingElement.tagName.getText(source), inside);
+      }
+      node.forEachChild(visit);
+    };
+    visit(source);
+  }
+  return index;
+}
+
+/**
+ * The tag takes keyboard focus: a native FOCUSABLE_TAGS member, or a
+ * component every definition of which renders one (followed through
+ * components, cycle-safe). A component defined nowhere in the index is not
+ * known to take focus, so it does not.
+ */
+function takesFocus(
+  tag: string,
+  index: SourceIndex,
+  seen = new Set<string>(),
+): boolean {
+  if (FOCUSABLE_TAGS.has(tag)) return true;
+  if (seen.has(tag)) return false;
+  const defs = index.defs.get(tag);
+  if (!defs?.length) return false;
+  const next = new Set(seen).add(tag);
+  return defs.every((tags) =>
+    [...tags].some((t) => t !== "children" && takesFocus(t, index, next)),
+  );
+}
+
+/** What is wrong with a "children" exemption's `via`, or nothing. */
+function viaProblems(e: Exemption, box: Box, index: SourceIndex): string[] {
+  if (e.kind !== "children") return [];
+  const problems: string[] = [];
+  if (!takesFocus(e.via, index)) {
+    problems.push(
+      `${where(box)}: <${e.via}> does not take keyboard focus (not one of ${[...FOCUSABLE_TAGS].join(", ")}, nor a runner component that renders one)`,
+    );
+  }
+  if (box.inner.has(e.via)) return problems;
+  const calls = box.owner ? (index.uses.get(box.owner) ?? []) : [];
+  if (box.inner.has("children") && calls.length > 0) {
+    if (!calls.every((c) => c.has(e.via))) {
+      problems.push(
+        `${where(box)} renders {children}, and not every <${box.owner}> call site passes a <${e.via}>`,
+      );
+    }
+    return problems;
+  }
+  problems.push(
+    `${where(box)} renders no <${e.via}> inside (it renders ${[...box.inner].join(", ") || "nothing"}${box.inner.has("children") ? `, and <${box.owner ?? "?"}> has no call site` : ""})`,
+  );
+  return problems;
+}
+
+function findBoxes(fileName: string, text: string, file: string): Box[] {
+  const source = parse(fileName, text);
   const boxes: Box[] = [];
   const visit = (node: ts.Node) => {
     if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
@@ -241,16 +382,13 @@ function findBoxes(fileName: string, text: string, file: string): Box[] {
       if (byClass || byStyle) {
         const inner = new Set<string>();
         const element = ts.isJsxOpeningElement(node) ? node.parent : undefined;
-        const walk = (n: ts.Node) => {
-          if (ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) {
-            inner.add(n.tagName.getText(source));
-          } else if (ts.isIdentifier(n) && n.text === "children") {
-            inner.add("children");
-          }
-          n.forEachChild(walk);
-        };
         if (element && ts.isJsxElement(element)) {
-          element.children.forEach(walk);
+          element.children.forEach((c) => tagsIn(c, source, inner));
+        }
+        let owner: string | undefined;
+        for (let p: ts.Node | undefined = node.parent; p; p = p.parent) {
+          owner = componentName(p);
+          if (owner) break;
         }
         boxes.push({
           file,
@@ -261,6 +399,7 @@ function findBoxes(fileName: string, text: string, file: string): Box[] {
           text: byClass ? classes : attrs.get("style")!.getText(source),
           attrs,
           inner,
+          owner,
         });
       }
     }
@@ -291,14 +430,16 @@ function focusableAndNamed(box: Box): boolean {
 
 const where = (box: Box) => `${box.file}:${box.line}`;
 
-function discover(): Box[] {
-  return sourceFiles(RUNNER).flatMap((full) =>
-    findBoxes(
-      full,
-      readFileSync(full, "utf8"),
-      path.relative(SRC, full).split(path.sep).join("/"),
-    ),
-  );
+function discover(): { boxes: Box[]; index: SourceIndex } {
+  const files = sourceFiles(RUNNER).map((full) => ({
+    fileName: full,
+    text: readFileSync(full, "utf8"),
+    file: path.relative(SRC, full).split(path.sep).join("/"),
+  }));
+  return {
+    boxes: files.flatMap((f) => findBoxes(f.fileName, f.text, f.file)),
+    index: indexSources(files),
+  };
 }
 
 describe("predicates, on planted snippets first", () => {
@@ -378,10 +519,80 @@ describe("predicates, on planted snippets first", () => {
     );
     expect([...box!.inner].sort()).toEqual(["button", "li"]);
   });
+
+  describe("an exemption's `via` must take focus, not merely be inside", () => {
+    const planted = `
+      function Tile() { return <div><button>x</button></div>; }
+      const Wrapped = memo(function Wrapped() { return <Tile />; });
+      function Label() { return <span>x</span>; }
+      function List({ xs }) {
+        return (
+          <ul className="overflow-auto">
+            {xs.map((x) => <li key={x}><span>{x}</span><button>{x}</button><Tile /><Wrapped /><Label /></li>)}
+          </ul>
+        );
+      }
+      function Row({ children }) {
+        return <div className="overflow-x-auto">{children}</div>;
+      }
+      const a = <Row><Tile /></Row>;
+      function Lonely({ children }) {
+        return <div className="overflow-y-auto">{children}</div>;
+      }`;
+    const index = indexSources([{ fileName: "planted.tsx", text: planted }]);
+    const boxes = findBoxes("planted.tsx", planted, "planted.tsx");
+    const box = (owner: string) => boxes.find((b) => b.owner === owner)!;
+    const ex = (via: string): Exemption => ({
+      file: "planted.tsx",
+      match: "overflow",
+      kind: "children",
+      via,
+      reason: "planted",
+    });
+
+    it("finds the three planted boxes and their owners", () => {
+      expect(boxes.map((b) => b.owner)).toEqual(["List", "Row", "Lonely"]);
+    });
+
+    it("accepts a native focusable tag and components that render one, followed through a memo", () => {
+      expect(viaProblems(ex("button"), box("List"), index)).toEqual([]);
+      expect(viaProblems(ex("Tile"), box("List"), index)).toEqual([]);
+      expect(viaProblems(ex("Wrapped"), box("List"), index)).toEqual([]);
+    });
+
+    it("rejects a tag that is inside but takes no focus: li, span, a component of spans", () => {
+      for (const via of ["li", "span", "Label"]) {
+        expect(viaProblems(ex(via), box("List"), index)).toEqual([
+          expect.stringContaining(`<${via}> does not take keyboard focus`),
+        ]);
+      }
+    });
+
+    it("rejects a focusable tag that is not inside", () => {
+      expect(viaProblems(ex("textarea"), box("List"), index)).toEqual([
+        expect.stringContaining("renders no <textarea> inside"),
+      ]);
+    });
+
+    it("a box rendering {children} is checked at its component's call sites", () => {
+      expect(viaProblems(ex("Tile"), box("Row"), index)).toEqual([]);
+      expect(viaProblems(ex("select"), box("Row"), index)).toEqual([
+        expect.stringContaining("not every <Row> call site passes a <select>"),
+      ]);
+      // "children" is not a tag and takes no focus: the old form is refused.
+      expect(viaProblems(ex("children"), box("Row"), index)).toEqual([
+        expect.stringContaining("<children> does not take keyboard focus"),
+      ]);
+      // No call site at all: nothing is verified, so it fails.
+      expect(viaProblems(ex("button"), box("Lonely"), index)).toEqual([
+        expect.stringContaining("<Lonely> has no call site"),
+      ]);
+    });
+  });
 });
 
 describe("every scrolling box in a tool runner can be scrolled from a keyboard", () => {
-  const boxes = discover();
+  const { boxes, index } = discover();
 
   it("finds a plausible set, printed by name", () => {
     console.log(
@@ -416,7 +627,17 @@ describe("every scrolling box in a tool runner can be scrolled from a keyboard",
     expect(failing).toEqual([]);
   });
 
-  it("every exemption matches exactly one box, that box still needs it, and its `via` is inside", () => {
+  it("the component index is plausible: the via components resolve to definitions", () => {
+    // A blind index makes every component "not focusable" (a red for the
+    // wrong reason); a missing name here says which.
+    expect(index.defs.size).toBeGreaterThanOrEqual(50);
+    for (const name of ["PageTile", "MergeTile", "Thumb", "ToolButton"]) {
+      expect(index.defs.get(name)?.length, name).toBeGreaterThan(0);
+      expect(takesFocus(name, index), name).toBe(true);
+    }
+  });
+
+  it("every exemption matches exactly one box, that box still needs it, and its `via` takes focus and is inside", () => {
     const problems: string[] = [];
     for (const e of EXEMPT) {
       const hits = boxes.filter(
@@ -432,11 +653,7 @@ describe("every scrolling box in a tool runner can be scrolled from a keyboard",
           `${where(box)} is now named and focusable: delete its exemption`,
         );
       }
-      if (e.kind === "children" && !box.inner.has(e.via)) {
-        problems.push(
-          `${where(box)} renders no <${e.via}> inside (it renders ${[...box.inner].join(", ") || "nothing"})`,
-        );
-      }
+      problems.push(...viaProblems(e, box, index));
     }
     expect(problems).toEqual([]);
   });
