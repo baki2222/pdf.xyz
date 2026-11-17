@@ -393,4 +393,40 @@ describe("Webpage to PDF starts on the regional paper", () => {
       ]),
     );
   });
+
+  // Review 2026-11-17: "a change of another field keeps the paper unchosen,
+  // so it still follows the region" was held only by a comment in the panel;
+  // pinning `next.pageSize` on every change passed every test. Each field
+  // other than Page size, then a language change, must still move the paper.
+  it.each([
+    ["Margins", "small"],
+    ["Orientation", "landscape"],
+    ["Screen width", "desktop"],
+  ])(
+    "after a change of %s the paper still follows a language change",
+    async (field, value) => {
+      speaks("en-GB");
+      await mount();
+      fireEvent.change(screen.getByLabelText(field), { target: { value } });
+      expect(pageSize()).toBe("A4");
+      speaks("en-US");
+      act(() => {
+        window.dispatchEvent(new Event("languagechange"));
+      });
+      expect(pageSize()).toBe("Letter");
+    },
+  );
+
+  it("a chosen Page size does not follow a language change", async () => {
+    speaks("en-GB");
+    await mount();
+    fireEvent.change(screen.getByLabelText("Page size"), {
+      target: { value: "Legal" },
+    });
+    speaks("en-US");
+    act(() => {
+      window.dispatchEvent(new Event("languagechange"));
+    });
+    expect(pageSize()).toBe("Legal");
+  });
 });
