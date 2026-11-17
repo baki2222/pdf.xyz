@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download, Save, Upload } from "lucide-react";
 import type { ExtractionField } from "@/lib/jobs/ai-extract";
 import {
@@ -76,8 +76,25 @@ export function AiExtractSchemas({
   const [undo, setUndo] = useState<{
     text: string;
     schemas: SavedSchema[];
+    /** The row Undo brings back, which takes focus when Undo is pressed. */
+    restores: string;
+    /** A delete removed the button that had focus: Undo takes it. */
+    focus: boolean;
   } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const undoButton = useRef<HTMLButtonElement>(null);
+  const deleteButtons = useRef(new Map<string, HTMLButtonElement>());
+  // Undo removes itself, so focus goes to the row it brought back.
+  const focusRow = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (undo?.focus) undoButton.current?.focus();
+  }, [undo]);
+  useEffect(() => {
+    if (focusRow.current === null) return;
+    deleteButtons.current.get(focusRow.current)?.focus();
+    focusRow.current = null;
+  }, [schemas]);
 
   const say = (tone: Note["tone"], text: string) => setNote({ tone, text });
 
@@ -98,6 +115,8 @@ export function AiExtractSchemas({
       setUndo({
         text: `Replaced ${quoted(result.replaced.name)}.`,
         schemas: before,
+        restores: result.replaced.name,
+        focus: false,
       });
       say("ok", `Saved ${what}, in place of the one with that name.`);
     } else {
@@ -112,7 +131,12 @@ export function AiExtractSchemas({
     setSchemas(result.schemas);
     if (!result.ok) return say("err", SAVE_REFUSED);
     setNote(null);
-    setUndo({ text: `Deleted ${quoted(schema.name)}.`, schemas: before });
+    setUndo({
+      text: `Deleted ${quoted(schema.name)}.`,
+      schemas: before,
+      restores: schema.name,
+      focus: true,
+    });
   };
 
   const restore = () => {
@@ -120,6 +144,7 @@ export function AiExtractSchemas({
     const ok = writeSavedSchemas(undo.schemas, storage);
     setSchemas(readSavedSchemas(storage));
     setUndo(null);
+    focusRow.current = undo.restores;
     if (ok) say("ok", "Undone.");
     else say("err", SAVE_REFUSED);
   };
@@ -237,6 +262,7 @@ export function AiExtractSchemas({
           <p className="text-muted flex flex-wrap items-center gap-2 text-xs">
             {undo.text}
             <button
+              ref={undoButton}
               type="button"
               onClick={restore}
               className="text-fg tap-y font-medium underline-offset-4 hover:underline"
@@ -281,6 +307,10 @@ export function AiExtractSchemas({
                   Load
                 </button>
                 <button
+                  ref={(button) => {
+                    if (button) deleteButtons.current.set(schema.name, button);
+                    else deleteButtons.current.delete(schema.name);
+                  }}
                   type="button"
                   onClick={() => remove(schema)}
                   aria-label={`Delete ${schema.name}`}

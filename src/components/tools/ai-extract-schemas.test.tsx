@@ -238,11 +238,24 @@ describe("AI Data Extraction: saved schemas", () => {
         .getAllByRole("listitem")
         .map((li) => li.querySelector("span span")?.textContent);
     expect(names()).toEqual(["Second", "First"]);
-    fireEvent.click(screen.getByRole("button", { name: "Delete First" }));
+    // A keyboard press: the pressed Delete leaves the page with its row, so
+    // focus goes to Undo, never to <body>.
+    const del = screen.getByRole("button", { name: "Delete First" });
+    del.focus();
+    expect(document.activeElement).toBe(del);
+    fireEvent.click(del);
     expect(names()).toEqual(["Second"]);
     expect(status()).toContain(`Deleted ${LQ}First${RQ}.`);
-    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    const undo = screen.getByRole("button", { name: "Undo" });
+    await waitFor(() => expect(document.activeElement).toBe(undo));
+    fireEvent.click(undo);
     expect(names()).toEqual(["Second", "First"]);
+    // Undo leaves the page too: focus goes to the row it brought back.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Delete First" }),
+      ),
+    );
 
     // Replace "First" with one field, then undo the replace.
     fireEvent.click(screen.getByRole("button", { name: "Remove field 3" }));
@@ -427,5 +440,34 @@ describe("AI Data Extraction: saved schemas", () => {
     // Positive control: the spy does see a request.
     await fetch("/api/worker/status");
     expect(fetchSpy.mock.calls.length).toBe(callsBefore + 1);
+  }, 40_000);
+
+  it("the chunk fails to load: the panel says so, and opening it again fetches again", async () => {
+    stubJobNetwork(READY_WORKER_STATUS);
+    vi.doMock("./ai-extract-schemas", () => {
+      throw new Error("ChunkLoadError");
+    });
+    try {
+      mount();
+      await fillThree();
+      const toggle = screen.getByRole("button", { name: "Saved schemas" });
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      await screen.findByText(
+        "Saved schemas could not load. Check your connection, then close this and open it again.",
+      );
+      expect(
+        screen.queryByText(`Loading${String.fromCodePoint(0x2026)}`),
+      ).toBeNull();
+      expect(screen.queryByRole("textbox", { name: "Schema name" })).toBeNull();
+      vi.doUnmock("./ai-extract-schemas");
+      fireEvent.click(toggle);
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      await screen.findByRole("textbox", { name: "Schema name" });
+      expect(screen.queryByText(/could not load/)).toBeNull();
+    } finally {
+      vi.doUnmock("./ai-extract-schemas");
+    }
   }, 40_000);
 });

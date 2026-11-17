@@ -182,11 +182,13 @@ function AiExtractBuilder({
   // the disclosure is opened (or pointed at), never with the page.
   const [schemasOpen, setSchemasOpen] = useState(false);
   const [schemaViews, setSchemaViews] = useState<SchemaViews | null>(null);
+  // A failed fetch says so; opening the disclosure again fetches again.
+  const [schemasFailed, setSchemasFailed] = useState(false);
   const schemasId = useId();
   const fetchSchemaViews = useCallback(() => {
     void import("./ai-extract-schemas").then(
       (views) => setSchemaViews(views),
-      () => {},
+      () => setSchemasFailed(true),
     );
   }, []);
   const canRun = file != null && !busy && requestReady;
@@ -414,6 +416,7 @@ function AiExtractBuilder({
             aria-controls={schemasId}
             onPointerEnter={fetchSchemaViews}
             onClick={() => {
+              setSchemasFailed(false);
               fetchSchemaViews();
               setSchemasOpen((was) => !was);
             }}
@@ -429,7 +432,13 @@ function AiExtractBuilder({
                 onLoad={setFields}
               />
             ) : (
-              schemasOpen && <p className="text-muted text-xs">Loading…</p>
+              schemasOpen && (
+                <p className="text-muted text-xs">
+                  {schemasFailed
+                    ? "Saved schemas could not load. Check your connection, then close this and open it again."
+                    : "Loading…"}
+                </p>
+              )
             )}
           </div>
         </div>
