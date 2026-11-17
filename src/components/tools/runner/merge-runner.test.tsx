@@ -419,7 +419,7 @@ describe("merge-pdf: the options Arrange pages offers are exactly the ones the e
     keyboardMove(/^Reorder page 1 of beta\.pdf/, "Home");
     expect(
       screen.getByText(
-        /^Your pages mix files, so a file no longer has one first page/,
+        /^Your files' pages are mixed, so these options are off/,
       ),
     ).toBeTruthy();
     const boxes = discovered();
@@ -449,6 +449,21 @@ describe("merge-pdf: the options Arrange pages offers are exactly the ones the e
     // Positive control: the split is real, some of each.
     expect(disabled.length).toBeGreaterThan(0);
     expect(disabled.length).toBeLessThan(boxes.length);
+    // Greyed out on screen too, not only to a screen reader (review of
+    // 2026-11-17: aria-disabled alone drew an ordinary box). Each greyed
+    // label is drawn unlike every offered one.
+    const look = (box: HTMLInputElement) => {
+      const s = getComputedStyle(box.closest("label")!);
+      return `${s.opacity}|${getComputedStyle(box).cursor}`;
+    };
+    const offLooks = boxes
+      .filter((b) => disabled.includes(OPTION_KEYS[b.label]))
+      .map((b) => look(b.box));
+    const onLooks = boxes
+      .filter((b) => !disabled.includes(OPTION_KEYS[b.label]))
+      .map((b) => look(b.box));
+    for (const off of offLooks) expect(onLooks).not.toContain(off);
+    expect(offLooks[0]).toBe("0.5|not-allowed");
     // A greyed-out box shows unticked and is never sent: tick them all,
     // merge, and the download carries no contents page and no pad.
     for (const { box } of boxes) fireEvent.click(box);
@@ -505,4 +520,153 @@ describe("merge-pdf: an untouched Arrange pages merges what the mode it came fro
     expect(plain).toEqual([11, 21, 12, 22, 13, 23]);
     expect(arranged).toEqual(plain);
   }, 60_000);
+});
+
+describe("merge-pdf: Arrange pages chosen again follows what was set in between", () => {
+  // Review of 2026-11-17: the list kept from the first visit came back
+  // whatever the file mode did, so the grid merged an order the visitor had
+  // just changed. Now it comes back only while it says something file mode
+  // cannot; otherwise the grid is seeded from the mode just left.
+  it("a file moved up in One after another leads the grid and the download", async () => {
+    await mountWith([
+      pdfFile(await pdfOfWidths([11, 12, 13]), "alpha.pdf"),
+      pdfFile(await pdfOfWidths([21, 22]), "beta.pdf"),
+    ]);
+    await arrangePages();
+    fireEvent.click(screen.getByRole("radio", { name: "One after another" }));
+    expect(screen.queryByText(/Your page arrangement is kept\./)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Move beta.pdf up" }));
+    await arrangePages();
+    expect(tileNames().map((n) => n.split(",")[0])).toEqual([
+      "Page 1 of beta.pdf",
+      "Page 2 of beta.pdf",
+      "Page 1 of alpha.pdf",
+      "Page 2 of alpha.pdf",
+      "Page 3 of alpha.pdf",
+    ]);
+    await mergeAndRead();
+    expect((await downloaded()).widths).toEqual([21, 22, 11, 12, 13]);
+  }, 30_000);
+
+  it("Alternate pages left untouched seeds the grid it would merge", async () => {
+    await mountWith([
+      pdfFile(await pdfOfWidths([11, 12, 13]), "alpha.pdf"),
+      pdfFile(await pdfOfWidths([21, 22]), "beta.pdf"),
+    ]);
+    await arrangePages();
+    fireEvent.click(screen.getByRole("radio", { name: "Alternate pages" }));
+    await arrangePages();
+    await mergeAndRead();
+    expect((await downloaded()).widths).toEqual([11, 21, 12, 22, 13]);
+  }, 30_000);
+
+  it("a turned page is kept, and the new file order applies while files stay together", async () => {
+    await mountWith([
+      pdfFile(await pdfOfWidths([11, 12, 13]), "alpha.pdf"),
+      pdfFile(await pdfOfWidths([21, 22]), "beta.pdf"),
+    ]);
+    await arrangePages();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Rotate page 2 of alpha.pdf right" }),
+    );
+    fireEvent.click(screen.getByRole("radio", { name: "One after another" }));
+    expect(screen.getByText(/Your page arrangement is kept\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Move beta.pdf up" }));
+    await arrangePages();
+    await mergeAndRead();
+    expect(await downloaded()).toEqual({
+      widths: [21, 22, 11, 12, 13],
+      turns: [0, 0, 0, 90, 0],
+    });
+  }, 30_000);
+
+  it("CONTROL: a mixed arrangement is kept as it was, and the page says the file order does not change it", async () => {
+    await mountWith([
+      pdfFile(await pdfOfWidths([11, 12, 13]), "alpha.pdf"),
+      pdfFile(await pdfOfWidths([21, 22]), "beta.pdf"),
+    ]);
+    await arrangePages();
+    keyboardMove(/^Reorder page 1 of beta\.pdf/, "Home");
+    fireEvent.click(screen.getByRole("radio", { name: "One after another" }));
+    expect(
+      screen.getByText(/the file order chosen here does not change it/),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Move alpha.pdf up" }));
+    await arrangePages();
+    await mergeAndRead();
+    expect((await downloaded()).widths).toEqual([21, 11, 12, 13, 22]);
+  }, 30_000);
+});
+
+describe("merge-pdf: the page grid's keyboard", () => {
+  it("Escape puts a grabbed page back where it was", async () => {
+    await mountWith([
+      pdfFile(await pdfOfWidths([11, 12]), "alpha.pdf"),
+      pdfFile(await pdfOfWidths([21, 22]), "beta.pdf"),
+    ]);
+    await arrangePages();
+    const before = tileNames();
+    const grip = screen.getByRole("button", {
+      name: /^Reorder page 1 of beta\.pdf/,
+    });
+    fireEvent.keyDown(grip, { key: "Enter" });
+    fireEvent.keyDown(grip, { key: "ArrowLeft" });
+    expect(tileNames()[1]).toMatch(/^Page 1 of beta\.pdf/);
+    fireEvent.keyDown(grip, { key: "Escape" });
+    expect(tileNames()).toEqual(before);
+    expect(grip.getAttribute("aria-pressed")).toBe("false");
+    await mergeAndRead();
+    expect((await downloaded()).widths).toEqual([11, 12, 21, 22]);
+  }, 30_000);
+
+  it("the grid is one tab stop, and the arrow keys go from page to page", async () => {
+    await mountWith([
+      pdfFile(await pdfOfWidths([11, 12, 13]), "alpha.pdf"),
+      pdfFile(await pdfOfWidths([21, 22]), "beta.pdf"),
+    ]);
+    const grid = await arrangePages();
+    const tiles = () => [...grid.querySelectorAll('[role="listitem"]')];
+    /** The grid's controls Tab can land on, by tile. */
+    const stops = () =>
+      tiles().map(
+        (t) =>
+          [...t.querySelectorAll("button")].filter((el) => el.tabIndex >= 0)
+            .length,
+      );
+    // Health check: every tile HAS buttons, so a count of 0 means skipped.
+    const perTile = tiles()[0]!.querySelectorAll("button").length;
+    expect(perTile).toBeGreaterThanOrEqual(6);
+    expect(stops()).toEqual([perTile, 0, 0, 0, 0]);
+    const rotateRight = (n: number, file: string) =>
+      screen.getByRole("button", { name: `Rotate page ${n} of ${file} right` });
+    rotateRight(1, "alpha.pdf").focus();
+    fireEvent.keyDown(rotateRight(1, "alpha.pdf"), { key: "ArrowRight" });
+    expect(document.activeElement).toBe(rotateRight(2, "alpha.pdf"));
+    // Focus moved the tab stop with it.
+    expect(stops()).toEqual([0, perTile, 0, 0, 0]);
+    fireEvent.keyDown(document.activeElement!, { key: "End" });
+    expect(document.activeElement).toBe(rotateRight(2, "beta.pdf"));
+    // The arrows only moved focus: the order is untouched.
+    expect(tileNames()[4]).toMatch(/^Page 2 of beta\.pdf, page 5 of 5/);
+  }, 30_000);
+});
+
+describe("merge-pdf: a Sort that undoes a mixed order can be undone", () => {
+  it("Undo brings the mixed order back, and the download follows it", async () => {
+    await mountWith([
+      pdfFile(await pdfOfWidths([11, 12]), "alpha.pdf"),
+      pdfFile(await pdfOfWidths([21, 22]), "beta.pdf"),
+    ]);
+    await arrangePages();
+    keyboardMove(/^Reorder page 1 of beta\.pdf/, "Home");
+    const mixed = tileNames();
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Name A/ }));
+    expect(tileNames()).not.toEqual(mixed);
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(tileNames()).toEqual(mixed);
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    await mergeAndRead();
+    expect((await downloaded()).widths).toEqual([21, 11, 12, 22]);
+  }, 30_000);
 });

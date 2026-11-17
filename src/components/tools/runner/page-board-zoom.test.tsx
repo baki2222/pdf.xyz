@@ -373,3 +373,73 @@ describe("Organize · the new order", () => {
     ).toHaveAttribute("data-blank-sheet");
   }, 30_000);
 });
+
+describe("Merge PDF, Arrange pages across files", () => {
+  it("walks the grid's order across files, each page drawn from its own file and turned as its tile is", async () => {
+    const kind = getRunnerKind("merge-pdf");
+    expect(kind, "the registry no longer maps merge-pdf").toBeTruthy();
+    const { container } = render(
+      withAppRouter(<ToolRunner kind={kind!} slug="merge-pdf" />),
+    );
+    await runnerMounted(container);
+    const beta = await PDFDocument.create();
+    for (const w of [201, 202]) beta.addPage([w, 200]);
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    fireEvent.change(input!, {
+      target: {
+        files: [
+          new File([(await pagesPdf(2)).slice()], "alpha.pdf", {
+            type: "application/pdf",
+          }),
+          new File([(await beta.save()).slice()], "beta.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    await screen.findAllByText("beta.pdf");
+    fireEvent.click(screen.getByRole("radio", { name: "Arrange pages" }));
+    await screen.findByRole(
+      "list",
+      { name: /^Pages of every file/ },
+      { timeout: 10_000 },
+    );
+    // a1 a2 b1 b2 -> a1 b1 a2 b2, and b1 turned a quarter.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Move page 1 of beta.pdf earlier" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Rotate page 1 of beta.pdf right" }),
+    );
+    const opener = screen.getByRole("button", { name: zoomLabel(2) });
+    const { dialog, width } = await openZoom(
+      opener,
+      "Page 1 of beta.pdf, position 2 of 4",
+    );
+    // beta's page 1 (201 x 200), turned: drawn as wide as it was tall.
+    expect(width).toBe(zoomWidth(200, 201));
+    fireEvent.click(within(dialog).getByRole("button", { name: /next page/i }));
+    const next = await screen.findByRole("dialog", {
+      name: "Page 2 of alpha.pdf, position 3 of 4",
+    });
+    const img = await within(next).findByRole(
+      "img",
+      { name: "Page 2 of alpha.pdf, position 3 of 4" },
+      { timeout: 10_000 },
+    );
+    // alpha's page 2 (102 wide), from alpha's bytes, not beta's.
+    await waitFor(() =>
+      expect(widthOf.get(img.getAttribute("src") ?? "")).toBe(
+        zoomWidth(102, 200),
+      ),
+    );
+    await closeBack(opener);
+    // The grid did not move.
+    expect(
+      screen.getByRole("listitem", {
+        name: /^Page 1 of beta\.pdf, page 2 of 4/,
+      }),
+    ).toBeInTheDocument();
+  }, 30_000);
+});

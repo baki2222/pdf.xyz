@@ -544,6 +544,14 @@ test("merge page mode: drag, keyboard move, rotate and leave out across files", 
   );
   await boxesAgreeWithGrid(page, counts);
 
+  // View a page larger: the dialog names the page, its file and its place.
+  await page.getByRole("button", { name: "View page 1 larger" }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Page 3 of beta.pdf, position 1 of 6" }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
   // Turn beta's page 2.
   await page
     .getByRole("button", { name: "Rotate page 2 of beta.pdf right" })
@@ -551,7 +559,7 @@ test("merge page mode: drag, keyboard move, rotate and leave out across files", 
   await boxesAgreeWithGrid(page, counts);
 
   await expect(page.getByText(/2 files · 5 pages/)).toBeVisible();
-  await expect(page.getByText(/^Your pages mix files/)).toBeVisible();
+  await expect(page.getByText(/^Your files' pages are mixed/)).toBeVisible();
   await expect(
     page.getByLabel(/add a bookmark for each file/i),
   ).toHaveAttribute("aria-disabled", "true");
@@ -659,7 +667,7 @@ test("merge page mode passes axe with files mixed", async ({ page }) => {
   await page
     .getByRole("button", { name: "Move page 1 of beta.pdf earlier" })
     .click();
-  await expect(page.getByText(/^Your pages mix files/)).toBeVisible();
+  await expect(page.getByText(/^Your files' pages are mixed/)).toBeVisible();
   await page.addScriptTag({ path: axePath });
   const found = await page.evaluate(async () => {
     const axe = (
@@ -723,3 +731,256 @@ test("merge page mode stays responsive with a 300-page file: thumbnails load as 
   expect(drawn).toBeLessThan(150);
   expect(moveMs).toBeLessThan(3_000);
 });
+
+test("merge page mode: Tab leaves the grid in a few presses, arrows go from page to page, Escape puts a page back", async ({
+  page,
+}) => {
+  await page.goto("/tools/merge-pdf");
+  await stage(page, [
+    pdfPayload("alpha.pdf", await makeTextPdf("alpha.pdf", { pages: 3 })),
+    pdfPayload("beta.pdf", await makeTextPdf("beta.pdf", { pages: 3 })),
+  ]);
+  await expect(page.getByText("beta.pdf", { exact: true })).toBeVisible();
+  await page.getByRole("radio", { name: "Arrange pages" }).click();
+  await expect(pageGrid(page)).toBeVisible();
+  // Health check: the grid HAS its buttons, six tiles of at least six each,
+  // so a short Tab walk is the roving tab stop, not missing tiles.
+  expect(await pageGrid(page).locator("button").count()).toBeGreaterThanOrEqual(
+    36,
+  );
+
+  // Tab from the grid's first control to the Merge button, counted.
+  await page
+    .getByRole("button", { name: /^Reorder page 1 of alpha\.pdf/ })
+    .focus();
+  const merge = page.getByRole("button", { name: /merge 2 pdfs/i });
+  let presses = 0;
+  while (presses < 60) {
+    if (await merge.evaluate((el) => el === document.activeElement)) break;
+    await page.keyboard.press("Tab");
+    presses += 1;
+  }
+  console.log(`[tab walk] grid to Merge in ${presses} presses`);
+  expect(presses).toBeLessThanOrEqual(20);
+
+  // Arrows: the same button, one tile on; the order does not change.
+  const before = await tileNames(page);
+  await page
+    .getByRole("button", { name: "Rotate page 1 of alpha.pdf right" })
+    .focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(
+    page.getByRole("button", { name: "Rotate page 2 of alpha.pdf right" }),
+  ).toBeFocused();
+  expect(await tileNames(page)).toEqual(before);
+
+  // Escape after a keyboard move: the page goes back to its slot.
+  const grip = page.getByRole("button", {
+    name: /^Reorder page 1 of beta\.pdf/,
+  });
+  await grip.focus();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("ArrowLeft");
+  await expect(tile(page, "beta.pdf", 1)).toHaveAttribute(
+    "aria-label",
+    /page 3 of 6 in the merged PDF/,
+  );
+  await page.keyboard.press("Escape");
+  await expect(tile(page, "beta.pdf", 1)).toHaveAttribute(
+    "aria-label",
+    /page 4 of 6 in the merged PDF/,
+  );
+  expect(await tileNames(page)).toEqual(before);
+});
+
+test("merge page mode at 1280 wide: each tile's buttons sit on one row, greyed options look greyed", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/tools/merge-pdf");
+  await stage(page, [
+    pdfPayload("alpha.pdf", await makeTextPdf("alpha.pdf", { pages: 3 })),
+    pdfPayload("beta.pdf", await makeTextPdf("beta.pdf", { pages: 3 })),
+  ]);
+  await expect(page.getByText("beta.pdf", { exact: true })).toBeVisible();
+  await page.getByRole("radio", { name: "Arrange pages" }).click();
+  await expect(pageGrid(page)).toBeVisible();
+  // Every action button of a tile shares one row (its top edge).
+  const rows = await pageGrid(page)
+    .locator('[role="listitem"]')
+    .evaluateAll((tiles) =>
+      tiles.map((t) => {
+        const tops = [...t.querySelectorAll("button")]
+          .slice(1) // the grip sits in the corner
+          .map((b) => Math.round(b.getBoundingClientRect().top));
+        return new Set(tops).size;
+      }),
+    );
+  expect(rows).toEqual(rows.map(() => 1));
+  // Mixed: the greyed options are drawn greyed, the offered one is not.
+  await page
+    .getByRole("button", { name: "Move page 1 of beta.pdf earlier" })
+    .click();
+  await expect(page.getByText(/^Your files' pages are mixed/)).toBeVisible();
+  const opacity = (re: RegExp) =>
+    page
+      .getByLabel(re)
+      .evaluate((el) => getComputedStyle(el.closest("label")!).opacity);
+  expect(await opacity(/add a bookmark for each file/i)).toBe("0.5");
+  expect(await opacity(/print each file's name/i)).toBe("1");
+});
+
+test("merge page mode with 1,300 pages: scrolling stays smooth and the tiles on screen get their pictures", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  await page.goto("/tools/merge-pdf");
+  await stage(page, [
+    pdfPayload("big.pdf", await makeTextPdf("big.pdf", { pages: 1000 })),
+    pdfPayload("more.pdf", await makeTextPdf("more.pdf", { pages: 300 })),
+  ]);
+  await expect(page.getByText("more.pdf", { exact: true })).toBeVisible({
+    timeout: 60_000,
+  });
+  await page.evaluate(() => {
+    const w = window as unknown as { longTasks: number[] };
+    w.longTasks = [];
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) w.longTasks.push(e.duration);
+    }).observe({ type: "longtask", buffered: false });
+  });
+  const longTasks = () =>
+    page.evaluate(
+      () => (window as unknown as { longTasks: number[] }).longTasks,
+    );
+  // Positive control: the observer sees a task it must see, so a count of
+  // none below is the page's, not a blind instrument's.
+  // A task of the page's own: one run inside the evaluate call itself is
+  // DevTools' task and the observer never sees it (measured: 0 entries).
+  await page.evaluate(() => {
+    setTimeout(() => {
+      const end = performance.now() + 120;
+      while (performance.now() < end);
+    }, 0);
+  });
+  await expect.poll(async () => (await longTasks()).length).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    (window as unknown as { longTasks: number[] }).longTasks = [];
+  });
+  const t0 = Date.now();
+  await page.getByRole("radio", { name: "Arrange pages" }).click();
+  await expect(pageGrid(page).locator('[role="listitem"]')).toHaveCount(1300, {
+    timeout: 30_000,
+  });
+  const openMs = Date.now() - t0;
+  await page.waitForTimeout(1_500);
+  const opening = await longTasks();
+
+  // A scroll pass end to end, half a screen at a time, frames logged. The
+  // grid itself on screen first: a tile's picture is asked for when it
+  // nears the WINDOW, not merely the grid's own scroll box.
+  await pageGrid(page).scrollIntoViewIfNeeded();
+  await page.evaluate(() => {
+    (window as unknown as { longTasks: number[] }).longTasks = [];
+  });
+  const frames = await pageGrid(page).evaluate(async (grid) => {
+    const gaps: number[] = [];
+    let last = performance.now();
+    let on = true;
+    const tick = (t: number) => {
+      gaps.push(t - last);
+      last = t;
+      if (on) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    while (grid.scrollTop + grid.clientHeight < grid.scrollHeight - 2) {
+      grid.scrollTop += grid.clientHeight / 2;
+      await new Promise((r) => setTimeout(r, 30));
+    }
+    on = false;
+    return gaps.slice(1).sort((a, b) => a - b);
+  });
+  const scrolling = await longTasks();
+  // Health check: the pass really went end to end, frame by frame.
+  expect(frames.length).toBeGreaterThan(200);
+  const p95 = frames[Math.floor(frames.length * 0.95)] ?? 0;
+
+  // At the end: the tiles on screen get pictures, not after every tile the
+  // pass went by.
+  const imagesNow = () => pageGrid(page).locator("img").count();
+  const drawnAtEnd = await imagesNow();
+  const t1 = Date.now();
+  const visibleWithImages = async () =>
+    pageGrid(page).evaluate((grid) => {
+      const box = grid.getBoundingClientRect();
+      const seen = [...grid.querySelectorAll('[role="listitem"]')].filter(
+        (t) => {
+          const r = t.getBoundingClientRect();
+          return r.bottom > box.top && r.top < box.bottom;
+        },
+      );
+      return {
+        seen: seen.length,
+        drawn: seen.filter((t) => t.querySelector("img")).length,
+      };
+    });
+  await expect
+    .poll(
+      async () => {
+        const v = await visibleWithImages();
+        return v.seen > 0 && v.drawn === v.seen;
+      },
+      { timeout: 15_000 },
+    )
+    .toBe(true);
+  const fillMs = Date.now() - t1;
+  // Pictures drawn between the end of the pass and the screen being full:
+  // newest first, about a screen's worth; in request order, every page the
+  // pass went by that was still queued (the clock-free measure: a FIFO
+  // queue took 3.2 s here and 40 s on the reviewer's machine).
+  const drawnBeforeScreen = (await imagesNow()) - drawnAtEnd;
+
+  // A move: the main thread's longest task while it lands. Pressed and
+  // awaited inside the page, because a role locator's own search of 9,000
+  // buttons runs on the page's main thread too and would be counted.
+  const later = page.getByRole("button", {
+    name: "Move page 300 of more.pdf earlier",
+  });
+  await later.scrollIntoViewIfNeeded();
+  const moving = await later.evaluate(async (button) => {
+    const w = window as unknown as { longTasks: number[] };
+    w.longTasks = [];
+    (button as HTMLButtonElement).click();
+    for (let i = 0; i < 10; i++)
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+    await new Promise((r) => setTimeout(r, 300));
+    return w.longTasks;
+  });
+  await expect(tile(page, "more.pdf", 300)).toHaveAttribute(
+    "aria-label",
+    /page 1299 of 1300 in the merged PDF/,
+  );
+  const moveMs = Math.round(Math.max(0, ...moving));
+  const max = (xs: number[]) => (xs.length ? Math.max(...xs) : 0);
+  console.log(
+    `[1,300 pages] open ${openMs} ms; opening long tasks ${opening.length} (max ${Math.round(max(opening))} ms); scroll frames ${frames.length}, p95 ${p95.toFixed(1)} ms, max ${max(frames).toFixed(1)} ms; scroll long tasks ${scrolling.length} (max ${Math.round(max(scrolling))} ms); visible tiles drawn in ${fillMs} ms (${drawnBeforeScreen} pictures drawn to fill them); move: ${moving.length} long tasks, max ${moveMs} ms`,
+  );
+  expect(max(scrolling)).toBeLessThan(BUDGET.scrollLongTaskMs);
+  expect(p95).toBeLessThan(BUDGET.scrollFrameP95Ms);
+  expect(fillMs).toBeLessThan(BUDGET.fillMs);
+  expect(drawnBeforeScreen).toBeLessThan(BUDGET.drawnBeforeScreen);
+  expect(moveMs).toBeLessThan(BUDGET.moveMs);
+});
+
+/**
+ * The 1,300-page budget (review of 2026-11-17 measured, before the fix:
+ * scroll p95 133 ms with long tasks to 183 ms, visible tiles blank after
+ * 40 s, a move click with a 185 ms task).
+ */
+const BUDGET = {
+  scrollLongTaskMs: 100,
+  scrollFrameP95Ms: 50,
+  fillMs: 8_000,
+  drawnBeforeScreen: 60,
+  moveMs: 100,
+} as const;

@@ -73,7 +73,11 @@ type ArrangeLib = typeof import("./merge-pages-state");
 
 /** Why the options that need one first page per file are greyed out. */
 const MIXED_NOTE =
-  "Your pages mix files, so a file no longer has one first page: a bookmark for each file, a contents page and blank pages after odd files are not offered. Keep each file's pages together to use them. Bookmarks already in your files are kept.";
+  "Your files' pages are mixed, so these options are off: a bookmark for each file, a contents page and blank pages after odd files. Keep each file's pages together to use them. Bookmarks already in your files are kept.";
+
+/** A greyed-out option looks it, not only says it (review of 2026-11-17). */
+const OFF_STYLE = { opacity: 0.5, cursor: "not-allowed" } as const;
+const INPUT_OFF_STYLE = { cursor: "not-allowed" } as const;
 
 interface MergeItem {
   id: string;
@@ -167,6 +171,11 @@ export function MergeRunner() {
   const [stash, setStash] = useState<MergePage[] | null>(null);
   // Pages boxes typed in page mode, by file id, until they are left.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  // What one Sort or Reset in page mode threw away, while it is undoable.
+  const [undo, setUndo] = useState<{
+    before: MergePage[];
+    after: MergePage[];
+  } | null>(null);
   const mixedNoteId = useId();
   const rangeIdBase = useId();
   // Files handed off from the workspace (merge collects many into one).
@@ -316,31 +325,39 @@ export function MergeRunner() {
     setPages(null);
     setStash(null);
     setDrafts({});
+    setUndo(null);
   };
 
+  /**
+   * Page mode's list replaced in one step (a Sort, Reset to file order):
+   * when it threw away an order that mixed files, Undo brings it back.
+   */
+  const replacePages = (next: MergePage[]) => {
+    if (!pages || !arrange) return false;
+    const lost =
+      arrange.filesInterleave(pages) && !arrange.samePages(pages, next);
+    setUndo(lost ? { before: pages, after: next } : null);
+    setPages(next);
+    return lost;
+  };
   /** In page mode, a new file order regroups each file's pages together. */
   const regroupTo = (sorted: MergeItem[]) => {
-    if (mode !== "pages" || !arrange) return false;
-    setPages((prev) =>
-      prev
-        ? arrange.regroup(
-            prev,
-            sorted.map((item) => item.id),
-          )
-        : prev,
+    if (mode !== "pages" || !arrange || !pages) return "";
+    const lost = replacePages(
+      arrange.regroup(
+        pages,
+        sorted.map((item) => item.id),
+      ),
     );
-    return true;
+    return ` Each file's pages are together again.${lost ? " Undo brings your order back." : ""}`;
   };
-  const TOGETHER = " Each file's pages are together again.";
 
   const keepDropOrder = () => {
     const sorted = [...items].sort((a, b) => a.seq - b.seq);
     setItems(sorted);
     const regrouped = regroupTo(sorted);
     setOrdered(null);
-    announce(
-      `Kept the order the files were dropped in.${regrouped ? TOGETHER : ""}`,
-    );
+    announce(`Kept the order the files were dropped in.${regrouped}`);
   };
 
   const sortBy = (sort: MergeSort) => {
@@ -348,7 +365,7 @@ export function MergeRunner() {
     setItems(sorted);
     const regrouped = regroupTo(sorted);
     setOrdered(null);
-    announce(`Sorted ${MERGE_SORT_LABEL[sort]}.${regrouped ? TOGETHER : ""}`);
+    announce(`Sorted ${MERGE_SORT_LABEL[sort]}.${regrouped}`);
   };
 
   const setRange = (id: string, range: string) =>
@@ -444,15 +461,13 @@ export function MergeRunner() {
     if (option === "pages") {
       if (fileSelectionError) return;
       const lib = arrange ?? (await import("./merge-pages-state"));
-      const chosen = selections.map((s) => s.pages ?? undefined);
-      const next = stash
-        ? lib.applyRanges(lib.syncFiles(stash, items), items, chosen)
-        : lib.seedPages(
-            items,
-            mode === "alternate" ? "alternate" : "append",
-            chosen,
-            items.map((item) => item.reverse),
-          );
+      const next = lib.resumePages(
+        stash,
+        items,
+        mode === "alternate" ? "alternate" : "append",
+        selections.map((s) => s.pages ?? undefined),
+        items.map((item) => item.reverse),
+      );
       setArrange(() => lib);
       setPages(next);
       setStash(null);
@@ -480,6 +495,7 @@ export function MergeRunner() {
       setStash(view.pages);
       setPages(null);
       setDrafts({});
+      setUndo(null);
     }
     setMode(option);
   };
@@ -489,18 +505,14 @@ export function MergeRunner() {
       setPages((prev) => (prev ? change(prev) : prev)),
     [],
   );
-  // "Reset to file order": the list as One after another would seed it,
-  // keeping each file's chosen pages.
-  const fileSeed = view
-    ? view.lib.seedPages(
-        listItems,
-        "append",
-        listItems.map((item) => {
-          const kept = view.lib.keptSetOf(view.pages, item.id);
-          return kept.length === item.pageCount ? undefined : kept;
-        }),
-      )
-    : null;
+  // "Reset to file order", built once per change of the list, not per render.
+  const fileSeed = useMemo(
+    () =>
+      mode === "pages" && pages && arrange
+        ? arrange.fileSeedOf(pages, items)
+        : null,
+    [mode, pages, arrange, items],
+  );
   const gridFiles = useMemo(
     () =>
       items.map(({ id, name, bytes, pageCount }) => ({
@@ -520,6 +532,8 @@ export function MergeRunner() {
     stash !== null &&
     arrange !== null &&
     arrange.arrangementBeyondFiles(stash);
+  // ...and its pages mix files, so the file order chosen here cannot apply.
+  const stashMixed = beyond && arrange.filesInterleave(stash);
   const firstError = items.find((item) => errorOf(item) !== null);
 
   const onMerge = () =>
@@ -698,7 +712,9 @@ export function MergeRunner() {
           ))}
         </span>
         {view && (
-          <span className="text-muted">groups each file&apos;s pages</span>
+          <span className="text-muted w-full">
+            Sorting puts each file&apos;s pages back together.
+          </span>
         )}
       </div>
       <div
@@ -760,6 +776,8 @@ export function MergeRunner() {
           <span className="text-muted w-full">
             Your page arrangement is kept. Choose {MERGE_MODE_LABEL.pages} again
             to use it.
+            {stashMixed &&
+              " Its pages mix files, so the file order chosen here does not change it."}
           </span>
         )}
       </div>
@@ -770,7 +788,8 @@ export function MergeRunner() {
             <OrderNote note={ordered} onKeep={keepDropOrder} />
           ) : view ? (
             <span className="text-muted text-xs">
-              Pages boxes choose which pages; the grid below sets their order.
+              Use the Pages box to choose a file&apos;s pages; drag in the grid
+              to set their order.
             </span>
           ) : (
             <span className="text-muted text-xs">
@@ -940,10 +959,22 @@ export function MergeRunner() {
             update={updatePages}
             announce={announce}
             onReset={() => {
-              setPages(fileSeed);
+              const lost = replacePages(fileSeed);
               setDrafts({});
-              announce("Reset to file order.");
+              announce(
+                `Reset to file order.${lost ? " Undo brings your order back." : ""}`,
+              );
             }}
+            onUndo={
+              undo && undo.after === view.pages
+                ? () => {
+                    setPages(undo.before);
+                    setUndo(null);
+                    setDrafts({});
+                    announce("Your page order is back.");
+                  }
+                : undefined
+            }
             resetDisabled={view.lib.samePages(view.pages, fileSeed)}
           />
         </RunnerSection>
@@ -980,6 +1011,7 @@ export function MergeRunner() {
           <label
             htmlFor={bookmarksId}
             className="text-fg flex items-start gap-2 text-sm"
+            style={interleaved ? OFF_STYLE : undefined}
           >
             <input
               id={bookmarksId}
@@ -987,6 +1019,7 @@ export function MergeRunner() {
               checked={fileBookmarks && !interleaved}
               aria-disabled={interleaved || undefined}
               aria-describedby={interleaved ? mixedNoteId : undefined}
+              style={interleaved ? INPUT_OFF_STYLE : undefined}
               onChange={(e) => {
                 if (!interleaved) setFileBookmarks(e.target.checked);
               }}
@@ -1005,6 +1038,7 @@ export function MergeRunner() {
           <label
             htmlFor={contentsId}
             className="text-fg flex items-start gap-2 text-sm"
+            style={interleaved ? OFF_STYLE : undefined}
           >
             <input
               id={contentsId}
@@ -1012,6 +1046,7 @@ export function MergeRunner() {
               checked={contentsPage && !interleaved}
               aria-disabled={interleaved || undefined}
               aria-describedby={interleaved ? mixedNoteId : undefined}
+              style={interleaved ? INPUT_OFF_STYLE : undefined}
               onChange={(e) => {
                 if (!interleaved) setContentsPage(e.target.checked);
               }}
@@ -1030,6 +1065,7 @@ export function MergeRunner() {
           <label
             htmlFor={blankId}
             className="text-fg flex items-start gap-2 text-sm"
+            style={interleaved ? OFF_STYLE : undefined}
           >
             <input
               id={blankId}
@@ -1037,6 +1073,7 @@ export function MergeRunner() {
               checked={blankAfterOdd && !interleaved}
               aria-disabled={interleaved || undefined}
               aria-describedby={interleaved ? mixedNoteId : undefined}
+              style={interleaved ? INPUT_OFF_STYLE : undefined}
               onChange={(e) => {
                 if (!interleaved) setBlankAfterOdd(e.target.checked);
               }}
