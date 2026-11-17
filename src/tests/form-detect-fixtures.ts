@@ -352,6 +352,9 @@ const P19 = {
   labels: ["Surname:", "Forenames:", "Date of birth:", "Nationality:"],
 };
 
+/** Three captioned lines at an even pitch: an address block. */
+const P20 = { ys: [600, 568, 536] };
+
 const P10_CROP: Box = { x: 36, y: 48, width: 540, height: 696 };
 const N19_CROP = { x: 0, y: 0, width: 400, height: 792 };
 const N10 = { x: 100, y: 300, w: 400, h: 120 };
@@ -863,6 +866,29 @@ export const DETECT_CASES: readonly DetectCase[] = [
       label: P19.labels[i]!.slice(0, -1),
       page: 1,
       box: ruleBox(146, 420, y, 11),
+    })),
+  },
+  {
+    id: "P20",
+    kind: "positive",
+    note: "an address block of three captioned lines whose middle row has City, State and ZIP code: a form, not a table",
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const y of P20.ys) rule(page, 72, 400, y, 0.5);
+      await text(page, H, "Street address", 74, 590, 8);
+      await text(page, H, "City", 74, 558, 8);
+      await text(page, H, "State", 200, 558, 8);
+      await text(page, H, "ZIP code", 300, 558, 8);
+      await text(page, H, "Country", 74, 526, 8);
+      return save(d);
+    },
+    expect: ["Street address", "City", "Country"].map((label, i) => ({
+      rule: "labelled-rule" as const,
+      type: "text" as const,
+      label,
+      page: 1,
+      box: ruleBox(72, 400, P20.ys[i]!, 8),
     })),
   },
 

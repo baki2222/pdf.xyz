@@ -155,8 +155,9 @@ export const DETECT = {
   /**
    * Grid with no plumb lines (a table ruled in rows only): 3 or more rules
    * whose ends line up within 2 pt, at a pitch even within 2 pt, with text
-   * in two or more columns (24 pt apart) between two of them. A rule with a
-   * label to its left is never one of a table's rows.
+   * in two or more columns (24 pt apart) in every row between them that
+   * holds text, and at least one such row. A rule with a label to its left
+   * is never one of a table's rows.
    */
   GRID_ROWS_MIN: 3,
   GRID_ROW_EPS: 2,
@@ -951,9 +952,12 @@ function gridTouches(line: Line, verticals: PageLines["verticals"]): boolean {
  * The rules of tables ruled in rows only: no plumb line for
  * {@link gridTouches} to find, so the rows themselves are the sign. A stack
  * of {@link DETECT.GRID_ROWS_MIN} or more candidate rules whose two ends line
- * up, at an even pitch, with text in two or more columns between two of them
- * (a header or an item row). Stacked lines with one caption each (a form's
- * name / street / city) have text in one column only and are left alone.
+ * up, at an even pitch, where at least one row (the space between two of
+ * them) holds text and EVERY row that holds text has two or more columns: a
+ * table repeats its columns row after row (a blank table has its header).
+ * Stacked lines with one caption each (a form's name / street / city) are
+ * left alone, and so is an address block whose one City / State / ZIP row
+ * has three captions: one such row once made the whole stack a table.
  *
  * A rule with a label to its LEFT is a field's line whatever its neighbours
  * (`classifyPage` asks this, not this function): a rows-only table's rules
@@ -1006,15 +1010,15 @@ function rowTables(rules: readonly Line[], all: readonly Piece[]): Set<Line> {
         ) <= DETECT.GRID_PITCH_EPS;
       if (even) continue;
       const runOf = stack.slice(from, k);
-      if (
-        runOf.length >= DETECT.GRID_ROWS_MIN &&
-        runOf.some(
-          (lo, i) =>
-            i + 1 < runOf.length &&
-            columns(lo, runOf[i + 1]!, seed.x0, seed.x1) >= 2,
-        )
-      )
-        runOf.forEach((r) => out.add(r));
+      if (runOf.length >= DETECT.GRID_ROWS_MIN) {
+        // The columns of each row (between two rules) that holds text.
+        const filled = runOf
+          .slice(1)
+          .map((hi, i) => columns(runOf[i]!, hi, seed.x0, seed.x1))
+          .filter((n) => n > 0);
+        if (filled.length > 0 && filled.every((n) => n >= 2))
+          runOf.forEach((r) => out.add(r));
+      }
       from = k - 1;
     }
   }

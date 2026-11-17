@@ -879,6 +879,45 @@ describe("exclusions, each at its boundary", () => {
         "City",
       ]);
     });
+
+    // ONE band with two columns made the whole stack a table, so an address
+    // block whose City / State / ZIP row has three captions lost every field
+    // (review finding; corpus P20). A table repeats its columns in every row
+    // that holds text; a caption stack is mostly one caption a row.
+    it("every row that holds text must have two columns, not just one row", () => {
+      const block = (state: boolean) =>
+        rows({
+          ys: [600, 568, 536],
+          text: [
+            txt("Street address", 132, 590, { width: 55, size: 8 }),
+            txt("City", 132, 558, { width: 15, size: 8 }),
+            ...(state
+              ? [
+                  txt("State", 250, 558, { width: 20, size: 8 }),
+                  txt("ZIP code", 350, 558, { width: 32, size: 8 }),
+                ]
+              : []),
+            txt("Country", 132, 526, { width: 30, size: 8 }),
+          ],
+        });
+      expect(ruled(block(true))).toBe(0);
+      expect(props(block(true)).map((f) => f.label)).toEqual([
+        "Street address",
+        "City",
+        "Country",
+      ]);
+      expect(props(block(false))).toHaveLength(3);
+      // A table whose every row holds two columns is still a table.
+      const table = rows({
+        ys: [600, 580, 560],
+        text: [
+          ...header(),
+          txt("Widget", 135, 566, { width: 30, size: 10 }),
+          txt("10.00", 205, 566, { width: 30, size: 10 }),
+        ],
+      });
+      expect(ruled(table)).toBe(3);
+    });
   });
 
   it("GRID_TOUCH_EPS: a plumb line 1 pt off touches, 1.1 pt off does not", () => {
