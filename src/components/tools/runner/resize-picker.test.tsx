@@ -172,6 +172,36 @@ describe("Resize PDF · pick the pages, each labelled with its size", () => {
   }, 30_000);
 });
 
+// Review 2026-11-17: the target starts on the regional paper (Letter in
+// jsdom's en-US), but Custom was seeded with A4, so a Letter browser pressing
+// Custom saw 210 x 297 mm. Custom now opens on the size in effect.
+describe("Resize PDF · Custom opens on the size in effect", () => {
+  const field = (side: "Width" | "Height") =>
+    screen.getByLabelText<HTMLInputElement>(`${side} (mm)`).value;
+  const custom = () =>
+    fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+
+  it("the regional Letter, then a pressed A4, then an edit kept", async () => {
+    await mount();
+    custom();
+    expect([field("Width"), field("Height")]).toEqual([
+      String(fromPoints(LETTER.size.width, "mm")),
+      String(fromPoints(LETTER.size.height, "mm")),
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: A4.label }));
+    custom();
+    expect([field("Width"), field("Height")]).toEqual([
+      String(fromPoints(A4.size.width, "mm")),
+      String(fromPoints(A4.size.height, "mm")),
+    ]);
+    fireEvent.change(screen.getByLabelText("Width (mm)"), {
+      target: { value: "100" },
+    });
+    custom();
+    expect(field("Width")).toBe("100");
+  });
+});
+
 describe("Resize PDF · the page says what Selected pages does", () => {
   it("names the thumbnails and their size labels, with a caption the code draws", async () => {
     const { default: content } = await import("@/lib/tools/content/resize-pdf");

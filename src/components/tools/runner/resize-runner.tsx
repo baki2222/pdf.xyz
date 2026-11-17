@@ -79,6 +79,7 @@ export function ResizeEditor({
     chosenSize ?? regionalChoice(RESIZE_SIZES, regional);
   const [unit, setUnit] = useState<LengthUnit>("mm");
   // The custom size, in points, so changing the unit never changes it.
+  // Pressing Custom copies the size in effect into it.
   const [custom, setCustom] = useState({ width: A4.width, height: A4.height });
   const [orientation, setOrientation] = useState<ResizeOrientation>("match");
   const [mode, setMode] = useState<ResizeMode>("fit");
@@ -173,7 +174,13 @@ export function ResizeEditor({
               </ChipButton>
             ))}
             <ChipButton
-              onClick={() => setSizeId("custom")}
+              onClick={() => {
+                // Custom opens on the size in effect, so a Letter browser
+                // sees Letter here rather than A4 (review 2026-11-17).
+                if (sizeId !== "custom")
+                  setCustom({ width: target.width, height: target.height });
+                setSizeId("custom");
+              }}
               disabled={busy}
               active={sizeId === "custom"}
             >
