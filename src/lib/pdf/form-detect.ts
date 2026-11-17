@@ -171,10 +171,14 @@ export const DETECT = {
   /**
    * A letter's complimentary close. A line with no label to its left (only a
    * caption, the signer's printed name, or nothing) that has one of these up
-   * to SIGNOFF_ABOVE pt above it is a signature line too.
+   * to SIGNOFF_ABOVE pt above it is a signature line too. The close OPENS
+   * its text item, after any of the lead words ("Yours sincerely", "With
+   * kind regards", "Signed for and on behalf of"): a form's instruction that
+   * only contains the words ("... on behalf of the patient, please give
+   * your details:", "You are cordially invited") is not a close.
    */
   SIGNOFF_RE:
-    /\b(sincerely|regards|faithfully|truly|cordially|respectfully|on\s+behalf\s+of)\b/i,
+    /^\W*(?:(?:yours|very|kind|kindest|best|warm|warmest|with|signed|for|and)\s+)*(sincerely|regards|faithfully|truly|cordially|respectfully|on\s+behalf\s+of)\b/i,
   SIGNOFF_ABOVE: 80,
   /** Overlap with an existing field or card: IoU above this, or a centre inside. */
   IOU_EXISTING: 0.3,

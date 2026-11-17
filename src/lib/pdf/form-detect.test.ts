@@ -210,7 +210,7 @@ describe("rule tables", () => {
       "i",
     ]);
     expect([SIGNOFF_RE.source, SIGNOFF_RE.flags]).toEqual([
-      String.raw`\b(sincerely|regards|faithfully|truly|cordially|respectfully|on\s+behalf\s+of)\b`,
+      String.raw`^\W*(?:(?:yours|very|kind|kindest|best|warm|warmest|with|signed|for|and)\s+)*(sincerely|regards|faithfully|truly|cordially|respectfully|on\s+behalf\s+of)\b`,
       "i",
     ]);
   });
@@ -626,16 +626,27 @@ describe("exclusions, each at its boundary", () => {
       "Cordially,",
       "Respectfully,",
       "On behalf of Acme Ltd,",
+      "Very truly yours,",
+      "Best regards,",
+      "Warm regards,",
+      "With kind regards,",
+      "Kindest regards,",
+      "Warmest regards,",
+      "Signed for and on behalf of Acme Ltd",
     ];
-    const alternatives = /\(([^()]*)\)/
-      .exec(DETECT.SIGNOFF_RE.source)![1]!
-      .split("|");
+    // The closes: the one capturing group. The lead words: the group
+    // repeated before it.
+    const group = (re: RegExp) =>
+      (re.exec(DETECT.SIGNOFF_RE.source)?.[1] ?? "").split("|").filter(Boolean);
+    const alternatives = group(/\((?!\?)([^()]*)\)/);
+    const leads = group(/\(\?:([a-z|]+)\)\\s\+\)\*/);
 
     it("the close list and SIGNOFF_RE cover each other", () => {
       expect(alternatives.length, "SIGNOFF_RE read as empty").toBeGreaterThan(
         3,
       );
-      for (const alt of alternatives)
+      expect(leads.length, "no lead words read").toBeGreaterThan(3);
+      for (const alt of [...alternatives, ...leads])
         expect(
           CLOSES.filter((c) =>
             new RegExp(`\\b${alt.replace(/ /g, "\\s+")}\\b`, "i").test(c),
@@ -644,6 +655,23 @@ describe("exclusions, each at its boundary", () => {
         ).not.toEqual([]);
       for (const c of CLOSES)
         expect(DETECT.SIGNOFF_RE.test(c), `"${c}" is not caught`).toBe(true);
+    });
+
+    // The close was matched ANYWHERE in its text item, so a form's
+    // instruction ("... on behalf of the patient, please give your
+    // details:", "You are cordially invited ...") made every caption line
+    // under it a signature (review finding; corpus P21, P22). A close opens
+    // its line.
+    it("an instruction that only contains a close's words is not a close", () => {
+      for (const s of [
+        "If you are completing this form on behalf of the patient:",
+        "You are cordially invited to the Annual Dinner.",
+        "Please answer truly and in full.",
+      ]) {
+        expect(props(letter(s)), s).toEqual([
+          expect.objectContaining({ label: "John Smith" }),
+        ]);
+      }
     });
 
     it("a captioned line under a close is a signature line", () => {

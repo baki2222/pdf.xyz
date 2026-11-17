@@ -355,6 +355,31 @@ const P19 = {
 /** Three captioned lines at an even pitch: an address block. */
 const P20 = { ys: [600, 568, 536] };
 
+/** An instruction at y 640 over lines 32 pt apart, each with an 8 pt caption. */
+async function captionedLines(
+  instruction: string,
+  size: number,
+  captions: string[],
+): Promise<Uint8Array> {
+  const d = await doc();
+  const page = d.addPage(LETTER);
+  await text(page, H, instruction, 72, 640, size);
+  for (const [i, s] of captions.entries()) {
+    rule(page, 72, 400, 600 - 32 * i, 0.5);
+    await text(page, H, s, 74, 590 - 32 * i, 8);
+  }
+  return save(d);
+}
+function captionedExpect(captions: string[]): Expect[] {
+  return captions.map((label, i) => ({
+    rule: "labelled-rule" as const,
+    type: "text" as const,
+    label,
+    page: 1,
+    box: ruleBox(72, 400, 600 - 32 * i, 8),
+  }));
+}
+
 const P10_CROP: Box = { x: 36, y: 48, width: 540, height: 696 };
 const N19_CROP = { x: 0, y: 0, width: 400, height: 792 };
 const N10 = { x: 100, y: 300, w: 400, h: 120 };
@@ -890,6 +915,33 @@ export const DETECT_CASES: readonly DetectCase[] = [
       page: 1,
       box: ruleBox(72, 400, P20.ys[i]!, 8),
     })),
+  },
+  {
+    id: "P21",
+    kind: "positive",
+    note: 'a medical form: "If you are completing this form on behalf of the patient, ..." over three captioned lines',
+    build: () =>
+      captionedLines(
+        "If you are completing this form on behalf of the patient, please give your details:",
+        9,
+        ["Full name", "Relationship to patient", "Telephone"],
+      ),
+    expect: captionedExpect([
+      "Full name",
+      "Relationship to patient",
+      "Telephone",
+    ]),
+  },
+  {
+    id: "P22",
+    kind: "positive",
+    note: 'an RSVP card: "You are cordially invited to the Annual Dinner." over two captioned lines',
+    build: () =>
+      captionedLines("You are cordially invited to the Annual Dinner.", 12, [
+        "Guest name",
+        "Number attending",
+      ]),
+    expect: captionedExpect(["Guest name", "Number attending"]),
   },
 
   // ---------------------------------------------------------- negatives
