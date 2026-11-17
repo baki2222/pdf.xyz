@@ -3,13 +3,7 @@
 import { RunReason } from "@/components/tools/runner/run-reason";
 import { useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import {
-  Download,
-  FileOutput,
-  Maximize2,
-  MousePointerClick,
-  Trash2,
-} from "lucide-react";
+import { Download, FileOutput, MousePointerClick, Trash2 } from "lucide-react";
 import { deletePages, extractPages } from "@/lib/pdf/engine";
 import { parsePageList } from "@/lib/pdf/ranges";
 import { downloadBytes } from "@/lib/pdf/browser";
@@ -37,23 +31,13 @@ import {
   selectRange,
   toggleIndex,
 } from "./selection";
-import { PageTile, TileAction } from "./page-tile";
+import { PageTile } from "./page-tile";
+import { LazyPageZoomDialog, ZoomButton } from "./page-zoom-lazy";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { usePdfThumbnails } from "./use-pdf-thumbnails";
 import type { LoadedPdf } from "./use-single-pdf";
 
 type Mode = "extract" | "delete";
-
-/**
- * Each tile's enlarge button (audit remove-pages#3) — the page's copy quotes
- * its shape. The dialog it opens loads with next/dynamic on the first press.
- */
-export const zoomLabel = (pageNumber: number) =>
-  `View page ${pageNumber} larger`;
-
-const PageZoomDialog = dynamic(() =>
-  import("./page-zoom-dialog").then(({ PageZoomDialog }) => PageZoomDialog),
-);
 
 interface ModeConfig {
   actionIcon: typeof FileOutput;
@@ -115,14 +99,55 @@ export const PAGE_SELECT_TOOLS = {
   delete: { slug: "remove-pages", name: "Delete Pages" },
 } as const satisfies Record<Mode, { slug: string; name: string }>;
 
+/**
+ * The owner-password field, its refusal and the opened file's note
+ * (`./owner-password-pdf`, over `./owner-password`), fetched only when an
+ * encrypted file has been refused, or the field opened one.
+ */
+const OwnerPdfRefusal = dynamic(() =>
+  import("./owner-password-pdf").then((m) => m.OwnerPdfRefusal),
+);
+const OwnedPdf = dynamic(() =>
+  import("./owner-password-pdf").then((m) => m.OwnedPdf),
+);
+
+/**
+ * An encrypted PDF is refused as it opens; under the refusal, the
+ * owner-password field (competitor-audit backlog #11). The extracted or
+ * remaining pages are a NEW file with no encryption, so only the owner
+ * password may open it here (`openForCopy`): the open password of a file
+ * whose author restricts it, or none, is refused with the reason. The open
+ * password of a file whose author restricts NOTHING opens it, and the new
+ * PDF drops that password: no restriction is lifted, as in Grayscale PDF.
+ */
 export function PageSelectRunner({ mode }: { mode: Mode }) {
   const config = CONFIG[mode];
   const { slug: handoffSlug, name: toolName } = PAGE_SELECT_TOOLS[mode];
+  const [owned, setOwned] = useState<LoadedPdf | null>(null);
+  if (owned)
+    return (
+      <OwnedPdf pdf={owned} tool={handoffSlug} toolName={toolName}>
+        <PageSelectEditor
+          pdf={owned}
+          onReset={() => setOwned(null)}
+          config={config}
+        />
+      </OwnedPdf>
+    );
   return (
     <SinglePdfRunner
       hint={config.emptyHint}
       handoffSlug={handoffSlug}
       toolName={toolName}
+      errorAside={(error) =>
+        error.kind === "encrypted" ? (
+          <OwnerPdfRefusal
+            error={error}
+            tool={handoffSlug}
+            onOpened={setOwned}
+          />
+        ) : null
+      }
     >
       {(pdf, reset) => (
         <PageSelectEditor pdf={pdf} onReset={reset} config={config} />
@@ -317,16 +342,14 @@ function PageSelectEditor({
               className="h-full"
             />
             <span className="absolute top-2 right-2 z-10">
-              <TileAction onClick={() => setZoom(i)} title={zoomLabel(i + 1)}>
-                <Maximize2 className="size-3.5" aria-hidden />
-              </TileAction>
+              <ZoomButton pageNumber={i + 1} onClick={() => setZoom(i)} />
             </span>
           </div>
         ))}
       </div>
 
       {zoom !== null && (
-        <PageZoomDialog
+        <LazyPageZoomDialog
           bytes={pdf.bytes}
           pageCount={pdf.pageCount}
           index={zoom}

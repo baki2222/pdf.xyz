@@ -128,7 +128,13 @@ export function SinglePdfRunner({
    * those restrictions on `pdf.protection` — see `useSinglePdf`.
    */
   openProtected?: boolean;
-  /** Drawn under a refusal — Grayscale PDF's password field. */
+  /**
+   * Drawn IN PLACE of the refusal when it returns one (not null): a
+   * password field and the refusal worded for it — Grayscale PDF's, and the
+   * owner-password field's, which points at the field (review 2026-11-17:
+   * the tool-wide "Unlock PDF first, then try again" sat over it). One
+   * prop, so no page that has no field pays for a second.
+   */
   errorAside?: (error: SinglePdfError) => ReactNode;
   /**
    * A tool that KEEPS existing signatures for some files says so in its own
@@ -268,8 +274,10 @@ export function SinglePdfRunner({
           hint={hint}
         />
       )}
-      {error && <ErrorNote message={error.message} cause={error} />}
-      {error && errorAside?.(error)}
+      {error &&
+        (errorAside?.(error) ?? (
+          <ErrorNote message={error.message} cause={error} />
+        ))}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { LockKeyhole } from "lucide-react";
 import type { ProtectedPdf } from "@/lib/pdf/security/protected-pdf";
 import { GRANT_PERMISSION_NAME } from "@/lib/pdf/restricted-grant-names";
@@ -14,7 +15,16 @@ import type { LoadedPdf } from "./use-single-pdf";
  * the tool asks for ONE of the author's permissions, and either the file
  * grants it — the tool runs, and says so — or it does not, and the tool
  * says which permission was withheld and that only the owner password lifts
- * it. Nothing here lifts a restriction.
+ * it. Nothing here lifts a restriction without the owner password.
+ *
+ * WITHHELD, the refusal carries the owner-password field
+ * (`./owner-password-pdf`, loaded with `next/dynamic` only when this refusal
+ * draws; competitor-audit backlog #11). Until 2026-11-17 it ended "Unlock
+ * PDF removes the restrictions with that password." — an upload, for a
+ * password the browser can check; Unlock PDF is now the alternative, for
+ * a copy without the restrictions. With the owner password the file opens
+ * here, unlocked: Rotate PDF still writes the rotation under the author's
+ * encryption, Extract Images reads the images.
  *
  * Its own module, imported only by the runners that open such a file
  * (`openProtected`), so no other page carries these sentences.
@@ -45,8 +55,8 @@ export const GRANTED_NOTE: Record<RestrictedGrant, string> = {
 
 /** Said instead of the tool when the author withholds it. */
 export const WITHHELD_MESSAGE: Record<RestrictedGrant, string> = {
-  assemble: `This PDF's author doesn't allow its pages to be rotated, inserted or deleted (the ${GRANT_PERMISSION_NAME.assemble} permission), so Rotate PDF can't change it without the owner password. Unlock PDF removes the restrictions with that password.`,
-  copy: `This PDF's author doesn't allow copying its text and images (the ${GRANT_PERMISSION_NAME.copy} permission), so Extract Images can't take them out without the owner password. Unlock PDF removes the restrictions with that password.`,
+  assemble: `This PDF's author doesn't allow its pages to be rotated, inserted or deleted (the ${GRANT_PERMISSION_NAME.assemble} permission), so Rotate PDF can't change it without the owner password. Type the owner password below to rotate it here; Unlock PDF can remove the restrictions with it instead.`,
+  copy: `This PDF's author doesn't allow copying its text and images (the ${GRANT_PERMISSION_NAME.copy} permission), so Extract Images can't take them out without the owner password. Type the owner password below to extract them here; Unlock PDF can remove the restrictions with it instead.`,
 };
 
 export function RestrictedGrantNote({ grant }: { grant: RestrictedGrant }) {
@@ -62,20 +72,37 @@ export function RestrictedGrantNote({ grant }: { grant: RestrictedGrant }) {
   );
 }
 
-/** The file header, why the tool cannot run on it, and a way back. */
+/** The field, fetched only when a refusal below draws. */
+const OwnerPdfField = dynamic(() =>
+  import("./owner-password-pdf").then((m) => m.OwnerPdfField),
+);
+
+/**
+ * The file header, why the tool cannot run on it, the owner-password field,
+ * and a way back.
+ */
 export function RestrictedGrantRefusal({
   pdf,
   grant,
   onReset,
+  onOpened,
 }: {
   pdf: LoadedPdf;
   grant: RestrictedGrant;
   onReset: () => void;
+  /** The owner password opened it: the file, unlocked. */
+  onOpened: (pdf: LoadedPdf) => void;
 }) {
   return (
     <div data-restricted-withheld={grant} className="flex flex-col gap-4">
       <FileHeader pdf={pdf} />
       <ErrorNote message={WITHHELD_MESSAGE[grant]} />
+      <OwnerPdfField
+        file={pdf.file}
+        tool={grant === "assemble" ? "rotate-pdf" : "extract-images"}
+        grant={{ key: grant, allows: (p) => grantAllows(p, grant) }}
+        onOpened={onOpened}
+      />
       <div>
         <button
           type="button"
