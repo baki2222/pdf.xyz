@@ -55,6 +55,7 @@ import { provesTranslateOcr } from "@/lib/workers/translate/ocr-capability";
 import { provesTranslateReadingOrder } from "@/lib/workers/translate/reading-order-capability";
 import { provesTranslatePageMap } from "@/lib/workers/translate/page-map-capability";
 import { provesTranslatePageRange } from "@/lib/workers/translate/page-range-capability";
+import { provesCsvImportOptions } from "@/lib/workers/office-conversion/csv-capability";
 import { provesHtmlZip } from "@/lib/workers/html-render/zip-capability";
 import { provesChatRetrieval } from "@/lib/workers/chat-with-pdf/retrieval-capability";
 import { provesSummarizePages } from "@/lib/workers/summarize/pages-capability";
@@ -178,6 +179,14 @@ export const PROVED_CAPABILITIES = defineProvers({
   // "Page 2", "Page 4" (or "Pages 2, 4"), and page 6 fails with no call.
   translatePageRange: {
     prove: (env) => provesTranslatePageRange(env),
+    parse: bool,
+  },
+  // Competitor audit #18: Excel to PDF opens a .csv with the chosen
+  // delimiter and character set. Jobs through the executor's order with the
+  // image's own LibreOffice runner; only the soffice process is a stand-in
+  // (the real LibreOffice reads the codes in `worker:office-input-proof`).
+  csvImportOptions: {
+    prove: (env) => provesCsvImportOptions(env),
     parse: bool,
   },
 });

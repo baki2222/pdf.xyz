@@ -23,10 +23,15 @@ import {
   runningWorkerEnforcesAiReadCap,
   runningWorkerSummarizesPages,
   runningWorkerTranslatesPageRanges,
+  runningWorkerReadsCsvImportOptions,
   runningWorkerTranslatesScans,
 } from "@/lib/workers/heartbeat";
 import { SUMMARIZE_PAGES_NOT_RUNNING_MESSAGE } from "@/lib/jobs/summarize-pages";
 import { TRANSLATE_PAGES_NOT_RUNNING_MESSAGE } from "@/lib/jobs/translate-pages";
+import {
+  CSV_IMPORT_NOT_RUNNING_MESSAGE,
+  carriesCsvImportOptions,
+} from "@/lib/workers/office-conversion/csv-import";
 import { translateAsksForOcr } from "@/lib/jobs/translate-pdf";
 import {
   HTML_ZIP_ENTRY_OPTION,
@@ -201,6 +206,20 @@ export async function POST(request: Request): Promise<Response> {
     return respond(
       apiError("not_implemented", TRANSLATE_PAGES_NOT_RUNNING_MESSAGE),
     );
+
+  // AN EXCEL JOB NAMING A CSV DELIMITER OR CHARACTER SET IS ADMITTED ONLY
+  // WHEN THE RUNNING WORKER READS THEM (competitor audit #18) -- the same
+  // predicate the page's offer uses (`liveWorkerReadsCsvImportOptions`). An
+  // image built before the feature parses options leniently: it DROPS both
+  // keys and reads the CSV as comma separated, the one-column printout the
+  // choice exists to fix. Refused here, with nothing charged (Office
+  // conversion is never charged).
+  if (
+    parsed.value.tool === "excel-to-pdf" &&
+    carriesCsvImportOptions(parsed.value.options) &&
+    !(await runningWorkerReadsCsvImportOptions())
+  )
+    return respond(apiError("not_implemented", CSV_IMPORT_NOT_RUNNING_MESSAGE));
 
   /**
    * What this job is charged, and what it may then deliver.
