@@ -113,7 +113,10 @@ import {
   drawObject,
   PDFDocument,
   PDFArray,
+  PDFHexString,
+  PDFName,
   PDFRawStream,
+  PDFString,
   decodePDFRawStream,
   popGraphicsState,
   pushGraphicsState,
@@ -155,6 +158,7 @@ import { mergePdfs } from "@/lib/pdf/engine";
 import { MERGE_MODES } from "@/lib/pdf/merge-order";
 import { addWatermark } from "@/lib/pdf/watermark";
 import { signatureRequestDeps } from "@/lib/workers/request-signatures/native";
+import { runSignatureRequest } from "@/lib/workers/request-signatures/engine";
 import {
   PDF_OFFICE_EXPORT_TOOLS,
   PDF_TO_EXCEL_TOOL,
@@ -840,6 +844,71 @@ function pageSetupWords(source: string): string[] {
   ].map((m) => m[0]);
 }
 
+/**
+ * THE PROPERTY behind Request Signatures' label copy: does a label the
+ * requester gives a box reach the PDF a signer opens, and the README? Asked
+ * of the whole production chain the worker runs (`runSignatureRequest` with
+ * `signatureRequestDeps()`, so an engine that dropped the label before the
+ * placer is caught too) on a real PDF, with a Bengali label built from code
+ * points, read back out of the ZIP: /TU on the field (where Acrobat and
+ * pdf-lib read it) and on its widget (where pdf.js reads it).
+ * `native.integration.test.ts` reads the same through pdf.js itself, for
+ * three scripts, with a broken-encoder control.
+ */
+async function labelledJob(): Promise<{
+  reaches: boolean;
+  listed: boolean;
+  evidence: string;
+}> {
+  const label = String.fromCodePoint(0x09a8, 0x09be, 0x09ae);
+  const name = "Signer1-Text-1";
+  const doc = await PDFDocument.create();
+  doc.addPage([612, 792]);
+  const run = await runSignatureRequest(
+    await doc.save(),
+    {
+      signers: [{ name: "Ada Lovelace", email: "ada@example.com" }],
+      fields: [
+        {
+          signer: 0,
+          page: 1,
+          type: "text",
+          x: 0.1,
+          y: 0.1,
+          width: 0.3,
+          height: 0.05,
+          required: true,
+          label,
+        },
+      ],
+      routing: "parallel",
+      deliver: false,
+    },
+    signatureRequestDeps(),
+  );
+  if (!run.ok) throw new Error(run.message);
+  const zip = await JSZip.loadAsync(run.output);
+  const out = await PDFDocument.load(
+    await zip.file("prepared.pdf")!.async("uint8array"),
+  );
+  const readme = await zip.file("README.txt")!.async("string");
+  // Health: the field the request asked for is in the output, with a widget.
+  const field = out.getForm().getTextField(name).acroField;
+  const dicts = [field.dict, ...field.getWidgets().map((w) => w.dict)];
+  if (dicts.length < 2) throw new Error(`${name} has no widget`);
+  const read = dicts.map((d) => {
+    const tu = d.lookup(PDFName.of("TU"));
+    return tu instanceof PDFHexString || tu instanceof PDFString
+      ? tu.decodeText()
+      : null;
+  });
+  return {
+    reaches: read.every((t) => t === label),
+    listed: readme.split("\n").includes(`     ${name} label: ${label}`),
+    evidence: `/TU on the field and its widget: ${JSON.stringify(read)}`,
+  };
+}
+
 const RULES: readonly ClaimRule[] = [
   {
     id: "signature requests are sent, tracked, collected or legally binding",
@@ -1002,6 +1071,54 @@ const RULES: readonly ClaimRule[] = [
         present: !(reachable && moves),
         evidence: `request-layout.ts in the panel's closure: ${reachable}; moveField changes x: ${moves} (${box!.x} -> ${moved.x})`,
       };
+    },
+  },
+  {
+    // ADDED 2026-11-17, the day the label began reaching the PDF. #359 let a
+    // reader label a box (up to 80 characters) and the FAQ said, truly then,
+    // that the label went into manifest.json ONLY: inside prepared.pdf a Name
+    // box was just Signer1-Text-1, so a signer could not tell what it was for.
+    // The placer now writes the label as the box's /TU (its tooltip) and the
+    // README lists it under its signer, so "manifest only" is false. The
+    // field NAME did not change, and the honest copy says so.
+    //
+    // Version skew: publish.yml restarts both tiers at once, so for a moment
+    // a new page can sit beside an old worker that writes no /TU. The
+    // replacement copy is phrased to hold either way (it makes the tooltip
+    // conditional on README.txt listing the labels, which the same worker
+    // writes in the same job) and is pinned in "the replacement copy states
+    // what the output actually is" below.
+    id: "request-signatures says a box's label stays out of the PDF",
+    subjects: () => panelMounts().get("RequestSignaturesWorkerPanel") ?? [],
+    shapes: {
+      "manifest only": /\bmanifest(?:\.json)?\s+only\b/i,
+      "only in the manifest":
+        /\bonly\s+(?:in|into|to)\s+(?:the\s+)?manifest\b/i,
+      "label not in the PDF":
+        /\blabels?\b[^.]*\b(?:not|never)\b[^.]*\b(?:in|inside|into)\s+(?:the\s+)?(?:prepared\s+)?pdf\b/i,
+      "inside the PDF it is still called":
+        /\binside the PDF\b[^.]*\bstill\s+(?:called|named)\b/i,
+    },
+    shipped: [
+      // The FAQ answer from #359 (2e832891) to this change.
+      "A label you give a box, up to 80 characters, is written into manifest.json only, so inside the PDF a Name box is still called Signer1-Text-1.",
+      // The placement brief's version of the same sentence.
+      "A box's label, up to 80 characters, is written into manifest.json only: inside the PDF each box is named after its owner and type, such as Signer1-Text-1 for a Name box.",
+    ],
+    synonyms: [
+      "Labels are recorded only in the manifest.",
+      "The label is not written into the PDF.",
+      "A label never goes inside the prepared PDF.",
+    ],
+    honest: [
+      "Fields are named after their owner and type, such as Signer1-Signature-1, Signer1-Initials-1, Signer1-Date-1 and Signer1-Text-1, and the names stay that way.",
+      "A label you give a box, up to 80 characters, is recorded in manifest.json.",
+      "If README.txt lists your labels under each signer, prepared.pdf carries them too, as each box's tooltip, which many PDF viewers, Firefox among them, show when you point at the box.",
+      "Each label is also the tooltip of its box in prepared.pdf, which many PDF viewers show when you point at the box.",
+    ],
+    probe: async () => {
+      const { reaches, evidence } = await labelledJob();
+      return { present: !reaches, evidence };
     },
   },
   // RETIRED 2026-11-07, history kept: "PDF to PNG produces a transparent
@@ -1733,6 +1850,48 @@ describe("tool pages do not promise capabilities the tool does not have", () => 
  * ------------------------------------------------------------------ */
 
 describe("the replacement copy states what the output actually is", () => {
+  it("Request Signatures names the label tooltip and the README list exactly when the worker writes them", async () => {
+    const subject = "request-signatures";
+    // THE CAPABILITY, both halves, from the production engine + placer: the
+    // /TU the PDF carries and the README list a labelled job writes.
+    const { reaches, listed, evidence } = await labelledJob();
+    // THE CLAIMS, read through the same attribution the bans use.
+    const tooltip = /\btooltip\b/i;
+    const readmeLists = /\bREADME\.txt\b[^.]*\blists?\b[^.]*\blabels?\b/i;
+    const said = { tooltip: [] as string[], readme: [] as string[] };
+    let seen = 0;
+    for (const container of await containersFor(subject))
+      for (const { sentence, masked } of attributedTo(container, subject)) {
+        seen += 1;
+        if (tooltip.test(masked)) said.tooltip.push(sentence);
+        if (readmeLists.test(masked)) said.readme.push(sentence);
+      }
+    expect(seen, "the corpus went blind").toBeGreaterThanOrEqual(15);
+    // Both ways: copy that names the tooltip needs a /TU (and the README
+    // list it is conditioned on), and a /TU nobody is told about is a
+    // feature no reader can find.
+    expect(
+      {
+        tooltipWritten: reaches,
+        readmeLists: listed,
+        copyNamesTooltip: said.tooltip.length > 0,
+        copyNamesReadmeList: said.readme.length > 0,
+      },
+      `${evidence}; tooltip copy: ${said.tooltip.join(" | ")}`,
+    ).toEqual({
+      tooltipWritten: true,
+      readmeLists: true,
+      copyNamesTooltip: true,
+      copyNamesReadmeList: true,
+    });
+    // Skew: every sentence naming the tooltip conditions it on the README
+    // list, which an older worker (no /TU, no list) does not write either.
+    for (const sentence of said.tooltip)
+      expect(sentence, "an unconditional tooltip claim").toMatch(
+        /^If README\.txt lists\b/,
+      );
+  });
+
   it("HTML to PDF says paste exactly when its panel has a paste box", async () => {
     // The CAPABILITY, from the panel's whole module graph (its lazy children
     // included): a <textarea> somewhere a reader of /tools/html-to-pdf can
