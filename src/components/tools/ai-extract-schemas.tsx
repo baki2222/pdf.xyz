@@ -137,9 +137,17 @@ export function AiExtractSchemas({
     if (tooLarge) return say("err", `${tooLarge} Nothing was changed.`);
     let text: string;
     try {
-      text = await file.text();
+      // JSON is UTF-8 (RFC 8259), and the export writes UTF-8: decoded
+      // strictly, so a file in another encoding is refused, never read
+      // with replacement characters standing in for its letters.
+      text = new TextDecoder("utf-8", { fatal: true }).decode(
+        await file.arrayBuffer(),
+      );
     } catch {
-      return say("err", "This file could not be read. Nothing was changed.");
+      return say(
+        "err",
+        "This file could not be read as a schema file. Nothing was changed.",
+      );
     }
     const parsed = parseSchemaFile(text);
     if (!parsed.ok) return say("err", `${parsed.message} Nothing was changed.`);

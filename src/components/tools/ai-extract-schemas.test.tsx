@@ -138,13 +138,23 @@ async function runAndReadSchema(container: HTMLElement) {
   return network.jobBodies[0]!.options;
 }
 
-function importFile(text: string, name = "schema.json") {
+function importFile(text: string | Uint8Array, name = "schema.json") {
   const input = document.querySelector(
     'input[aria-label="Schema file to import"]',
   ) as HTMLInputElement | null;
   if (!input) throw new Error("no schema import input");
   fireEvent.change(input, {
-    target: { files: [new File([text], name, { type: "application/json" })] },
+    target: {
+      files: [
+        new File(
+          [typeof text === "string" ? text : text.slice().buffer],
+          name,
+          {
+            type: "application/json",
+          },
+        ),
+      ],
+    },
   });
 }
 
@@ -325,12 +335,32 @@ describe("AI Data Extraction: saved schemas", () => {
       expect(shownFields()).toEqual(before);
       expect(name.value).toBe("Mine");
     }
+    // Not UTF-8 (a Windows-1252 byte inside an otherwise valid file): refused,
+    // never read with replacement characters for its letters.
+    const valid = new TextEncoder().encode(
+      JSON.stringify({
+        format: SCHEMA_FILE_FORMAT,
+        version: SCHEMA_FILE_VERSION,
+        name: "Caf_",
+        fields: [{ name: "a", type: "string" }],
+      }),
+    );
+    const latin1 = valid.slice();
+    latin1[latin1.indexOf(0x5f)] = 0xe9;
+    importFile(latin1);
+    await waitFor(() =>
+      expect(status()).toContain("could not be read as a schema file"),
+    );
+    expect(shownFields()).toEqual(before);
     // Too large: refused from its size alone.
     importFile("x".repeat(128 * 1024 + 1));
     await waitFor(() =>
       expect(status()).toContain("larger than a schema file"),
     );
     expect(shownFields()).toEqual(before);
+    // CONTROL: the same bytes with the ASCII byte back are opened.
+    importFile(valid);
+    await waitFor(() => expect(status()).toContain("from the file: 1 field."));
   }, 40_000);
 
   it("storage blocked: saving is off and says why, the list is not shown, and a job still runs", async () => {

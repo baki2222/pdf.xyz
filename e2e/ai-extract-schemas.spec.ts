@@ -110,6 +110,17 @@ async function run(page: Page, bodies: Record<string, unknown>[]) {
   return bodies[0]!.options;
 }
 
+/**
+ * axe with the page scrolled to the top. axe's target-size rule counts a
+ * control the sticky site header covers, so where the page happened to be
+ * scrolled decided the verdict on the field rows above Saved schemas (seen
+ * once: "Field 2 type" under the header). At the top nothing is under it.
+ */
+async function axeAtTop(page: Page) {
+  await page.evaluate(() => window.scrollTo(0, 0));
+  return axeViolations(page);
+}
+
 const status = (page: Page) =>
   page.locator('[data-chunk="pdfxyz:lazy:ai-extract-schemas"] [role="status"]');
 
@@ -127,7 +138,7 @@ test("save three fields, reload, load them, run: the job carries exactly those f
   await expect(status(page)).toContainText("3 fields, in this browser.");
 
   // axe on the open UI with a saved schema listed, and the phone width.
-  expect(await axeViolations(page)).toEqual([]);
+  expect(await axeAtTop(page)).toEqual([]);
   await page.setViewportSize({ width: 375, height: 812 });
   await page.waitForTimeout(200);
   await expectNoSidewaysScroll(page);
@@ -224,7 +235,7 @@ test("storage blocked: saving says it is off, and a job still runs", async ({
   await expect(page.getByRole("list", { name: "Saved schemas" })).toHaveCount(
     0,
   );
-  expect(await axeViolations(page)).toEqual([]);
+  expect(await axeAtTop(page)).toEqual([]);
   expect(await run(page, bodies)).toEqual({ mode: "schema", schema: THREE });
   expect(errors).toEqual([]);
 });
