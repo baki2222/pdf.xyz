@@ -138,6 +138,12 @@ export const DETECT = {
    * joined into the box a `re` would have drawn.
    */
   JOIN_EPS: 0.5,
+  /**
+   * A work bound, not a shape: a corner with more than this many edges of a
+   * square's size around it (within 1.5 pt) is left unjoined. A checkbox
+   * corner has two to four; a crowd made the pairing cubic.
+   */
+  JOIN_CROWD: 16,
   /** Underline: a baseline 0..3 pt above the line along half its length. */
   UNDERLINE_MAX_GAP: 3,
   UNDERLINE_SPAN: 0.5,
@@ -487,7 +493,11 @@ function isSquare(r: CardRect): boolean {
  * checkbox that way), joined into the Rect a `re` would have given, so they
  * are read, and excluded, exactly as one. Only edges a square could have
  * (SQUARE_MIN to SQUARE_MAX long) are tried, and each corner is looked up in
- * a map, so the cost stays linear in the page's segments.
+ * a map. A corner crowded with more than {@link DETECT.JOIN_CROWD} such
+ * edges is left unjoined, so each bottom edge tries at most JOIN_CROWD
+ * lefts, rights and tops and the cost stays linear in the page's segments.
+ * (Without that bound the map did not make it linear: 2,400 edges at one
+ * corner, every left paired with every right, took 12.7 s.)
  */
 function joinSquares(segs: readonly CardSeg[]): {
   rects: CardRect[];
@@ -507,11 +517,17 @@ function joinSquares(segs: readonly CardSeg[]): {
     else m.set(k, [v]);
   };
   const near = <T>(m: Map<string, T[]>, a: number, b: number): T[] => {
-    const out: T[] = [];
+    const lists: T[][] = [];
+    let n = 0;
     for (const da of [-1, 0, 1])
-      for (const db of [-1, 0, 1])
-        out.push(...(m.get(key(a + da, b + db)) ?? []));
-    return out;
+      for (const db of [-1, 0, 1]) {
+        const list = m.get(key(a + da, b + db));
+        if (list) {
+          lists.push(list);
+          n += list.length;
+        }
+      }
+    return n > DETECT.JOIN_CROWD ? [] : lists.flat();
   };
   const bottoms: Level[] = [];
   for (const s of segs) {

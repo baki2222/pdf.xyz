@@ -182,6 +182,7 @@ describe("rule tables", () => {
       SQUARE_SKEW: 0.2,
       SQUARE_INSET: 1,
       JOIN_EPS: 0.5, // review
+      JOIN_CROWD: 16, // review (a work bound)
       UNDERLINE_MAX_GAP: 3,
       UNDERLINE_SPAN: 0.5,
       DIVIDER_SPAN: 0.85,
@@ -555,6 +556,34 @@ describe("square-checkbox", () => {
 
     it("three of the four edges are not a square", () => {
       expect(props(four(edges().slice(0, 3)))).toEqual([]);
+    });
+
+    // Edges sharing a corner were paired every left with every right, each
+    // pairing re-scanning the corner: cubic, so 2,400 stroked segments took
+    // 12.7 s, and the cap allows 20,000 (review finding). A corner crowded
+    // past JOIN_CROWD edges is no checkbox's and is left unjoined.
+    it("JOIN_CROWD: 16 edges at a corner still join, 17 do not", () => {
+      const crowded = (k: number) =>
+        four([
+          ...edges(),
+          ...Array.from({ length: k - 1 }, () => vseg(72, 512, 500)),
+        ]);
+      expect(props(crowded(16))).toHaveLength(1);
+      expect(props(crowded(17))).toEqual([]);
+    });
+
+    it("edges crowded at one corner cost linear time, not cubic", () => {
+      const segs: CardSeg[] = [];
+      for (let k = 0; k < 400; k++)
+        segs.push(
+          hseg(100, 110, 100),
+          vseg(100, 100, 110),
+          vseg(110, 100, 115),
+        );
+      const t0 = performance.now();
+      run(pg({ segs }));
+      // Measured before the bound: about 900 ms; after it: a few ms.
+      expect(performance.now() - t0).toBeLessThan(250);
     });
   });
 
