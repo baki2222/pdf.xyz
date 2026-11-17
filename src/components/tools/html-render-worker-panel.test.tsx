@@ -23,6 +23,9 @@ import { getProviderReadiness } from "@/lib/workers/providers";
 import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
 import { HtmlRenderWorkerPanel } from "./html-render-worker-panel";
+import { HTML_PAGE_SIZES } from "@/lib/jobs/html-render-options";
+import { imagePageSizeForLocales } from "@/lib/pdf/image-page-defaults";
+import { browserLocales, regionalChoice } from "./use-regional-paper";
 import {
   WEBPAGE_CAPTURE_CHOICES,
   WEBPAGE_CAPTURE_LABELS,
@@ -390,6 +393,13 @@ describe("HtmlRenderWorkerPanel — the address is fixed or explained before any
  */
 describe("HtmlRenderWorkerPanel — Webpage to PDF capture options", () => {
   const urlTool = getToolBySlug("webpage-to-pdf")!;
+  /** The paper an untouched panel starts on in this browser (audit backlog #5). */
+  const REGIONAL_PAPER = {
+    pageSize: regionalChoice(
+      HTML_PAGE_SIZES,
+      imagePageSizeForLocales(browserLocales()),
+    ),
+  };
   let fetchMock: ReturnType<typeof vi.fn>;
 
   async function mountUrl() {
@@ -422,11 +432,20 @@ describe("HtmlRenderWorkerPanel — Webpage to PDF capture options", () => {
   const run = () =>
     fireEvent.click(screen.getByRole("button", { name: "Render PDF" }));
 
-  it("an untouched Capture group sends nothing new", async () => {
+  /*
+   * HISTORY: "an untouched Capture group sends nothing new" expected exactly
+   * `{ url }` until 2026-11-16. Since audit backlog #5 the panel's Page size
+   * starts on the browser region's paper rather than "As the page sets it",
+   * so an untouched panel sends that paper too (jsdom's en-US: Letter). The
+   * Capture group itself still adds nothing.
+   */
+  it("an untouched Capture group sends nothing new (the regional paper travels)", async () => {
     await mountUrl();
     run();
     await vi.waitFor(() =>
-      expect(sentOptions()).toEqual([{ url: "https://example.com/" }]),
+      expect(sentOptions()).toEqual([
+        { ...REGIONAL_PAPER, url: "https://example.com/" },
+      ]),
     );
   });
 
@@ -454,7 +473,7 @@ describe("HtmlRenderWorkerPanel — Webpage to PDF capture options", () => {
     run();
     await vi.waitFor(() =>
       expect(sentOptions()).toEqual([
-        { hideOverlays: true, url: "https://example.com/" },
+        { ...REGIONAL_PAPER, hideOverlays: true, url: "https://example.com/" },
       ]),
     );
   });
@@ -469,7 +488,7 @@ describe("HtmlRenderWorkerPanel — Webpage to PDF capture options", () => {
     run();
     await vi.waitFor(() =>
       expect(sentOptions()).toEqual([
-        { printStyles: false, url: "https://example.com/" },
+        { ...REGIONAL_PAPER, printStyles: false, url: "https://example.com/" },
       ]),
     );
   });
@@ -484,7 +503,7 @@ describe("HtmlRenderWorkerPanel — Webpage to PDF capture options", () => {
     run();
     await vi.waitFor(() =>
       expect(sentOptions()).toEqual([
-        { stamp: true, url: "https://example.com/" },
+        { ...REGIONAL_PAPER, stamp: true, url: "https://example.com/" },
       ]),
     );
   });

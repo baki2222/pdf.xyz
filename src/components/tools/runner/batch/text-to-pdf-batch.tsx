@@ -10,6 +10,8 @@ import {
 } from "@/lib/batch/limits";
 import { batchMaxFilesFor, TEXT_BATCH_TOOLS } from "@/lib/batch/tools";
 import { textPdfOutputName, textToPdf } from "@/lib/pdf/text-to-pdf";
+import type { TextPageOptions } from "@/lib/pdf/text-page-options";
+import { TextPageSetup } from "../text-page-setup";
 import { decodeTextFile, describeDecoding } from "@/lib/text/decode-text-file";
 import { MAX_SOURCE_BYTES, MAX_SOURCE_MB } from "@/lib/tools/limits";
 import { formatBytes } from "@/lib/utils";
@@ -26,6 +28,9 @@ export interface TextBatchProps {
   /** A Remove left one file: it opens in the editor, as a pick would. */
   onSingle: (file: File) => void;
   arrival: Arrival | null;
+  /** The editor's page setup: every file in the batch gets this page. */
+  page: TextPageOptions;
+  onPage: (next: Partial<TextPageOptions>) => void;
 }
 
 /** A finished row: its PDF as a Blob, and the facts its line reads. */
@@ -79,6 +84,8 @@ export function TextToPdfBatch({
   onReset,
   onSingle,
   arrival,
+  page,
+  onPage,
 }: TextBatchProps) {
   const { accepted, rejected } = useMemo(() => {
     const text = partitionTextFiles(files);
@@ -106,6 +113,7 @@ export function TextToPdfBatch({
       const decoded = await decodeTextFile(file, { keepFormFeeds: true });
       const name = file.name || "text.txt";
       const bytes = await textToPdf(decoded.text, {
+        ...page,
         title: name.replace(/\.[^/.]+$/, ""),
       });
       const row: TextBatchRow = {
@@ -117,7 +125,7 @@ export function TextToPdfBatch({
       const note = describeDecoding(decoded);
       return note ? withNote(row, note) : row;
     },
-    [],
+    [page],
   );
 
   const runner = useBatchRunner<TextBatchRow>(units, run, {
@@ -130,6 +138,7 @@ export function TextToPdfBatch({
       arrivedCount={files.length}
       arrival={arrival}
       rejected={rejected}
+      settings={<TextPageSetup value={page} onChange={onPage} />}
       banner={
         <div className="bg-panel border-line rounded-panel flex items-start gap-2.5 border p-4">
           <Info className="text-accent mt-0.5 size-4 shrink-0" aria-hidden />

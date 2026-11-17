@@ -2,7 +2,7 @@
 
 import { usePickFacts, usePickRefusal } from "@/components/tools/use-pick";
 import { RunReason } from "@/components/tools/runner/run-reason";
-import { useCallback, useId, useState } from "react";
+import { useCallback, useId, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   BookOpen,
@@ -50,9 +50,12 @@ import {
 } from "@/lib/jobs/epub-render-options";
 import {
   DEFAULT_HTML_RENDER_OPTIONS,
+  HTML_PAGE_SIZES,
   htmlRenderOptionsBag,
+  type HtmlPageSize,
   type HtmlRenderOptions,
 } from "@/lib/jobs/html-render-options";
+import { regionalChoice, useRegionalPaper } from "./use-regional-paper";
 import {
   useWorkerPanel,
   WorkerGate,
@@ -260,8 +263,21 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
     else setFile(files[0] ?? null);
   });
 
-  const [layout, setLayout] = useState<HtmlRenderOptions>(
-    DEFAULT_HTML_RENDER_OPTIONS,
+  // The layout the job API defaults to, except the paper: it starts on the
+  // browser region's (A4, or Letter in a Letter country) until Page size is
+  // changed, and "As the page sets it" stays one choice away (audit backlog
+  // #5). `pageSize: null` = not chosen yet.
+  const regional = useRegionalPaper();
+  const [chosenLayout, setLayout] = useState<
+    Omit<HtmlRenderOptions, "pageSize"> & { pageSize: HtmlPageSize | null }
+  >({ ...DEFAULT_HTML_RENDER_OPTIONS, pageSize: null });
+  const layout = useMemo<HtmlRenderOptions>(
+    () => ({
+      ...chosenLayout,
+      pageSize:
+        chosenLayout.pageSize ?? regionalChoice(HTML_PAGE_SIZES, regional),
+    }),
+    [chosenLayout, regional],
   );
   const [bookLayout, setBookLayout] = useState<EpubRenderOptions>(
     DEFAULT_EPUB_RENDER_OPTIONS,
@@ -435,7 +451,15 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
           value={layout}
           disabled={busy}
           onChange={(next) => {
-            setLayout(next);
+            // A change of another field keeps the paper unchosen, so it
+            // still follows the region; a change of Page size records it.
+            setLayout({
+              ...next,
+              pageSize:
+                next.pageSize === layout.pageSize
+                  ? chosenLayout.pageSize
+                  : next.pageSize,
+            });
             setOutcome(null);
           }}
         />

@@ -120,9 +120,15 @@ describe("Screen width · Paper width says how wide it is", () => {
   it("the FAQ answer states the default width from the same numbers", () => {
     for (const source of ["file", "site"] as const) {
       const answer = htmlLayoutAnswer(source);
-      expect(answer).toContain(
-        `${htmlPaperWidthPx(DEFAULT_HTML_RENDER_OPTIONS)} pixels`,
-      );
+      // Both papers the panel can start on (audit backlog #5): until
+      // 2026-11-16 the answer named the Letter width alone, the paper
+      // "As the page sets it" falls back to.
+      for (const pageSize of ["A4", "Letter"] as const)
+        expect(answer).toMatch(
+          new RegExp(
+            `\\b${htmlPaperWidthPx({ ...DEFAULT_HTML_RENDER_OPTIONS, pageSize })}( pixels)? on ${pageSize}\\b`,
+          ),
+        );
       expect(answer).toContain(desktop.label);
     }
   });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Download, Grid2x2 } from "lucide-react";
 import {
   DEFAULT_N_UP_OPTIONS,
@@ -13,7 +13,9 @@ import {
   nUpPdf,
   type NUpOptions,
   type NUpResult,
+  type NUpSheetId,
 } from "@/lib/pdf/n-up";
+import { regionalChoice, useRegionalPaper } from "../../use-regional-paper";
 import { inches } from "@/lib/pdf/page-geometry";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
@@ -50,9 +52,20 @@ export function NUpEditor({
   pdf: LoadedPdf;
   onReset: () => void;
 }) {
-  const [options, setOptions] = useState<NUpOptions>({
-    ...DEFAULT_N_UP_OPTIONS,
-  });
+  // The sheet starts on the browser region's paper (A4, or Letter in a
+  // Letter country) until one is pressed (audit backlog #5); the engine's
+  // own default stays the one its copy describes.
+  const regional = useRegionalPaper();
+  const [chosen, setOptions] = useState<
+    Omit<NUpOptions, "sheet"> & { sheet: NUpSheetId | null }
+  >({ ...DEFAULT_N_UP_OPTIONS, sheet: null });
+  const options = useMemo<NUpOptions>(
+    () => ({
+      ...chosen,
+      sheet: chosen.sheet ?? regionalChoice(N_UP_SHEETS, regional),
+    }),
+    [chosen, regional],
+  );
   const { busy, error, result, run, reset } = useAsyncRun<NUpResult>();
   const set = (next: Partial<NUpOptions>) => {
     if (!busy) setOptions((prev) => ({ ...prev, ...next }));
