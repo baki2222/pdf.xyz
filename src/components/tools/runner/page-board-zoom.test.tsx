@@ -33,7 +33,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { PDFDocument } from "pdf-lib";
+import { PDFDict, PDFDocument, PDFName } from "pdf-lib";
 import { getRunnerKind } from "@/lib/pdf/registry";
 import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 import { withAppRouter } from "@/tests/app-router";
@@ -45,6 +45,16 @@ import { zoomLabel } from "./page-zoom-lazy";
 import { cutAfterLabel } from "./page-picker";
 import { SplitEditor } from "./split-runner";
 import { PdfToImageRunner } from "./pdf-to-image-runner";
+import { OWNER_OPENED_NOTE } from "./owner-password";
+import {
+  OWNER_PASSWORD_BUTTON,
+  OWNER_PASSWORD_LABEL,
+} from "@/lib/pdf/owner-password-copy";
+import {
+  AES256_BOTH_PASSWORDS_FIXTURE,
+  GRANT_FIXTURE_TEXT,
+  readRestrictedFixture,
+} from "@/tests/restricted-pdf-fixtures";
 
 vi.mock("pdfjs-dist", async () => import("pdfjs-dist/legacy/build/pdf.mjs"));
 
@@ -491,6 +501,145 @@ describe("Merge PDF, Arrange pages across files", () => {
       });
       await openZoom(opener, name);
       await closeBack(opener);
+    }
+  }, 60_000);
+});
+
+/* ------------------------------------------------------------------ *
+ *  The seam of #357 (owner password in the browser) and Arrange pages,
+ *  merged 2026-11-17. Each was proven alone: #357 that an owner-opened
+ *  file merges, this branch that the grid merges what it shows. Neither
+ *  ever saw the other. The file here needs BOTH passwords, so the
+ *  encrypted bytes do not open in pdf.js without one: a page drawn from
+ *  them would be no image at all, and only the decrypted copy (what the
+ *  adopt path hands the list) can be drawn, interleaved, turned and merged.
+ * ------------------------------------------------------------------ */
+describe("Merge PDF, an owner-opened file in Arrange pages", () => {
+  /** Whether a page of the saved file carries an image (grant-base page 1). */
+  function hasPicture(doc: PDFDocument, index: number): boolean {
+    const resources = doc.getPage(index).node.Resources();
+    const xobjects = resources?.lookup(PDFName.of("XObject"));
+    return xobjects instanceof PDFDict && xobjects.keys().length > 0;
+  }
+
+  it("its pages are drawn from the decrypted copy, interleave and turn, and the merged PDF has them in that order with no encryption", async () => {
+    const fixture = AES256_BOTH_PASSWORDS_FIXTURE;
+    const kind = getRunnerKind("merge-pdf");
+    expect(kind, "the registry no longer maps merge-pdf").toBeTruthy();
+    const { container } = render(
+      withAppRouter(<ToolRunner kind={kind!} slug="merge-pdf" />),
+    );
+    await runnerMounted(container);
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    fireEvent.change(input!, {
+      target: {
+        files: [
+          new File([(await pagesPdf(2)).slice()], "alpha.pdf", {
+            type: "application/pdf",
+          }),
+          new File([readRestrictedFixture(fixture.file).slice()], "both.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    const field = await screen.findByLabelText(
+      OWNER_PASSWORD_LABEL,
+      undefined,
+      {
+        timeout: 15_000,
+      },
+    );
+    fireEvent.change(field, { target: { value: fixture.owner } });
+    fireEvent.click(
+      screen.getByRole("button", { name: OWNER_PASSWORD_BUTTON }),
+    );
+    await screen.findByText(OWNER_OPENED_NOTE["merge-pdf"], undefined, {
+      timeout: 15_000,
+    });
+    // It is a row of the list now, not a refusal.
+    await screen.findByRole("listitem", {
+      name: /^both\.pdf, file 2 of 2, 2 pages/,
+    });
+    expect(screen.queryByLabelText(OWNER_PASSWORD_LABEL)).toBeNull();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Arrange pages" }));
+    const grid = await screen.findByRole(
+      "list",
+      { name: /^Pages of every file/ },
+      { timeout: 10_000 },
+    );
+    // Health check: both files' pages are in the grid, the opened file's too.
+    expect(within(grid).getAllByRole("listitem")).toHaveLength(4);
+    // a1 a2 b1 b2 -> a1 b1 a2 b2, and b1 turned a quarter.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Move page 1 of both.pdf earlier" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Rotate page 1 of both.pdf right" }),
+    );
+    const opener = screen.getByRole("button", { name: zoomLabel(2) });
+    const { width } = await openZoom(
+      opener,
+      "Page 1 of both.pdf, page 2 of 4 in the merged PDF",
+    );
+    // A 612 x 792 page, from the decrypted bytes, turned: drawn landscape.
+    expect(width).toBe(zoomWidth(792, 612));
+    await closeBack(opener);
+
+    const merge = screen.getByRole("button", { name: /^merge/i });
+    await waitFor(() => expect(merge).toBeEnabled());
+    fireEvent.click(merge);
+    const download = await screen.findByRole(
+      "button",
+      { name: /download merged pdf/i },
+      { timeout: 15_000 },
+    );
+    fireEvent.click(download);
+    expect(downloads, "the Download button handed over no Blob").toHaveLength(
+      1,
+    );
+    const out = new Uint8Array(await downloads[0]!.arrayBuffer());
+    // pdf-lib refuses any /Encrypt: loading it proves there is none.
+    const doc = await PDFDocument.load(out);
+    expect(
+      doc
+        .getPages()
+        .map((p) => [Math.round(p.getSize().width), p.getRotation().angle]),
+    ).toEqual([
+      [101, 0],
+      [612, 90],
+      [102, 0],
+      [612, 0],
+    ]);
+    // both.pdf's page 1 (the one with the picture) is second, its page 2 last.
+    expect([0, 1, 2, 3].map((i) => hasPicture(doc, i))).toEqual([
+      false,
+      true,
+      false,
+      false,
+    ]);
+    // And its text decodes: the streams were decrypted, not copied as-is.
+    const task = legacy.getDocument({ data: out.slice(), verbosity: 0 });
+    const read = await task.promise;
+    try {
+      const texts: string[] = [];
+      for (let n = 1; n <= read.numPages; n += 1) {
+        const content = await (await read.getPage(n)).getTextContent();
+        texts.push(
+          content.items.map((i) => ("str" in i ? i.str : "")).join(""),
+        );
+      }
+      // The fixture's page 1 draws the line alone, its page 2 adds "page 2".
+      expect(texts).toEqual([
+        "",
+        GRANT_FIXTURE_TEXT,
+        "",
+        `${GRANT_FIXTURE_TEXT} page 2`,
+      ]);
+    } finally {
+      await task.destroy();
     }
   }, 60_000);
 });
