@@ -120,7 +120,7 @@ export function RotateRunner() {
       handoffSlug="rotate-pdf"
       toolName="Rotate PDF"
       openProtected
-      refusal={(error) =>
+      errorAside={(error) =>
         error.kind === "encrypted" ? (
           <OwnerPdfRefusal
             error={error}

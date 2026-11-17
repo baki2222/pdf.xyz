@@ -155,7 +155,7 @@ export function PageSelectRunner({ mode }: { mode: Mode }) {
       hint={config.emptyHint}
       handoffSlug={handoffSlug}
       toolName={toolName}
-      refusal={(error) =>
+      errorAside={(error) =>
         error.kind === "encrypted" ? (
           <OwnerPdfRefusal
             error={error}

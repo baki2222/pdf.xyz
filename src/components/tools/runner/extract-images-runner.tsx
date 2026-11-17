@@ -108,7 +108,7 @@ export function ExtractImagesRunner() {
       toolName="Extract Images"
       writesPdf={false}
       openProtected
-      refusal={(error) =>
+      errorAside={(error) =>
         error.kind === "encrypted" ? (
           <OwnerPdfRefusal
             error={error}
