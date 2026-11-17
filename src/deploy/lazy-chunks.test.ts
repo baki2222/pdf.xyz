@@ -38,6 +38,7 @@ import { COMPARE_REDLINE_CHUNK } from "@/components/tools/runner/compare/redline
 import { TABLE_PREVIEW_CHUNK } from "@/components/tools/table-extract-preview";
 import { REQUEST_FIELD_EDITOR_CHUNK } from "@/components/tools/request-field-editor";
 import { RESULT_ENDING_CHUNK } from "@/components/intent/result-ending-chunk";
+import { AI_RESULT_CHUNK } from "@/components/tools/ai-result-chunk";
 import { DROP_ENGINE_MARK } from "@/lib/intent/drop-engine";
 import { tools } from "@/lib/tools";
 import { SEARCH_ENGINE_CHUNK } from "@/lib/tools/search-tools";
@@ -339,6 +340,18 @@ const OUR_LAZY: LazyLibrary[] = [
   // tell it apart from the comparison's chunk (that one is lazy too, so a
   // static import would still pass); "Compare PDF's page view is a chunk of
   // its own" below does.
+  // The AI results on the page (competitor audit #4 and #16, 2026-11-17):
+  // AI Data Extraction's table, CSV, XLSX and copies (with the package reader
+  // and the workbook writer), Chat with PDF's Copy answer and conversation
+  // copy and Markdown, and the capped long-text box PDF to Text, Summarize
+  // PDF and Chat with PDF draw long text in. Fetched with the result, and by
+  // PDF to Text beside its extraction.
+  {
+    what: "the AI result views",
+    marker: AI_RESULT_CHUNK,
+    why: "AI Data Extraction and Summarize PDF fetch it as they read the result, Chat with PDF as a question is asked, PDF to Text beside its extraction; a visit that never gets a result never downloads it",
+    allowedAtLoad: {},
+  },
   {
     what: "Compare PDF's page view",
     marker: COMPARE_VIEWER_CHUNK,

@@ -35,6 +35,9 @@
  *                       (Since 2026-10-24 a file may give only SOME of its
  *                       pages, but always in its own order: the probe asks
  *                       for a reversed selection and reads the order back.)
+ *                       (Retired 2026-11-17: Arrange pages made it true. A
+ *                       positive check now holds the copy to the engine's
+ *                       output and to the runner offering the mode.)
  *   word-to-pdf         "DOCX and DOC into pixel-perfect PDF." / "…while
  *                       preserving layout, fonts, and formatting." — LibreOffice
  *                       lays it out, and the worker image installs no
@@ -149,6 +152,7 @@ import {
 } from "@/lib/pdf/image-page-layout";
 import { imagePageSizeForLocales } from "@/lib/pdf/image-page-defaults";
 import { mergePdfs } from "@/lib/pdf/engine";
+import { MERGE_MODES } from "@/lib/pdf/merge-order";
 import { addWatermark } from "@/lib/pdf/watermark";
 import { signatureRequestDeps } from "@/lib/workers/request-signatures/native";
 import {
@@ -1388,53 +1392,24 @@ const RULES: readonly ClaimRule[] = [
       };
     },
   },
-  {
-    id: "Merge PDF reorders individual pages",
-    subjects: () => slugsOfKind("merge"),
-    shapes: {
-      "drag pages":
-        /\b(?:drag|reorder|rearrange|move|interleave)\w*\s+(?:individual\s+|the\s+|single\s+)?pages\b/i,
-      "pages or files": /\bpages or files\b|\bfiles or pages\b/i,
-    },
-    shipped: [
-      "Drag pages or files into the order you want.",
-      "Drag pages or files into the order you want; the combined PDF follows your list from top to bottom.",
-    ],
-    synonyms: ["Reorder individual pages before merging."],
-    honest: [
-      "Drag files, or use each row's move buttons, to set the order you want.",
-      "Drag files into the order you want; the combined PDF follows your list from top to bottom.",
-    ],
-    probe: async () => {
-      // What the engine is ABLE to do: its input is whole files, and every
-      // file's pages come out contiguous and in their own order.
-      const make = async (widths: number[]) => {
-        const d = await PDFDocument.create();
-        for (const w of widths) d.addPage([w, 500]);
-        return d.save();
-      };
-      const merged = await PDFDocument.load(
-        await mergePdfs([await make([101, 102]), await make([201, 202])]),
-      );
-      const order = merged.getPages().map((p) => p.getSize().width);
-      // Per-file page selection, asked for pages in REVERSE: a selection
-      // picks pages, so the file's own order must come back.
-      const picked = await PDFDocument.load(
-        await mergePdfs([await make([101, 102]), await make([201, 202])], {
-          pages: [[1, 0], [1]],
-        }),
-      );
-      const pickedOrder = picked.getPages().map((p) => p.getSize().width);
-      const wholeFiles =
-        mergePdfs.length === 1 &&
-        order.join() === "101,102,201,202" &&
-        pickedOrder.join() === "101,102,202";
-      return {
-        present: !wholeFiles,
-        evidence: `mergePdfs takes ${mergePdfs.length} required argument(s); merged page order ${order.join(",")}; reversed selection gave ${pickedOrder.join(",")}`,
-      };
-    },
-  },
+  // RETIRED 2026-11-17, history kept: "Merge PDF reorders individual pages".
+  // Since the audit at 67e8d0f it held two shapes off every merge page,
+  // `drag|reorder|rearrange|move|interleave ... pages` and `pages or files`,
+  // because the shipped sentence was "Drag pages or files into the order you
+  // want." while `mergePdfs` took whole files (and, from 2026-10-24, a
+  // per-file selection that always came back in the file's own order). Its
+  // probe merged two files and read the page order back.
+  //
+  // Audit backlog #9 made the property true: `MergeOptions.order` puts
+  // single pages in any order, mixing files, and the runner's Arrange pages
+  // mode sends it. It was retired by hand rather than left to go red,
+  // because it would NOT have gone red for the right reason: its probe only
+  // asked the default call (still whole files), and its shapes miss the new
+  // copy ("drag a page" has no "pages" after the verb) while catching an
+  // honest guide sentence ("move single pages, even between files"). What
+  // the copy may claim instead is pinned in the positive section: "Merge
+  // PDF says single pages can be arranged exactly when the engine and the
+  // runner do it".
   {
     id: "Office to PDF is pixel-perfect or keeps the document's fonts",
     // The tools the page mounts the LibreOffice conversion panel for.
@@ -1819,6 +1794,76 @@ describe("the replacement copy states what the output actually is", () => {
       all.push(...attributedTo(c, subject).map((a) => a.sentence));
     return all.join(" ");
   }
+
+  it("Merge PDF says single pages can be arranged exactly when the engine and the runner do it", async () => {
+    // THE CLAIM, by shape. It replaced the retired "reorders individual
+    // pages" ban, which its own corpus could not have kept honest.
+    const ARRANGE =
+      /\b(?:drag|move|arrange|put)\w*\s+(?:a|single|individual|any)?\s*pages?\b|\barrange pages\b/i;
+    // Rule 1, both ways: every sentence page mode added (runner, page, guide,
+    // facts) is caught, and an honest file-mode sentence is not.
+    const NEW_COPY = [
+      "Every page of every file in one grid. Drag a page anywhere, turn it, or leave it out.",
+      "Choose Arrange pages to see every page of every file in one grid instead: drag a page anywhere, even between pages of another file, turn it, or leave it out.",
+      "To put single pages in any order, mixing files, choose Arrange pages under Page order: drag a page, or use its move buttons, which also work from the keyboard; you can turn a page or leave it out there too.",
+      "For finer control before you merge, choose Arrange pages under Page order and move single pages, even between files.",
+      "Drag files to reorder before merging, use each row's move buttons, sort by name, or arrange single pages across files in one grid.",
+    ];
+    for (const sentence of NEW_COPY) expect(sentence).toMatch(ARRANGE);
+    expect(
+      "Drag files into the order you want; the combined PDF follows your list from top to bottom.",
+    ).not.toMatch(ARRANGE);
+
+    // THE CAPABILITY, half one: the engine, run, its output decoded.
+    const make = async (widths: number[]) => {
+      const d = await PDFDocument.create();
+      for (const w of widths) d.addPage([w, 500]);
+      return d.save();
+    };
+    const merged = await PDFDocument.load(
+      await mergePdfs([await make([101, 102]), await make([201, 202])], {
+        order: [
+          { file: 0, page: 0 },
+          { file: 1, page: 0 },
+          { file: 0, page: 1 },
+        ],
+      }),
+    );
+    const order = merged.getPages().map((p) => p.getSize().width);
+    // Half two: the runner offers it, reached through the dispatch the page
+    // uses, its lazy grid included (the module graph, not one file).
+    const runner = runnerFileForKind("merge");
+    if (!runner) throw new Error("no runner dispatched for kind merge");
+    const graph = panelGraph(runner);
+    // Health: the walk got past the runner module.
+    expect(graph.length, graph.join(", ")).toBeGreaterThanOrEqual(5);
+    const runnerSource = withoutComments(read(runner));
+    const offered =
+      (MERGE_MODES as readonly string[]).includes("pages") &&
+      /MERGE_MODE_LABEL\b/.test(runnerSource) &&
+      /LazyMergePageGrid\b/.test(runnerSource) &&
+      graph.some((f) => /\bPageTile\b/.test(withoutComments(read(f))));
+    const capable = order.join() === "101,201,102" && offered;
+    expect(
+      capable,
+      `engine order ${order.join()}, runner offers: ${offered}`,
+    ).toBe(true);
+
+    // EXACTLY WHEN: every merge page claims it while the capability is there.
+    const subjects = slugsOfKind("merge");
+    expect(subjects.length).toBeGreaterThan(0);
+    for (const subject of subjects) {
+      const text = await served(subject);
+      expect(text.length, subject).toBeGreaterThan(500);
+      const claims: string[] = [];
+      for (const container of await containersFor(subject))
+        for (const { sentence, masked } of attributedTo(container, subject))
+          if (ARRANGE.test(masked)) claims.push(sentence);
+      expect(claims.length > 0, `${subject}: ${claims.join(" | ")}`).toBe(
+        capable,
+      );
+    }
+  });
 
   it("Add Watermark: the page says image and tiling exactly when the engine draws them", async () => {
     // The shapes the retired rule banned, now required — and the engine must

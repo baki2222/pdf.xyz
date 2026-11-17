@@ -28,7 +28,6 @@ import {
 import {
   AI_EXTRACT_NOT_NULL_WARNING,
   AI_EXTRACT_NULL_INSTRUCTION,
-  AI_EXTRACT_NULL_CSV_LEGEND,
   AI_EXTRACT_NULL_MEANING,
   AI_EXTRACT_NULL_PAST_CUT,
 } from "@/lib/jobs/ai-extract-null-meaning";
@@ -42,13 +41,8 @@ import {
   runWorkerAiExtract,
   type AiExtractWorkerResult,
 } from "@/lib/workers/ai-extract-client";
-import { downloadBlob, downloadBytes } from "@/lib/pdf/browser";
-import {
-  AI_EXTRACT_CSV_SHAPE,
-  extractionCsvName,
-  readExtractionCsv,
-} from "@/lib/workers/ai-extract-package";
-import { buttonVariants } from "@/components/ui/button";
+import { downloadBytes } from "@/lib/pdf/browser";
+import type { ExtractionRead } from "@/lib/workers/ai-extract-package";
 import { TruncationNotice } from "./truncation-notice";
 import type { Tool } from "@/lib/tools/types";
 import type { PickRefusal } from "@/lib/uploads/pick-check";
@@ -69,6 +63,8 @@ import {
   WorkerPanelShell,
   workerOutput,
 } from "./worker-panel-shell";
+
+type AiResultViews = typeof import("./ai-result-views");
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot` and
@@ -124,7 +120,7 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
           icon: Download,
           label: "You get",
           value:
-            "ZIP · extraction.json + model-output.json + extraction.md + manifest · a CSV built by the page when the data is an object or a list of objects",
+            "ZIP · extraction.json + model-output.json + extraction.md + manifest · a table on the page, with CSV, XLSX and copy built by the page when the data is an object or a list of objects",
         },
         {
           icon: Timer,
@@ -479,11 +475,14 @@ function AiExtractBuilder({
 }
 
 /**
- * The finished extraction: the ZIP, and — when extraction.json has a table
- * shape — a CSV of it, built in the browser from the bytes already in the
- * page (audit ai-extract#3; the rules are `extractionRows`). No CSV button
- * appears until the package has been read, or when it cannot be: a CSV that
- * is offered is one that exists.
+ * The finished extraction: the ZIP, and — once the package has been read in
+ * the browser — the extracted data ON THE PAGE as a table, with Download CSV,
+ * Download XLSX, Copy as table and Copy JSON (audit ai-extract#3, competitor
+ * audit #4). The table and its actions are a lazy chunk
+ * (`./ai-result-views`), fetched with the result and never with the page,
+ * and it reads the package too; until both have arrived — or when the
+ * package cannot be read — the card offers the ZIP alone: a button that is
+ * offered is one whose file exists.
  */
 export function AiExtractResultBody({
   output,
@@ -492,23 +491,28 @@ export function AiExtractResultBody({
   output: Uint8Array;
   filename: string;
 }) {
-  // Keyed by the bytes it was read from, so a new result never offers the
-  // previous one's CSV while its own package is being read.
+  // Keyed by the bytes it was read from, so a new result never shows the
+  // previous one's table while its own package is being read.
   const [read, setRead] = useState<{
     from: Uint8Array;
-    csv: string | null;
+    views: AiResultViews;
+    extraction: ExtractionRead | null;
   } | null>(null);
   useEffect(() => {
     let live = true;
-    void readExtractionCsv(output).then((csv) => {
-      if (live) setRead({ from: output, csv });
-    });
+    void import("./ai-result-views").then(
+      async (views) => {
+        const extraction = await views.readExtraction(output);
+        if (live) setRead({ from: output, views, extraction });
+      },
+      // A chunk that will not load leaves the ZIP, which holds everything.
+      () => {},
+    );
     return () => {
       live = false;
     };
   }, [output]);
-  const csv = read?.from === output ? read.csv : null;
-  const csvName = extractionCsvName(filename);
+  const shown = read?.from === output && read.extraction ? read : null;
 
   return (
     <>
@@ -517,36 +521,19 @@ export function AiExtractResultBody({
         readable rendering, plus a manifest recording the model and honest
         scope.
       </p>
-      {csv !== null && (
-        <p className="text-muted text-xs leading-relaxed">
-          The CSV is built by the page from extraction.json:{" "}
-          {AI_EXTRACT_CSV_SHAPE}. {AI_EXTRACT_NULL_CSV_LEGEND}
-        </p>
+      {shown?.extraction?.rows && (
+        <shown.views.ExtractionTable rows={shown.extraction.rows} />
       )}
+      {shown?.extraction?.rows && <shown.views.ExtractionCsvNote />}
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
         <DownloadCta onClick={() => downloadBytes(output, filename)}>
           Download {filename}
         </DownloadCta>
-        {/* "Download CSV", not the file name: buttonVariants never wraps,
-            so a long name would spill out of a phone-width card. */}
-        {csv !== null && (
-          <button
-            type="button"
-            data-download=""
-            onClick={() =>
-              downloadBlob(
-                new Blob([csv], { type: "text/csv;charset=utf-8" }),
-                csvName,
-              )
-            }
-            className={buttonVariants({
-              variant: "secondary",
-              className: "w-full sm:w-auto",
-            })}
-          >
-            <Download className="size-4" aria-hidden />
-            Download CSV
-          </button>
+        {shown?.extraction && (
+          <shown.views.ExtractionActions
+            read={shown.extraction}
+            filename={filename}
+          />
         )}
       </div>
     </>

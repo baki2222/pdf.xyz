@@ -15,6 +15,7 @@
  *  - Steps tell the truth about where the primary tool runs: in-browser
  *    guides never say upload; worker-backed guides always do.
  */
+import { PAGE_TEXT_LIMIT } from "@/components/tools/ai-result-limits";
 import { getToolBySlug } from "@/lib/tools";
 import { STAMP_POSITIONS } from "@/lib/pdf/stamp";
 import { SIGNATURE_INKS } from "@/lib/pdf/editor/signature-ink";
@@ -635,6 +636,7 @@ const batesAt = (n: number) =>
 /** Merge PDF's Page order buttons, as its runner labels them. */
 const MERGE_ALTERNATE = MERGE_MODE_LABEL.alternate;
 const MERGE_APPEND = MERGE_MODE_LABEL.append;
+const MERGE_ARRANGE = MERGE_MODE_LABEL.pages;
 
 /** The images JPG / PNG to PDF decode and re-encode, and the ones refused. */
 const DECODED_NAMES = listAnd(DECODED_IMAGE_LABELS);
@@ -1040,7 +1042,7 @@ export const guides: Guide[] = [
     intro: [
       "To merge PDF files, open the Merge PDF tool, add two or more PDFs, and drag them into the order you want. The tool combines them into a single PDF that you save straight to your device.",
       "What makes this approach different is where the work happens. Merge PDF runs entirely in your browser, so your files stay on your device from start to finish — there is no server step in the middle. There is also no account: open the page, add your files, and merge.",
-      "The combined PDF follows your list from top to bottom, so a stack of scans, chapters, or exhibits comes out exactly as you arranged it. If you later need the reverse operation, Split PDF breaks one document into separate files by page range, fixed intervals, or one file per page, and Organize Pages rearranges pages inside a single document.",
+      "By default the combined PDF follows your list from top to bottom, so a stack of scans, chapters, or exhibits comes out exactly as you arranged it. If you later need the reverse operation, Split PDF breaks one document into separate files by page range, fixed intervals, or one file per page, and Organize Pages rearranges pages inside a single document.",
     ],
     steps: [
       "Open the Merge PDF tool.",
@@ -1055,8 +1057,8 @@ export const guides: Guide[] = [
         id: "get-the-order-right",
         heading: "Get the order right before you merge",
         body: [
-          "The merged document is built from your list, top to bottom: the first file in the list becomes the first pages of the output, and every file after it is appended in sequence. Drag files into position to set that order, or use the move buttons on each row if you prefer clicking to dragging.",
-          "It is worth a final glance at the list before you merge. Reordering happens before the merge runs, so arranging the list correctly the first time saves you a second pass. If you want finer control after the fact, Organize Pages lets you reorder, rotate, duplicate, and delete pages on a visual page board.",
+          "By default the merged document is built from your list, top to bottom: the first file in the list becomes the first pages of the output, and every file after it is appended in sequence. Drag files into position to set that order, or use the move buttons on each row if you prefer clicking to dragging.",
+          `It is worth a final glance at the list before you merge. Reordering happens before the merge runs, so arranging the list correctly the first time saves you a second pass. For finer control before you merge, choose ${MERGE_ARRANGE} under Page order and move single pages, even between files. To duplicate pages or add blank ones afterwards, Organize Pages lets you reorder, rotate, duplicate, and delete pages on a visual page board.`,
           `Scans and statements often have names that say nothing about when they were made. ${MERGE_SORT_LABEL["modified-asc"]} and ${MERGE_SORT_LABEL["modified-desc"]}, beside the name sorts, order the list by each file's last-modified date instead, as your browser reports it; files with the same date keep the order you added them in.`,
         ],
       },
@@ -1114,12 +1116,11 @@ export const guides: Guide[] = [
       },
       {
         question: "How do I control the page order in the combined PDF?",
-        answer:
-          "The output follows your file list from top to bottom. Drag files into position before merging, or use each row's move buttons. To rearrange pages inside the result afterward, Organize Pages handles reordering, rotating, duplicating, and deleting pages on a visual page board.",
+        answer: `By default the output follows your file list from top to bottom. Drag files into position before merging, or use each row's move buttons. To put single pages in any order, even mixing files, choose ${MERGE_ARRANGE} under Page order before you merge. To rearrange pages inside the result afterward, Organize Pages handles reordering, rotating, duplicating, and deleting pages on a visual page board.`,
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-07",
+    updated: "2026-11-17",
   },
   {
     slug: "how-to-split-a-pdf",
@@ -5407,7 +5408,7 @@ export const guides: Guide[] = [
       `Open the ${nameOf("pdf-to-text")} tool.`,
       "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file. Its name, page count and size appear.",
       "Press Extract text. The button reads Extracting text… while the pages are read.",
-      "Under “Text extracted”, check the character and page counts and read the text in the scrollable box. Press Copy text to put all of it on your clipboard, or select any part of it to copy just that passage.",
+      `Under “Text extracted”, check the character and page counts and read the text in the scrollable box, which holds the first ${PAGE_TEXT_LIMIT.toLocaleString("en-US")} characters of a longer text. Press Copy text to put all of it on your clipboard, or select any part of the box to copy just that passage.`,
       `Press Download TXT, which shows the size of the file it will save. report.pdf is saved as ${TEXT_EXAMPLE_OUT}. Start over clears the page for another document.`,
     ],
     sections: [
@@ -5470,7 +5471,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-17",
   },
   {
     slug: "how-to-convert-a-pdf-to-black-and-white",
@@ -6197,7 +6198,7 @@ export const guides: Guide[] = [
       `Under Fields to extract, type a field name of up to ${MAX_FIELD_NAME_CHARS} characters, such as invoice_number, and choose its type: ${EXTRACT_FIELD_TYPES}. Optionally, type a hint of up to ${MAX_FIELD_DESCRIPTION_CHARS} characters in the box under the name, such as “the grand total including VAT, not the subtotal”; the model reads it beside the name, and your JSON key stays the name. Add field adds a row, up to ${MAX_EXTRACTION_FIELDS}.`,
       `Or press Prompt and describe what you want in the What to extract box, up to ${EXTRACT_PROMPT_CHARS} characters.`,
       "Press Extract data. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job while the model reads.",
-      `Press Download ${EXTRACT_EXAMPLE_ZIP}, the button named after your file: invoice.pdf comes back as ${EXTRACT_EXAMPLE_ZIP}. Save it to your device before you close the tab. To open the values in a spreadsheet, press Download CSV beside it.`,
+      `Press Download ${EXTRACT_EXAMPLE_ZIP}, the button named after your file: invoice.pdf comes back as ${EXTRACT_EXAMPLE_ZIP}. Save it to your device before you close the tab. The values also appear on the page as a table: to open them in a spreadsheet, press Download CSV or Download XLSX beside the ZIP, or Copy as table and paste.`,
     ],
     sections: [
       {
@@ -6213,7 +6214,7 @@ export const guides: Guide[] = [
         heading: "What you download",
         body: [
           `In the ZIP, model-output.json is the model's reply as it was returned. extraction.json holds the same data; with a field schema it lists every field you asked for, in your order and under your names, and a key the model respelled is mapped back to your name. ${AI_EXTRACT_UNRETURNED_NULL}`,
-          `extraction.md lays the data out as a Field and Value table, or as a numbered list when the reply is a list. ${AI_EXTRACT_NULL_CELL_LEGEND} manifest.json records the provider and model, your fields or prompt, and how much of the document was read, and README.txt describes the package. Beside the ZIP, Download CSV saves the same data as a CSV, built by the page from extraction.json, whenever it is an object or a list of objects: ${AI_EXTRACT_CSV_SHAPE}. ${AI_EXTRACT_NULL_CSV_LEGEND} For data laid out in rows and columns in the PDF itself, ${nameOf("extract-tables")} writes a CSV per table and an Excel workbook.`,
+          `extraction.md lays the data out as a Field and Value table, or as a numbered list when the reply is a list. ${AI_EXTRACT_NULL_CELL_LEGEND} manifest.json records the provider and model, your fields or prompt, and how much of the document was read, and README.txt describes the package. Whenever extraction.json is an object or a list of objects, the page also shows the data as a table and builds, from that file and without another AI run, a CSV (Download CSV), an Excel workbook with the same rows (Download XLSX), and a tab-separated copy for pasting into a spreadsheet (Copy as table). The CSV has ${AI_EXTRACT_CSV_SHAPE}. ${AI_EXTRACT_NULL_CSV_LEGEND} Copy JSON copies extraction.json itself. For data laid out in rows and columns in the PDF itself, ${nameOf("extract-tables")} writes a CSV per table and an Excel workbook.`,
         ],
       },
       {
@@ -6256,7 +6257,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I get the data as CSV or Excel?",
-        answer: `As CSV, yes: when the data is an object or a list of objects, a Download CSV button beside the ZIP saves it, built by the page from extraction.json. There is no Excel workbook, though Excel opens the CSV. For tables in the PDF itself, ${nameOf("extract-tables")} returns a CSV per table and an Excel workbook, without AI, on our secure server.`,
+        answer: `Yes, both: when the data is an object or a list of objects, Download CSV and Download XLSX beside the ZIP save it, built by the page from extraction.json, and Copy as table puts it on your clipboard ready to paste into a spreadsheet. For tables in the PDF itself, ${nameOf("extract-tables")} returns a CSV per table and an Excel workbook, without AI, on our secure server.`,
       },
       {
         question: "Can it extract data from a scanned PDF?",
@@ -6264,7 +6265,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-17",
   },
   // Added 2026-10-31, the last four tools without a guide of their own.
   // PNG to PDF: written for what is particular to PNG, not a second JPG
