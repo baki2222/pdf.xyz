@@ -943,6 +943,41 @@ export const DETECT_CASES: readonly DetectCase[] = [
       ]),
     expect: captionedExpect(["Guest name", "Number attending"]),
   },
+  {
+    id: "P23",
+    kind: "positive",
+    note: 'a sign-off block: "Yours faithfully,", the signature line, a "Name in capitals" line and a labelled Date line',
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await text(page, H, "Yours faithfully,", 72, 600, 11);
+      rule(page, 72, 300, 560, 0.5);
+      rule(page, 72, 300, 530, 0.5);
+      await text(page, H, "Name in capitals", 74, 520, 8);
+      await text(page, H, "Date:", 72, 495, 11);
+      rule(page, 110, 300, 495, 0.5);
+      return save(d);
+    },
+    expect: [
+      {
+        rule: "labelled-rule",
+        type: "text",
+        label: "Name in capitals",
+        page: 1,
+        box: ruleBox(72, 300, 530, 8),
+      },
+      {
+        rule: "labelled-rule",
+        type: "text",
+        label: "Date",
+        page: 1,
+        box: ruleBox(110, 300, 495, 11),
+      },
+    ],
+    // Only the first line under the close is its signature line.
+    decidedBy: "signature",
+    at: { page: 1, x: 150, y: 563 },
+  },
 
   // ---------------------------------------------------------- negatives
   {

@@ -65,6 +65,8 @@ describe("what the reader counts", () => {
     expect((await runCase(byId("N7"))).report.counts.signatureLines).toBe(1);
     expect((await runCase(byId("N8"))).report.counts.alreadyFields).toBe(1);
     expect((await runCase(byId("N13"))).report.counts.rotatedText).toBe(1);
+    // A sign-off block: the signature line only, not the lines under it.
+    expect((await runCase(byId("P23"))).report.counts.signatureLines).toBe(1);
   });
 
   it("pages past the cap are counted as not searched", async () => {

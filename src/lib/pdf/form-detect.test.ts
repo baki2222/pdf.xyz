@@ -711,6 +711,25 @@ describe("exclusions, each at its boundary", () => {
       });
       expect(props(p)).toEqual([expect.objectContaining({ label: "Date" })]);
     });
+
+    // EVERY caption-only line within 80 pt under a close was a signature
+    // line, so a sign-off block's Print name and Date lines were lost and
+    // signatureLines over-counted (review finding; corpus P23). Only the
+    // first line under the close is its signature line.
+    it("only the first line under a close is its signature line", () => {
+      const p = pg({
+        segs: [hseg(72, 300, 570), hseg(72, 300, 545), hseg(72, 300, 520)],
+        text: [
+          txt("Yours faithfully,", 72, 600, { width: 80, size: 11 }),
+          txt("Print name", 74, 537, { width: 40, size: 8 }),
+          txt("Date", 74, 512, { width: 20, size: 8 }),
+        ],
+      });
+      const r = run(p);
+      expect(r.proposals.map((f) => f.label)).toEqual(["Print name", "Date"]);
+      expect(r.excluded.map((e) => e.rule)).toEqual(["signature"]);
+      expect(r.counts.signatureLines).toBe(1);
+    });
   });
 
   it("counts signature lines", () => {

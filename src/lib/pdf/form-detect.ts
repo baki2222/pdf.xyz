@@ -1035,8 +1035,18 @@ function rowTables(rules: readonly Line[], all: readonly Piece[]): Set<Line> {
  * the signer's printed name, not a field's label. The close is upright text
  * matching {@link DETECT.SIGNOFF_RE}, up to {@link DETECT.SIGNOFF_ABOVE} pt
  * above the line, and over it or over where its label would be.
+ *
+ * Only the FIRST line under the close is its signature line: no other of
+ * `lines` (the page's rules of candidate length) lies between the close and
+ * this line across its width. The Print name and Date lines of a sign-off
+ * block are fields; every caption-only line within reach once read as a
+ * signature.
  */
-function underSignOff(p: CardPage, c: Candidate): boolean {
+function underSignOff(
+  p: CardPage,
+  c: Candidate,
+  lines: readonly Line[],
+): boolean {
   const line = c.line;
   if (c.rule !== "labelled-rule" || !line || c.leftLabel) return false;
   return p.text.some(
@@ -1050,7 +1060,14 @@ function underSignOff(p: CardPage, c: Candidate): boolean {
         line.x0 - DETECT.LABEL_LEFT_GAP_RULE,
         line.x1,
       ) > 0 &&
-      DETECT.SIGNOFF_RE.test(t.str),
+      DETECT.SIGNOFF_RE.test(t.str) &&
+      !lines.some(
+        (r) =>
+          r !== line &&
+          r.y > line.y &&
+          r.y < t.y &&
+          overlap(r.x0, r.x1, line.x0, line.x1) > 0,
+      ),
   );
 }
 
@@ -1204,6 +1221,9 @@ export function classifyPage(
 
   const comb = combSquares(lines.squares);
   const rowTable = rowTables(lines.rules, all);
+  const longRules = lines.rules.filter(
+    (r) => r.x1 - r.x0 >= DETECT.RULE_MIN_LEN,
+  );
   const labelledSquares = cands.filter(
     (c) => c.square && c.labelState === "found",
   );
@@ -1214,7 +1234,8 @@ export function classifyPage(
     // 3. Signature lines belong to Edit PDF's signature field.
     if (
       on("signature") &&
-      ((c.label && DETECT.SIGNATURE_RE.test(c.label)) || underSignOff(p, c))
+      ((c.label && DETECT.SIGNATURE_RE.test(c.label)) ||
+        underSignOff(p, c, longRules))
     ) {
       exclude("signature", c.box);
       continue;
