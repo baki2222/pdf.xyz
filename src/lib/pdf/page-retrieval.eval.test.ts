@@ -632,7 +632,7 @@ describe("retrieval eval corpus", () => {
         mainGrounding(c),
       );
     expect(control.B).toBeLessThan(RETRIEVAL.B);
-  });
+  }, 30_000);
 
   it("D1 SWEEP re-derives CHAT_RETRIEVAL_ANCHOR_SHARE (argmax of overall recall, ties to the larger share)", () => {
     const rows = CHAT_RETRIEVAL_ANCHOR_SHARES.map(

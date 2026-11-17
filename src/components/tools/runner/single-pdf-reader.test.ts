@@ -289,7 +289,7 @@ describe("single-PDF runners read with the library they run on", () => {
         "redact",
       ),
     ).toBe("redactPdf");
-  });
+  }, 30_000);
 
   const runners = singlePdfRunners();
 

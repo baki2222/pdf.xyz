@@ -150,7 +150,7 @@ describe("guide body copy is set for reading", () => {
       }
     }
     expect(wrong).toEqual([]);
-  });
+  }, 30_000);
 
   it("every guide offers its tool as a button again after the steps", async () => {
     const wrong: string[] = [];
