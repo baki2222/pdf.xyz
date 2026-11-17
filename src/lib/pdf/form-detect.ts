@@ -155,7 +155,8 @@ export const DETECT = {
   /**
    * Grid with no plumb lines (a table ruled in rows only): 3 or more rules
    * whose ends line up within 2 pt, at a pitch even within 2 pt, with text
-   * in two or more columns (24 pt apart) between two of them.
+   * in two or more columns (24 pt apart) between two of them. A rule with a
+   * label to its left is never one of a table's rows.
    */
   GRID_ROWS_MIN: 3,
   GRID_ROW_EPS: 2,
@@ -953,6 +954,12 @@ function gridTouches(line: Line, verticals: PageLines["verticals"]): boolean {
  * up, at an even pitch, with text in two or more columns between two of them
  * (a header or an item row). Stacked lines with one caption each (a form's
  * name / street / city) have text in one column only and are left alone.
+ *
+ * A rule with a label to its LEFT is a field's line whatever its neighbours
+ * (`classifyPage` asks this, not this function): a rows-only table's rules
+ * span its first column, so its row text sits above and below each rule,
+ * never to its left. Without that, one "DD MM YYYY" hint under one line of
+ * a labelled stack made the whole stack a table.
  */
 function rowTables(rules: readonly Line[], all: readonly Piece[]): Set<Line> {
   const eps = DETECT.GRID_ROW_EPS;
@@ -1247,7 +1254,8 @@ export function classifyPage(
       c.line &&
       c.rule === "labelled-rule" &&
       on("table-grid") &&
-      (gridTouches(c.line, lines.verticals) || rowTable.has(c.line))
+      (gridTouches(c.line, lines.verticals) ||
+        (rowTable.has(c.line) && !c.leftLabel))
     ) {
       exclude("table-grid", c.box);
       continue;

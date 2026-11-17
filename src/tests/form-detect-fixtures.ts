@@ -346,6 +346,12 @@ function p1(key: FontKey, id: string): DetectCase {
   };
 }
 
+/** Four labelled lines stacked at an even pitch, a date hint under one. */
+const P19 = {
+  ys: [600, 570, 540, 510],
+  labels: ["Surname:", "Forenames:", "Date of birth:", "Nationality:"],
+};
+
 const P10_CROP: Box = { x: 36, y: 48, width: 540, height: 696 };
 const N19_CROP = { x: 0, y: 0, width: 400, height: 792 };
 const N10 = { x: 100, y: 300, w: 400, h: 120 };
@@ -834,6 +840,30 @@ export const DETECT_CASES: readonly DetectCase[] = [
         box: ruleBox(P4.x0, P4.x1, P4.y, 12),
       },
     ],
+  },
+  {
+    id: "P19",
+    kind: "positive",
+    note: "four labelled lines at an even pitch, a DD MM YYYY hint under the date line: a form, not a table ruled in rows",
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const [i, y] of P19.ys.entries()) {
+        const s = P19.labels[i]!;
+        await text(page, H, s, 140 - textWidth(H, s, 11), y, 11);
+        rule(page, 146, 420, y, 0.5);
+      }
+      for (const [i, s] of ["DD", "MM", "YYYY"].entries())
+        await text(page, H, s, 150 + 60 * i, 531, 6);
+      return save(d);
+    },
+    expect: P19.ys.map((y, i) => ({
+      rule: "labelled-rule" as const,
+      type: "text" as const,
+      label: P19.labels[i]!.slice(0, -1),
+      page: 1,
+      box: ruleBox(146, 420, y, 11),
+    })),
   },
 
   // ---------------------------------------------------------- negatives

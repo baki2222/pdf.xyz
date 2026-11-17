@@ -825,6 +825,44 @@ describe("exclusions, each at its boundary", () => {
       expect(ruled(rows({ text: header(23.9) }))).toBe(0);
     });
 
+    // A stack of labelled form lines was suppressed as a table whenever a
+    // hint ("DD MM YYYY") under one of them gave a band two columns: the
+    // rule ignored the label to the LEFT of each line (review finding;
+    // corpus P19). A rows-only table's rules span its first column, so its
+    // row text sits above and below each rule, never to its left.
+    it("a rule with a label to its left is a field line, not a table row", () => {
+      const ys = [600, 570, 540, 510];
+      const labels = [
+        "Surname:",
+        "Forenames:",
+        "Date of birth:",
+        "Nationality:",
+      ];
+      const stack = (labelled: boolean) =>
+        pg({
+          segs: ys.map((y) => hseg(146, 420, y, { width: 0.5 })),
+          text: [
+            ...["DD", "MM", "YYYY"].map((s, i) =>
+              txt(s, 150 + 60 * i, 531, { width: 10, size: 6 }),
+            ),
+            ...(labelled
+              ? labels.map((s, i) =>
+                  txt(s, 80, ys[i]!, { width: 60, size: 11 }),
+                )
+              : []),
+          ],
+        });
+      expect(ruled(stack(true))).toBe(0);
+      expect(props(stack(true)).map((f) => f.label)).toEqual([
+        "Surname",
+        "Forenames",
+        "Date of birth",
+        "Nationality",
+      ]);
+      // Control: the same lines with no labels still read as a table's rows.
+      expect(ruled(stack(false))).toBe(4);
+    });
+
     it("stacked lines with one caption each are a form, not a table", () => {
       const p = rows({
         ys: [600, 570, 540],
