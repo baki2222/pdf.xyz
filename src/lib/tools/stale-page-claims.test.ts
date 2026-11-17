@@ -509,7 +509,8 @@ describe("Markdown to PDF's catalogue line says what the renderer draws", () => 
     /**
      * The block words missing from the LIST, the text between the colon and
      * the sentence's full stop. Not the whole line: "except in tables" later
-     * on it satisfied a whole-line match with "tables" dropped from the list.
+     * on it satisfied a whole-line match with "tables" dropped from the list
+     * (since backlog #24 the later mention is "in tables too").
      */
     const missing = (text: string) => {
       const colon = text.indexOf(":");
@@ -525,24 +526,34 @@ describe("Markdown to PDF's catalogue line says what the renderer draws", () => 
       expect(kinds.has(kind), `the parser made no ${kind}`).toBe(true);
     }
     // Negative control (review 2026-11-17): "tables" dropped from the list,
-    // while "except in tables" stays on the line.
+    // while "tables" stays later on the line.
     const mutated = line.replace("code and tables.", "code and rules.");
     expect(mutated, "the mutation did not land").not.toBe(line);
-    expect(mutated).toMatch(/except in tables/);
+    expect(mutated).toMatch(/\bin tables too\b/);
     expect(missing(mutated)).toEqual(["tables"]);
   });
 
-  it("web links open outside tables and only print inside them, as the line says", async () => {
-    expect(line).toMatch(/\bWeb links open when clicked, except in tables\b/);
-    // Read from the PDF, not the parser: table blocks carry no runs at all,
-    // so a parser-level check of a cell's link could never go red.
+  /**
+   * INVERTED 2026-11-17 (backlog #24). Until then this was "web links open
+   * outside tables and only print inside them, as the line says": the line
+   * read "Web links open when clicked, except in tables." and the PDF had
+   * NO annotation for the sample's cell link ("The day a cell's link opens,
+   * 'except in tables' is the stale claim"). That day came: table cells are
+   * drawn through the styled-run path, so the line now says links open in
+   * tables too, and the cell's annotation is what licenses it.
+   */
+  it("web links open everywhere the line names, tables included", async () => {
+    expect(line).toMatch(/\bWeb links open when clicked, in tables too\b/);
+    expect(line).not.toMatch(/\bexcept in tables\b/);
+    // Read from the PDF, not the parser.
     const uris = await linkUris(await markdownToPdf(SAMPLE));
     expect(uris).toContain("https://example.com/p");
     expect(uris).toContain("https://example.com/h");
-    // The day a cell's link opens, "except in tables" is the stale claim.
-    expect(uris).not.toContain("https://example.com/c");
-    // Health: the cell's address is in the sample, so its absence is earned.
-    expect(SAMPLE).toContain("](https://example.com/c)");
+    expect(uris).toContain("https://example.com/c");
+    // Health: the cell's address is in the sample's table, so its presence
+    // is the cell's and not some other block's.
+    expect(SAMPLE).toContain("| [cell link](https://example.com/c) |");
+    expect(SAMPLE.split("https://example.com/c")).toHaveLength(2);
   });
 
   it("does not promise bold or italics, which a non-Western document loses", () => {
@@ -605,12 +616,13 @@ describe("Markdown to PDF scopes its bold and italic faces to Western European t
     try {
       const faces = async (text: string) =>
         (await bodyFaces(await markdownToPdf(text))).size;
-      const styled = "Plain **heavy** and *slanted* and `mono` end.";
-      const bare = "Plain heavy and slanted and `mono` end.";
-      // Western European: bold and italics add two faces to the body text
-      // and code (positive control).
+      const styled =
+        "Plain **heavy** and *slanted* and ***both*** and `mono` end.";
+      const bare = "Plain heavy and slanted and both and `mono` end.";
+      // Western European: bold, italics and bold italics (backlog #24) add
+      // three faces to the body text and code (positive control).
       expect(await faces(bare)).toBe(2);
-      expect(await faces(styled)).toBe(4);
+      expect(await faces(styled)).toBe(5);
       // One Polish letter: they add none, as the page's FAQ says.
       const z = String.fromCodePoint(0x017c);
       const withZ = (text: string) => text.replace("Plain", `Plain${z}`);

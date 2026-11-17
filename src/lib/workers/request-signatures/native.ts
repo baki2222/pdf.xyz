@@ -83,7 +83,7 @@ const inspect: PdfInspector = async (bytes) => {
  *     {@link placeVisibleRect}, and turned so it reads upright.
  */
 const place: PdfFieldPlacer = async (bytes, fields) => {
-  const [doc, { degrees, rgb }] = await Promise.all([
+  const [doc, { PDFHexString, PDFName, degrees, rgb }] = await Promise.all([
     loadPdf(bytes),
     loadPdfLib(),
   ]);
@@ -106,6 +106,23 @@ const place: PdfFieldPlacer = async (bytes, fields) => {
       borderColor: outline,
       borderWidth: 1,
     });
+    // The box's label as its /TU, the alternate name viewers show as the
+    // field's tooltip. A PDF text string: `fromText` writes UTF-16BE behind a
+    // FE FF byte order mark, so a Bengali or CJK label survives (a literal
+    // string would be read as PDFDocEncoding and turn into Latin noise). The
+    // field NAME is untouched: a filled form keys on it.
+    //
+    // Written on the field AND on its widget. pdf-lib makes the widget a
+    // separate kid of the field; the spec puts /TU on the field, which is
+    // where Acrobat and pdf-lib read it, but pdf.js (Firefox, our previews)
+    // reads it from the widget annotation only and showed no tooltip when it
+    // sat on the field alone (measured 2026-11-17, native.integration.test.ts).
+    if (field.label !== undefined) {
+      const tooltip = PDFHexString.fromText(field.label);
+      widget.acroField.dict.set(PDFName.of("TU"), tooltip);
+      for (const kid of widget.acroField.getWidgets())
+        kid.dict.set(PDFName.of("TU"), tooltip);
+    }
   }
   // `getForm()` above arms `save()` to regenerate every field that is dirty or
   // has no stored appearance — the uploader's fields as well as ours — with
