@@ -1,6 +1,12 @@
 import { expect, test } from "@playwright/test";
 import { uploadFiles } from "./helpers";
-import { BOARDS, writeShapesPdf, zoomButton } from "./page-zoom-fixture";
+import {
+  BOARDS,
+  dialogViolations,
+  shownAspect,
+  writeShapesPdf,
+  zoomButton,
+} from "./page-zoom-fixture";
 
 /**
  * "View page N larger" on a 375 x 812 phone (backlog #9, 2026-11-17): the
@@ -48,3 +54,32 @@ for (const board of BOARDS) {
     await expect(dialog).toBeHidden();
   });
 }
+
+// A phone short enough that the page does not fit beside the controls
+// (360px of page in a 336px area, measured 2026-11-18): the page area
+// scrolls, so it is a named tab stop. Here the scrollbars overlay the
+// content, as on a real phone, so nothing about the area's own box changes
+// when the page arrives; the dialog has to notice the page itself (the
+// desktop spec's classic scrollbar resizes the area and would hide that).
+test.describe("a 320 x 480 phone", () => {
+  test.use({ viewport: { width: 320, height: 480 } });
+  test("the page area scrolls and is a named tab stop", async ({ page }) => {
+    await page.goto("/tools/rotate-pdf");
+    await uploadFiles(page, await writeShapesPdf());
+    // The board's scrolling grid takes a tap meant for the tile's button on
+    // a screen this short; the keyboard opens it the same way.
+    await zoomButton(page, 1).focus();
+    await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog");
+    await shownAspect(dialog);
+    const area = dialog.getByRole("region", { name: "Page 1" });
+    expect(
+      await area.evaluate((el) => el.scrollHeight - el.clientHeight),
+      "health: the page overflows",
+    ).toBeGreaterThan(0);
+    await expect(dialog.getByRole("button", { name: "Close" })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(area).toBeFocused();
+    expect(await dialogViolations(page)).toEqual([]);
+  });
+});

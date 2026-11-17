@@ -33,6 +33,15 @@
  *    that owns the box. (The toolbar's Strip once passed with `via:
  *    "children"`, which verified nothing.)
  *
+ * An exemption of kind "while-it-scrolls" is a box that is a tab stop only
+ * while its content overflows (`tabIndex={scrolls ? 0 : undefined}`): the
+ * page zoom dialog's page area, which overflows only on a phone about 480px
+ * tall, and was an empty tab stop at every other size while it was always
+ * one (review finding, 2026-11-18). No parser can tell that `scrolls`
+ * tracks the overflow, so the exemption names the e2e test that measures it
+ * in a browser, and the guard checks that test exists, beside the
+ * structural checks (a conditional with a 0 branch, and a name).
+ *
  * Health checks: the found set is bounded both ways and printed by name,
  * the predicates are first run on planted snippets that must pass and fail,
  * and every exemption must still match exactly one found box that would
@@ -68,6 +77,14 @@ type Exemption =
       match: string;
       kind: "other-lane";
       reason: string;
+    }
+  | {
+      file: string;
+      match: string;
+      kind: "while-it-scrolls";
+      /** The title of the e2e test that measures it, as written in e2e/. */
+      proof: string;
+      reason: string;
     };
 
 const R = "components/tools/runner/";
@@ -79,6 +96,14 @@ const EXEMPT: Exemption[] = [
     kind: "other-lane",
     reason:
       "the editor's page view ([data-editor-viewport], tabIndex={-1}): sweep finding F1, fixed in lane A (branch fix/editor-viewport-keyboard-scroll, worktree E:/wa11y-editor), which owns this file. Delete this entry when that lands: the check below fails on a stale exemption, so whichever of the two lanes merges second deletes it on the merged head.",
+  },
+  {
+    file: `${R}page-zoom-dialog.tsx`,
+    match: "bg-wash rounded-panel",
+    kind: "while-it-scrolls",
+    proof: "the page area is a tab stop only while it scrolls",
+    reason:
+      "the zoom dialog's page area: the page is capped to fit, so it scrolls only on a very short phone, and is a tab stop exactly then",
   },
   {
     file: `${R}editor/wysiwyg-editor.tsx`,
@@ -419,13 +444,58 @@ function reachable(box: Box): boolean {
   return false;
 }
 
+/** `tabIndex={cond ? 0 : undefined}`: a tab stop on a condition. */
+function reachableWhen(box: Box): boolean {
+  const attr = box.attrs.get("tabIndex");
+  const value = attr && attrValue(attr);
+  return (
+    !!value &&
+    ts.isConditionalExpression(value) &&
+    ts.isNumericLiteral(value.whenTrue) &&
+    value.whenTrue.text === "0" &&
+    ts.isIdentifier(value.whenFalse) &&
+    value.whenFalse.text === "undefined"
+  );
+}
+
+const named = (box: Box) =>
+  box.attrs.has("aria-label") || box.attrs.has("aria-labelledby");
+
+/** What is wrong with a "while-it-scrolls" exemption, or nothing. */
+function whileScrollsProblems(
+  e: Exemption,
+  box: Box,
+  specs: readonly string[],
+): string[] {
+  if (e.kind !== "while-it-scrolls") return [];
+  const problems: string[] = [];
+  if (!reachableWhen(box) || !named(box)) {
+    problems.push(
+      `${where(box)}: a "while-it-scrolls" box needs tabIndex={scrolls ? 0 : undefined} and a name`,
+    );
+  }
+  const title = e.proof.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const test = new RegExp(`\\btest\\(\\s*["'\`]${title}["'\`]`);
+  if (!specs.some((text) => test.test(text))) {
+    problems.push(
+      `${where(box)}: no e2e spec has a test titled "${e.proof}" to measure it`,
+    );
+  }
+  return problems;
+}
+
+/** The text of every e2e spec. */
+function e2eSpecs(): string[] {
+  const dir = path.resolve(SRC, "../e2e");
+  return readdirSync(dir, { recursive: true, encoding: "utf8" })
+    .filter((f) => /\.spec\.ts$/.test(f))
+    .map((f) => readFileSync(path.join(dir, f), "utf8"));
+}
+
 /** The box itself is a named stop in the tab order. */
 function focusableAndNamed(box: Box): boolean {
   if (/(?:^|\.)LongText$/.test(box.tag)) return box.attrs.has("label");
-  return (
-    reachable(box) &&
-    (box.attrs.has("aria-label") || box.attrs.has("aria-labelledby"))
-  );
+  return reachable(box) && named(box);
 }
 
 const where = (box: Box) => `${box.file}:${box.line}`;
@@ -493,6 +563,43 @@ describe("predicates, on planted snippets first", () => {
     ]);
     expect(focusableAndNamed(good!)).toBe(true);
     expect(focusableAndNamed(byId!)).toBe(true);
+  });
+
+  it("a while-it-scrolls box needs a conditional 0, a name, and a real e2e test", () => {
+    const [good, never, minus, unnamed] = plant(
+      `<>
+        <section aria-labelledby="h" tabIndex={s ? 0 : undefined} className="overflow-auto">a</section>
+        <section aria-labelledby="h" tabIndex={-1} className="overflow-auto">a</section>
+        <section aria-labelledby="h" tabIndex={s ? -1 : undefined} className="overflow-auto">a</section>
+        <section tabIndex={s ? 0 : undefined} className="overflow-auto">a</section>
+      </>`,
+    );
+    const ex: Exemption = {
+      file: "planted.tsx",
+      match: "overflow",
+      kind: "while-it-scrolls",
+      proof: "the box is a tab stop only while it scrolls",
+      reason: "planted",
+    };
+    const specs = [
+      `test("the box is a tab stop only while it scrolls", async () => {});`,
+    ];
+    expect(focusableAndNamed(good!)).toBe(false);
+    expect(whileScrollsProblems(ex, good!, specs)).toEqual([]);
+    for (const box of [never, minus, unnamed]) {
+      expect(whileScrollsProblems(ex, box!, specs)).toEqual([
+        expect.stringContaining("needs tabIndex={scrolls ? 0 : undefined}"),
+      ]);
+    }
+    // The title only in a comment, or a different title, is no test.
+    for (const text of [
+      `// "the box is a tab stop only while it scrolls"`,
+      `test("the box is a tab stop", async () => {});`,
+    ]) {
+      expect(whileScrollsProblems(ex, good!, [text])).toEqual([
+        expect.stringContaining("no e2e spec has a test titled"),
+      ]);
+    }
   });
 
   it("a LongText passes only with a label, and with one really renders a named focusable region", () => {
@@ -593,6 +700,7 @@ describe("predicates, on planted snippets first", () => {
 
 describe("every scrolling box in a tool runner can be scrolled from a keyboard", () => {
   const { boxes, index } = discover();
+  const specs = e2eSpecs();
 
   it("finds a plausible set, printed by name", () => {
     console.log(
@@ -631,6 +739,8 @@ describe("every scrolling box in a tool runner can be scrolled from a keyboard",
     // A blind index makes every component "not focusable" (a red for the
     // wrong reason); a missing name here says which.
     expect(index.defs.size).toBeGreaterThanOrEqual(50);
+    // The e2e specs were read: a blind read fails every proof the same way.
+    expect(specs.length).toBeGreaterThanOrEqual(100);
     for (const name of ["PageTile", "MergeTile", "Thumb", "ToolButton"]) {
       expect(index.defs.get(name)?.length, name).toBeGreaterThan(0);
       expect(takesFocus(name, index), name).toBe(true);
@@ -654,6 +764,7 @@ describe("every scrolling box in a tool runner can be scrolled from a keyboard",
         );
       }
       problems.push(...viaProblems(e, box, index));
+      problems.push(...whileScrollsProblems(e, box, specs));
     }
     expect(problems).toEqual([]);
   });
