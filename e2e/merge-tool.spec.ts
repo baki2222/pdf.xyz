@@ -427,3 +427,299 @@ test("split options: by text starts a file at every page containing the phrase",
     ["batch.pdf::page-4", "batch.pdf::page-5"],
   ]);
 });
+
+/* ------------------------------------------------------------------ *
+ *  Arrange pages (audit backlog #9, 2026-11-17): every page of every
+ *  file in one grid, driven by pointer, keyboard and touch, read back
+ *  from the DOWNLOADED bytes.
+ * ------------------------------------------------------------------ */
+
+const pageGrid = (page: Page) =>
+  page.getByRole("list", { name: /^Pages of every file/ });
+
+/** The grid's tiles, as their accessible names, in order. */
+async function tileNames(page: Page): Promise<string[]> {
+  return pageGrid(page)
+    .locator('[role="listitem"]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute("aria-label") ?? ""));
+}
+
+const tile = (page: Page, file: string, n: number) =>
+  pageGrid(page).getByRole("listitem", {
+    name: new RegExp(`^Page ${n} of ${file.replace(".", "\\.")},`),
+  });
+
+/** "1, 3" or "1-3" for 1-based pages, as the Pages box writes them. */
+function listText(pages: number[]): string {
+  const runs: [number, number][] = [];
+  for (const p of [...pages].sort((a, b) => a - b)) {
+    const last = runs[runs.length - 1];
+    if (last && p === last[1] + 1) last[1] = p;
+    else runs.push([p, p]);
+  }
+  return runs.map(([a, b]) => (a === b ? `${a}` : `${a}-${b}`)).join(", ");
+}
+
+/**
+ * The typed Pages box of every file says exactly which of its pages the grid
+ * keeps: empty when all, else the kept set in page-number order.
+ */
+async function boxesAgreeWithGrid(
+  page: Page,
+  files: Record<string, number>,
+): Promise<void> {
+  const names = await tileNames(page);
+  for (const [file, count] of Object.entries(files)) {
+    const kept = names
+      .filter((n) => n.includes(` of ${file}, page `))
+      .map((n) => Number(/^Page (\d+) of /.exec(n)![1]));
+    const want = kept.length === count ? "" : listText(kept);
+    await expect(
+      page.getByLabel(
+        new RegExp(`pages of ${file.replace(".", "\\.")} to merge`, "i"),
+      ),
+      `${file}: grid keeps ${kept.join(",")}`,
+    ).toHaveValue(want);
+  }
+}
+
+async function noSidewaysScroll(page: Page): Promise<void> {
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(0);
+}
+
+/** Each page's /Rotate, read back with pdf-lib. */
+async function turns(buf: Buffer): Promise<number[]> {
+  const doc = await PDFDocument.load(buf);
+  return doc.getPages().map((p) => p.getRotation().angle);
+}
+
+test("merge page mode: drag, keyboard move, rotate and leave out across files", async ({
+  page,
+}) => {
+  const guard = attachConsoleGuard(page);
+  await page.goto("/tools/merge-pdf");
+  await stage(page, [
+    pdfPayload("alpha.pdf", await makeTextPdf("alpha.pdf", { pages: 3 })),
+    pdfPayload("beta.pdf", await makeTextPdf("beta.pdf", { pages: 3 })),
+  ]);
+  await expect(page.getByText("beta.pdf", { exact: true })).toBeVisible();
+  const counts = { "alpha.pdf": 3, "beta.pdf": 3 };
+
+  await page.getByRole("radio", { name: "Arrange pages" }).click();
+  await expect(pageGrid(page)).toBeVisible();
+  expect(await tileNames(page)).toHaveLength(6);
+  await boxesAgreeWithGrid(page, counts);
+
+  // Leave out alpha's page 2.
+  await page
+    .getByRole("button", { name: "Leave out page 2 of alpha.pdf" })
+    .click();
+  await boxesAgreeWithGrid(page, counts);
+  await expect(page.getByLabel(/pages of alpha\.pdf to merge/i)).toHaveValue(
+    "1, 3",
+  );
+
+  // Pointer: drag beta's page 1 onto alpha's page 3, between alpha's pages.
+  await tile(page, "beta.pdf", 1).dragTo(tile(page, "alpha.pdf", 3));
+  await expect(tile(page, "beta.pdf", 1)).toHaveAttribute(
+    "aria-label",
+    /page 2 of 5 in the merged PDF/,
+  );
+  await boxesAgreeWithGrid(page, counts);
+
+  // Keyboard only: beta's page 3 to the very front.
+  const grip = page.getByRole("button", {
+    name: /^Reorder page 3 of beta\.pdf/,
+  });
+  await grip.focus();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Enter");
+  await expect(tile(page, "beta.pdf", 3)).toHaveAttribute(
+    "aria-label",
+    /page 1 of 5 in the merged PDF/,
+  );
+  await boxesAgreeWithGrid(page, counts);
+
+  // Turn beta's page 2.
+  await page
+    .getByRole("button", { name: "Rotate page 2 of beta.pdf right" })
+    .click();
+  await boxesAgreeWithGrid(page, counts);
+
+  await expect(page.getByText(/2 files · 5 pages/)).toBeVisible();
+  await expect(page.getByText(/^Your pages mix files/)).toBeVisible();
+  await expect(
+    page.getByLabel(/add a bookmark for each file/i),
+  ).toHaveAttribute("aria-disabled", "true");
+
+  // Leave to One after another and back: the arrangement is kept.
+  const before = await tileNames(page);
+  await page.getByRole("radio", { name: "One after another" }).click();
+  await expect(page.getByText(/Your page arrangement is kept/)).toBeVisible();
+  await page.getByRole("radio", { name: "Arrange pages" }).click();
+  await expect(pageGrid(page)).toBeVisible();
+  expect(await tileNames(page)).toEqual(before);
+  await boxesAgreeWithGrid(page, counts);
+
+  await page.getByRole("button", { name: /merge 2 pdfs/i }).click();
+  await expect(
+    page.getByRole("heading", { name: /pdfs merged/i }),
+  ).toBeVisible();
+  const buf = await captureDownload(
+    page,
+    page.getByRole("button", { name: /download merged pdf/i }),
+  );
+  expect(await markers(buf)).toEqual([
+    "beta.pdf::page-3",
+    "alpha.pdf::page-1",
+    "beta.pdf::page-1",
+    "alpha.pdf::page-3",
+    "beta.pdf::page-2",
+  ]);
+  expect(await turns(buf)).toEqual([0, 0, 0, 0, 90]);
+  expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+});
+
+test.describe("merge page mode on a 375 x 812 touch screen", () => {
+  test.use({
+    viewport: { width: 375, height: 812 },
+    hasTouch: true,
+    isMobile: true,
+  });
+
+  test("the move buttons reorder across files by tap, with no sideways scroll", async ({
+    page,
+  }) => {
+    await page.goto("/tools/merge-pdf");
+    await stage(page, [
+      pdfPayload("alpha.pdf", await makeTextPdf("alpha.pdf", { pages: 3 })),
+      pdfPayload("beta.pdf", await makeTextPdf("beta.pdf", { pages: 3 })),
+    ]);
+    await expect(page.getByText("beta.pdf", { exact: true })).toBeVisible();
+    await page.getByRole("radio", { name: "Arrange pages" }).tap();
+    await expect(pageGrid(page)).toBeVisible();
+    await noSidewaysScroll(page);
+    // Beta's page 1 sits at slot 4; three taps of "earlier" put it first.
+    const earlier = page.getByRole("button", {
+      name: "Move page 1 of beta.pdf earlier",
+    });
+    for (let i = 0; i < 3; i++) await earlier.tap();
+    await expect(tile(page, "beta.pdf", 1)).toHaveAttribute(
+      "aria-label",
+      /page 1 of 6 in the merged PDF/,
+    );
+    // Every tile button is a thumb's target.
+    const box = await earlier.boundingBox();
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+    await page
+      .getByRole("button", { name: "Rotate page 3 of alpha.pdf left" })
+      .tap();
+    await page
+      .getByRole("button", { name: "Leave out page 3 of beta.pdf" })
+      .tap();
+    await boxesAgreeWithGrid(page, { "alpha.pdf": 3, "beta.pdf": 3 });
+    await noSidewaysScroll(page);
+    await page.getByRole("button", { name: /merge 2 pdfs/i }).tap();
+    await expect(
+      page.getByRole("heading", { name: /pdfs merged/i }),
+    ).toBeVisible();
+    const buf = await captureDownload(
+      page,
+      page.getByRole("button", { name: /download merged pdf/i }),
+    );
+    expect(await markers(buf)).toEqual([
+      "beta.pdf::page-1",
+      "alpha.pdf::page-1",
+      "alpha.pdf::page-2",
+      "alpha.pdf::page-3",
+      "beta.pdf::page-2",
+    ]);
+    expect(await turns(buf)).toEqual([0, 0, 0, 270, 0]);
+  });
+});
+
+test("merge page mode passes axe with files mixed", async ({ page }) => {
+  const { createRequire } = await import("node:module");
+  const { join } = await import("node:path");
+  const axePath = createRequire(join(process.cwd(), "package.json")).resolve(
+    "axe-core/axe.min.js",
+  );
+  await page.goto("/tools/merge-pdf");
+  await stage(page, [
+    pdfPayload("alpha.pdf", await makeTextPdf("alpha.pdf", { pages: 2 })),
+    pdfPayload("beta.pdf", await makeTextPdf("beta.pdf", { pages: 2 })),
+  ]);
+  await expect(page.getByText("beta.pdf", { exact: true })).toBeVisible();
+  await page.getByRole("radio", { name: "Arrange pages" }).click();
+  await expect(pageGrid(page)).toBeVisible();
+  await page
+    .getByRole("button", { name: "Move page 1 of beta.pdf earlier" })
+    .click();
+  await expect(page.getByText(/^Your pages mix files/)).toBeVisible();
+  await page.addScriptTag({ path: axePath });
+  const found = await page.evaluate(async () => {
+    const axe = (
+      window as unknown as {
+        axe: {
+          run: (
+            ctx: Document,
+            opts: object,
+          ) => Promise<{ violations: { id: string; nodes: unknown[] }[] }>;
+        };
+      }
+    ).axe;
+    const r = await axe.run(document, {
+      runOnly: {
+        type: "tag",
+        values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"],
+      },
+    });
+    return r.violations.map((v) => `${v.id} (${v.nodes.length})`);
+  });
+  expect(found).toEqual([]);
+});
+
+test("merge page mode stays responsive with a 300-page file: thumbnails load as tiles near the screen", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.goto("/tools/merge-pdf");
+  await stage(page, [
+    pdfPayload("big.pdf", await makeTextPdf("big.pdf", { pages: 300 })),
+    pdfPayload("small.pdf", await makeTextPdf("small.pdf", { pages: 2 })),
+  ]);
+  await expect(page.getByText("small.pdf", { exact: true })).toBeVisible();
+  const t0 = Date.now();
+  await page.getByRole("radio", { name: "Arrange pages" }).click();
+  await expect(pageGrid(page)).toBeVisible();
+  await expect(pageGrid(page).locator('[role="listitem"]')).toHaveCount(302);
+  const openMs = Date.now() - t0;
+  // Give the near-screen thumbnails time to draw, then count them.
+  await page.waitForTimeout(3_000);
+  const drawn = await pageGrid(page).locator("img").count();
+  // A keyboard move to the far end of the list, timed to its announcement.
+  const grip = page.getByRole("button", {
+    name: /^Reorder page 1 of small\.pdf/,
+  });
+  await grip.focus();
+  const t1 = Date.now();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Enter");
+  await expect(tile(page, "small.pdf", 1)).toHaveAttribute(
+    "aria-label",
+    /page 1 of 302 in the merged PDF/,
+  );
+  const moveMs = Date.now() - t1;
+  console.log(
+    `[300-page] grid open ${openMs} ms, thumbnails drawn ${drawn}/302 after 3 s, keyboard move ${moveMs} ms`,
+  );
+  // Lazy: far fewer than every page has a picture.
+  expect(drawn).toBeGreaterThan(0);
+  expect(drawn).toBeLessThan(150);
+  expect(moveMs).toBeLessThan(3_000);
+});
