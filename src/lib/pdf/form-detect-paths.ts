@@ -8,8 +8,9 @@
  * are painted into. No viewport is applied here: `./form-detect-read` maps
  * the results into the page frame. Curves are not read (they end a straight
  * run and are otherwise skipped), clip-only paths are not read, and paths
- * painted in near-white are dropped, because a white line on a white page is
- * not something a reader sees.
+ * painted in near-white, or under a singular CTM (which flattens them to
+ * nothing pdf.js paints), are dropped, because a white line on a white page
+ * is not something a reader sees.
  *
  * CLIPPING, for the same reason: a line clipped away is not on the page. The
  * clip is kept as a BOX, the intersection of the bounding boxes of every
@@ -576,6 +577,13 @@ export function scanPaths(
     }
     const lum = stroked ? st.strokeLum : st.fillLum;
     if (lum >= NEAR_WHITE_LUM) return false;
+    // A singular CTM (det 0, against the matrix's own scale) flattens the
+    // path to a line or a point, and pdf.js paints no pixel of it at any
+    // line width: nothing a reader sees. Read as segments, it was a 0-width
+    // hairline, which is a rule.
+    const [a, b, c, d] = st.ctm;
+    if (!(Math.abs(a * d - b * c) > 1e-12 * (a * a + b * b + c * c + d * d)))
+      return false;
     const across = (dx: number, dy: number) =>
       strokeAcross(st.ctm, st.lineWidth, dx, dy);
     for (const sp of subPaths(data as ArrayLike<number>, st.ctm)) {

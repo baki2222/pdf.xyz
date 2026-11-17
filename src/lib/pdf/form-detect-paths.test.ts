@@ -282,6 +282,35 @@ describe("scanPaths", () => {
     expect(sheared.segs[0]!.width).toBeCloseTo(2, 6);
   });
 
+  // A path under a singular CTM (det 0) is flattened to a line or a point,
+  // and pdf.js paints no pixel of it at any line width (rendered: 0 dark
+  // pixels, against 800-2,000 for the same shapes at det 1). It was read as
+  // a 0-width hairline, a rule, and proposed as a field (review finding;
+  // corpus N27).
+  it("reads nothing painted under a singular CTM (det 0)", () => {
+    const under = (m: number[]) =>
+      scan([
+        [OPS.transform, m],
+        [OPS.setLineWidth, [3]],
+        path(OPS.stroke, ...re(110, 300, 200, 50)),
+        path(OPS.stroke, M, 110, 300, L, 310, 300),
+      ]);
+    for (const m of [
+      [1, 0, 0, 0, 0, 400],
+      [0, 0, 0, 1, 400, 0],
+      [2, 1, 4, 2, 0, 0],
+    ]) {
+      const flat = under(m);
+      expect(flat.segs, String(m)).toEqual([]);
+      expect(flat.rects, String(m)).toEqual([]);
+      expect(flat.painted).toBe(2);
+    }
+    // Control: det 1 reads the box and the line.
+    const ok = under([1, 0, 0, 1, 0, 0]);
+    expect(ok.rects).toHaveLength(1);
+    expect(ok.segs).toHaveLength(1);
+  });
+
   it("gives a Rect the thickness of its thickest edge", () => {
     const r = scan([
       [OPS.transform, [0.125, 0, 0, 8, 0, 0]],

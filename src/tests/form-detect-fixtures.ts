@@ -1419,6 +1419,14 @@ export const DETECT_CASES: readonly DetectCase[] = [
       addressWith("q 0 0 10 10 re W n 0.5 w 130 600 m 330 600 l S Q"),
     expect: "none",
   },
+  {
+    id: "N27",
+    kind: "negative",
+    note: "a box beside a label stroked 3 w under cm [1 0 0 0 0 600] (det 0): pdf.js paints nothing",
+    build: () =>
+      addressWith("q 1 0 0 0 0 600 cm 0 G 3 w 130 300 200 50 re S Q"),
+    expect: "none",
+  },
 
   // ---------------------------------------------------------- outcomes
   {
