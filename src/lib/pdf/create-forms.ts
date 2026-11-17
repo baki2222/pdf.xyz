@@ -1,4 +1,5 @@
 import { PdfEngineError } from "./engine";
+import { RADIO_STACK_GAP, fieldBoxes, type FieldBox } from "./field-boxes";
 import { outputName } from "./files";
 import { repairFieldTree } from "./form-tree";
 import { displayedSize, pageFrame, toContentSpace } from "./page-frame";
@@ -18,9 +19,11 @@ import {
  * lists) at caller-supplied coordinates and saves a new, fillable PDF.
  *
  * HONEST SCOPE: this creates the five classic AcroForm field types pdf-lib can
- * build and render reliably. It is NOT a visual PDF editor — there are no drag
- * handles, no live canvas, and no arbitrary rich styling (fonts, borders,
- * colors). Fields are placed by numeric coordinates in PDF points. It does NOT
+ * build and render reliably, with no arbitrary rich styling (fonts, borders,
+ * colors). The engine takes numeric coordinates in PDF points and nothing
+ * else; the builder's page preview (create-forms-preview.tsx, since
+ * 2026-11-17) only SETS those numbers — a click, a drag or an arrow key
+ * writes X and Y on the card, and this engine is handed the card. It does NOT
  * create signature fields — Edit PDF's Forms group drags those out, as an
  * unsigned `/Sig` widget written through pdf-lib (editor/model.ts; until
  * 2026-11-07 this said pdf-lib could not render one, audit create-forms#1) —
@@ -44,8 +47,12 @@ export function describeFieldType(type: NewFieldType): string {
   return FIELD_TYPE_LABELS[type];
 }
 
-/** Default vertical gap (points) between the stacked buttons of a radio group. */
-export const RADIO_STACK_GAP = 6;
+/*
+ * The radio stack's default gap and the boxes every field occupies live in
+ * the `field-boxes` leaf, which the builder's page preview reads too (see
+ * there). Re-exported here for existing importers.
+ */
+export { RADIO_STACK_GAP };
 
 /** Tolerance (points) when checking a field fits within the page box. */
 const BOUND_EPS = 0.5;
@@ -186,30 +193,7 @@ export function parseOptions(text: string): string[] {
     .filter((line) => line.length > 0);
 }
 
-interface Placement {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-/**
- * The widget box(es) a field occupies. Every type is a single box except a
- * radio group, whose buttons stack downward from (x, y) — one per option, each
- * `width`×`height`, separated by `gap` points.
- */
-function fieldBoxes(spec: NewFormField): Placement[] {
-  if (spec.type === "radio") {
-    const gap = spec.gap ?? RADIO_STACK_GAP;
-    return spec.options.map((_, i) => ({
-      x: spec.x,
-      y: spec.y - i * (spec.height + gap),
-      width: spec.width,
-      height: spec.height,
-    }));
-  }
-  return [{ x: spec.x, y: spec.y, width: spec.width, height: spec.height }];
-}
+type Placement = FieldBox;
 
 /**
  * PDF field names are hierarchical: a period splits a name into a GROUP and the
