@@ -185,6 +185,10 @@ export function copyFiles(): string[] {
     // Translate's page-choice refusal at the route (2026-11-16, competitor
     // audit #29 slice 6), walked from its first file.
     path.join(ROOT, "src", "lib", "jobs", "translate-pages.ts"),
+    // What Translate PDF says about pages withheld because the job's
+    // reservation ran out (2026-11-17): one sentence, said by the package's
+    // marker and the panel's notice. Walked from its first file.
+    path.join(ROOT, "src", "lib", "jobs", "translate-withheld-copy.ts"),
     // The typed page text's one author, shared by Summarize's and
     // Translate's measures (2026-11-16, slice 6): the span-limit refusal.
     path.join(ROOT, "src", "lib", "pdf", "typed-page-spans.ts"),

@@ -463,6 +463,19 @@ const MIXED_IMAGES_PAGES = "one page per image: the JPG and the PNG";
 const MIXED_IMAGES_FIRST = "page 1 is the JPEG, DCT-coded";
 const MIXED_IMAGES_SECOND = "page 2 is the PNG, Flate-coded";
 
+/**
+ * Press the A4 chip. Since audit backlog #5 (2026-11-16) Scan, Resize,
+ * Multiple Pages per Sheet and Booklet start on the browser region's paper,
+ * which is US Letter in this suite's en-US browser; these proofs were
+ * written for an A4 page, so they now choose it, as a person would.
+ */
+async function pressA4(ctx: { page: Page }) {
+  const a4 = ctx.page.getByRole("button", { name: "A4", exact: true });
+  await waitForHydration(a4);
+  await a4.click();
+  await expect(a4).toHaveAttribute("aria-pressed", "true");
+}
+
 /** Why each new-tool proof rejects an artifact, shared with its controls. */
 const SCAN_FAILS = {
   pages: "one page per photo: two photos, two pages",
@@ -2098,6 +2111,7 @@ export const CASES: Record<string, ToolCase> = {
       await waitForHydration(bw);
       await bw.click();
       await expect(bw).toHaveAttribute("aria-pressed", "true");
+      await pressA4(ctx);
       return runAndDownload(
         ctx,
         /^create pdf$/i,
@@ -2414,10 +2428,11 @@ export const CASES: Record<string, ToolCase> = {
   "resize-pdf": {
     kind: "resize",
     artifact: "pdf",
-    // The fixture's 320 × 240 pages, resized with the defaults: A4, each page
+    // The fixture's 320 × 240 pages, resized to A4 (pressed), each page
     // keeping its own (landscape) orientation, content scaled to fit.
     run: async (ctx) => {
       await uploadTextPdf(ctx, "wide.pdf", { pages: 2 });
+      await pressA4(ctx);
       return runAndDownload(
         ctx,
         /^resize pdf$/i,
@@ -2468,11 +2483,12 @@ export const CASES: Record<string, ToolCase> = {
   "n-up-pdf": {
     kind: "n-up",
     artifact: "pdf",
-    // Four landscape pages at the default two per sheet: Auto picks a
+    // Four landscape pages at the default two per sheet on A4 (pressed): Auto picks a
     // portrait A4 sheet with the pages stacked, so pages 1 and 2 share sheet
     // 1 (page 1 on top) and pages 3 and 4 share sheet 2.
     run: async (ctx) => {
       await uploadTextPdf(ctx, "deck.pdf", { pages: 4 });
+      await pressA4(ctx);
       return runAndDownload(
         ctx,
         /^create sheets$/i,
@@ -2523,11 +2539,12 @@ export const CASES: Record<string, ToolCase> = {
   "booklet-pdf": {
     kind: "n-up",
     artifact: "pdf",
-    // Six pages with the defaults (A4, Left edge, Short edge, no margin):
+    // Six pages on A4 (pressed), otherwise the defaults (Left edge, Short edge, no margin):
     // padded to 8, two sheets, four sides. Each side's halves are read by
     // where each page's marker lands, left or right of the fold.
     run: async (ctx) => {
       await uploadTextPdf(ctx, "zine.pdf", { pages: 6 });
+      await pressA4(ctx);
       return runAndDownload(
         ctx,
         /^create booklet$/i,

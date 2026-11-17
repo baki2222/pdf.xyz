@@ -223,6 +223,10 @@ describe("the booklet editor", () => {
 
   it("states the result's numbers, the flip and the size the pages are drawn at", async () => {
     await editor(6);
+    // A4 pressed: since audit backlog #5 (2026-11-16) the sheet starts on the
+    // browser region's paper, US Letter in jsdom's en-US; this figure was
+    // written for A4 and is kept, now as a choice.
+    fireEvent.click(screen.getByRole("button", { name: "A4" }));
     fireEvent.click(
       screen.getByRole("button", {
         name: BOOKLET_FLIPS.find((f) => f.id === "long")!.label,

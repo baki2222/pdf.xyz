@@ -3,24 +3,27 @@ import { loadPdfLib } from "./pdf-lib";
 import { outputName } from "./files";
 import { PdfEngineError } from "./engine";
 import { embedDrawingFont } from "./unicode-font";
-import { TEXT_PAGE_MARGIN_PT, US_LETTER_PT } from "./page-geometry";
+import {
+  DEFAULT_TEXT_PAGE_OPTIONS,
+  textPageGeometry,
+  type TextPageGeometry,
+  type TextPageOptions,
+} from "./text-page-options";
 import { stripControls } from "@/lib/text/decode-text-file";
 import { MAX_TEXT_PAGES, TOO_MANY_TEXT_PAGES } from "./text-page-ceiling";
+import { wrapTextLine } from "./text-wrap";
 
 const PRODUCER = "pdf.xyz";
-// The page geometry the tool page states — one value, see ./page-geometry.
-const PAGE_WIDTH = US_LETTER_PT.width;
-const PAGE_HEIGHT = US_LETTER_PT.height;
-const MARGIN = TEXT_PAGE_MARGIN_PT;
-const FONT_SIZE = 11;
-const LINE_HEIGHT = 16;
+// The page the tool page states, from one table (./text-page-options): the
+// engine's default is the US Letter, 11 pt page it drew before it had options.
+const DEFAULT_GEOMETRY = textPageGeometry(DEFAULT_TEXT_PAGE_OPTIONS);
 // The cap the tool page advertises, so the gate and the promise are one value.
 import {
   MAX_SOURCE_BYTES as MAX_TEXT_BYTES,
   MAX_SOURCE_MB,
 } from "@/lib/tools/limits";
 
-export interface TextToPdfOptions {
+export interface TextToPdfOptions extends Partial<TextPageOptions> {
   title?: string;
 }
 
@@ -46,64 +49,14 @@ export function validatePlainTextInput(text: string): void {
   }
 }
 
+export { wrapTextLine };
+
 export function textPdfOutputName(sourceName: string): string {
   return outputName(sourceName || "text", "pdf", "pdf");
 }
 
 function normalizeInput(text: string): string {
   return text.replace(/\r\n?/g, "\n").replace(/\t/g, "    ");
-}
-
-function splitLongWord(
-  word: string,
-  font: PDFFont,
-  maxWidth: number,
-  fontSize: number,
-): string[] {
-  const chunks: string[] = [];
-  let current = "";
-  for (const char of word) {
-    const next = current + char;
-    if (current && font.widthOfTextAtSize(next, fontSize) > maxWidth) {
-      chunks.push(current);
-      current = char;
-    } else {
-      current = next;
-    }
-  }
-  if (current) chunks.push(current);
-  return chunks;
-}
-
-export function wrapTextLine(
-  line: string,
-  font: PDFFont,
-  maxWidth: number,
-  fontSize = FONT_SIZE,
-): string[] {
-  if (line.length === 0) return [""];
-  const words = line.split(/(\s+)/).filter((part) => part.length > 0);
-  const wrapped: string[] = [];
-  let current = "";
-
-  for (const part of words) {
-    const candidates =
-      font.widthOfTextAtSize(part, fontSize) > maxWidth
-        ? splitLongWord(part, font, maxWidth, fontSize)
-        : [part];
-
-    for (const piece of candidates) {
-      const next = current + piece;
-      if (current && font.widthOfTextAtSize(next, fontSize) > maxWidth) {
-        wrapped.push(current.trimEnd());
-        current = piece.trimStart();
-      } else {
-        current = next;
-      }
-    }
-  }
-  if (current || wrapped.length === 0) wrapped.push(current.trimEnd());
-  return wrapped;
 }
 
 /** U+000C, built from its code: the page break of RFCs and man pages. */
@@ -125,13 +78,17 @@ export function printablePlainText(text: string): {
  * is on, as a printer would; one after the last text adds no empty page.
  * Throws {@link TOO_MANY_TEXT_PAGES} at the first page over
  * {@link MAX_TEXT_PAGES}, so the work stops there (hostile matrix CI-11).
+ * Measured at `geometry`'s text size, and cut at its lines per page.
  */
 export function layoutPlainText(
   text: string,
   font: PDFFont,
-  maxWidth = PAGE_WIDTH - MARGIN * 2,
-  linesPerPage = Math.floor((PAGE_HEIGHT - MARGIN * 2) / LINE_HEIGHT),
+  geometry: Pick<
+    TextPageGeometry,
+    "maxWidth" | "linesPerPage" | "fontSize"
+  > = DEFAULT_GEOMETRY,
 ): TextLayout {
+  const { maxWidth, linesPerPage, fontSize } = geometry;
   const sections = normalizeInput(text).split(FORM_FEED);
   while (sections.length > 1 && !sections.at(-1)!.trim()) sections.pop();
   const pages: TextLayoutPage[] = [];
@@ -139,7 +96,7 @@ export function layoutPlainText(
   for (const section of sections) {
     const lines = section
       .split("\n")
-      .flatMap((line) => wrapTextLine(line, font, maxWidth));
+      .flatMap((line) => wrapTextLine(line, font, maxWidth, fontSize));
     lineCount += lines.length;
     for (let i = 0; i < lines.length; i += linesPerPage) {
       if (pages.length === MAX_TEXT_PAGES)
@@ -151,6 +108,15 @@ export function layoutPlainText(
     pages: pages.length ? pages : [{ lines: [""] }],
     lineCount,
   };
+}
+
+/** The page choices in `options`, without the keys left unset. */
+function pageOf(options: TextToPdfOptions): Partial<TextPageOptions> {
+  const page: Partial<TextPageOptions> = {};
+  if (options.pageSize !== undefined) page.pageSize = options.pageSize;
+  if (options.orientation !== undefined) page.orientation = options.orientation;
+  if (options.fontSize !== undefined) page.fontSize = options.fontSize;
+  return page;
 }
 
 /** Convert plain text into a clean, paginated, in-browser PDF. */
@@ -181,40 +147,44 @@ export async function textToPdf(
     "mono",
   );
   const bold = await embedDrawingFont(doc, [title], "sans-bold");
-  const layout = layoutPlainText(text, font);
+  const g = textPageGeometry({
+    ...DEFAULT_TEXT_PAGE_OPTIONS,
+    ...pageOf(options),
+  });
+  const layout = layoutPlainText(text, font, g);
 
   doc.setTitle(title);
   doc.setProducer(PRODUCER);
   doc.setCreator(PRODUCER);
 
   layout.pages.forEach((pageLayout, index) => {
-    const page = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+    const page = doc.addPage([g.width, g.height]);
     page.drawText(title, {
-      x: MARGIN,
-      y: PAGE_HEIGHT - 34,
+      x: g.margin,
+      y: g.height - 34,
       size: 9,
       font: bold,
       color: rgb(0.35, 0.38, 0.45),
-      maxWidth: PAGE_WIDTH - MARGIN * 2,
+      maxWidth: g.maxWidth,
     });
     page.drawText(`${index + 1} / ${layout.pages.length}`, {
-      x: PAGE_WIDTH - MARGIN - 32,
+      x: g.width - g.margin - 32,
       y: 28,
       size: 8,
       font,
       color: rgb(0.45, 0.48, 0.55),
     });
 
-    let y = PAGE_HEIGHT - MARGIN;
+    let y = g.height - g.margin;
     for (const line of pageLayout.lines) {
       page.drawText(line || " ", {
-        x: MARGIN,
+        x: g.margin,
         y,
-        size: FONT_SIZE,
+        size: g.fontSize,
         font,
         color: rgb(0.08, 0.1, 0.16),
       });
-      y -= LINE_HEIGHT;
+      y -= g.lineHeight;
     }
   });
 

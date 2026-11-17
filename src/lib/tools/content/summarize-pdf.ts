@@ -16,6 +16,7 @@ import {
   AI_PER_CALL_RUNS_PER_DAY_AT_LEAST,
   AI_PER_CALL_RUN_CEILING,
 } from "@/lib/jobs/ai-allowance";
+import { AI_CEILING_PAUSE } from "@/lib/jobs/ai-spend-ceiling";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { getToolBySlug, tools } from "@/lib/tools";
 import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
@@ -276,7 +277,7 @@ const content: ToolContent = {
     },
     {
       q: "How many PDFs can I summarize per day?",
-      a: `Summaries draw on ${AI_ALLOWANCE_CLAUSE}, the same pool used by ${OTHER_AI_TOOLS}. ${AI_ALLOWANCE_WHO_SHARES} One summary never costs more than ${RUN_CEILING} characters of that pool, however long the PDF is, so at least ${SUMMARIES_PHRASE} ${SUMMARIES_PHRASE_FIT} in a day when nothing else has drawn on it. The charge is taken when the job is submitted, so a job our server refuses or that fails still uses it. Separately, pdf.xyz's own daily AI processing limit can pause summaries for everyone until the next day.`,
+      a: `Summaries draw on ${AI_ALLOWANCE_CLAUSE}, the same pool used by ${OTHER_AI_TOOLS}. ${AI_ALLOWANCE_WHO_SHARES} One summary never costs more than ${RUN_CEILING} characters of that pool, however long the PDF is, so at least ${SUMMARIES_PHRASE} ${SUMMARIES_PHRASE_FIT} in a day when nothing else has drawn on it. The charge is taken when the job is submitted, so a job our server refuses or that fails still uses it. Separately, pdf.xyz's own daily AI processing limit can pause summaries for everyone ${AI_CEILING_PAUSE}.`,
     },
     {
       q: "Can I rely on the summary being accurate?",

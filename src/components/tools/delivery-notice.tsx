@@ -3,6 +3,7 @@
 import { AlertTriangle } from "lucide-react";
 import type { Job } from "@/lib/jobs/types";
 import type { AiDeliveryMeta } from "@/lib/jobs/ai-results";
+import { WITHHELD_UNDERCOUNT_SENTENCE } from "@/lib/jobs/translate-withheld-copy";
 
 /**
  * The panel-side disclosure that a job delivered less than the document held.
@@ -21,10 +22,22 @@ import type { AiDeliveryMeta } from "@/lib/jobs/ai-results";
  *
  * ── IT NAMES THE BOUND, BECAUSE THE TWO NEED DIFFERENT ACTIONS ──────────────
  *
- * An exhausted reservation means "translate the rest as a separate document";
- * a page bound means "the document is not what was declared". A notice that
- * gave a count without the reason would leave a reader knowing something is
- * missing and with nothing to do about it.
+ * A page bound means "the document is not what was declared", and uploading it
+ * again (declared correctly) translates the rest. An exhausted reservation
+ * USED TO say "translate them as a separate document" — which cannot work: a
+ * rerun of those pages is declared by the same browser count and is short in
+ * the same proportion (`translate-withheld-remedy.chain.test.ts`). It now says
+ * what happened, in the package marker's words, and offers no false step.
+ * A job that declared no count (a scan sent for OCR) reserved a flat amount,
+ * and another document gets another one, so it keeps that remedy.
+ *
+ * THE UNDERCOUNT SENTENCE NEEDS A POSITIVE FLAG (review, 2026-11-17). The web
+ * tier auto-deploys and the worker image is built by hand, so this panel
+ * meets results from a worker older than itself. Such a result carries no
+ * flag, and its package says "as a separate document"; reading the missing
+ * flag as "declared" told every such job, scans included, that more text was
+ * found than was counted. Only `delivery.counted === true`, which only a
+ * worker that writes the new marker sets, picks the new sentence.
  *
  * ── COMPUTED FROM THE JOB RECORD, NOT FROM THE MODEL'S WORDS ────────────────
  *
@@ -61,6 +74,9 @@ export function deliverySummary(delivery: AiDeliveryMeta): string {
 /** What the bound was, and what to do about it. */
 export function deliveryConsequence(delivery: AiDeliveryMeta): string {
   return delivery.boundBy === "characters"
-    ? "The remaining pages held more text than this job's free daily allowance reserved for it, so they were left untranslated rather than cut short. They are marked in place in the package. Translate them as a separate document."
+    ? "The remaining pages held more text than this job's free daily allowance reserved for it, so they were left untranslated rather than cut short. They are marked in place in the package. " +
+        (delivery.counted
+          ? WITHHELD_UNDERCOUNT_SENTENCE
+          : "Translate them as a separate document.")
     : "The document held more pages of text than were declared for it, so the remainder was left untranslated. They are marked in place in the package. Upload it again to translate the rest.";
 }

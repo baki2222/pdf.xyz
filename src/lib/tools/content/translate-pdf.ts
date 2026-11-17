@@ -2,6 +2,7 @@ import type { ToolContent } from "./types";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import {
   AI_ALLOWANCE_FACT,
+  AI_ALLOWANCE_REFUSED_WHOLE,
   AI_CHARACTER_ALLOWANCE_DELIVERED,
 } from "@/lib/jobs/ai-allowance";
 import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
@@ -263,7 +264,10 @@ const content: ToolContent = {
     // CHANGED 2026-11-17 (audit #29 slice 7): the remedy and its two limits
     // joined (`./translate-page-choice`), after `translatePageRange` was
     // observed in production and a real pages-"2, 4" job was decoded.
-    `One pass carries up to ${PASS_CHARS} characters; longer documents are split at page boundaries, translated in order and reassembled. Your browser counts the text before anything uploads, so a file with no page that fits a pass is stopped without touching the allowance; a scan with no text layer is recognised on our server first when it can do that, and stopped the same way when it cannot. ${AI_ALLOWANCE_FACT} The allowance is charged when the job is created, just after the upload: a document needing more than is left today is refused whole with nothing charged rather than half translated, and one over ${DAY_CHARS} characters, the whole day's allowance, cannot be translated in a single day. ${TRANSLATE_OVER_ALLOWANCE_REMEDY} ${TRANSLATE_PAGES_NEED_TEXT} ${TRANSLATE_ONLY_CHOSEN_PAGES}`,
+    // CHANGED 2026-11-17 (review): it ended "cannot be translated in a single
+    // day", false of a fixed window stamped at its first charge (two windows
+    // can sit back to back), and said "the whole day's allowance".
+    `One pass carries up to ${PASS_CHARS} characters; longer documents are split at page boundaries, translated in order and reassembled. Your browser counts the text before anything uploads, so a file with no page that fits a pass is stopped without touching the allowance; a scan with no text layer is recognised on our server first when it can do that, and stopped the same way when it cannot. ${AI_ALLOWANCE_FACT} The allowance is charged when the job is created, just after the upload: ${AI_ALLOWANCE_REFUSED_WHOLE} is refused whole with nothing charged rather than half translated, and one needing more than ${DAY_CHARS} characters, the whole daily allowance, is refused even when none of it has been used. ${TRANSLATE_OVER_ALLOWANCE_REMEDY} ${TRANSLATE_PAGES_NEED_TEXT} ${TRANSLATE_ONLY_CHOSEN_PAGES}`,
   ],
 
   useCases: [
