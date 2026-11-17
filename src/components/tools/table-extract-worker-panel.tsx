@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { usePickRefusal } from "@/components/tools/use-pick";
 import { useCallback, useState } from "react";
 import { TABLE_OCR_HINT } from "@/lib/jobs/office-export-ocr";
@@ -96,6 +97,15 @@ export function TableExtractWorkerPanel({ tool }: { tool: Tool }) {
     </WorkerPanelShell>
   );
 }
+
+/**
+ * The first rows of each table (competitor audit #22, 2026-11-17), read in
+ * the browser from the ZIP already downloaded for Download. Its own chunk
+ * (JSZip and a CSV reader with it), fetched when a result arrives.
+ */
+const TableExtractPreview = dynamic(() => import("./table-extract-preview"), {
+  loading: () => null,
+});
 
 const RUN_LABEL = "Extract tables";
 
@@ -276,6 +286,10 @@ function TableExtractRunArea({
           >
             Download {outcome.artifact.filename}
           </DownloadCta>
+          <TableExtractPreview
+            zip={outcome.output}
+            ocrRan={outcome.job?.results?.ocr !== undefined}
+          />
         </ResultCard>
       )}
     </div>

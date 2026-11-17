@@ -34,6 +34,15 @@ export const COMBINED_CSV_NAME = COMBINED_ZIP_FILES.csv;
 /** What the option does, under its label and on the page. */
 export const COMBINE_TABLES_HINT = `Every table goes on one sheet, “${COMBINED_SHEET_NAME}”, and into one ${COMBINED_CSV_NAME}, in page order with an empty row between tables. A table that carries on onto the next page under the same header row is joined into one, and the repeated header is left out.`;
 
+/**
+ * The result card's preview (competitor audit #22, 2026-11-17): rows shown
+ * per table, the first row included, and the most tables shown. Here, in the
+ * leaf, so the tool page quotes the numbers the preview uses without loading
+ * the preview's reader.
+ */
+export const TABLE_PREVIEW_ROWS = 5;
+export const MAX_PREVIEW_TABLES = 6;
+
 export interface ExtractTablesOptions {
   combine: boolean;
 }

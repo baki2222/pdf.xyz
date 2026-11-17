@@ -31,6 +31,10 @@ import {
   tableFindingLines,
 } from "./table-extract-findings";
 import { EXTRACT_TABLES_NO_TABLES_CODE } from "@/lib/jobs/extract-tables-options";
+import {
+  noTablesPreviewSentence,
+  PREVIEW_FAILED,
+} from "./table-extract-preview";
 import { readyFileInput } from "@/tests/worker-ready";
 import { buildOcrResultMeta } from "@/lib/jobs/ocr";
 import {
@@ -343,6 +347,8 @@ describe("Extract Tables panel — the result says what was found (audit extract
     tablesOn: boolean[],
     options: Record<string, unknown> = {},
     keepResults = true,
+    /** The ZIP the download returns, in place of the processor's. */
+    zip?: Uint8Array,
   ) {
     const result = await createTableExtractProcessor({
       extractLayout: async () => ({
@@ -397,7 +403,8 @@ describe("Extract Tables panel — the result says what was found (audit extract
             ok: true,
             status: 200,
             json: async () => ({}),
-            arrayBuffer: async () => result.artifacts[0]!.bytes.slice().buffer,
+            arrayBuffer: async () =>
+              (zip ?? result.artifacts[0]!.bytes).slice().buffer,
           }
         : answer(url, init),
     );
@@ -435,6 +442,75 @@ describe("Extract Tables panel — the result says what was found (audit extract
     ).toBeInTheDocument();
   });
 
+  // Competitor audit #22 (2026-11-17): the first rows of each table, read
+  // in the browser from the ZIP the panel downloaded for Download.
+  it("previews the first rows of each table, from the downloaded ZIP, under the Download button", async () => {
+    await completedJob([true, false, true]);
+    await extractOnePdf();
+    expect(
+      await screen.findByText("Table 1, page 1: all 2 rows"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Table 2, page 3: all 2 rows")).toBeInTheDocument();
+    expect(screen.getAllByRole("columnheader", { name: "Name" })).toHaveLength(
+      2,
+    );
+    expect(screen.getAllByRole("cell", { name: "Alice" })).toHaveLength(2);
+    const regions = screen.getAllByRole("region", {
+      name: /^Table \d, page \d: /,
+    });
+    expect(regions.map((r) => r.getAttribute("tabindex"))).toEqual(["0", "0"]);
+    // "Under the Download button", as the tool page says.
+    const download = screen.getByRole("button", { name: /^Download / });
+    const preview = screen.getByRole("region", {
+      name: "Preview of the first rows",
+    });
+    expect(
+      download.compareDocumentPosition(preview) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("a combined run previews its one sheet", async () => {
+    await completedJob([true, true], { combine: true });
+    await extractOnePdf();
+    // Same header on consecutive pages: joined, the repeat left out.
+    expect(
+      await screen.findByText("All tables: all 3 rows"),
+    ).toBeInTheDocument();
+  });
+
+  it("a ZIP with no table says so, with the OCR switch and PDF to Excel as next steps", async () => {
+    const { buildTablesZip } =
+      await import("@/lib/workers/table-extract/engine");
+    await completedJob([true], {}, true, await buildTablesZip([]));
+    await extractOnePdf();
+    expect(
+      await screen.findByText(noTablesPreviewSentence(false)),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Open PDF to Excel" }),
+    ).toHaveAttribute("href", "/tools/pdf-to-excel");
+    expect(screen.queryByRole("table")).toBeNull();
+    // The switch it names, by its quoted name, is a checkbox on this page.
+    const named = new RegExp(
+      `${String.fromCharCode(0x201c)}([^${String.fromCharCode(0x201d)}]+)`,
+    ).exec(noTablesPreviewSentence(false))?.[1];
+    expect(named).toBeTruthy();
+    // Its accessible name is the label, then the hint under it.
+    expect(
+      screen.getByRole("checkbox", {
+        name: (accessible) => accessible.startsWith(named!),
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("a ZIP the preview cannot read says so and keeps the download", async () => {
+    await completedJob([true], {}, true, new Uint8Array([1, 2, 3, 4]));
+    await extractOnePdf();
+    expect(await screen.findByText(PREVIEW_FAILED)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Download / })).toBeVisible();
+  });
+
   it("POSITIVE CONTROL: a worker that does not report gets no count, not a made-up one", async () => {
     await completedJob([true, false], {}, false);
     await extractOnePdf();
@@ -465,6 +541,20 @@ describe("Extract Tables page — says what the result card says", () => {
     expect(page).toContain("No table was detected on");
     // The no-tables failure's links, named as the panel labels them.
     expect(page).toContain("links to PDF to Excel and OCR PDF");
+  });
+
+  it("names the preview's numbers from the constants the preview uses (audit #22)", async () => {
+    const { default: content } =
+      await import("@/lib/tools/content/extract-tables");
+    const page = JSON.stringify(content);
+    const { TABLE_PREVIEW_ROWS, MAX_PREVIEW_TABLES } =
+      await import("@/lib/jobs/extract-tables-options");
+    expect(page).toContain(
+      `a preview shows the first ${TABLE_PREVIEW_ROWS} rows of each table`,
+    );
+    expect(page).toContain(
+      `with more than ${MAX_PREVIEW_TABLES} tables, it shows the first table on each page, up to ${MAX_PREVIEW_TABLES} of them`,
+    );
   });
 });
 
