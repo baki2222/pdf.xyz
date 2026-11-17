@@ -24,6 +24,12 @@ import {
   type SplitMode,
 } from "@/lib/pdf/offered-kinds";
 import { downloadBytes, totalBytes } from "@/lib/pdf/browser";
+import {
+  SPLIT_MB,
+  SPLIT_SIZE_LABEL,
+  SPLIT_SIZE_MIN_MB,
+  SPLIT_SIZE_STEP_MB,
+} from "@/lib/pdf/split-size";
 import { baseName, outputName } from "@/lib/pdf/files";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
@@ -56,8 +62,6 @@ const MODES: { id: SplitMode; label: string }[] = SPLIT_MODES.map((id) => ({
   id,
   label: SPLIT_MODE_LABEL[id],
 }));
-
-const MB = 1024 * 1024;
 
 /** Under the cut picker (audit split-pdf#3); the tool page's step agrees. */
 export const CUT_NOTE =
@@ -98,7 +102,7 @@ export function SplitRunner() {
 
 /** A first target near half the file, so the default size split is ~2 parts. */
 function defaultTargetMb(bytes: number): number {
-  return Math.max(0.1, Math.round((bytes / MB / 2) * 10) / 10);
+  return Math.max(0.1, Math.round((bytes / SPLIT_MB / 2) * 10) / 10);
 }
 
 export function SplitEditor({
@@ -174,7 +178,7 @@ export function SplitEditor({
   }, [pdf.bytes]);
 
   const noBookmarks = marks !== null && marks.length === 0;
-  const targetBytes = Number(targetMb) * MB;
+  const targetBytes = Number(targetMb) * SPLIT_MB;
   const size = Number(sizeInput);
   const sizeValid =
     sizeInput.trim() !== "" && Number.isInteger(size) && size >= 1;
@@ -547,11 +551,11 @@ export function SplitEditor({
 
       {mode === "size" && (
         <label className="flex flex-col gap-2">
-          <span className="text-muted text-sm">Maximum size per file (MB)</span>
+          <span className="text-muted text-sm">{SPLIT_SIZE_LABEL}</span>
           <input
             type="number"
-            min={0.1}
-            step={0.1}
+            min={SPLIT_SIZE_MIN_MB}
+            step={SPLIT_SIZE_STEP_MB}
             inputMode="decimal"
             value={targetMb}
             onChange={(e) => setTargetMb(e.target.value)}

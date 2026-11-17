@@ -225,7 +225,26 @@ import {
   TARGET_SIZE_PRESETS,
   targetOutcome,
 } from "@/lib/pdf/compress-target";
-import { MB, sizeLabel } from "@/lib/pdf/size-presets";
+import { sizeLabel } from "@/lib/pdf/size-presets";
+import {
+  COMPRESS_TABLE_SIZES,
+  LIMIT_TABLE_SIZES,
+  OFF_PRESET_BYTES,
+  OFF_PRESET_SMALL_BYTES,
+  SIZE_PARAM,
+  decimalBytes,
+  portalSafeKb,
+  sizeSpelling,
+} from "@/lib/pdf/size-targets";
+import { SPLIT_SIZE_LABEL } from "@/lib/pdf/split-size";
+import {
+  splitPortalSafeMb,
+  splitTypedMb,
+  typeableInSplit,
+} from "@/lib/pdf/split-size-guide";
+import { SPLIT_MODE_LABEL } from "@/lib/pdf/offered-kinds";
+import { modeUploadsFiles } from "@/lib/tools/processing-split";
+import type { GuideSizeTable } from "./types";
 import {
   LIMIT_EXAMPLE,
   LIMIT_TIME_BUDGET_MS,
@@ -413,21 +432,16 @@ const TARGET_DEFAULT_QUALITY_LABEL = (() => {
   if (!preset) throw new Error("the guide's default Quality is not offered");
   return preset.label;
 })();
-/** A whole-KB target under 100,000 bytes, for a portal that counts KB as 1,000. */
-const PORTAL_SAFE_100_KB = Math.floor(100_000 / KB_BYTES);
 /**
  * A size people search for that is not a preset (2 MB), by label and as the
- * Custom box takes it, in whole KB.
+ * Custom box takes it, in whole KB. The bytes live in `size-targets.ts`,
+ * beside the table lists and the `?size=` parser that read them.
  */
-const OFF_PRESET_BYTES = 2 * MB;
 const OFF_PRESET_LABEL = sizeLabel(OFF_PRESET_BYTES);
 const OFF_PRESET_KB = OFF_PRESET_BYTES / KB_BYTES;
 /** A smaller off-preset size for the JPG guide's Max file size (300 KB). */
-const OFF_PRESET_SMALL_BYTES = 300 * KB_BYTES;
 const OFF_PRESET_SMALL_LABEL = sizeLabel(OFF_PRESET_SMALL_BYTES);
 const OFF_PRESET_SMALL_KB = OFF_PRESET_SMALL_BYTES / KB_BYTES;
-/** A preset as searchers type it: "100 KB" -> "100kb", "1 MB" -> "1mb". */
-const searchSpelling = (label: string) => label.replace(" ", "").toLowerCase();
 /** The panel's own sentence for a met target, from the function it calls. */
 const TARGET_EXAMPLE_SENTENCE = targetOutcome({
   ...TARGET_EXAMPLE,
@@ -655,6 +669,59 @@ const LIMIT_MET_SENTENCE = limitOutcome({
   images: 1,
 }).text;
 const LIMIT_TOP_QUALITY_PCT = Math.round(REENCODE_LADDER[0]!.quality * 100);
+
+/**
+ * The size guides' tables (audit #2, 2026-11-17): one row per size, built
+ * from the list the tool's `?size=` link also accepts, so a row and its link
+ * cannot disagree, and no row is typed by hand. A preset is chosen by its
+ * chip; any other size through "Custom". The last column is what to type for
+ * a form that counts 1 KB as 1,000 bytes (`portalSafeKb`).
+ */
+const DECIMAL_KB = decimalBytes(KB_BYTES).toLocaleString("en-US");
+function sizeTable(tool: "compress-pdf" | "jpg-to-pdf"): GuideSizeTable {
+  const [sizes, labels, presets] =
+    tool === "compress-pdf"
+      ? [COMPRESS_TABLE_SIZES, TARGET_SIZE_LABELS, TARGET_SIZE_PRESETS]
+      : [LIMIT_TABLE_SIZES, MAX_SIZE_LABELS, MAX_SIZE_PRESETS];
+  return {
+    caption: `Sizes for “${labels.heading}” in ${nameOf(tool)}`,
+    columns: [
+      "Size",
+      "How to choose it",
+      `If the form counts 1 KB as ${DECIMAL_KB} bytes`,
+    ],
+    rows: sizes.map((bytes) => {
+      const label = sizeLabel(bytes);
+      const spelling = sizeSpelling(label);
+      return {
+        bytes,
+        label,
+        anchor: `size-${spelling}`,
+        choose: presets.some((p) => p.bytes === bytes)
+          ? `Choose ${label}`
+          : `Choose “${labels.custom}” and type ${bytes / KB_BYTES}`,
+        portal: `Choose “${labels.custom}” and type ${portalSafeKb(bytes)}`,
+        href: `/tools/${tool}?${SIZE_PARAM}=${spelling}`,
+        linkText: `Open ${nameOf(tool)} set to ${label}`,
+      };
+    }),
+  };
+}
+
+/**
+ * The Compress size guide's long-documents section says splitting does not
+ * upload the file, so the catalogue refuses to build if Split PDF stops
+ * running in the browser (the same guard as `content/split-pdf.ts`).
+ */
+const splitForSizes = getToolBySlug("split-pdf");
+if (!splitForSizes || modeUploadsFiles(splitForSizes.processing)) {
+  throw new Error(
+    "the Compress size guide says splitting does not upload, but split-pdf is not processing: client",
+  );
+}
+/** The table sizes Split PDF's MB box can be given exactly: 1 MB and 2 MB. */
+const SPLIT_SIZES = COMPRESS_TABLE_SIZES.filter(typeableInSplit);
+const SPLIT_SIZE_LABELS = listOr(SPLIT_SIZES.map(sizeLabel));
 const LIMIT_LOW_QUALITY_PCT = Math.round(REENCODE_LADDER.at(-1)!.quality * 100);
 const LIMIT_LOW_SCALE_PCT = Math.round(REENCODE_LADDER.at(-1)!.scale * 100);
 const LIMIT_BUDGET_S = LIMIT_TIME_BUDGET_MS / 1000;
@@ -4415,9 +4482,8 @@ export const guides: Guide[] = [
     description: `Make a PDF fit an upload limit of ${listOr(TARGET_PRESET_LABELS)}: pick a target size, and our server shrinks the images until it fits or can go no smaller.`,
     tools: ["compress-pdf", "split-pdf", "remove-pages"],
     keywords: [
-      ...TARGET_PRESET_LABELS.map(
-        (l) => `compress pdf to ${searchSpelling(l)}`,
-      ),
+      ...TARGET_PRESET_LABELS.map((l) => `compress pdf to ${sizeSpelling(l)}`),
+      `compress pdf to ${sizeSpelling(OFF_PRESET_LABEL)}`,
       "reduce pdf size to 100 kb",
       "make a pdf smaller for an upload form",
       "compress pdf to a specific size",
@@ -4438,6 +4504,15 @@ export const guides: Guide[] = [
     ],
     sections: [
       {
+        id: "sizes",
+        heading: "Pick the size your form asks for",
+        body: [
+          `Every size on this page counts 1 KB as ${KB_BYTES.toLocaleString("en-US")} bytes. Find the size the form asks for and choose it as the table shows. A size your file is already under cannot be chosen.`,
+          `Each link opens ${nameOf("compress-pdf")} with that size set for you once you add a file, as long as our server is available and your file is not already under it.`,
+        ],
+        table: sizeTable("compress-pdf"),
+      },
+      {
         id: "how-the-target-is-reached",
         heading: "How the target is reached",
         body: [
@@ -4451,7 +4526,7 @@ export const guides: Guide[] = [
         id: "how-big-is-a-kb",
         heading: "How big is 100 KB, here and on the form you are filling in",
         body: [
-          `On this page 1 KB is ${KB_BYTES.toLocaleString("en-US")} bytes, so a ${TARGET_PRESET_100} target means at most ${(100 * KB_BYTES).toLocaleString("en-US")} bytes — the same unit every size on the page is shown in. Some upload portals count 1 KB as 1,000 bytes instead. If yours does, and is strict, choose “${TARGET_SIZE_LABELS.custom}” and enter ${PORTAL_SAFE_100_KB} KB, which is under 100,000 bytes.`,
+          `On this page 1 KB is ${KB_BYTES.toLocaleString("en-US")} bytes, so a ${TARGET_PRESET_100} target means at most ${(100 * KB_BYTES).toLocaleString("en-US")} bytes — the same unit every size on the page is shown in. Some upload portals count 1 KB as 1,000 bytes instead. If yours does, and is strict, choose “${TARGET_SIZE_LABELS.custom}” and enter ${portalSafeKb(100 * KB_BYTES)} KB, which is under ${decimalBytes(100 * KB_BYTES).toLocaleString("en-US")} bytes.`,
           "The file usually comes back a little under your target rather than exactly on it, because the server stops at the first version that fits.",
         ],
       },
@@ -4461,6 +4536,16 @@ export const guides: Guide[] = [
         body: [
           `A target can be out of reach for a long document full of photos, or for a document that is mostly text. Running again with “Grayscale” ticked often helps a colour scan. Otherwise, make the document shorter: ${nameOf("split-pdf")} can cut it into parts that each fit, and ${nameOf("remove-pages")} can drop pages the form does not need.`,
           `Your original is never changed. Each run starts from the file you added, so you can try a different target or setting as often as you like. The per-file cap is ${ceilingMb("compress-pdf")} MB.`,
+        ],
+      },
+      {
+        id: "long-documents",
+        heading: `If a long document is still over ${SPLIT_SIZE_LABELS}`,
+        body: [
+          `Only the pictures in a PDF are made smaller, so a long document can still be over ${SPLIT_SIZE_LABELS} after every setting has been tried. Then ${nameOf("split-pdf")} can cut it into parts that each fit. Choose “${SPLIT_MODE_LABEL.size}”, and in “${SPLIT_SIZE_LABEL}” type ${listOr(SPLIT_SIZES.map((b) => `${splitTypedMb(b)} for ${sizeLabel(b)}`))}.`,
+          `If the form counts ${sizeLabel(SPLIT_SIZES[0]!)} as ${decimalBytes(SPLIT_SIZES[0]!).toLocaleString("en-US")} bytes, type ${listOr(SPLIT_SIZES.map((b) => `${splitPortalSafeMb(b)} instead of ${splitTypedMb(b)}`))}, so each part stays under the form's size.`,
+          `Each part is built and measured, not estimated, so no part is over the size you typed, unless it is a single page that is bigger than that on its own. Such a page still becomes a file of its own, and the result says so. Splitting cannot make one page smaller: for that, run the file through ${nameOf("compress-pdf")} again with “Grayscale” ticked, or drop pages the form does not need with ${nameOf("remove-pages")}.`,
+          "Splitting runs in your browser, so this step does not upload your file.",
         ],
       },
     ],
@@ -4493,7 +4578,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-08",
+    updated: "2026-11-17",
   },
   // Added 2026-10-31 with JPG / PNG to PDF's Max file size. Every label and
   // figure is read from the panel's constants (`image-size-limit.ts`), the
@@ -4508,9 +4593,9 @@ export const guides: Guide[] = [
     description: `Make a PDF of a photo, signature or scan that fits a limit of ${listOr(LIMIT_PRESET_LABELS)}. Your browser shrinks the image until it fits.`,
     tools: ["jpg-to-pdf", "png-to-pdf"],
     keywords: [
-      ...LIMIT_PRESET_LABELS.map(
-        (l) => `jpg to pdf under ${searchSpelling(l)}`,
-      ),
+      ...LIMIT_PRESET_LABELS.map((l) => `jpg to pdf under ${sizeSpelling(l)}`),
+      `jpg to pdf under ${sizeSpelling(OFF_PRESET_SMALL_LABEL)}`,
+      `jpg to pdf under ${sizeSpelling(OFF_PRESET_LABEL)}`,
       "convert photo to pdf under 100 kb",
       "signature jpg to pdf under 100kb",
       "image to pdf less than 100kb",
@@ -4531,6 +4616,15 @@ export const guides: Guide[] = [
     ],
     sections: [
       {
+        id: "sizes",
+        heading: "Pick the size your form asks for",
+        body: [
+          `Every size on this page counts 1 KB as ${KB_BYTES.toLocaleString("en-US")} bytes. Find the size the form asks for and choose it as the table shows.`,
+          `Each link opens ${nameOf("jpg-to-pdf")} with that size set for you once you add an image.`,
+        ],
+        table: sizeTable("jpg-to-pdf"),
+      },
+      {
         id: "how-the-limit-is-reached",
         heading: "How the limit is reached",
         body: [
@@ -4550,7 +4644,7 @@ export const guides: Guide[] = [
         id: "how-big-is-a-kb",
         heading: "How big is 100 KB, here and on the form",
         body: [
-          `On this page 1 KB is ${KB_BYTES.toLocaleString("en-US")} bytes, so a ${LIMIT_100} limit means at most ${(100 * KB_BYTES).toLocaleString("en-US")} bytes — the same unit every size on the page is shown in. Some application portals count 1 KB as 1,000 bytes instead. If yours does, and is strict, choose “${MAX_SIZE_LABELS.custom}” and enter ${PORTAL_SAFE_100_KB} KB, which is under 100,000 bytes.`,
+          `On this page 1 KB is ${KB_BYTES.toLocaleString("en-US")} bytes, so a ${LIMIT_100} limit means at most ${(100 * KB_BYTES).toLocaleString("en-US")} bytes — the same unit every size on the page is shown in. Some application portals count 1 KB as 1,000 bytes instead. If yours does, and is strict, choose “${MAX_SIZE_LABELS.custom}” and enter ${portalSafeKb(100 * KB_BYTES)} KB, which is under ${decimalBytes(100 * KB_BYTES).toLocaleString("en-US")} bytes.`,
           "The PDF usually comes back a little under your limit rather than exactly on it, because the first version that fits is the one kept.",
         ],
       },
@@ -4585,7 +4679,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-17",
   },
   // Added 2026-11-07 for the "scanned PDF to Word" / "OCR PDF to Word"
   // search family (audit search-demand#5). PDF to Word has run OCR in the

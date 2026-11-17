@@ -6,6 +6,11 @@ import { PDFDocument } from "pdf-lib";
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 import { SPLIT_MODE_LABEL } from "@/lib/pdf/offered-kinds";
+import {
+  SPLIT_SIZE_LABEL,
+  SPLIT_SIZE_MIN_MB,
+  SPLIT_SIZE_STEP_MB,
+} from "@/lib/pdf/split-size";
 import { SplitEditor } from "./split-runner";
 
 afterEach(() => {
@@ -217,4 +222,28 @@ describe("Split PDF · By bookmarks names files after their bookmarks", () => {
     expect(screen.getByText("report-3-pages-4-5.pdf")).toBeInTheDocument();
     expect(screen.queryByText("report-3-Appendix.pdf")).toBeNull();
   }, 20_000);
+});
+
+/**
+ * The Compress size guide quotes this field by `SPLIT_SIZE_LABEL` (audit #2,
+ * 2026-11-17): the field must be drawn from the same constants, with the
+ * same label, minimum and step.
+ */
+describe("Split PDF: By file size field, as the size guide quotes it", () => {
+  it("is labelled, bounded and stepped by the shared constants", async () => {
+    const source = await pdfWithPages(3);
+    render(
+      <SplitEditor pdf={loaded(source, "deck.pdf", 3)} onReset={() => {}} />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: SPLIT_MODE_LABEL.size }),
+    );
+    const input = screen.getByRole("spinbutton", {
+      // The label wraps the field and its note, so the name starts with it.
+      name: (name) => name.startsWith(SPLIT_SIZE_LABEL),
+    });
+    expect(input).toHaveAttribute("min", String(SPLIT_SIZE_MIN_MB));
+    expect(input).toHaveAttribute("step", String(SPLIT_SIZE_STEP_MB));
+    expect(SPLIT_SIZE_LABEL).toBe("Maximum size per file (MB)");
+  });
 });
