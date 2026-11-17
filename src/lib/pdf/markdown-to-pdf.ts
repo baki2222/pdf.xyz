@@ -15,6 +15,7 @@ import {
   hasStyledRuns,
   wrapRuns,
   type InlineRun,
+  type Segment,
 } from "./markdown-runs";
 
 export { MARKDOWN_BLOCK_KINDS };
@@ -106,6 +107,7 @@ interface PdfFonts {
   bold: PDFFont;
   mono: PDFFont;
   italic: PDFFont;
+  boldItalic: PDFFont;
 }
 
 interface Cursor {
@@ -1176,10 +1178,40 @@ function headingRuns(runs: InlineRun[]): InlineRun[] {
   );
 }
 
-/** The runs {@link drawBlock} draws `block` from, if it has any. */
+/**
+ * A table's styled cells: the runs of each cell that has bold, italic, code
+ * or a link, keyed by `row * columns + column` with the header as row 0.
+ * Plain cells have no entry and are drawn as plain text, so a table at the
+ * source cap (hundreds of thousands of cells) keeps no second copy of them.
+ * Until backlog #24 a table kept no runs at all: a cell's link printed its
+ * address but did not open, and its bold, italics and code printed plain.
+ */
+const TABLE_CELL_RUNS = new WeakMap<
+  MarkdownBlock & { kind: "table" },
+  Map<number, InlineRun[]>
+>();
+
+/** The runs a table cell is drawn from, if it has styled ones. */
+function tableCellRuns(
+  block: MarkdownBlock & { kind: "table" },
+  row: number,
+  column: number,
+): readonly InlineRun[] | undefined {
+  return TABLE_CELL_RUNS.get(block)?.get(row * block.header.length + column);
+}
+
+/**
+ * The runs {@link drawBlock} draws `block` from, if it has any; for a table,
+ * the runs of the cell at `cell` (the header is row 0). One export for both,
+ * not a second one: this module is in the tool page's first load.
+ */
 export function blockRuns(
   block: MarkdownBlock,
+  cell?: { row: number; column: number },
 ): readonly InlineRun[] | undefined {
+  if (cell && block.kind === "table") {
+    return tableCellRuns(block, cell.row, cell.column);
+  }
   return BLOCK_RUNS.get(block);
 }
 
@@ -1371,13 +1403,25 @@ function quoteBlocks(inner: MarkdownBlock[], depth: number): MarkdownBlock[] {
         );
         return;
       }
-      case "table":
+      case "table": {
+        // A table in a quote prints as "a | b" lines. Its styled cells keep
+        // their runs, so a cell's link opens there too.
+        const rows = [block.header, ...block.rows];
         quote(
-          [block.header, ...block.rows]
-            .map((row) => row.join(" | "))
-            .join("\n"),
+          rows.map((row) => row.join(" | ")).join("\n"),
+          depth,
+          TABLE_CELL_RUNS.has(block)
+            ? rows.flatMap((row, r) => [
+                ...(r > 0 ? [{ text: "\n", style: 0 }] : []),
+                ...row.flatMap((cell, c) => [
+                  ...(c > 0 ? [{ text: " | ", style: 0 }] : []),
+                  ...(tableCellRuns(block, r, c) ?? [{ text: cell, style: 0 }]),
+                ]),
+              ])
+            : undefined,
         );
         return;
+      }
       case "rule":
         return;
       case "paragraph": {
@@ -1706,6 +1750,14 @@ function parseBlocks(
         closeList();
         const width = header.length;
         const rows: string[][] = [];
+        // Each cell is rendered once: its text goes in the block, and its
+        // runs are kept only when they carry a style or a link.
+        const styledCells = new Map<number, InlineRun[]>();
+        const tableCell = (cell: string, row: number, column: number) => {
+          const { text, runs } = inlineRuns(cell);
+          if (hasStyledRuns(runs)) styledCells.set(row * width + column, runs);
+          return text;
+        };
         let j = i + 2;
         for (; j < lines.length; j++) {
           const line = lines[j]!.trim();
@@ -1725,14 +1777,17 @@ function parseBlocks(
           // Short rows are padded and long ones cut, as GFM does.
           const cells = splitTableRow(line).slice(0, width);
           while (cells.length < width) cells.push("");
-          rows.push(cells.map(inline));
+          const row = rows.length + 1;
+          rows.push(cells.map((cell, c) => tableCell(cell, row, c)));
         }
-        blocks.push({
+        const table: MarkdownBlock & { kind: "table" } = {
           kind: "table",
           align: delimiter.map(tableAlign),
-          header: header.map(inline),
+          header: header.map((cell, c) => tableCell(cell, 0, c)),
           rows,
-        });
+        };
+        if (styledCells.size) TABLE_CELL_RUNS.set(table, styledCells);
+        blocks.push(table);
         i = j - 1;
         previousBlank = false;
         continue;
@@ -2025,6 +2080,9 @@ function tableColumnWidths(natural: number[], available: number): number[] {
   return natural.map((w, i) => (small[i] ? w : (w / wanting) * rest));
 }
 
+/** One wrapped line of a table cell, in the segments it is drawn as. */
+type CellLine = { segments: Segment[]; width: number };
+
 function drawTable(
   cursor: Cursor,
   block: MarkdownBlock & { kind: "table" },
@@ -2033,22 +2091,54 @@ function drawTable(
   const { body, bold } = cursor.fonts;
   const columns = block.header.length;
   const rows = [block.header, ...block.rows];
-  const fontFor = (r: number) => (r === 0 ? bold : body);
-  // Each column's natural width is its widest cell. Folded, not
-  // `Math.max(...rows.map(...))`: that passes one argument per row, and a
+  const baseFor = (r: number) => (r === 0 ? bold : body);
+  /**
+   * A cell's lines at `limit` wide. A styled cell is wrapped by
+   * {@link wrapRuns}, the path paragraphs take, so each line's width is the
+   * sum of its segments in their own faces (bold, italic, code); a plain
+   * cell is wrapped as plain text in the row's face, as before.
+   */
+  const cellLines = (r: number, c: number, limit: number): CellLine[] => {
+    const font = baseFor(r);
+    const runs = tableCellRuns(block, r, c);
+    if (runs) {
+      return wrapRuns(runs, cursor.fonts, font, limit, TABLE_SIZE).map(
+        (segments) => ({
+          segments,
+          width: segments.reduce((sum, s) => sum + s.width, 0),
+        }),
+      );
+    }
+    return wrapBlockText(rows[r]![c] ?? "", font, limit, TABLE_SIZE).map(
+      (text) => {
+        const width = font.widthOfTextAtSize(text, TABLE_SIZE);
+        return {
+          segments: text ? [{ text, font, style: 0, width }] : [],
+          width,
+        };
+      },
+    );
+  };
+  // Each column's natural width is its widest cell line, unwrapped. Folded,
+  // not `Math.max(...rows.map(...))`: that passes one argument per row, and a
   // table at the source cap has more rows than the call stack has room for.
   const natural = Array.from(
     { length: columns },
     (_, c) =>
       rows.reduce(
         (widest, row, r) =>
-          (row[c] ?? "")
-            .split("\n")
-            .reduce(
-              (w, line) =>
-                Math.max(w, fontFor(r).widthOfTextAtSize(line, TABLE_SIZE)),
-              widest,
-            ),
+          tableCellRuns(block, r, c)
+            ? cellLines(r, c, Infinity).reduce(
+                (w, line) => Math.max(w, line.width),
+                widest,
+              )
+            : (row[c] ?? "")
+                .split("\n")
+                .reduce(
+                  (w, line) =>
+                    Math.max(w, baseFor(r).widthOfTextAtSize(line, TABLE_SIZE)),
+                  widest,
+                ),
         0,
       ) +
       TABLE_PAD_X * 2,
@@ -2059,17 +2149,11 @@ function drawTable(
   const ink = cursor.rgb(0.1, 0.12, 0.18);
 
   cursor.y -= 2;
-  rows.forEach((row, r) => {
-    const font = fontFor(r);
+  rows.forEach((_row, r) => {
     // The slack absorbs float error: a column sized to its widest cell must not
     // wrap that cell because (w + 10) - 10 came back a hair under w.
     const cells = widths.map((w, c) =>
-      wrapBlockText(
-        row[c] ?? "",
-        font,
-        w - TABLE_PAD_X * 2 + 0.001,
-        TABLE_SIZE,
-      ),
+      cellLines(r, c, w - TABLE_PAD_X * 2 + 0.001),
     );
     // Folded for the same reason, per column this time.
     const height = cells.reduce(
@@ -2103,20 +2187,20 @@ function drawTable(
       let x = MARGIN;
       widths.forEach((w, c) => {
         cells[c]!.slice(offset, offset + take).forEach((line, l) => {
-          if (!line) return;
-          const lineWidth = font.widthOfTextAtSize(line, TABLE_SIZE);
+          if (!line.segments.length) return;
           const align = block.align[c] ?? "left";
           const dx =
             align === "right"
-              ? w - TABLE_PAD_X - lineWidth
+              ? w - TABLE_PAD_X - line.width
               : align === "center"
-                ? (w - lineWidth) / 2
+                ? (w - line.width) / 2
                 : TABLE_PAD_X;
-          cursor.page.drawText(line, {
+          // Bold, italic and code in their faces, and a link in the link
+          // colour under a /Link annotation that sits inside the cell.
+          drawSegments(cursor.lib, cursor.page, line.segments, {
             x: x + dx,
             y: top - TABLE_PAD_Y - (l + 1) * TABLE_LINE_HEIGHT + 4,
             size: TABLE_SIZE,
-            font,
             color: ink,
           });
         });
@@ -2419,6 +2503,9 @@ export async function markdownToPdf(
     bold: await embedDrawingFont(doc, drawn, "sans-bold"),
     mono: await embedDrawingFont(doc, drawn, "mono"),
     italic: await embedDrawingFont(doc, drawn, "sans-oblique"),
+    // Helvetica-BoldOblique for Western European text; on the Unicode path
+    // the same Noto Regular as the other three (embedDrawingFont's memo).
+    boldItalic: await embedDrawingFont(doc, drawn, "sans-bold-oblique"),
   };
   doc.setTitle(title);
   doc.setCreator(PRODUCER);
