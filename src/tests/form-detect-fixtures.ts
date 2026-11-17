@@ -179,6 +179,7 @@ export function turned90(b: Box, crop: Box): Box {
 
 const LETTER: [number, number] = [612, 792];
 const A5_LANDSCAPE: [number, number] = [595.28, 419.53];
+const A4: [number, number] = [595.28, 841.89];
 const UNDERSCORES = "____________";
 
 async function doc(): Promise<PDFDocument> {
@@ -1191,6 +1192,26 @@ export const DETECT_CASES: readonly DetectCase[] = [
     build: () =>
       addressWith("q 0 G 0.125 0 0 8 0 0 cm 1 w 1040 75 m 2640 75 l S Q"),
     expect: "none",
+  },
+  {
+    id: "N24",
+    kind: "negative",
+    note: "an invoice table ruled with rows only (no vertical lines), a header row under its top rule",
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(A4);
+      for (let k = 0; k < 7; k++) rule(page, 56, 539, 700 - 20 * k, 0.5);
+      const cols = [60, 330, 400, 480];
+      for (const [i, s] of ["Description", "Qty", "Unit", "Amount"].entries())
+        await text(page, H, s, cols[i]!, 686, 10);
+      for (let r = 1; r < 6; r++)
+        for (const [i, s] of [`Item ${r}`, "1", "10.00", "10.00"].entries())
+          await text(page, H, s, cols[i]!, 686 - 20 * r, 10);
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "table-grid",
+    at: { page: 1, x: 300, y: 705 },
   },
   {
     id: "N22",

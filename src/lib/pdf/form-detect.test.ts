@@ -610,6 +610,72 @@ describe("exclusions, each at its boundary", () => {
     expect(firstRule(p)).toBe("table-grid");
   });
 
+  // A table ruled with level lines only (invoices, statements) had its top
+  // rule proposed as a 481 pt text field labelled with the first column
+  // header, taken as a caption (review finding; corpus N24). The vertical
+  // lines the grid rule needs are not there, so rows are recognised too.
+  describe("table-grid: a table ruled with rows only", () => {
+    const header = (gap = 40) => [
+      txt("Item", 135, 586, { width: 30, size: 10 }),
+      txt("Price", 165 + gap, 586, { width: 30, size: 10 }),
+    ];
+    const rows = (
+      o: { ys?: number[]; x1s?: number[]; text?: CardText[] } = {},
+    ) => {
+      const ys = o.ys ?? [600, 580, 560];
+      return pg({
+        segs: ys.map((y, i) => hseg(130, o.x1s?.[i] ?? 450, y)),
+        text: o.text ?? header(),
+      });
+    };
+    const ruled = (p: CardPage) =>
+      run(p).excluded.filter((e) => e.rule === "table-grid").length;
+
+    it("every rule of the table is table-grid, and nothing is proposed", () => {
+      expect(ruled(rows())).toBe(3);
+      expect(props(rows())).toEqual([]);
+      expect(props(rows(), { disable: new Set(["table-grid"]) })).not.toEqual(
+        [],
+      );
+    });
+
+    it("GRID_ROWS_MIN: three rules are a table, two are not", () => {
+      expect(ruled(rows({ ys: [600, 580] }))).toBe(0);
+    });
+
+    it("GRID_ROW_EPS: ends 2 pt apart line up, 2.1 pt apart do not", () => {
+      expect(ruled(rows({ x1s: [450, 452, 450] }))).toBe(3);
+      expect(ruled(rows({ x1s: [450, 452.1, 450] }))).toBe(0);
+    });
+
+    it("GRID_PITCH_EPS: pitches 2 pt apart are even, 2.1 pt apart are not", () => {
+      expect(ruled(rows({ ys: [600, 580, 558] }))).toBe(3);
+      expect(ruled(rows({ ys: [600, 580, 557.9] }))).toBe(0);
+    });
+
+    it("GRID_COLUMN_GAP: text 24 pt apart is two columns, 23.9 pt is one", () => {
+      expect(ruled(rows({ text: header(24) }))).toBe(3);
+      expect(ruled(rows({ text: header(23.9) }))).toBe(0);
+    });
+
+    it("stacked lines with one caption each are a form, not a table", () => {
+      const p = rows({
+        ys: [600, 570, 540],
+        text: [
+          txt("Full name", 132, 588, { width: 45, size: 10 }),
+          txt("Street", 132, 558, { width: 30, size: 10 }),
+          txt("City", 132, 528, { width: 20, size: 10 }),
+        ],
+      });
+      expect(ruled(p)).toBe(0);
+      expect(props(p).map((f) => f.label)).toEqual([
+        "Full name",
+        "Street",
+        "City",
+      ]);
+    });
+  });
+
   it("GRID_TOUCH_EPS: a plumb line 1 pt off touches, 1.1 pt off does not", () => {
     const at = (d: number) =>
       labelledRule({

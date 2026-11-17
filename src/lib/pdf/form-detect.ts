@@ -152,6 +152,15 @@ export const DETECT = {
   GRID_TOUCH_EPS: 1,
   GRID_END_TOUCHES: 2,
   GRID_TOUCHES: 3,
+  /**
+   * Grid with no plumb lines (a table ruled in rows only): 3 or more rules
+   * whose ends line up within 2 pt, at a pitch even within 2 pt, with text
+   * in two or more columns (24 pt apart) between two of them.
+   */
+  GRID_ROWS_MIN: 3,
+  GRID_ROW_EPS: 2,
+  GRID_PITCH_EPS: 2,
+  GRID_COLUMN_GAP: 24,
   /** Comb: 4 or more equal squares edge to edge in a row. */
   COMB_MIN: 4,
   COMB_EPS: 1,
@@ -927,6 +936,74 @@ function gridTouches(line: Line, verticals: PageLines["verticals"]): boolean {
   );
 }
 
+/**
+ * The rules of tables ruled in rows only: no plumb line for
+ * {@link gridTouches} to find, so the rows themselves are the sign. A stack
+ * of {@link DETECT.GRID_ROWS_MIN} or more candidate rules whose two ends line
+ * up, at an even pitch, with text in two or more columns between two of them
+ * (a header or an item row). Stacked lines with one caption each (a form's
+ * name / street / city) have text in one column only and are left alone.
+ */
+function rowTables(rules: readonly Line[], all: readonly Piece[]): Set<Line> {
+  const eps = DETECT.GRID_ROW_EPS;
+  const out = new Set<Line>();
+  const long = rules.filter((r) => r.x1 - r.x0 >= DETECT.RULE_MIN_LEN);
+  const seen = new Set<Line>();
+  const words = all.filter((pc) => pc.kind === "text");
+  const columns = (lo: Line, hi: Line, x0: number, x1: number) => {
+    const inBand = words
+      .filter(
+        (pc) =>
+          pc.baseline > lo.y &&
+          pc.baseline < hi.y &&
+          pc.x0 >= x0 - 1 &&
+          pc.x1 <= x1 + 1,
+      )
+      .sort((a, b) => a.x0 - b.x0);
+    let n = 0;
+    let right = -Infinity;
+    for (const pc of inBand) {
+      if (pc.x0 - right >= DETECT.GRID_COLUMN_GAP) n++;
+      right = Math.max(right, pc.x1);
+    }
+    return n;
+  };
+  for (const seed of long) {
+    if (seen.has(seed)) continue;
+    const stack = long
+      .filter(
+        (r) =>
+          !seen.has(r) &&
+          Math.abs(r.x0 - seed.x0) <= eps &&
+          Math.abs(r.x1 - seed.x1) <= eps,
+      )
+      .sort((a, b) => a.y - b.y);
+    stack.forEach((r) => seen.add(r));
+    // Runs of even pitch; a break starts the next run at the rule before it.
+    let from = 0;
+    for (let k = 2; k <= stack.length; k++) {
+      const even =
+        k < stack.length &&
+        Math.abs(
+          stack[k]!.y - stack[k - 1]!.y - (stack[from + 1]!.y - stack[from]!.y),
+        ) <= DETECT.GRID_PITCH_EPS;
+      if (even) continue;
+      const runOf = stack.slice(from, k);
+      if (
+        runOf.length >= DETECT.GRID_ROWS_MIN &&
+        runOf.some(
+          (lo, i) =>
+            i + 1 < runOf.length &&
+            columns(lo, runOf[i + 1]!, seed.x0, seed.x1) >= 2,
+        )
+      )
+        runOf.forEach((r) => out.add(r));
+      from = k - 1;
+    }
+  }
+  return out;
+}
+
 /** Squares in a row of {@link DETECT.COMB_MIN} or more equal, adjoining ones. */
 function combSquares(squares: CardRect[]): Set<CardRect> {
   const eps = DETECT.COMB_EPS;
@@ -1076,6 +1153,7 @@ export function classifyPage(
       });
 
   const comb = combSquares(lines.squares);
+  const rowTable = rowTables(lines.rules, all);
   const labelledSquares = cands.filter(
     (c) => c.square && c.labelState === "found",
   );
@@ -1131,7 +1209,7 @@ export function classifyPage(
       c.line &&
       c.rule === "labelled-rule" &&
       on("table-grid") &&
-      gridTouches(c.line, lines.verticals)
+      (gridTouches(c.line, lines.verticals) || rowTable.has(c.line))
     ) {
       exclude("table-grid", c.box);
       continue;
