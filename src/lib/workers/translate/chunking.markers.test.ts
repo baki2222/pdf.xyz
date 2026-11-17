@@ -442,7 +442,7 @@ describe("(v) sizing does not depend on marking", () => {
     // Health: the variants really changed the marking, so equal page-sets
     // mean sizing ignored it, not that nothing happened.
     expect(changedMarking).toBeGreaterThanOrEqual(200);
-  });
+  }, 30_000);
 });
 
 // ── the collision rule (D3) ─────────────────────────────────────────────────

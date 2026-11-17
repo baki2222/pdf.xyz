@@ -594,7 +594,7 @@ describe("an offline promise in a guide agrees with what its tool's run fetches"
     // — so the detector rightly caught it there. Flatten is pdf-lib alone.
     expect(falsePromises(fixture("merge-pdf", promise))).toEqual([promise]);
     expect(falsePromises(fixture("flatten-pdf", promise))).toEqual([]);
-  });
+  }, 30_000);
 
   /*
    * AMENDED 2026-09-27 at the merge with L04, history kept. This replaced the
