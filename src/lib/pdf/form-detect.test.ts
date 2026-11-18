@@ -1663,6 +1663,28 @@ describe("labelled-rule: a label column (labels flush left, lines at one tab sto
     });
     expect(labelAt(p, 3)).toBe("City");
   });
+
+  // Review round 4 fixes, finding 20: the blockers between a label and its
+  // line were tested only well inside the label band, so every edge
+  // comparison could be loosened to strict. Row 1 (Email, 55 pt off) is
+  // labelled by the column only.
+  it("blockers on the very edges of the label band still block (mutants C2-C5, C9, C10)", () => {
+    const y = rowY(1);
+    const at = (more: { text?: CardText[]; segs?: CardSeg[] }) =>
+      labelAt(column(A1, TAB, more), 1);
+    expect(at({})).toBe("Email");
+    // A leader at the band's foot (y - 2) and at its head (y + 0.6 x 10).
+    const leader = (ly: number) =>
+      txt("........", 110, ly, { size: 10, width: 40 });
+    expect(at({ text: [leader(y - 2)] })).toBeUndefined();
+    expect(at({ text: [leader(y + 6)] })).toBeUndefined();
+    // A rule at the band's foot, and at the label's top (y + 0.6 x 12).
+    expect(at({ segs: [hseg(110, 150, y - 2)] })).toBeUndefined();
+    expect(at({ segs: [hseg(110, 150, y + 0.6 * 12)] })).toBeUndefined();
+    // A plumb line ending at the band's foot, one starting at its top.
+    expect(at({ segs: [vseg(130, y - 20, y - 2)] })).toBeUndefined();
+    expect(at({ segs: [vseg(130, y + 0.6 * 12, y + 30)] })).toBeUndefined();
+  });
 });
 
 // Review round 4: the owner's decision on round 3's finding 9. A ruled grid
