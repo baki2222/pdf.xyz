@@ -368,6 +368,16 @@ const P28 = {
 };
 /** N32's line starts 40 pt right of where "Address:" (12 pt) ends. */
 const N32_X0 = 72 + textWidth(H, "Address:", 12) + 40;
+/**
+ * N33's digit boxes (16 pt, Helvetica 10 labels 6 pt to their left): a
+ * date's DD and MM pairs and YYYY four, with "/" between the groups; a
+ * two-box "Age"; a three-box "House no.".
+ */
+const N33 = {
+  date: 72 + textWidth(H, "Date of birth", 10) + 6,
+  age: 72 + textWidth(H, "Age", 10) + 6,
+  house: 72 + textWidth(H, "House no.", 10) + 6,
+};
 
 function p1(key: FontKey, id: string): DetectCase {
   return {
@@ -1657,6 +1667,31 @@ export const DETECT_CASES: readonly DetectCase[] = [
     expect: "none",
     decidedBy: "unlabelled",
     at: { page: 1, x: N32_X0 + 50, y: 605 },
+  },
+  {
+    id: "N33",
+    kind: "negative",
+    note: 'digit boxes: "Date of birth" and DD / MM / YYYY boxes with "/" between the groups, a two-box "Age", a three-box "House no."',
+    // Review round 3, finding 2: a comb needed four adjoining squares, so
+    // every group here but the year was proposed as checkboxes, the date's
+    // labelled "/".
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await text(page, H, "Date of birth", 72, 620, 10);
+      for (const dx of [0, 16, 44, 60, 88, 104, 120, 136])
+        square(page, N33.date + dx, 616, 16);
+      for (const dx of [35, 79])
+        await text(page, H, "/", N33.date + dx, 620, 10);
+      await text(page, H, "Age", 72, 580, 10);
+      for (const dx of [0, 16]) square(page, N33.age + dx, 576, 16);
+      await text(page, H, "House no.", 72, 540, 10);
+      for (const dx of [0, 16, 32]) square(page, N33.house + dx, 536, 16);
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "comb",
+    at: { page: 1, x: N33.date + 8, y: 624 },
   },
 
   // ---------------------------------------------------------- outcomes

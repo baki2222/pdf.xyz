@@ -179,8 +179,12 @@ export const DETECT = {
   GRID_ROW_EPS: 2,
   GRID_PITCH_EPS: 2,
   GRID_COLUMN_GAP: 24,
-  /** Comb: 4 or more equal squares edge to edge in a row. */
-  COMB_MIN: 4,
+  /**
+   * Comb (digit boxes): 2 or more equal squares edge to edge in a row. The
+   * brief's 4 left a date's DD and MM pairs, a two-box "Age" and a three-box
+   * "House no." as checkboxes (review round 3, finding 2; corpus N33).
+   */
+  COMB_MIN: 2,
   COMB_EPS: 1,
   /** A label naming a signature line. */
   SIGNATURE_RE: /\b(sign(ature|ed)?|initials)\b/i,
@@ -458,12 +462,15 @@ function pieces(t: CardText, item: number): Piece[] {
 }
 
 const TRAILING = /[\s:.\-\u2013\u2014]/u;
+const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
 
 /**
  * Label text: underscores and trailing colons dropped, spaces collapsed.
  * The trailing colons, periods, dashes and spaces are trimmed one character
  * at a time from the end: an anchored `[...]+$` backtracked over every run
  * of them that did not end the string, which is quadratic in a long one.
+ * A string with no letter or digit is no label: the "/" between a date's
+ * box groups once named them (review round 3, finding 2).
  */
 export function cleanLabel(s: string): string | null {
   const mid = s
@@ -473,7 +480,7 @@ export function cleanLabel(s: string): string | null {
   let end = mid.length;
   while (end > 0 && TRAILING.test(mid[end - 1]!)) end--;
   const out = mid.slice(0, end).trim();
-  return out.length > 0 ? out : null;
+  return LETTER_OR_DIGIT.test(out) ? out : null;
 }
 
 /* ------------------------------------------------------------------ *

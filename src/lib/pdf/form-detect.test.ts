@@ -199,7 +199,7 @@ describe("rule tables", () => {
       GRID_ROW_EPS: 2, // review
       GRID_PITCH_EPS: 2, // review
       GRID_COLUMN_GAP: 24, // review
-      COMB_MIN: 4,
+      COMB_MIN: 2, // review round 3 (the brief's was 4)
       COMB_EPS: 1,
       SIGNOFF_ABOVE: 80, // review
       IOU_EXISTING: 0.3,
@@ -1638,7 +1638,12 @@ describe("exclusions, each at its boundary", () => {
     expect(props(at(1.1))).toHaveLength(1);
   });
 
-  it("COMB_MIN / COMB_EPS: four adjoining equal squares are a comb, three are not", () => {
+  // INVERTED in review round 3 (finding 2). This test read "four adjoining
+  // equal squares are a comb, three are not" and pinned the brief's COMB_MIN
+  // of 4, so a DD / MM / YYYY date's two-box groups, a two-box "Age" and a
+  // three-box "House no." each became checkboxes (labelled "/", "Age",
+  // "House no"). Squares that touch edge to edge are digit boxes from two.
+  it("COMB_MIN / COMB_EPS: two adjoining equal squares are a comb (three too), one alone is not", () => {
     const row = (n: number, gap = 0) =>
       pg({
         rects: Array.from({ length: n }, (_, k) =>
@@ -1651,11 +1656,17 @@ describe("exclusions, each at its boundary", () => {
     expect(run(row(4)).excluded.map((e) => e.rule)).toEqual(
       Array(4).fill("comb"),
     );
-    expect(run(row(3)).excluded.some((e) => e.rule === "comb")).toBe(false);
-    expect(run(row(4, 1)).excluded.map((e) => e.rule)).toEqual(
-      Array(4).fill("comb"),
+    expect(run(row(3)).excluded.map((e) => e.rule)).toEqual(
+      Array(3).fill("comb"),
     );
-    expect(run(row(4, 1.1)).excluded.some((e) => e.rule === "comb")).toBe(
+    expect(run(row(2)).excluded.map((e) => e.rule)).toEqual(
+      Array(2).fill("comb"),
+    );
+    expect(run(row(1)).excluded.some((e) => e.rule === "comb")).toBe(false);
+    expect(run(row(2, 1)).excluded.map((e) => e.rule)).toEqual(
+      Array(2).fill("comb"),
+    );
+    expect(run(row(2, 1.1)).excluded.some((e) => e.rule === "comb")).toBe(
       false,
     );
   });
@@ -1890,6 +1901,31 @@ describe("cleanLabel", () => {
     expect(cleanLabel("Name" + ".:".repeat(25_000))).toBe("Name");
     // Measured before: about 1.3 s; after: well under 1 ms.
     expect(performance.now() - t0).toBeLessThan(100);
+  });
+
+  // Review round 3, finding 2: the "/" between a date's box groups was the
+  // boxes' label. A label holds a letter or a digit.
+  it("a string with no letter or digit is no label", () => {
+    for (const s of ["/", "( )", "&", "#", "*", "+ -", "/ /"])
+      expect(cleanLabel(s), s).toBeNull();
+    expect(cleanLabel("No.")).toBe("No");
+    expect(cleanLabel("3")).toBe("3");
+    expect(cleanLabel("(a)")).toBe("(a)");
+    // Bengali "nam" (name): two letters and a vowel sign.
+    const bengali = String.fromCodePoint(0x09a8, 0x09be, 0x09ae);
+    expect(cleanLabel(bengali)).toBe(bengali);
+  });
+
+  it("so a lone square beside a '/' is unlabelled, and a label past the '/' is read", () => {
+    const p = (extra: CardText[]) =>
+      pg({
+        rects: [rect(100, 500, 12, 12)],
+        text: [txt("/", 115, 502, { size: 10, width: 3 }), ...extra],
+      });
+    expect(firstRule(p([]))).toBe("unlabelled");
+    expect(
+      props(p([txt("Yes", 120, 502, { size: 10, width: 15 })]))[0]?.label,
+    ).toBe("Yes");
   });
 });
 
