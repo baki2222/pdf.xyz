@@ -117,8 +117,10 @@ export const DETECT = {
    * left ends line up, and whose labels' left edges line up, each within
    * GRID_ROW_EPS, one of the labels within LABEL_LEFT_GAP_RULE: each line
    * in it takes the text to its left up to LABEL_COLUMN_GAP_MAX (2 in).
+   * Was 3 until review round 5 fixes (finding 5): a two-row header
+   * ("Vehicle reg:" / "Driver:") left its second line unlabelled.
    */
-  LABEL_COLUMN_MIN: 3,
+  LABEL_COLUMN_MIN: 2,
   LABEL_COLUMN_GAP_MAX: 144,
   /** How far from a run or a square its label may be. */
   LABEL_LEFT_GAP: 24,

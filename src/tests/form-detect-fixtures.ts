@@ -539,6 +539,17 @@ const P46 = {
   y: (i: number) => 620 - 20 * i,
   boxX: 405,
 };
+/**
+ * P48's two-row header: per column, the labels' x, the tab stop, the line's
+ * end, and its two labels (Helvetica 10); rows at y 660 and 636.
+ */
+export const P48 = {
+  columns: [
+    { x: 72, tab: 140, end: 300, labels: ["Vehicle reg:", "Driver:"] },
+    { x: 320, tab: 382, end: 540, labels: ["Odometer:", "Date:"] },
+  ],
+  ys: [660, 636],
+};
 /** N47's two 8-box date combs (14 pt, edge to edge), one head per box. */
 const N47 = {
   rows: ["Date of birth", "Date of arrival"],
@@ -2943,6 +2954,32 @@ export const DETECT_CASES: readonly DetectCase[] = [
     ],
     decidedBy: "signature",
     at: { page: 1, x: 180, y: 618 },
+  },
+  {
+    id: "P48",
+    kind: "positive",
+    note: 'a two-row header: "Vehicle reg:" / "Driver:" and "Odometer:" / "Date:", labels flush left, each pair\'s lines at one tab stop, the short labels ending over 36 pt from their lines: four fields',
+    // Review round 5 fixes, finding 5: with LABEL_COLUMN_MIN 3 a column of
+    // two was none, and Driver and Date were unlabelled.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const c of P48.columns)
+        for (const [i, s] of c.labels.entries()) {
+          await text(page, H, s, c.x, P48.ys[i]!, 10);
+          rule(page, c.tab, c.end, P48.ys[i]!, 0.75);
+        }
+      return save(d);
+    },
+    expect: P48.ys.flatMap((y, i) =>
+      P48.columns.map((c) => ({
+        rule: "labelled-rule" as const,
+        type: "text" as const,
+        label: c.labels[i]!.replace(/:$/, ""),
+        page: 1,
+        box: ruleBox(c.tab, c.end, y, 10),
+      })),
+    ),
   },
 
   // ---------------------------------------------------------- outcomes

@@ -170,7 +170,7 @@ describe("rule tables", () => {
       RULE_MAX_WIDTH: 2,
       RULE_MERGE_GAP: 1,
       LABEL_LEFT_GAP_RULE: 36,
-      LABEL_COLUMN_MIN: 3, // owner, round 3
+      LABEL_COLUMN_MIN: 2, // owner, round 3 (3); round 5 fixes, finding 5
       LABEL_COLUMN_GAP_MAX: 144, // owner, round 3
       LABEL_LEFT_GAP: 24,
       LABEL_BELOW_RULE: 2,
@@ -1792,23 +1792,32 @@ describe("labelled-rule: a label column (labels flush left, lines at one tab sto
     expect(labelAt(moved(157.9), 3)).toBeUndefined();
   });
 
-  it("LABEL_COLUMN_MIN: 3 lines make a column, 2 do not (a line at another tab stop does not count)", () => {
+  // INVERTED in review round 5 fixes (finding 5; owner-level call made
+  // under the brief's delegation). This read "LABEL_COLUMN_MIN: 3 lines
+  // make a column, 2 do not" and pinned Email (55 pt from its line, under
+  // Date of birth at one tab stop) unlabelled: a vehicle inspection's
+  // two-row header ("Vehicle reg:" / "Driver:") lost its second field.
+  // Two aligned rows, one anchored within 36 pt, are a tab-stop column.
+  it("LABEL_COLUMN_MIN: 2 lines make a column, 1 does not (a line at another tab stop does not count)", () => {
     const three = column([A1[2]!, A1[1]!, A1[3]!], TAB);
     expect([0, 1, 2].map((i) => labelAt(three, i))).toEqual([
       "Date of birth",
       "Email",
       "City",
     ]);
-    // Row 1 is a column of two; row 2 is labelled within 36 pt but its line
-    // starts at 340 and its label at 300, so it is in neither column.
+    // Rows 0 and 1 are a column of two; row 2 is labelled within 36 pt but
+    // its line starts at 340 and its label at 300, so it is in neither.
     const two = column(
       [A1[2]!, A1[1]!, { label: "Phone:", x: 300, right: 330, x0: 340 }],
       TAB,
     );
     expect(labelAt(two, 0)).toBe("Date of birth");
     expect(labelAt(two, 2)).toBe("Phone");
-    expect(labelAt(two, 1)).toBeUndefined();
-    expect(decidedAt(two, 1)).toBe("unlabelled");
+    expect(labelAt(two, 1)).toBe("Email");
+    // One: Email alone at that tab stop, the anchor's line moved 2.1 pt.
+    const one = column([{ ...A1[2]!, x0: TAB + 2.1 }, A1[1]!], TAB);
+    expect(labelAt(one, 1)).toBeUndefined();
+    expect(decidedAt(one, 1)).toBe("unlabelled");
   });
 
   it("the column needs a label the lone-line rule accepts, in the same column", () => {

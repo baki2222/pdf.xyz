@@ -4,6 +4,7 @@ import { DETECTION_RULES, EXCLUSION_RULES } from "./form-detect";
 import { scanPaths, type OpsLike } from "./form-detect-paths";
 import {
   DETECT_CASES,
+  P48,
   decidingAt,
   runCase,
   textWidth,
@@ -87,6 +88,18 @@ describe("corpus health (FATAL when it fails)", () => {
     for (const s of ["Name:", "Date of birth:", "Telephone:"])
       expect(gap(s)).toBeLessThanOrEqual(36);
     expect(Math.max(gap("Email:"), gap("City:"))).toBeLessThanOrEqual(144);
+  });
+
+  // P48 is the two-row column case only while each column's long label
+  // ends within the lone-line gap and its short one beyond it (pdf-lib's
+  // widths, Helvetica 10).
+  it("P48's geometry: in each column the first label ends within 36 pt of its line, the second beyond", () => {
+    for (const c of P48.columns) {
+      const gap = (s: string) => c.tab - (c.x + textWidth("sans", s, 10));
+      expect(gap(c.labels[0]!)).toBeGreaterThan(0);
+      expect(gap(c.labels[0]!)).toBeLessThanOrEqual(36);
+      expect(gap(c.labels[1]!)).toBeGreaterThan(36);
+    }
   });
 
   // P28 tests the nearer side only while, in each row, a box's own label is
