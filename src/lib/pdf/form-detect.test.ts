@@ -2752,11 +2752,12 @@ describe("labelled-rule: a label column (labels flush left, lines at one tab sto
   // cost far less than 256 times (each line reading every other's text).
   // 16, not 8: at 8 times the linear page read up to 9.9 and the defect
   // 40, too close to set a bound 2x from one and 1.5x from the other.
-  // Measured (Windows; 10 runs of this file, 8 more 4 at a time): fixed
-  // 13.9 to 17.9, under load 11.3 to 18.7; with the left-label search
+  // Measured (Windows; 15 runs of this file, 8 more 4 at a time): fixed
+  // 13.1 to 25.7, under load 11.3 to 18.7; with the left-label search
   // reading `p.text` instead of `bandText(ix, r)` (every line meeting every
-  // text item), 145, 110 and 129. The bound, 48, is 2.6x over the first
-  // and 2.3x under the second.
+  // text item), 145, 110 and 129. The bound, 56, is 2.2x over the first
+  // and 2.0x under the second. (It was 48 until the 11th run read 25.7:
+  // the small column takes 5 to 13 ms, the noisiest denominator here.)
   it("a 20,000-line label column is classified in linear time", () => {
     const column = (n: number) => {
       const segs: CardSeg[] = [];
@@ -2791,7 +2792,7 @@ describe("labelled-rule: a label column (labels flush left, lines at one tab sto
         "Date of birth",
       ]);
     }
-    expectRatioUnder("20,000-line label column", large!.ms, small!.ms, 48);
+    expectRatioUnder("20,000-line label column", large!.ms, small!.ms, 56);
   }, 60_000);
 
   // The text between a label and its line is read from the label band's
