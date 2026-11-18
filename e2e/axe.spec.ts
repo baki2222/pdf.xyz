@@ -154,7 +154,8 @@ test.describe("accessibility: axe WCAG 2.x A/AA on every landing page", () => {
  *
  * Without the fixes (main at 49b71de3) this sweep is red on exactly those
  * five (slug, state) pairs with exactly those rules, and nothing else but
- * the one KNOWN_OPEN entry below, which is red there too.
+ * the sign-pdf dark contrast defect, which is red there too: it was the one
+ * KNOWN_OPEN entry below until this PR fixed it as well.
  *
  * THE SETS ARE DERIVED. Post-upload: every catalogue tool that takes a file
  * (`FILE_TOOLS`, the same derivation as the phone long-name case), each given
@@ -186,15 +187,17 @@ const AFTER_UPLOAD_PDF_PAGES = 3;
  * first node, matched by `startsWith`; a contrast failure planted on
  * sign-pdf dark printed after the known node and the sweep stayed green.
  *
- * sign-pdf, dark (found 2026-11-18 by this sweep's first run, on main with
- * #374-#376, and on 49b71de3 before them): the signature style previews are
- * drawn in the chosen ink (#0f172a by default) on the dark panel, 1.21:1 on
- * the selected tile (#192a35). `signature-panel.tsx`, the preview `<span>`'s
- * inline `color: ink`.
+ * HISTORY (FIXED in this PR, 2026-11-18): the one entry was
+ *   'desktop, dark|sign-pdf [post-upload, desktop, dark]: color-contrast (serious) x1 at button[aria-label="Dancing Script"] > .truncate.text-xl.block'
+ * found by this sweep's first run (on main with #374-#376, and on 49b71de3
+ * before them): the signature style previews were drawn in the chosen ink
+ * (#0f172a by default) on the dark panel, 1.21:1 on the selected tile
+ * (#192a35). Fixed by drawing every ink preview on PAPER, a white chip
+ * (`ON_PAPER` in `signature-panel.tsx`; pinned for every ink by
+ * `signature-panel.test.tsx`, "ink previews sit on paper"). The list is
+ * empty; the mechanism and its exact-match rule stay for the next defect.
  */
-const KNOWN_OPEN: readonly string[] = [
-  'desktop, dark|sign-pdf [post-upload, desktop, dark]: color-contrast (serious) x1 at button[aria-label="Dancing Script"] > .truncate.text-xl.block',
-];
+const KNOWN_OPEN: readonly string[] = [];
 /** A KNOWN_OPEN entry's combo: everything before its first "|". */
 const knownCombo = (entry: string) => entry.slice(0, entry.indexOf("|"));
 /** A KNOWN_OPEN entry's failure line: everything after its first "|". */
