@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import { announceOutcome } from "@/components/a11y/live-region";
 import type { FieldBox } from "@/lib/pdf/field-boxes";
 import {
@@ -8,9 +8,11 @@ import {
   placeAt,
   sheetPoint,
   unionOf,
+  type SheetBox,
   type SheetSize,
 } from "@/lib/pdf/form-preview";
 import { usePageImageState } from "./use-page-image";
+import type { Finder, ProposalAct } from "./create-forms-detect";
 
 /**
  * Create Fillable Forms' page preview (backlog #17, 2026-11-17): the page of
@@ -57,6 +59,34 @@ export interface CreateFormsPreviewProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onMove: (id: string, at: { x: number; y: number }) => void;
+  /**
+   * Find fields, once its chunk has loaded: the module and the builder as
+   * it sees it. Its suggestions on this page are drawn in a third, dotted
+   * state; a press selects one (never adds), Enter adds it, Delete
+   * dismisses it. Type-only here: this chunk never loads the finder.
+   */
+  find?: { detect: DetectModule; finder: Finder } | null;
+}
+
+type DetectModule = typeof import("./create-forms-detect");
+
+/** One of Find fields' suggestions on the shown page. */
+export interface PreviewProposal {
+  key: string;
+  type: string;
+  /** Its type in words, e.g. "Text field". */
+  kind: string;
+  label: string | null;
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** What a suggestion's button is called. */
+export function proposalLabel(p: PreviewProposal): string {
+  return `Found ${p.kind.toLowerCase()}, ${p.label ? `“${p.label}”` : "no label"}, page ${p.page}, press Enter to add it or Delete to dismiss it`;
 }
 
 /** A pointer must travel this far (CSS px) before a press on a box drags it. */
@@ -66,13 +96,54 @@ const STEP_BIG_PT = 10;
 
 /*
  * Ink on the white page, each at least 4.5:1 against white
- * (`create-forms-preview.test.tsx` computes both): the selected field in
- * blue, the rest in slate. Colour is the second cue — the selected box is
- * also drawn solid and thicker, and every box carries its name.
+ * (`create-forms-preview.test.tsx` computes all three): the selected field
+ * in blue, the rest in slate, Find fields' suggestions in rust. Colour is
+ * the second cue — the selected box is also drawn solid and thicker, every
+ * box carries its name, and a suggestion is dotted (inline styles: the
+ * shipped stylesheet is at its ceiling).
  */
-export const PREVIEW_INK = { selected: "#1d4ed8", other: "#334155" } as const;
+export const PREVIEW_INK = {
+  selected: "#1d4ed8",
+  other: "#334155",
+  /** Find fields' suggestions: dotted, tinted, and named in their label. */
+  proposed: "#9a3412",
+} as const;
 
 const pct = (share: number) => `${share * 100}%`;
+
+/** A sheet box's place, grown to at least 24 x 24 px about its centre when `min`. */
+function grown(s: SheetBox, min: boolean) {
+  return min
+    ? {
+        left: `calc(${pct(s.left)} + (${pct(s.width)} - max(${pct(s.width)}, 24px)) / 2)`,
+        bottom: `calc(${pct(s.bottom)} + (${pct(s.height)} - max(${pct(s.height)}, 24px)) / 2)`,
+        width: `max(${pct(s.width)}, 24px)`,
+        height: `max(${pct(s.height)}, 24px)`,
+      }
+    : {
+        left: pct(s.left),
+        bottom: pct(s.bottom),
+        width: pct(s.width),
+        height: pct(s.height),
+      };
+}
+
+/** The suggestion whose centre is nearest `at` (points), if any. */
+export function nearestProposal(
+  list: readonly PreviewProposal[],
+  at: { x: number; y: number },
+): string | null {
+  let best: string | null = null;
+  let dist = Infinity;
+  for (const p of list) {
+    const d = Math.hypot(p.x + p.width / 2 - at.x, p.y + p.height / 2 - at.y);
+    if (d < dist) {
+      dist = d;
+      best = p.key;
+    }
+  }
+  return best;
+}
 
 /** The name a box is called by: the field's name, or that it has none. */
 export function fieldLabel(f: Pick<PreviewField, "name" | "kind">): string {
@@ -88,7 +159,14 @@ export function CreateFormsPreview({
   selectedId,
   onSelect,
   onMove,
+  find,
 }: CreateFormsPreviewProps) {
+  const proposals: PreviewProposal[] = find
+    ? find.detect.onPage(find.finder.found.list, page)
+    : [];
+  const selectedProposal = find?.finder.selected ?? null;
+  const onProposal = (key: string, act: ProposalAct) =>
+    find?.detect.act(find.finder, key, act);
   const image = usePageImageState(bytes, page - 1, 420);
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const sayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -109,6 +187,32 @@ export function CreateFormsPreview({
     [],
   );
   const selected = fields.find((f) => f.id === selectedId) ?? null;
+  // Find fields' suggestions take ONE place in the tab order: the selected
+  // one, else the first. Packed checkboxes sit closer than 24 px apart on
+  // the sheet, and a button each would be packed targets (axe
+  // target-size); each suggestion is also in the review list, with its own
+  // Add and Dismiss.
+  const current =
+    proposals.find((p) => p.key === selectedProposal) ?? proposals[0] ?? null;
+  /** The suggestion nearest a press, by centre: overlapping areas resolve so. */
+  const pressed = (event: {
+    clientX: number;
+    clientY: number;
+    detail?: number;
+  }) => {
+    const rect = sheetRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0 || event.detail === 0)
+      return null;
+    return nearestProposal(
+      proposals,
+      sheetPoint(
+        event.clientX - rect.left,
+        event.clientY - rect.top,
+        rect,
+        size,
+      ),
+    );
+  };
 
   const sayLater = (text: string) => {
     if (sayTimer.current) clearTimeout(sayTimer.current);
@@ -210,6 +314,68 @@ export function CreateFormsPreview({
             }}
           />
         ))}
+        {proposals.map((p) => {
+          const s = boxOnSheet(p, size);
+          const on = p.key === selectedProposal;
+          const ink = PREVIEW_INK.proposed;
+          return (
+            <Fragment key={p.key}>
+              <span
+                aria-hidden
+                data-proposed={p.key}
+                className="rounded-tag absolute"
+                style={{
+                  ...grown(s, false),
+                  border: `${on ? 2 : 1.5}px dotted ${ink}`,
+                  background: `${ink}${on ? "2e" : "14"}`,
+                  pointerEvents: "none",
+                }}
+              />
+              {/* A pointer's way in to every suggestion: not a control (the
+                  keyboard's is the one button below, and the review list),
+                  so packed suggestions are not packed targets. */}
+              <span
+                aria-hidden
+                data-proposal-hit={p.key}
+                className="absolute"
+                style={{ ...grown(s, true), cursor: "pointer" }}
+                onPointerUp={(event) =>
+                  onProposal(pressed(event) ?? p.key, "select")
+                }
+              />
+            </Fragment>
+          );
+        })}
+        {current && (
+          <button
+            type="button"
+            data-proposal={current.key}
+            aria-label={proposalLabel(current)}
+            aria-pressed={current.key === selectedProposal}
+            className="rounded-tag focus-visible:ring-accent/50 absolute outline-none focus-visible:ring-2"
+            style={{
+              ...grown(boxOnSheet(current, size), true),
+              background: "transparent",
+              border: 0,
+              padding: 0,
+            }}
+            onClick={(event) =>
+              // A press SELECTS, never adds.
+              onProposal(pressed(event) ?? current.key, "select")
+            }
+            onKeyDown={(event) => {
+              const act =
+                event.key === "Enter"
+                  ? "add"
+                  : event.key === "Delete" || event.key === "Backspace"
+                    ? "dismiss"
+                    : null;
+              if (!act) return;
+              event.preventDefault();
+              onProposal(current.key, act);
+            }}
+          />
+        )}
       </div>
       <figcaption className="text-muted text-center text-xs leading-relaxed">
         Page {page} of {pageCount}.{" "}
@@ -220,6 +386,9 @@ export function CreateFormsPreview({
             : "Add a field to see it here."}{" "}
         Each move changes X and Y on the field&apos;s card, and the form is
         built from those numbers.
+        {proposals.length > 0
+          ? " Dotted boxes are suggestions from Find fields: press one to show it in the list, where you add or dismiss it."
+          : ""}
         {image.state === "failed"
           ? " The page itself could not be drawn, so the boxes are shown on a blank sheet of the same size."
           : ""}

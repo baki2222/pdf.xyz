@@ -443,7 +443,7 @@ describe(
       expect(expectDrawnAsCards({ width: 792, height: 612 }, 2)).toBe(3);
     });
 
-    it("the ink on the white page is at least 4.5:1, both colours", () => {
+    it("the ink on the white page is at least 4.5:1, all three colours", () => {
       const lum = (hex: string) => {
         const [r, g, b] = [1, 3, 5].map((i) => {
           const c = parseInt(hex.slice(i, i + 2), 16) / 255;
@@ -454,7 +454,13 @@ describe(
       const ratios = Object.values(PREVIEW_INK).map(
         (ink) => (1 + 0.05) / (lum(ink) + 0.05),
       );
-      expect(ratios).toHaveLength(2);
+      // Find fields' suggestions (S2) are the third ink.
+      expect(Object.keys(PREVIEW_INK)).toEqual([
+        "selected",
+        "other",
+        "proposed",
+      ]);
+      expect(ratios).toHaveLength(3);
       for (const r of ratios) expect(r).toBeGreaterThanOrEqual(4.5);
       // Positive control: a pale ink fails the same computation.
       expect((1 + 0.05) / (lum("#9ca3af") + 0.05)).toBeLessThan(4.5);

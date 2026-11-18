@@ -10411,7 +10411,7 @@
     },
     "tools/create-forms.html": {
       "title": "Create Fillable PDF Forms — Built in Your Browser — pdf.xyz",
-      "description": "Add text boxes, checkboxes, dropdowns, radio groups and lists to a PDF by page coordinates. Real AcroForm fields, built in your browser with no upload.",
+      "description": "Add text boxes, checkboxes, dropdowns, radio groups and lists to a PDF, or review fields suggested from its lines. Real AcroForm fields, built in your browser.",
       "canonical": "https://pdf.xyz/tools/create-forms",
       "robots": "index, follow",
       "h1": ["Create Fillable Forms"],
