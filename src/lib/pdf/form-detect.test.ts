@@ -979,11 +979,16 @@ describe("exclusions, each at its boundary", () => {
       txt("Price", 165 + gap, 586, { width: 30, size: 10 }),
     ];
     const rows = (
-      o: { ys?: number[]; x1s?: number[]; text?: CardText[] } = {},
+      o: {
+        ys?: number[];
+        x0s?: number[];
+        x1s?: number[];
+        text?: CardText[];
+      } = {},
     ) => {
       const ys = o.ys ?? [600, 580, 560];
       return pg({
-        segs: ys.map((y, i) => hseg(130, o.x1s?.[i] ?? 450, y)),
+        segs: ys.map((y, i) => hseg(o.x0s?.[i] ?? 130, o.x1s?.[i] ?? 450, y)),
         text: o.text ?? header(),
       });
     };
@@ -1005,6 +1010,12 @@ describe("exclusions, each at its boundary", () => {
     it("GRID_ROW_EPS: ends 2 pt apart line up, 2.1 pt apart do not", () => {
       expect(ruled(rows({ x1s: [450, 452, 450] }))).toBe(3);
       expect(ruled(rows({ x1s: [450, 452.1, 450] }))).toBe(0);
+      // The left ends too: only the right ends were moved here once, so the
+      // left-end check could be deleted with everything green, and rules
+      // whose left ends differ by 4 pt became a table (review finding).
+      expect(ruled(rows({ x0s: [130, 132, 130] }))).toBe(3);
+      expect(ruled(rows({ x0s: [130, 132.1, 130] }))).toBe(0);
+      expect(ruled(rows({ x0s: [130, 134, 130] }))).toBe(0);
     });
 
     it("GRID_PITCH_EPS: pitches 2 pt apart are even, 2.1 pt apart are not", () => {
