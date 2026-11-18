@@ -94,6 +94,20 @@ const PREVIEW_LINE = {
 } as const;
 
 /**
+ * The paper an ink preview is drawn on. An ink is the colour that lands on a
+ * white page, so the name is previewed on white in BOTH schemes: faithful to
+ * the PDF, and every ink in `SIGNATURE_INKS` clears 4.5:1 on it. Drawn straight
+ * on the dark panel, black ink read at 1.21:1 (Lane D's axe sweep,
+ * 2026-11-18). Inline, not utility classes: the stylesheet is at its ceiling.
+ * Horizontal padding only, so a preview line keeps its fixed height.
+ */
+const ON_PAPER = {
+  backgroundColor: "#ffffff",
+  padding: "0 0.25em",
+  borderRadius: "0.25rem",
+} as const;
+
+/**
  * How a style previews `name`: a handwriting face that has every letter in
  * itself (the face the PDF embeds), and otherwise as Script — which is how
  * the export sets that name (`handwritingFor`). Asked of the name as the
@@ -172,7 +186,9 @@ function SavedThumb({ saved }: { saved: SavedSignature }) {
       <span
         className="text-fg truncate text-lg"
         style={{
-          color: saved.color,
+          // Saved before inks existed: black, the ink it was made in.
+          color: saved.color ?? SIGNATURE_INKS[0].hex,
+          ...ON_PAPER,
           ...PREVIEW_LINE,
           ...previewFont(saved.style, saved.text),
         }}
@@ -259,7 +275,12 @@ function StylePicker({
             <span
               aria-hidden
               className="block w-full truncate text-xl"
-              style={{ color: ink, ...PREVIEW_LINE, ...previewFont(s, sample) }}
+              style={{
+                color: ink,
+                ...ON_PAPER,
+                ...PREVIEW_LINE,
+                ...previewFont(s, sample),
+              }}
             >
               {sample || SIGNATURE_STYLE_LABEL[s]}
             </span>
@@ -658,6 +679,7 @@ export function SignaturePanel({
               className="text-fg truncate text-3xl"
               style={{
                 color: ink,
+                ...ON_PAPER,
                 ...PREVIEW_LINE,
                 ...previewFont(style, name),
               }}
