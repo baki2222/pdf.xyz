@@ -2803,6 +2803,44 @@ describe("table-cell: a two-column table of labels and empty cells", () => {
       expect(bordered([vseg(73.1, 504, 600)])).toEqual([]);
     });
 
+    // The pieces that start by the lower rule (within the eps) are found
+    // by a binary search. With the lower rule's own y in the walk, a search
+    // that counted too few gave the same answers, and its boundary moved
+    // (`<` for `<=`, no eps, or twice the eps) with every test green. A
+    // border starting over the BOTTOM rule has no piece under it to join
+    // through, so only the search can join it.
+    it("a border starting 1 pt over the bottom rule reaches it; 1.1 pt over does not", () => {
+      expect(bordered([vseg(72, 505, 600)])).toEqual(LABELS);
+      expect(bordered([vseg(72, 504.5, 600)])).toEqual(LABELS);
+      expect(bordered([vseg(72, 505.1, 600)])).toEqual([
+        "Name",
+        "Address",
+        "Telephone",
+      ]);
+      expect(bordered([vseg(72, 505.9, 600)])).toEqual([
+        "Name",
+        "Address",
+        "Telephone",
+      ]);
+      // And the Email row is no table at all: a search counting twice the
+      // eps joined it, and its cell went out as a duplicate.
+      for (const y of [505.1, 505.9]) {
+        const p = table({
+          plumbs: [vseg(72, y, 600), vseg(180, 504, 600), vseg(400, 504, 600)],
+        });
+        expect(
+          run(p).excluded.map((e) => e.rule),
+          String(y),
+        ).toEqual([
+          "table-grid",
+          "table-grid",
+          "table-grid",
+          "table-grid",
+          "no-clearance",
+        ]);
+      }
+    });
+
     it("a border broken by 1 pt mid-row is one line; by 1.1 pt the table splits there", () => {
       // The break is in the Telephone row (528 to 552): split, only the
       // two rows over it are a table.

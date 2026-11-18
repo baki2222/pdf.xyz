@@ -2163,10 +2163,18 @@ function plumbCoverage(
   const at = verticals
     .filter((v) => Math.abs(v.x - x) <= eps)
     .sort((a, b) => a.y0 - b.y0);
-  const farthest: number[] = [];
+  // farthest[k]: the farthest end of the first k pieces.
+  const farthest: number[] = [-Infinity];
   for (const v of at)
-    farthest.push(Math.max(farthest[farthest.length - 1] ?? -Infinity, v.y1));
+    farthest.push(Math.max(farthest[farthest.length - 1]!, v.y1));
   return (y0, y1) => {
+    // lo: how many pieces start by y0 (within the eps). They join at y0,
+    // so the reach starts at the farthest of their ends, and the walk
+    // takes the rest only through ends. y0 itself counts at the finish
+    // (a question no taller than the eps), not in the walk: with y0 in
+    // the walk, a search that counted too few gave the same answers, so
+    // its boundary could move with every test green. Now a piece the
+    // search leaves out joins only through an earlier piece's end.
     let lo = 0;
     let hi = at.length;
     while (lo < hi) {
@@ -2174,12 +2182,12 @@ function plumbCoverage(
       if (at[m]!.y0 <= y0 + eps) lo = m + 1;
       else hi = m;
     }
-    let reach = Math.max(y0, lo > 0 ? farthest[lo - 1]! : -Infinity);
+    let reach = farthest[lo]!;
     for (let i = lo; i < at.length; i++) {
       if (at[i]!.y0 > reach + eps) break;
       reach = Math.max(reach, at[i]!.y1);
     }
-    return reach >= y1 - eps;
+    return Math.max(y0, reach) >= y1 - eps;
   };
 }
 
