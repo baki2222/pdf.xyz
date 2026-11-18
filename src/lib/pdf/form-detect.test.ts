@@ -2481,20 +2481,30 @@ describe("table-cell: a two-column table of labels and empty cells", () => {
   // Review round 6 test honesty, cost finding 1: the split loop asked
   // whether the outer plumb lines join two rules by filtering and sorting
   // every vertical on the page for every pair, so a Word-style table (each
-  // cell's border its own piece) cost rows x verticals: 1.4 s at 4,000
-  // rows, against 0.34 s for the rest of the page.
-  it("a 4,000-row label table drawn in Word-style pieces costs what one drawn in whole lines costs", () => {
+  // cell's border its own piece) cost rows x verticals. The control is the
+  // same page with no two rules' ends alike, so no stack asks anything:
+  // the page's other per-line costs, some of them quadratic in verticals
+  // (gridTouches), are in both. First written against the table drawn in
+  // whole lines, which a later speed-up of the rest of the page made too
+  // cheap a control to hold under parallel load.
+  it("a 4,000-row label table drawn in Word-style pieces costs no more than the same rules unstacked", () => {
     const N = 4000;
-    const page = (pieces: boolean) => {
+    const page = (stacked: boolean) => {
       const segs: CardSeg[] = [];
       const text: CardText[] = [];
-      for (let i = 0; i <= N; i++) segs.push(hseg(50, 450, 40 + 20 * i));
-      for (const x of [50, 200, 450]) {
-        if (!pieces) segs.push(vseg(x, 40, 40 + 20 * N));
-        else
-          for (let i = 0; i < N; i++)
-            segs.push(vseg(x, 40 + 20 * i, 40 + 20 * (i + 1)));
-      }
+      for (let i = 0; i <= N; i++)
+        segs.push(
+          stacked
+            ? hseg(50, 450, 40 + 20 * i)
+            : hseg(
+                50 + 2.1 * (i % 70),
+                452 + 2.1 * (Math.floor(i / 70) % 70),
+                40 + 20 * i,
+              ),
+        );
+      for (const x of [50, 200, 450])
+        for (let i = 0; i < N; i++)
+          segs.push(vseg(x, 40 + 20 * i, 40 + 20 * (i + 1)));
       for (let i = 0; i < N; i++)
         text.push(txt(`Label ${i}`, 54, 46 + 20 * i, { size: 10, width: 40 }));
       return pg({ height: 40 + 20 * N + 100, segs, text });
@@ -2509,17 +2519,18 @@ describe("table-cell: a two-column table of labels and empty cells", () => {
       }
       return { ms, got };
     };
-    const whole = best(page(false));
-    const pieces = best(page(true));
-    // Health: both are read as the label table (the page CAP keeps 60).
-    for (const r of [whole, pieces]) {
-      expect(r.got).toHaveLength(60);
-      expect(r.got.slice(0, 2).map((x) => [x.rule, x.label])).toEqual([
-        ["table-cell", "Label 3999"],
-        ["table-cell", "Label 3998"],
-      ]);
-    }
-    expect(pieces.ms).toBeLessThan(3 * whole.ms + 50);
+    const stacked = best(page(true));
+    const unstacked = best(page(false));
+    // Health: the stacked page is read as the label table (the page CAP
+    // keeps 60), the unstacked one has no table cell.
+    expect(stacked.got).toHaveLength(60);
+    expect(stacked.got.slice(0, 2).map((x) => [x.rule, x.label])).toEqual([
+      ["table-cell", "Label 3999"],
+      ["table-cell", "Label 3998"],
+    ]);
+    expect(unstacked.got.filter((x) => x.rule === "table-cell")).toEqual([]);
+    // Measured: before, 1,087 ms against 615; after, 259 against 489.
+    expect(stacked.ms).toBeLessThan(unstacked.ms + 50);
   }, 60_000);
 
   // Review round 6 test honesty: the column lines are counted inside the
