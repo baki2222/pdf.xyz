@@ -1149,6 +1149,24 @@ describe("exclusions, each at its boundary", () => {
       ]);
     });
 
+    // Only text over the rules' own width counts, but nothing tested that
+    // either: row markers in the margin ("(a)", "(b)") then counted as a
+    // second column and made a form a table (review finding).
+    it("text in the margin beside the stack is not one of its columns", () => {
+      for (const x of [88, 460]) {
+        const p = stacked([
+          txt("(a)", x, 590, { width: 15, size: 10 }),
+          txt("(b)", x, 560, { width: 15, size: 10 }),
+        ]);
+        expect(ruled(p), `markers at x ${x}`).toBe(0);
+        expect(props(p).map((f) => f.label)).toEqual([
+          "Full name",
+          "Street",
+          "City",
+        ]);
+      }
+    });
+
     // ONE band with two columns made the whole stack a table, so an address
     // block whose City / State / ZIP row has three captions lost every field
     // (review finding; corpus P20). A table repeats its columns in every row
