@@ -1167,6 +1167,24 @@ describe("exclusions, each at its boundary", () => {
       }
     });
 
+    // Only words count as a column, not underscore runs, but nothing tested
+    // that: counting runs turned a form with a run beside each caption into
+    // table-grid (review finding). A run is a field of its own.
+    it("an underscore run beside each caption is not a second column", () => {
+      const p = stacked([
+        txt("________", 300, 588, { width: 44, size: 10 }),
+        txt("________", 300, 558, { width: 44, size: 10 }),
+      ]);
+      expect(ruled(p)).toBe(0);
+      expect(props(p).map((f) => [f.rule, f.label])).toEqual([
+        ["labelled-rule", "Full name"],
+        ["underscore-run", null],
+        ["labelled-rule", "Street"],
+        ["underscore-run", null],
+        ["labelled-rule", "City"],
+      ]);
+    });
+
     // ONE band with two columns made the whole stack a table, so an address
     // block whose City / State / ZIP row has three captions lost every field
     // (review finding; corpus P20). A table repeats its columns in every row
