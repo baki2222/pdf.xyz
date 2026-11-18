@@ -197,6 +197,17 @@ export const DETECT = {
   QUOTE_MIN_WORDS: 3,
   // A closing right single or double quotation mark may follow the stop.
   QUOTE_END_RE: new RegExp(`[.!?]["'${cp(0x2019, 0x201d)})]?$`, "u"),
+  /**
+   * A BOX CAPTION (review round 4 fixes): an outlined box's bottom edge,
+   * with no left label, takes its one interior text when that text reaches
+   * into the box's first CAPTION_SPAN and its top is -1 to CAPTION_MAX pt
+   * under the box's top; or, in an empty box, the nearest upright text
+   * whose descent is 0 to CAPTION_MAX pt over its top, reaching into the
+   * same span. A NOTICE is never one: text ending as NOTICE_END_RE, of at
+   * least NOTICE_MIN_WORDS words.
+   */
+  NOTICE_END_RE: /[.!?]$/,
+  NOTICE_MIN_WORDS: 4,
   /** Field height: clamp(ems x size, min, max). */
   TEXT_H_RUN: { ems: 1.2, min: 12, max: 22 },
   TEXT_H_RULE: { ems: 1.4, min: 14, max: 22 },
@@ -590,6 +601,11 @@ interface Line {
   x1: number;
   y: number;
   /**
+   * The bottom edge of a larger outlined box, with the box's top, while it
+   * is merged with nothing: it takes the box's caption (`ruleCandidates`).
+   */
+  boxBottom?: { top: number };
+  /**
    * The stroke's weight (a filled bar's height), for `continuationLines`:
    * merged pieces keep the first piece's. Undefined for a run's baseline.
    */
@@ -764,7 +780,7 @@ function readLines(p: CardPage): PageLines {
       // A larger outlined box: its edges are lines like any other, except
       // that its top edge takes no caption from inside the box.
       raw.push(
-        { x0: r.x0, x1: r.x1, y: r.y0, w: r.width },
+        { x0: r.x0, x1: r.x1, y: r.y0, w: r.width, boxBottom: { top: r.y1 } },
         { x0: r.x0, x1: r.x1, y: r.y1, w: r.width, boxTop: true },
       );
       verticals.push(
@@ -805,6 +821,8 @@ function readLines(p: CardPage): PageLines {
       hit.x0 = Math.min(hit.x0, l.x0);
       hit.x1 = Math.max(hit.x1, l.x1);
       if (l.boxTop) hit.boxTop = true;
+      // Merged with anything, it is no one box's bottom any more.
+      delete hit.boxBottom;
     } else {
       const m = { ...l };
       rules.push(m);
@@ -1379,6 +1397,46 @@ function pullQuotes(
   return out;
 }
 
+/**
+ * The caption of an outlined box whose bottom edge is `r` and whose top is
+ * at `top` ({@link DETECT.NOTICE_MIN_WORDS}): its one interior text, set
+ * under its top-left, or, when it holds no text, the nearest upright text
+ * just over its top. A notice (one sentence) is no caption.
+ */
+function boxCaption(p: CardPage, r: Line, top: number): LabelHit | null {
+  const span = r.x0 + DETECT.CAPTION_SPAN * (r.x1 - r.x0);
+  const inSpan = (t: CardText) =>
+    overlap(t.x, t.x + Math.max(0, t.width), r.x0, span) > 0;
+  const inside = p.text.filter(
+    (t) =>
+      t.str.trim() !== "" &&
+      t.y > r.y &&
+      t.y < top &&
+      overlap(t.x, t.x + Math.max(0, t.width), r.x0, r.x1) > 0,
+  );
+  let cap: CardText | undefined;
+  if (inside.length === 1) {
+    const t = inside[0]!;
+    const gap = top - (t.y + DETECT.TEXT_ASCENT_EMS * t.size);
+    if (inSpan(t) && gap >= -1 && gap <= DETECT.CAPTION_MAX) cap = t;
+  } else if (inside.length === 0) {
+    for (const t of p.text) {
+      if (!t.upright || !inSpan(t)) continue;
+      const gap = t.y - DETECT.TEXT_DESCENT_EMS * t.size - top;
+      if (gap < 0 || gap > DETECT.CAPTION_MAX) continue;
+      if (!cap || t.y < cap.y) cap = t;
+    }
+  }
+  if (!cap || !cap.upright) return null;
+  const str = cleanLabel(cap.str);
+  if (!str) return null;
+  const s = cap.str.trim();
+  const notice =
+    DETECT.NOTICE_END_RE.test(s) &&
+    s.split(/\s+/).length >= DETECT.NOTICE_MIN_WORDS;
+  return notice ? null : { text: cap, str };
+}
+
 /** A line's candidate, whether a caption labelled it, and that text's size. */
 interface RuleRow {
   c: Candidate;
@@ -1545,6 +1603,17 @@ function ruleCandidates(
         size = captions.find((h) => h.text.upright)?.text.size;
         captioned = true;
       } else if (pick.state === "none") pick = cap;
+    }
+    // A box's own caption labels its bottom edge, so the field sits inside
+    // the box: a delivery note's "Received by" / "Date" boxes, a captioned
+    // free-text box, got no field (review round 4 fixes, finding 22;
+    // corpus N35, P42, P43, N44).
+    if (pick.state !== "found" && r.boxBottom) {
+      const cap = boxCaption(p, r, r.boxBottom.top);
+      if (cap) {
+        pick = { label: cap.str, state: "found" };
+        size = cap.text.size;
+      }
     }
     const h = textHeight(size ?? DETECT.DEFAULT_SIZE, DETECT.TEXT_H_RULE);
     const bottom = r.y + DETECT.RULE_BOTTOM_GAP;

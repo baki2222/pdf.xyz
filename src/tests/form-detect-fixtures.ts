@@ -464,6 +464,31 @@ const P41 = {
   ],
   boxX: 494,
 };
+/** P42's three 150 x 50 boxes at y 130, 9 pt apart, 8 pt captions inside. */
+const P42 = {
+  captions: ["Received by", "Signature", "Date"],
+  x: (i: number) => 72 + i * 159,
+};
+/** P43's empty boxes, each captioned with its baseline 4 pt over the top. */
+const P43 = [
+  { caption: "Dietary requirements", y: 340, h: 70 },
+  { caption: "Comments:", y: 230, h: 60 },
+];
+/** N44's boxed notices: box bottom, height, notice baseline. */
+const N44 = [
+  {
+    y: 660,
+    h: 24,
+    base: 668,
+    notice: "Note: the office closes at 5 pm on Fridays.",
+  },
+  {
+    y: 590,
+    h: 40,
+    base: 614,
+    notice: "Important: bring photo ID to every appointment.",
+  },
+];
 /** N32's line starts 40 pt right of where "Address:" (12 pt) ends. */
 const N32_X0 = 72 + textWidth(H, "Address:", 12) + 40;
 /**
@@ -1996,12 +2021,17 @@ export const DETECT_CASES: readonly DetectCase[] = [
   },
   {
     id: "N35",
-    kind: "negative",
-    note: "four separate outlined boxes, each with its caption printed inside its top-left: no field above any box",
-    // Review round 3, finding 4: each caption was read as the caption under
-    // its box's TOP edge, so every field was placed above its box, outside
-    // it, the first one above the form. Fields INSIDE such boxes are not
-    // proposed yet (a box's bottom edge takes no caption from inside it).
+    // INVERTED in review round 4 fixes (finding 22): kind "negative",
+    // expect "none", decided by unlabelled at (300, top + 5), with the note
+    // "no field above any box". Review round 3, finding 4: each caption was
+    // read as the caption under its box's TOP edge, so every field was
+    // placed above its box, outside it, the first above the form; fields
+    // inside such boxes were deferred. A box's bottom edge now takes the
+    // caption inside its top-left, so each field sits inside its box. The
+    // id is kept (as N17's and N38's are), and the top edges still take
+    // nothing: unlabelled at (300, top + 5) decides them.
+    kind: "positive",
+    note: "four separate outlined boxes, each with its caption printed inside its top-left: a field inside each box, none above",
     build: async () => {
       const d = await doc();
       const page = d.addPage(LETTER);
@@ -2018,7 +2048,13 @@ export const DETECT_CASES: readonly DetectCase[] = [
       }
       return save(d);
     },
-    expect: "none",
+    expect: N35.tops.map((top, i) => ({
+      rule: "labelled-rule" as const,
+      type: "text" as const,
+      label: N35.captions[i]!,
+      page: 1,
+      box: ruleBox(72, 540, top - 28, 7),
+    })),
     decidedBy: "unlabelled",
     at: { page: 1, x: 300, y: N35.tops[0]! + 5 },
   },
@@ -2513,6 +2549,100 @@ export const DETECT_CASES: readonly DetectCase[] = [
       page: 1,
       box: squareBox(P41.boxX, P41.ys[r + 2]! + 4, 12),
     })),
+  },
+  {
+    id: "P42",
+    kind: "positive",
+    note: 'a delivery note\'s sign-off row: "Received by", "Signature" and "Date" boxes, each caption inside its top-left: fields inside the first and last, the signature counted',
+    // Review round 4 fixes, finding 22: no box got a field (the page's
+    // outcome was no-candidates). N44 is the negative twin: one-line
+    // notices in boxes stay no fields.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await text(page, H, "Goods received in good condition.", 72, 200, 10);
+      for (const [i, s] of P42.captions.entries()) {
+        const x = P42.x(i);
+        page.drawRectangle({
+          x,
+          y: 130,
+          width: 150,
+          height: 50,
+          borderColor: rgb(0, 0, 0),
+          borderWidth: 0.75,
+        });
+        await text(page, H, s, x + 4, 170, 8);
+      }
+      return save(d);
+    },
+    expect: [0, 2].map((i) => ({
+      rule: "labelled-rule" as const,
+      type: "text" as const,
+      label: P42.captions[i]!,
+      page: 1,
+      box: ruleBox(P42.x(i), P42.x(i) + 150, 130, 8),
+    })),
+    decidedBy: "signature",
+    at: { page: 1, x: P42.x(1) + 75, y: 135 },
+  },
+  {
+    id: "P43",
+    kind: "positive",
+    note: 'empty outlined boxes captioned just above their tops ("Dietary requirements", "Comments:"): a field inside each box, at its bottom',
+    // Review round 4 fixes, finding 22: both boxes got nothing.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const b of P43) {
+        await text(page, H, b.caption, 72, b.y + b.h + 4, 10);
+        page.drawRectangle({
+          x: 72,
+          y: b.y,
+          width: 468,
+          height: b.h,
+          borderColor: rgb(0, 0, 0),
+          borderWidth: 0.75,
+        });
+      }
+      return save(d);
+    },
+    expect: P43.map((b) => ({
+      rule: "labelled-rule" as const,
+      type: "text" as const,
+      label: b.caption.replace(/:$/, ""),
+      page: 1,
+      box: ruleBox(72, 540, b.y, 10),
+    })),
+  },
+  {
+    id: "N44",
+    kind: "negative",
+    note: "one-line notices set in outlined boxes (a 24 pt and a 40 pt box), each a sentence: no fields",
+    // Review round 4 fixes, finding 22: the negative twin of P42 and P43.
+    // Without the notice rule the 40 pt box was proposed, named after its
+    // notice.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const b of N44) {
+        page.drawRectangle({
+          x: 72,
+          y: b.y,
+          width: 468,
+          height: b.h,
+          borderColor: rgb(0, 0, 0),
+          borderWidth: 0.75,
+        });
+        await text(page, H, b.notice, 78, b.base, 10);
+      }
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "unlabelled",
+    at: { page: 1, x: 300, y: N44[0]!.y + 5 },
+    // With no caption the bottom edge's field reaches the notice's text,
+    // which lowers its top under 10 pt: no-clearance would decide it next.
+    seamAlsoDisable: ["no-clearance"],
   },
 
   // ---------------------------------------------------------- outcomes

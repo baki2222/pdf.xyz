@@ -147,8 +147,14 @@ describe("rule tables", () => {
   // perRun 300 -> 150 and BAND_EDGE 0.08 -> 0.16). Values marked "review"
   // were added by the review round, not by the brief.
   it("every DETECT value is the brief's (a literal table, not a read-back)", () => {
-    const { SIGNATURE_RE, SIGNOFF_RE, FOOTNOTE_RE, QUOTE_END_RE, ...numbers } =
-      DETECT;
+    const {
+      SIGNATURE_RE,
+      SIGNOFF_RE,
+      FOOTNOTE_RE,
+      QUOTE_END_RE,
+      NOTICE_END_RE,
+      ...numbers
+    } = DETECT;
     expect(numbers).toStrictEqual({
       UNDERSCORE_MIN: 4,
       UNDERSCORE_EMS: {
@@ -181,6 +187,7 @@ describe("rule tables", () => {
       TITLE_LARGER: 1.5, // review round 4
       TITLE_ABOVE_EMS: 1.5, // review round 4
       QUOTE_MIN_WORDS: 3, // review round 4
+      NOTICE_MIN_WORDS: 4, // review round 4 fixes
       TEXT_H_RUN: { ems: 1.2, min: 12, max: 22 },
       TEXT_H_RULE: { ems: 1.4, min: 14, max: 22 },
       RUN_BOTTOM_EMS: 0.15,
@@ -243,6 +250,7 @@ describe("rule tables", () => {
       `[.!?]["'${cp(0x2019, 0x201d)})]?$`,
       "u",
     ]);
+    expect([NOTICE_END_RE.source, NOTICE_END_RE.flags]).toEqual(["[.!?]$", ""]);
   });
 });
 
@@ -386,10 +394,17 @@ describe("labelled-rule", () => {
         text: [txt("1 Name", 74, 693, { size: 7, width: 22 })],
       });
 
-    it("the caption inside the box's top-left labels no edge: nothing above the box", () => {
-      expect(props(boxed())).toEqual([]);
+    // INVERTED in review round 4 fixes (finding 22). This read "the
+    // caption inside the box's top-left labels no edge: nothing above the
+    // box" and pinned both edges unlabelled (673 and 701): a delivery
+    // note's "Received by" / "Date" boxes got no field at all. The caption
+    // now labels the box's BOTTOM edge, so the field sits inside the box;
+    // the top edge still takes nothing.
+    it("the caption inside the box's top-left labels its bottom edge: a field inside the box, nothing above it", () => {
+      expect(props(boxed()).map((x) => [x.label, x.y])).toEqual([
+        ["1 Name", 673],
+      ]);
       expect(run(boxed()).excluded.map((e) => [e.rule, e.box.y])).toEqual([
-        ["unlabelled", 673],
         ["unlabelled", 701],
       ]);
     });
@@ -406,8 +421,127 @@ describe("labelled-rule", () => {
 
     it("a plain line joined to the box's top edge is the box's top too", () => {
       // Merged from the left: the line comes first in the merge, so the
-      // box's mark must carry into it.
-      expect(props(boxed([hseg(40, 72.5, 700)]))).toEqual([]);
+      // box's mark must carry into it. (Until review round 4 fixes this
+      // expected no proposal at all; the bottom edge's field inside the
+      // box is finding 22's, so it asserts nothing ABOVE the box.)
+      expect(
+        props(boxed([hseg(40, 72.5, 700)])).filter((x) => x.y > 700),
+      ).toEqual([]);
+      expect(props(boxed([hseg(40, 72.5, 700)])).map((x) => x.y)).toEqual([
+        673,
+      ]);
+    });
+
+    // Review round 4 fixes, finding 22: an outlined box's bottom edge
+    // takes a caption: its one interior text, set under the top-left, or,
+    // when the box is empty, the nearest text just above its top.
+    describe("an outlined box's bottom edge takes the box's caption", () => {
+      /** A 468 x 60 box from y 300, `text` around it. */
+      const box = (text: CardText[], more: Partial<CardPage> = {}) =>
+        pg({ rects: [rect(72, 300, 468, 60)], text, ...more });
+      const labels = (p: CardPage) => props(p).map((x) => [x.label, x.y]);
+
+      it("an empty box with 'Comments:' above it: a field at the box's bottom", () => {
+        // Descent bottom 2 pt over the top (baseline 364, 10 pt).
+        expect(
+          labels(box([txt("Comments:", 72, 364, { size: 10, width: 50 })])),
+        ).toEqual([["Comments", 301]]);
+      });
+
+      it("CAPTION_MAX above: the text's descent up to 14 pt over the top counts, 14.1 does not; none reaching into the box", () => {
+        const above = (gap: number) =>
+          box([txt("Comments:", 72, 362 + gap, { size: 10, width: 50 })]);
+        expect(labels(above(14))).toEqual([["Comments", 301]]);
+        expect(labels(above(14.1))).toEqual([]);
+        expect(labels(above(0))).toEqual([["Comments", 301]]);
+        expect(labels(above(-0.1))).toEqual([]);
+      });
+
+      it("CAPTION_MAX inside: the one interior text's top up to 14 pt under the box's top counts, 14.1 does not; 1 pt over it still counts", () => {
+        // A 10 pt caption: its top is 7 pt over its baseline.
+        const inside = (gap: number) =>
+          box([txt("Received by", 74, 360 - gap - 7, { size: 10, width: 55 })]);
+        expect(labels(inside(14))).toEqual([["Received by", 301]]);
+        expect(labels(inside(14.1))).toEqual([]);
+        expect(labels(inside(-1))).toEqual([["Received by", 301]]);
+        expect(labels(inside(-1.1))).toEqual([]);
+      });
+
+      it("CAPTION_SPAN: the caption must reach into the box's left 40%", () => {
+        const at = (x: number) =>
+          box([txt("Received by", x, 350, { size: 7, width: 40 })]);
+        // The left 40% of 72..540 ends at 259.2.
+        expect(labels(at(219))).toEqual([["Received by", 301]]);
+        expect(labels(at(259.3))).toEqual([]);
+      });
+
+      it("over an empty box the NEAREST text is its caption, and only upright text", () => {
+        const p = box([
+          txt("Comments:", 72, 364, { size: 10, width: 50 }),
+          txt("Section B", 72, 374, { size: 10, width: 50 }),
+        ]);
+        expect(labels(p)).toEqual([["Comments", 301]]);
+        const turned = box([
+          txt("Comments:", 72, 364, { size: 10, width: 50, upright: false }),
+        ]);
+        expect(labels(turned)).toEqual([]);
+      });
+
+      it("a turned interior text is no caption", () => {
+        const p = box([
+          txt("Received by", 74, 350, { size: 7, width: 40, upright: false }),
+        ]);
+        expect(labels(p)).toEqual([]);
+      });
+
+      it("only the box's ONE interior text: a box holding two is left alone", () => {
+        expect(
+          labels(
+            box([
+              txt("Received by", 74, 350, { size: 7, width: 40 }),
+              txt("J. Smith", 74, 320, { size: 10, width: 40 }),
+            ]),
+          ),
+        ).toEqual([]);
+      });
+
+      it("NOTICE_MIN_WORDS: one sentence of 4 words ending . ! ? is a notice, not a caption; 3 words is a caption", () => {
+        const one = (s: string) =>
+          box([txt(s, 78, 345, { size: 10, width: 200 })]);
+        expect(labels(one("Bring photo ID please."))).toEqual([]);
+        expect(labels(one("Bring photo ID please!"))).toEqual([]);
+        expect(labels(one("Bring photo ID please?"))).toEqual([]);
+        expect(labels(one("Bring photo ID."))).toEqual([
+          ["Bring photo ID", 301],
+        ]);
+        // Ending otherwise (")" here), any length is a caption.
+        expect(labels(one("Address (number, street, and apt. no.)"))).toEqual([
+          ["Address (number, street, and apt. no.)", 301],
+        ]);
+      });
+
+      it("a bottom edge merged with another line is no box's bottom: it takes no box caption", () => {
+        const p = box([txt("Comments:", 72, 364, { size: 10, width: 50 })], {
+          segs: [hseg(20, 72.5, 300)],
+        });
+        expect(labels(p)).toEqual([]);
+        // Joined from the right: the box's edge comes first in the merge.
+        const q = box([txt("Comments:", 72, 364, { size: 10, width: 50 })], {
+          segs: [hseg(539.5, 560, 300)],
+        });
+        expect(labels(q)).toEqual([]);
+      });
+
+      it("a box labelled from its left keeps its left label", () => {
+        const p = pg({
+          rects: [rect(140, 600, 200, 18)],
+          text: [
+            txt("Received by:", 72, 605.5, { size: 10, width: 60 }),
+            txt("Notes", 142, 613, { size: 7, width: 20 }),
+          ],
+        });
+        expect(props(p).map((x) => x.label)).toEqual(["Received by"]);
+      });
     });
   });
 
