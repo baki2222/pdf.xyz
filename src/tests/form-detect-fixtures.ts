@@ -378,6 +378,8 @@ const N33 = {
   age: 72 + textWidth(H, "Age", 10) + 6,
   house: 72 + textWidth(H, "House no.", 10) + 6,
 };
+/** N34's 16 pt box, 6 pt right of its label (Helvetica 10). */
+const N34_X = 72 + textWidth(H, "Number of dependants", 10) + 6;
 
 function p1(key: FontKey, id: string): DetectCase {
   return {
@@ -1692,6 +1694,24 @@ export const DETECT_CASES: readonly DetectCase[] = [
     expect: "none",
     decidedBy: "comb",
     at: { page: 1, x: N33.date + 8, y: 624 },
+  },
+  {
+    id: "N34",
+    kind: "negative",
+    note: '"Number of dependants" and one 16 pt box with a hint digit "0" printed inside it',
+    // Review round 3, finding 3: the text inside lowered the checkbox's top
+    // as it would a text field's, and a 14 x 2 checkbox was proposed.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await text(page, H, "Number of dependants", 72, 620, 10);
+      square(page, N34_X, 616, 16);
+      await text(page, H, "0", N34_X + 5, 620, 10);
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "overlaps-text",
+    at: { page: 1, x: N34_X + 8, y: 624 },
   },
 
   // ---------------------------------------------------------- outcomes

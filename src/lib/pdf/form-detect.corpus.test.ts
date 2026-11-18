@@ -138,6 +138,21 @@ describe("every case is explained", () => {
     });
   }
 
+  // Review round 3, finding 3: a checkbox squashed to 14 x 2 by text inside
+  // its square passed the builder's validation. Over every case's run, not
+  // only the positives: a negative that leaks a proposal is read here too.
+  it("every checkbox the corpus proposes is square within 1 pt (and it proposes some)", () => {
+    const boxes = DETECT_CASES.flatMap((c) => runOf(c).proposals).filter(
+      (p) => p.type === "checkbox",
+    );
+    expect(
+      boxes.length,
+      "no checkbox proposed: the check is vacuous",
+    ).toBeGreaterThanOrEqual(10);
+    for (const p of boxes)
+      expect(Math.abs(p.width - p.height), p.key).toBeLessThanOrEqual(1);
+  });
+
   it("positives: proposals found equal proposals expected, none missing, none extra", () => {
     const want = kind("positive").reduce(
       (s, c) => s + (c.expect === "none" ? 0 : c.expect.length),

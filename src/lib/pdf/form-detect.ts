@@ -1343,6 +1343,12 @@ export function overlapsExisting(a: Edges, b: Edges): boolean {
  * text sits across its bottom edge. Text "above" is text whose descent clears
  * the bottom; text whose descent hangs below the bottom while its ascent
  * reaches above it sits on the field's own line.
+ *
+ * A checkbox is never resized: text that would lower its top lies inside
+ * its square, and is text on it. Lowered like a text field's, a hint digit
+ * once left a 14 x 2 checkbox the builder's validation accepts (review
+ * round 3, finding 3; corpus N34, and the squareness check over every
+ * corpus run in form-detect.corpus.test.ts).
  */
 function clearBox(
   c: Candidate,
@@ -1356,8 +1362,10 @@ function clearBox(
     const lower = pc.baseline - DETECT.TEXT_DESCENT_EMS * pc.size;
     const upper = pc.baseline + DETECT.TEXT_ASCENT_EMS * pc.size;
     if (lower >= box.y0) {
-      if (pc.baseline < c.box.y1 + DETECT.CLEARANCE_GAP)
-        box.y1 = Math.min(box.y1, pc.baseline - DETECT.CLEARANCE_GAP);
+      if (pc.baseline < c.box.y1 + DETECT.CLEARANCE_GAP) {
+        if (c.type === "checkbox") overlapsText = true;
+        else box.y1 = Math.min(box.y1, pc.baseline - DETECT.CLEARANCE_GAP);
+      }
     } else if (upper > box.y0 && pc.kind === "text") {
       overlapsText = true;
     }

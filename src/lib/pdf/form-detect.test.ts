@@ -834,6 +834,25 @@ describe("square-checkbox", () => {
     expect(props(at(3.9))[0]?.label).toBe("L");
   });
 
+  // Review round 3, finding 3: text inside a checkbox's square lowered its
+  // top as it does a text field's, leaving a 14 x 2 "checkbox" that the
+  // builder's own validation accepts. A checkbox is never resized.
+  it("text inside the square is overlaps-text, never a squashed checkbox", () => {
+    const p = (hint: boolean) =>
+      pg({
+        rects: [rect(182, 616, 16, 16)],
+        text: [
+          txt("Dependants", 100, 620, { size: 10, width: 76 }),
+          ...(hint ? [txt("0", 187, 620, { size: 10, width: 5.6 })] : []),
+        ],
+      });
+    expect(props(p(false))).toEqual([
+      expect.objectContaining({ label: "Dependants", width: 14, height: 14 }),
+    ]);
+    expect(props(p(true))).toEqual([]);
+    expect(firstRule(p(true))).toBe("overlaps-text");
+  });
+
   it("the nearer side counts upright text only: a nearer turned word does not beat an upright label", () => {
     const p = pg({
       rects: [rect(100, 500, 10, 10)],
