@@ -1960,6 +1960,35 @@ describe("labelled-rule", () => {
         "Quality is never an accident",
         "The article goes on under the quote",
       ]);
+      // ... and the near end: a top CAPTION_MIN (1) under the rule counts,
+      // 0.9 does not (review round 6 test honesty: mutant Q6, `>` for
+      // `>=`, stayed green).
+      expect(labels(deep(492))).toEqual([
+        "The article goes on under the quote",
+      ]);
+      expect(labels(deep(492.1))).toEqual([
+        "Quality is never an accident",
+        "The article goes on under the quote",
+      ]);
+    });
+
+    // Review round 6 test honesty: mutant Q13 (`t.y >= lo.y - 1` for
+    // `t.y > lo.y`, text ON the lower rule counted as between the rules)
+    // stayed green.
+    it("a small note with its baseline ON the lower rule is not between the rules; 0.1 over it is", () => {
+      const noted = (y: number) => {
+        const p = pulled({ x: 150 });
+        p.text.push(
+          txt("Body text runs on beside it.", 40, 480, {
+            size: 10,
+            width: 400,
+          }),
+          txt("note", 160, y, { size: 7, width: 15 }),
+        );
+        return p;
+      };
+      expect(labels(noted(500))).not.toContain("Quality is never an accident");
+      expect(labels(noted(500.1))).toContain("Quality is never an accident");
     });
   });
 
