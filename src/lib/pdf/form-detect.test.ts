@@ -1656,6 +1656,13 @@ describe("labelled-rule", () => {
       expect(labels(over(554))).toEqual([
         "The article goes on under the quote",
       ]);
+      // ... and the near end: a baseline ON the upper rule is not over it
+      // (review round 5 fixes, finding 16; mutant PQ6, `>=` for `>`).
+      const on = pulled({ x: 150 });
+      on.text.push(
+        txt("The article runs on.", 470, 540, { size: 10, width: 80 }),
+      );
+      expect(labels(on)[0]).toBe("Quality is never an accident");
       expect(labels(over(554.1))).toEqual([
         "Quality is never an accident",
         "The article goes on under the quote",
