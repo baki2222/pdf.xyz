@@ -2170,6 +2170,43 @@ describe("square-checkbox", () => {
       // ... and one row of squares under heads.
       expect(labels(grid({ rows: ["Asthma"] }))).toEqual([]);
     });
+
+    // Review round 4 fixes, finding 7: with COMB_MIN 2, a headed Yes / No
+    // grid whose two boxes in a row are drawn 1 pt apart was read as a
+    // row of digit boxes and excluded as comb. A square that takes its
+    // grid label is no comb.
+    it("a headed grid whose boxes adjoin is a grid, not a comb", () => {
+      const p = (heads: boolean) =>
+        pg({
+          rects: [0, 1].flatMap((i) =>
+            [400, 413].map((x) => rect(x, 598 - 18 * i, 12, 12)),
+          ),
+          text: [
+            txt("Married", 72, 600, { size: 10, width: 36 }),
+            txt("Employed", 72, 582, { size: 10, width: 44 }),
+            ...(heads
+              ? [
+                  txt("Y", 403, 616, { size: 9, width: 6 }),
+                  txt("N", 416, 616, { size: 9, width: 6 }),
+                ]
+              : []),
+          ],
+        });
+      expect(labels(p(true))).toEqual([
+        "Married Y",
+        "Married N",
+        "Employed Y",
+        "Employed N",
+      ]);
+      // Without heads they are combs still.
+      expect(labels(p(false))).toEqual([]);
+      expect(run(p(false)).excluded.map((e) => e.rule)).toEqual([
+        "comb",
+        "comb",
+        "comb",
+        "comb",
+      ]);
+    });
   });
 
   // Review round 3, finding 3: text inside a checkbox's square lowered its

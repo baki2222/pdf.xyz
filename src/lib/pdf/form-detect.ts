@@ -840,6 +840,8 @@ interface Candidate {
   /** The run's own piece, which may not block its own field. */
   ownPiece: Piece | null;
   order: number;
+  /** A square labelled by its checkbox grid ({@link gridLabels}): no comb. */
+  gridCell?: boolean;
 }
 
 const clamp = (v: number, lo: number, hi: number) =>
@@ -1566,6 +1568,7 @@ function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
       leftLabel: false,
       ownPiece: null,
       order: 0,
+      gridCell: inGrid !== undefined,
     };
   });
 }
@@ -2332,7 +2335,10 @@ export function classifyPage(
       continue;
     }
     if (c.square) {
-      if (on("comb") && comb.has(c.square)) {
+      // A square its headed grid labels is a checkbox, however close its
+      // neighbour: a Yes / No grid of boxes 1 pt apart was a comb (review
+      // round 4 fixes, finding 7; corpus P40).
+      if (on("comb") && comb.has(c.square) && !c.gridCell) {
         exclude("comb", c.box);
         continue;
       }

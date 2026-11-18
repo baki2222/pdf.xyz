@@ -435,6 +435,12 @@ const P39 = [
   ["Phone", 120, 636],
   ["Employer", 130, 572],
 ] as const;
+/** P40's grid: 12 pt boxes 1 pt apart, heads 6 pt over the top row. */
+const P40 = {
+  rows: ["Married", "Employed"],
+  heads: ["Y", "N"],
+  xs: [400, 413],
+};
 /** N32's line starts 40 pt right of where "Address:" (12 pt) ends. */
 const N32_X0 = 72 + textWidth(H, "Address:", 12) + 40;
 /**
@@ -2398,6 +2404,33 @@ export const DETECT_CASES: readonly DetectCase[] = [
     })),
     decidedBy: "unlabelled",
     at: { page: 1, x: 300, y: 620 },
+  },
+  {
+    id: "P40",
+    kind: "positive",
+    note: 'a Yes / No grid whose two 12 pt boxes in a row are 1 pt apart, "Y" and "N" centred over the columns: checkboxes, not digit boxes',
+    // Review round 4 fixes, finding 7: the adjoining boxes were read as a
+    // comb. N33 is the control: unheaded digit boxes stay combs.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const [k, h] of P40.heads.entries())
+        await text(page, H, h, P40.xs[k]! + 6 - textWidth(H, h, 9) / 2, 640, 9);
+      for (const [i, s] of P40.rows.entries()) {
+        await text(page, H, s, 72, 624 - 18 * i, 10);
+        for (const x of P40.xs) square(page, x, 622 - 18 * i, 12);
+      }
+      return save(d);
+    },
+    expect: P40.rows.flatMap((s, i) =>
+      P40.heads.map((h, k) => ({
+        rule: "square-checkbox" as const,
+        type: "checkbox" as const,
+        label: `${s} ${h}`,
+        page: 1,
+        box: squareBox(P40.xs[k]!, 622 - 18 * i, 12),
+      })),
+    ),
   },
 
   // ---------------------------------------------------------- outcomes
