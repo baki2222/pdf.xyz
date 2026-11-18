@@ -1627,6 +1627,42 @@ describe("labelled-rule: a label column (labels flush left, lines at one tab sto
     // City is 64 pt from its line, so only the column reaches it.
     expect(labelAt(q, 3)).toBe("City");
   });
+
+  // Review round 4 fixes, finding 19: derived boundaries of the column
+  // rule that no test sat exactly on; each mutant named stayed green.
+  it("the column's anchor may end exactly LABEL_LEFT_GAP_RULE (36 pt) from its line (mutant C1)", () => {
+    // Row 0 ends exactly 36 pt short of the line; rows 1 and 2 are 60 off.
+    const p = column(
+      [
+        { label: "Surname:", right: 124 },
+        { label: "City:", right: 100 },
+        { label: "Town:", right: 100 },
+      ],
+      160,
+    );
+    expect([0, 1, 2].map((i) => labelAt(p, i))).toEqual([
+      "Surname",
+      "City",
+      "Town",
+    ]);
+  });
+
+  it("a tick at the line's own left end does not cut it from its column label (mutant C7)", () => {
+    const p = column(A1, TAB, {
+      segs: A1.map((_, i) => vseg(TAB, rowY(i), rowY(i) + 8)),
+    });
+    expect(NAMES.map((_, i) => labelAt(p, i))).toEqual(NAMES);
+  });
+
+  it("a line exactly RULE_MIN_LEN (36 pt) long is a column row (mutant C8)", () => {
+    const p = pg({
+      text: A1.map((r, i) =>
+        txt(r.label, 72, rowY(i), { width: r.right - 72 }),
+      ),
+      segs: A1.map((_, i) => hseg(TAB, i === 3 ? TAB + 36 : 450, rowY(i))),
+    });
+    expect(labelAt(p, 3)).toBe("City");
+  });
 });
 
 // Review round 4: the owner's decision on round 3's finding 9. A ruled grid
@@ -2211,6 +2247,10 @@ describe("square-checkbox", () => {
     it("GRID_HEAD_ABOVE: a head 20 pt above the column's top square counts, 20.1 does not", () => {
       expect(labels(grid({ above: 20 }))).toHaveLength(6);
       expect(labels(grid({ above: 20.1 }))).toEqual([]);
+      // The near edge (review round 4 fixes, finding 19, mutant G1): a
+      // "head" whose baseline is level with the top square's top is no head.
+      expect(labels(grid({ above: 0 }))).not.toContain("Asthma Yes");
+      expect(labels(grid({ above: 0.1 }))).toContain("Asthma Yes");
       // KNOWN MISS (review round 4 fixes, finding 9): a head row set with
       // space under it (D3: heads 22 pt over the top boxes, a 20 pt row
       // pitch) proposes nothing, failing towards missing, as before round
@@ -3631,6 +3671,10 @@ describe("cleanLabel", () => {
     // Bengali "nam" (name): two letters and a vowel sign.
     const bengali = String.fromCodePoint(0x09a8, 0x09be, 0x09ae);
     expect(cleanLabel(bengali)).toBe(bengali);
+    // Digits of any script (review round 4 fixes, finding 19, mutant L2:
+    // \p{N} read as 0-9 stayed green): Bengali one and two.
+    const digits = String.fromCodePoint(0x09e7, 0x09e8);
+    expect(cleanLabel(digits)).toBe(digits);
   });
 
   it("so a lone square beside a '/' is unlabelled, and a label past the '/' is read", () => {
