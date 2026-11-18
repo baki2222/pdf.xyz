@@ -372,6 +372,25 @@ describe("labelled-rule", () => {
     expect(firstRule(at(535.9))).toBe("unlabelled");
   });
 
+  // Review round 6 test honesty, cost finding 6: the caption is read from a
+  // baseline window set by the page's smallest and largest text sizes, so a
+  // page of one size could not tell them apart and the window's far end
+  // could move with everything green. With a 5 pt footer on the page the
+  // 10 pt caption at CAPTION_MAX still counts.
+  it("CAPTION_MAX on a page of mixed sizes: a 10 pt caption top 14 pt under the line counts", () => {
+    const at = (top: number) =>
+      pg({
+        text: [
+          txt("Date", 150, top - 7, { size: 10, width: 20 }),
+          txt("Page 1", 72, 40, { size: 5, width: 15 }),
+        ],
+        segs: [hseg(150, 300, 550)],
+      });
+    expect(props(at(536))[0]?.label).toBe("Date");
+    expect(firstRule(at(535.9))).toBe("unlabelled");
+    expect(props(at(549))[0]?.label).toBe("Date");
+  });
+
   it("CAPTION_SPAN: a caption must overlap the first 40% of the line", () => {
     const at = (x: number) =>
       pg({
@@ -465,6 +484,50 @@ describe("labelled-rule", () => {
         expect(labels(inside(14.1))).toEqual([]);
         expect(labels(inside(-1))).toEqual([["Received by", 301]]);
         expect(labels(inside(-1.1))).toEqual([]);
+      });
+
+      // Review round 6 test honesty, cost finding 6: both searches read a
+      // baseline window, and four of its edges could move with everything
+      // green. Above the box the window is set by the page's smallest and
+      // largest text sizes, so the page holds a 30 pt title and a 5 pt
+      // footer (one size cannot tell the smallest from the largest): a
+      // 10 pt caption at either end of CAPTION_MAX still counts.
+      it("the window over an empty box reaches both ends of CAPTION_MAX on a page of mixed sizes", () => {
+        const mixed = (gap: number) =>
+          box([
+            txt("Comments:", 72, 362 + gap, { size: 10, width: 50 }),
+            txt("APPLICATION", 72, 720, { size: 30, width: 200 }),
+            txt("Page 1", 72, 40, { size: 5, width: 15 }),
+          ]);
+        expect(labels(mixed(0))).toEqual([["Comments", 301]]);
+        expect(labels(mixed(14))).toEqual([["Comments", 301]]);
+        expect(labels(mixed(-0.1))).toEqual([]);
+        expect(labels(mixed(14.1))).toEqual([]);
+      });
+
+      // Inside the box the window runs from its bottom to its top: a text
+      // just over the bottom edge, or just under the top, is interior
+      // text, and two interior texts are no caption.
+      it("a second interior text just over the bottom edge or just under the top leaves no caption", () => {
+        const two = (y: number) =>
+          box([
+            txt("Received by", 74, 346, { size: 10, width: 55 }),
+            txt("x", 300, y, { size: 1, width: 1 }),
+          ]);
+        // Both edges unlabelled: neither a caption nor a field crossing
+        // the "x" (a window from 1 pt over the bottom proposed the caption
+        // at 300.3 and excluded it as crossing the "x" at 300.5).
+        for (const y of [330, 300.3, 300.5, 359.5]) {
+          expect(labels(two(y)), String(y)).toEqual([]);
+          expect(
+            run(two(y)).excluded.map((e) => e.rule),
+            String(y),
+          ).toEqual(["unlabelled", "unlabelled"]);
+        }
+        // Positive control: on the edges or outside the box it is not
+        // interior, and the caption stands.
+        expect(labels(two(300))).toEqual([["Received by", 301]]);
+        expect(labels(two(360))).toEqual([["Received by", 301]]);
       });
 
       it("CAPTION_SPAN: the caption must reach into the box's left 40%", () => {
@@ -1606,6 +1669,51 @@ describe("labelled-rule", () => {
       // Measured before: 11 s; after: about 0.15 s.
       expect(ms).toBeLessThan(800);
     });
+
+    // Review round 6 test honesty, cost finding 6: an outlined box's
+    // caption (inside it, or over its top), an unlabelled line's caption
+    // under it and a candidate's sign-off over it were each read by
+    // scanning every text item on the page, so 5,000 boxes and 20,000
+    // text items far from them cost 3 s where the boxes alone and the
+    // text alone cost 0.2 s.
+    it("5,000 outlined boxes and 20,000 text items far from them cost what each costs alone", () => {
+      const N = 5000;
+      const page = (boxes: boolean, words: boolean) => {
+        const rects: CardRect[] = [];
+        const text: CardText[] = [];
+        if (boxes)
+          for (let i = 0; i < N; i++)
+            rects.push(
+              rect(20 + (i % 10) * 58, 100 + 40 * Math.floor(i / 10), 50, 30),
+            );
+        if (words)
+          for (let k = 0; k < 4 * N; k++)
+            text.push(
+              txt("x", 20 + (k % 100) * 5.8, 20_500 + 4 * Math.floor(k / 100), {
+                size: 2,
+                width: 1,
+              }),
+            );
+        return pg({ height: 21_500, rects, text });
+      };
+      const best = (p: CardPage) => {
+        let ms = Infinity;
+        let candidates = 0;
+        for (let k = 0; k < 2; k++) {
+          const t0 = performance.now();
+          candidates = run(p).counts.candidates;
+          ms = Math.min(ms, performance.now() - t0);
+        }
+        return { ms, candidates };
+      };
+      const both = best(page(true, true));
+      const boxes = best(page(true, false));
+      const words = best(page(false, true));
+      // Health: each box's two edges are candidates, with the text or not.
+      expect(both.candidates).toBe(2 * N);
+      expect(boxes.candidates).toBe(2 * N);
+      expect(both.ms).toBeLessThan(2 * (boxes.ms + words.ms) + 50);
+    }, 60_000);
 
     // KNOWN MISS (review round 4 fixes, finding 8): a section heading
     // under a separator rule whose next line is a form's label more than
@@ -4068,6 +4176,25 @@ describe("exclusions, each at its boundary", () => {
     it("SIGNOFF_ABOVE: a close 80 pt above the line counts, 80.1 pt does not", () => {
       expect(firstRule(letter("Yours sincerely,", 80))).toBe("signature");
       expect(props(letter("Yours sincerely,", 80.1))).toHaveLength(1);
+    });
+
+    // Review round 6 test honesty, cost finding 6: the close is read from
+    // the baselines over the line (from the line's own y up), so a window
+    // starting 1 pt higher stayed green. A close whose baseline is just
+    // over the line still counts; one just under it does not.
+    it("a close whose baseline is 0.5 pt over the line counts; 0.5 pt under it does not", () => {
+      const on = (dy: number) =>
+        pg({
+          segs: [hseg(72, 252, 470)],
+          text: [
+            txt("Yours sincerely,", 72, 470 + dy, { width: 80, size: 2 }),
+            txt("John Smith", 72, 456, { width: 55, size: 11 }),
+          ],
+        });
+      expect(firstRule(on(0.5))).toBe("signature");
+      expect(props(on(-0.5))).toEqual([
+        expect.objectContaining({ label: "John Smith" }),
+      ]);
     });
 
     it("a close below the line, or far to its side, does not count", () => {

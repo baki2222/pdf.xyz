@@ -1461,13 +1461,17 @@ function boxHolder(p: CardPage): (t: CardText, x: number) => boolean {
  * at `top` ({@link DETECT.NOTICE_MIN_WORDS}): its one interior text, set
  * under its top-left, or, when it holds no text, the nearest upright text
  * just over its top. A notice (one sentence) is no caption, nor is an
- * interior text with less than a field's height of room under it.
+ * interior text with less than a field's height of room under it. Both
+ * searches read the page's baseline slice their window can reach, in page
+ * order, with the exact tests unchanged: a scan of every text item per box
+ * made a page of boxes quadratic in text (review round 6 test honesty,
+ * cost finding 6).
  */
-function boxCaption(p: CardPage, r: Line, top: number): LabelHit | null {
+function boxCaption(ix: TextIndex, r: Line, top: number): LabelHit | null {
   const span = r.x0 + DETECT.CAPTION_SPAN * (r.x1 - r.x0);
   const inSpan = (t: CardText) =>
     overlap(t.x, t.x + Math.max(0, t.width), r.x0, span) > 0;
-  const inside = p.text.filter(
+  const inside = textBand(ix, r.y, top).filter(
     (t) =>
       t.str.trim() !== "" &&
       t.y > r.y &&
@@ -1490,7 +1494,9 @@ function boxCaption(p: CardPage, r: Line, top: number): LabelHit | null {
     const room = under >= DETECT.MIN_FIELD_H && under > gap;
     if (inSpan(t) && room && gap >= -1 && gap <= DETECT.CAPTION_MAX) cap = t;
   } else if (inside.length === 0) {
-    for (const t of p.text) {
+    const lo = top + DETECT.TEXT_DESCENT_EMS * ix.minSize;
+    const hi = top + DETECT.CAPTION_MAX + DETECT.TEXT_DESCENT_EMS * ix.maxSize;
+    for (const t of textBand(ix, lo, hi)) {
       if (!t.upright || !inSpan(t)) continue;
       const gap = t.y - DETECT.TEXT_DESCENT_EMS * t.size - top;
       if (gap < 0 || gap > DETECT.CAPTION_MAX) continue;
@@ -1666,7 +1672,7 @@ function ruleCandidates(
         ? left.filter((h) => !heldBy(h.text, r.x0))
         : left;
     const mine =
-      owned !== left && boxCaption(p, r, boxTop!) !== null ? owned : left;
+      owned !== left && boxCaption(ix, r, boxTop!) !== null ? owned : left;
     let pick = pickLabel(mine);
     let size = mine.find((h) => h.text.upright)?.text.size;
     // A line in a label column takes its column's label from farther away.
@@ -1683,7 +1689,13 @@ function ruleCandidates(
     if (pick.state !== "found" && !r.boxTop) {
       const captions: LabelHit[] = [];
       let title: number | undefined;
-      for (const t of p.text) {
+      // The baselines a caption's window can reach (CAPTION_MIN to
+      // CAPTION_MAX under the line, by its ascent), in page order: every
+      // unlabelled line scanned every text item (review round 6 test
+      // honesty, cost finding 6).
+      const lo = r.y - DETECT.CAPTION_MAX - DETECT.TEXT_ASCENT_EMS * ix.maxSize;
+      const hi = r.y - DETECT.CAPTION_MIN - DETECT.TEXT_ASCENT_EMS * ix.minSize;
+      for (const t of textBand(ix, lo, hi)) {
         const top = t.y + DETECT.TEXT_ASCENT_EMS * t.size;
         const below = r.y - top;
         if (below < DETECT.CAPTION_MIN || below > DETECT.CAPTION_MAX) continue;
@@ -1713,7 +1725,7 @@ function ruleCandidates(
     // free-text box, got no field (review round 4 fixes, finding 22;
     // corpus N35, P42, P43, N44).
     if (pick.state !== "found" && r.boxBottom) {
-      const cap = boxCaption(p, r, r.boxBottom.top);
+      const cap = boxCaption(ix, r, r.boxBottom.top);
       if (cap) {
         pick = { label: cap.str, state: "found" };
         size = cap.text.size;
@@ -2624,15 +2636,19 @@ function evenRuns(rules: readonly Line[]): { seed: Line; run: Line[] }[] {
  * The line may be drawn or typed: an underscore run with no label of its own
  * under a close is the signature line too (only drawn lines were once
  * asked, so a typed one was proposed as a field named after nothing).
+ *
+ * The close is read from the baselines SIGNOFF_ABOVE over the line: a scan
+ * of every text item per candidate made a page of boxes quadratic in text
+ * (review round 6 test honesty, cost finding 6).
  */
 function underSignOff(
-  p: CardPage,
+  ix: TextIndex,
   c: Candidate,
   lines: readonly Line[],
 ): boolean {
   const line = c.line;
   if (!line || c.leftLabel) return false;
-  return p.text.some(
+  return textBand(ix, line.y, line.y + DETECT.SIGNOFF_ABOVE).some(
     (t) =>
       t.upright &&
       t.y > line.y &&
@@ -2904,7 +2920,7 @@ export function classifyPage(
     if (
       on("signature") &&
       ((c.label && DETECT.SIGNATURE_RE.test(c.label)) ||
-        underSignOff(p, c, signOffLines))
+        underSignOff(tix, c, signOffLines))
     ) {
       exclude("signature", c.box);
       continue;
