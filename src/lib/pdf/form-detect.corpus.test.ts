@@ -86,6 +86,17 @@ describe("corpus health (FATAL when it fails)", () => {
     expect(Math.max(gap("Email:"), gap("City:"))).toBeLessThanOrEqual(144);
   });
 
+  // P28 tests the nearer side only while, in each row, a box's own label is
+  // nearer than the word on its other side (pdf-lib's widths, Helvetica 10).
+  it("P28's geometry: each box's own label is nearer than the word across it", () => {
+    const end = (s: string, x: number) => x + textWidth("sans", s, 10);
+    // Label left: "Yes" ends before the box at 402; "No" starts at 430.
+    expect(402 - end("Yes", 380)).toBeLessThan(430 - 412);
+    expect(402 - end("Yes", 380)).toBeGreaterThan(0);
+    // Label right: "No" starts 4 pt after the box at 430; "Yes" ends before it.
+    expect(444 - 440).toBeLessThan(430 - end("Yes", 394));
+  });
+
   it("case ids are unique and every case ran", () => {
     expect(new Set(DETECT_CASES.map((c) => c.id)).size).toBe(
       DETECT_CASES.length,

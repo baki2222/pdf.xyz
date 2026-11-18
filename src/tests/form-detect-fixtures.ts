@@ -349,6 +349,23 @@ const C: Face = "mono";
 
 /** P27's label column, top to bottom. */
 const P27_LABELS = ["Name:", "Email:", "Date of birth:", "City:", "Telephone:"];
+/**
+ * P28's two inline answer rows (Helvetica 10): "Yes" ends 4.8 pt left of its
+ * box and "No" starts 18 pt right of it; in the label-right row each label
+ * starts 4 pt right of its box and "Yes" ends 18.8 pt left of the next box.
+ */
+const P28 = {
+  left: [
+    ["Yes", 380],
+    ["No", 430],
+  ] as const,
+  leftBoxes: [402, 447],
+  rightBoxes: [380, 430],
+  right: [
+    ["Yes", 394],
+    ["No", 444],
+  ] as const,
+};
 /** N32's line starts 40 pt right of where "Address:" (12 pt) ends. */
 const N32_X0 = 72 + textWidth(H, "Address:", 12) + 40;
 
@@ -1092,6 +1109,42 @@ export const DETECT_CASES: readonly DetectCase[] = [
       label: s.slice(0, -1),
       page: 1,
       box: ruleBox(140, 300, 600 - 30 * i, 11),
+    })),
+  },
+  {
+    id: "P28",
+    kind: "positive",
+    note: 'answers inline: "Yes [box]  No [box]" (each label LEFT of its box), and "[box] Yes  [box] No" (each label right)',
+    // Review round 3, finding 1: the right side was searched first, so the
+    // next answer word beat the box's own label and both boxes of the first
+    // row read "No". The second row is the label-right control.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await text(
+        page,
+        H,
+        "Photographs may be used on our website:",
+        72,
+        600,
+        10,
+      );
+      for (const [s, x] of P28.left) await text(page, H, s, x, 600, 10);
+      for (const x of P28.leftBoxes) square(page, x, 598, 10);
+      await text(page, H, "May we contact you by email?", 72, 570, 10);
+      for (const x of P28.rightBoxes) square(page, x, 568, 10);
+      for (const [s, x] of P28.right) await text(page, H, s, x, 570, 10);
+      return save(d);
+    },
+    expect: [
+      ...P28.leftBoxes.map((x, i) => [P28.left[i]![0], x, 598] as const),
+      ...P28.rightBoxes.map((x, i) => [P28.right[i]![0], x, 568] as const),
+    ].map(([label, x, y]) => ({
+      rule: "square-checkbox" as const,
+      type: "checkbox" as const,
+      label,
+      page: 1,
+      box: squareBox(x, y, 10),
     })),
   },
 

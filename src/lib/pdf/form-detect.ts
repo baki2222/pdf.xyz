@@ -990,6 +990,14 @@ function runCandidates(
   return { cands, short };
 }
 
+/**
+ * A square's label is the nearest upright text on EITHER side, within
+ * {@link DETECT.LABEL_LEFT_GAP}; a tie keeps the right. The right side was
+ * once searched first and the left only when it found nothing, so in the
+ * inline "Yes [] No []" the next answer word beat the box's own label and
+ * every Yes box read "No" (review round 3, finding 1; corpus P28, whose
+ * second row is the label-right control).
+ */
 function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
   return lines.squares.map((sq) => {
     const right: LabelHit[] = [];
@@ -1002,17 +1010,25 @@ function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
       if (str) right.push({ text: t, str });
     }
     right.sort((a, b) => a.text.x - b.text.x);
-    let pick = pickLabel(right);
-    if (pick.state !== "found") {
-      const left = leftOf(
-        p.text,
-        sq.x0,
-        DETECT.LABEL_LEFT_GAP,
-        sq.y0 - DETECT.RUN_BASELINE_EMS * 12,
-        () => sq.y1,
-      );
-      const l = pickLabel(left);
-      if (l.state === "found" || pick.state === "none") pick = l;
+    const left = leftOf(
+      p.text,
+      sq.x0,
+      DETECT.LABEL_LEFT_GAP,
+      sq.y0 - DETECT.RUN_BASELINE_EMS * 12,
+      () => sq.y1,
+    );
+    const r = right.find((h) => h.text.upright);
+    const l = left.find((h) => h.text.upright);
+    const rGap = r ? r.text.x - sq.x1 : Infinity;
+    const lGap = l ? sq.x0 - (l.text.x + Math.max(0, l.text.width)) : Infinity;
+    const leftWins = lGap < rGap;
+    let pick: ReturnType<typeof pickLabel>;
+    if (l && leftWins) pick = { label: l.str, state: "found" };
+    else if (r) pick = { label: r.str, state: "found" };
+    else {
+      // No upright text on either side: "rotated" if either has some.
+      pick = pickLabel(right);
+      if (pick.state === "none") pick = pickLabel(left);
     }
     const side =
       Math.min(sq.x1 - sq.x0, sq.y1 - sq.y0) - 2 * DETECT.SQUARE_INSET;

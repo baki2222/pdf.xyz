@@ -798,6 +798,53 @@ describe("square-checkbox", () => {
     expect(firstRule(at(24.1))).toBe("unlabelled");
   });
 
+  // Review round 3, finding 1: the right side was searched first and the
+  // left only when it found nothing, so in "Yes [] No []" the next answer
+  // word (18 pt to the right) beat the box's own label (4.8 pt to its left)
+  // and every Yes box was labelled "No". The nearer side wins now.
+  it("a square takes the label on its NEARER side: 'Yes [] No []' and '[] Yes [] No' both read Yes, No", () => {
+    const inline = pg({
+      rects: [rect(402, 598, 10, 10), rect(447, 598, 10, 10)],
+      text: [
+        txt("Yes", 380, 600, { size: 10, width: 17.2 }),
+        txt("No", 430, 600, { size: 10, width: 12.8 }),
+      ],
+    });
+    expect(props(inline).map((p) => p.label)).toEqual(["Yes", "No"]);
+    const labelRight = pg({
+      rects: [rect(380, 598, 10, 10), rect(430, 598, 10, 10)],
+      text: [
+        txt("Yes", 394, 600, { size: 10, width: 17.2 }),
+        txt("No", 444, 600, { size: 10, width: 12.8 }),
+      ],
+    });
+    expect(props(labelRight).map((p) => p.label)).toEqual(["Yes", "No"]);
+  });
+
+  it("the nearer side: a tie keeps the right, the left 0.1 pt nearer takes the left", () => {
+    const at = (left: number) =>
+      pg({
+        rects: [rect(100, 500, 10, 10)],
+        text: [
+          txt("L", 100 - left - 10, 502, { size: 10, width: 10 }),
+          txt("R", 114, 502, { size: 10, width: 10 }),
+        ],
+      });
+    expect(props(at(4))[0]?.label).toBe("R");
+    expect(props(at(3.9))[0]?.label).toBe("L");
+  });
+
+  it("the nearer side counts upright text only: a nearer turned word does not beat an upright label", () => {
+    const p = pg({
+      rects: [rect(100, 500, 10, 10)],
+      text: [
+        txt("L", 88, 502, { size: 10, width: 10, upright: false }),
+        txt("R", 120, 502, { size: 10, width: 10 }),
+      ],
+    });
+    expect(props(p)[0]?.label).toBe("R");
+  });
+
   // A square drawn as four separate stroked lines (generated forms do this)
   // was neither proposed nor excluded: each edge was a line too short to be
   // a candidate (review finding; corpus P18). It is now joined into the
