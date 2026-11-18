@@ -550,6 +550,14 @@ export const P48 = {
   ],
   ys: [660, 636],
 };
+/** P49's two-level grid: groups over pairs of Yes / No columns. */
+const P49 = {
+  groups: ["Left eye", "Right eye"],
+  heads: ["Yes", "No"],
+  xs: [300, 330, 380, 410],
+  rows: ["Redness", "Itching", "Blurred vision"],
+  y: (i: number) => 600 - 20 * i,
+};
 /** N47's two 8-box date combs (14 pt, edge to edge), one head per box. */
 const N47 = {
   rows: ["Date of birth", "Date of arrival"],
@@ -2959,7 +2967,7 @@ export const DETECT_CASES: readonly DetectCase[] = [
     id: "P48",
     kind: "positive",
     note: 'a two-row header: "Vehicle reg:" / "Driver:" and "Odometer:" / "Date:", labels flush left, each pair\'s lines at one tab stop, the short labels ending over 36 pt from their lines: four fields',
-    // Review round 5 fixes, finding 5: with LABEL_COLUMN_MIN 3 a column of
+    // Review round 5 fixes, finding 5: with LABEL_COLUMN_MIN 3, a column of
     // two was none, and Driver and Date were unlabelled.
     build: async () => {
       const d = await doc();
@@ -2978,6 +2986,39 @@ export const DETECT_CASES: readonly DetectCase[] = [
         label: c.labels[i]!.replace(/:$/, ""),
         page: 1,
         box: ruleBox(c.tab, c.end, y, 10),
+      })),
+    ),
+  },
+  {
+    id: "P49",
+    kind: "positive",
+    note: 'a two-level checkbox grid: "Left eye" / "Right eye" over "Yes No | Yes No", rows Redness, Itching, Blurred vision: each box named by row, group and head',
+    // Review round 5 fixes, finding 6a: every name appeared twice
+    // ("Redness Yes" for both eyes).
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const [g, s] of P49.groups.entries()) {
+        const mid = (P49.xs[2 * g]! + P49.xs[2 * g + 1]! + 12) / 2;
+        await text(page, H, s, mid - textWidth(H, s, 9) / 2, 640, 9);
+      }
+      for (const [k, x] of P49.xs.entries()) {
+        const h = P49.heads[k % 2]!;
+        await text(page, H, h, x + 6 - textWidth(H, h, 9) / 2, 616, 9);
+      }
+      for (const [i, s] of P49.rows.entries()) {
+        await text(page, H, s, 72, P49.y(i) + 2, 10);
+        for (const x of P49.xs) square(page, x, P49.y(i), 12);
+      }
+      return save(d);
+    },
+    expect: P49.rows.flatMap((s, i) =>
+      P49.xs.map((x, k) => ({
+        rule: "square-checkbox" as const,
+        type: "checkbox" as const,
+        label: `${s} ${P49.groups[k >> 1]} ${P49.heads[k % 2]}`,
+        page: 1,
+        box: squareBox(x, P49.y(i), 12),
       })),
     ),
   },

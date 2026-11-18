@@ -1805,6 +1805,7 @@ function gridLabels(
   // fixes, finding 16). Its leftmost item stands for it in the distinct-
   // heads check, so one text across two columns is still no grid.
   const headOf = new Map<CardRect[], { item: CardText; str: string }>();
+  const groupOf = new Map<CardRect[], string>();
   for (const col of new Set(columnOf.values())) {
     const top = col.reduce((a, b) => (b.y1 > a.y1 ? b : a));
     const over: CardText[] = [];
@@ -1822,6 +1823,19 @@ function gridLabels(
       .sort((a, b) => a.x - b.x);
     const str = cleanLabel(words.map((t) => t.str).join(" "));
     if (str) headOf.set(col, { item: words[0]!, str });
+    // A GROUP head over it ("Left eye" over "Yes No"): the nearest upright
+    // text over the head row, up to 2 x GRID_HEAD_ABOVE over the column's
+    // top square, across the column. Read only where heads repeat (below).
+    let group: CardText | undefined;
+    for (const t of p.text) {
+      if (!t.upright || !cleanLabel(t.str)) continue;
+      if (t.y - base <= DETECT.GRID_ROW_EPS) continue;
+      if (t.y - top.y1 > 2 * DETECT.GRID_HEAD_ABOVE) continue;
+      if (overlap(t.x, t.x + Math.max(0, t.width), top.x0, top.x1) <= 0)
+        continue;
+      if (!group || t.y < group.y) group = t;
+    }
+    if (group) groupOf.set(col, cleanLabel(group.str)!);
   }
   for (const row of squareGroups(squares, (s) => s.y0)) {
     if (row.length < 2) continue;
@@ -1842,8 +1856,23 @@ function gridLabels(
       first.y0 - DETECT.RUN_BASELINE_EMS * 12,
       () => first.y1,
     ).find((h) => h.text.upright);
+    // Heads that repeat ("Yes No | Yes No" under "Left eye | Right eye")
+    // gave each name twice; each takes its group head when every column
+    // has one and that makes the names distinct (review round 5 fixes,
+    // finding 6a; corpus P49). A comb's repeated heads ("D D M M") have
+    // none, or one across them all, and stay as they are.
+    let names = heads.map((h) => h!.str);
+    if (new Set(names).size !== names.length) {
+      const groups = row.map((s) => groupOf.get(columnOf.get(s)!));
+      const grouped = names.map((h, k) => `${groups[k]} ${h}`);
+      if (
+        groups.every((g) => g !== undefined) &&
+        new Set(grouped).size === grouped.length
+      )
+        names = grouped;
+    }
     row.forEach((s, k) => {
-      const head = heads[k]!.str;
+      const head = names[k]!;
       out.set(s, rowText ? `${rowText.str} ${head}` : head);
     });
   }

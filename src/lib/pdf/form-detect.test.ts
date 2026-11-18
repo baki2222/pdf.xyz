@@ -2888,6 +2888,48 @@ describe("square-checkbox", () => {
       ]);
     });
 
+    // Review round 5 fixes, finding 6a: a two-level grid ("Left eye |
+    // Right eye" over "Yes No | Yes No") named each box twice ("Redness
+    // Yes", "Redness No", "Redness Yes", "Redness No"). Repeated heads take
+    // the group head over their column, when that makes them distinct.
+    it("a two-level grid: repeated heads take their group head (Redness Left eye Yes)", () => {
+      const xs = [300, 330, 380, 410];
+      const p = (groups: boolean, groupY = 640) =>
+        pg({
+          rects: [0, 1].flatMap((i) =>
+            xs.map((x) => rect(x, 600 - 20 * i, 12, 12)),
+          ),
+          text: [
+            ...(groups
+              ? [
+                  txt("Left eye", 305, groupY, { size: 9, width: 34 }),
+                  txt("Right eye", 383, groupY, { size: 9, width: 38 }),
+                ]
+              : []),
+            ...xs.map((x, k) =>
+              txt(k % 2 ? "No" : "Yes", x + 1, 616, { size: 9, width: 12 }),
+            ),
+            txt("Redness", 72, 602, { size: 10, width: 40 }),
+            txt("Itching", 72, 582, { size: 10, width: 36 }),
+          ],
+        });
+      expect(labels(p(true))).toEqual([
+        "Redness Left eye Yes",
+        "Redness Left eye No",
+        "Redness Right eye Yes",
+        "Redness Right eye No",
+        "Itching Left eye Yes",
+        "Itching Left eye No",
+        "Itching Right eye Yes",
+        "Itching Right eye No",
+      ]);
+      // 2 x GRID_HEAD_ABOVE over the top square (612): 652 counts, 652.1
+      // does not, and without group heads the names stay as they were.
+      expect(labels(p(true, 652))[0]).toBe("Redness Left eye Yes");
+      expect(labels(p(true, 652.1))[0]).toBe("Redness Yes");
+      expect(labels(p(false))[0]).toBe("Redness Yes");
+    });
+
     // Review round 5 fixes, finding 1: the exemption above made two date
     // combs under one "D D M M Y Y Y Y" head row 16 checkboxes ("Date of
     // birth D", ...). A grid's heads name distinct choices; a comb's heads
@@ -2938,6 +2980,26 @@ describe("square-checkbox", () => {
     ]);
     expect(props(p(true))).toEqual([]);
     expect(firstRule(p(true))).toBe("overlaps-text");
+  });
+
+  // KNOWN MISS (review round 5 fixes, finding 6b): on a prescription pad,
+  // "Substitution permitted" ends 27.3 pt left of its 9 pt box, beyond
+  // LABEL_LEFT_GAP (24), and the box is unlabelled. Widening the gap
+  // would let a row of options take its neighbour's word; left as is.
+  it("KNOWN MISS: a box whose label ends 27.3 pt to its left stays unlabelled", () => {
+    const p = (gap: number) =>
+      pg({
+        rects: [rect(400, 600, 9, 9)],
+        text: [
+          txt("Substitution permitted", 72, 602, {
+            size: 10,
+            width: 400 - gap - 72,
+          }),
+        ],
+      });
+    expect(props(p(27.3))).toEqual([]);
+    expect(firstRule(p(27.3))).toBe("unlabelled");
+    expect(props(p(24))[0]?.label).toBe("Substitution permitted");
   });
 
   it("the nearer side counts upright text only: a nearer turned word does not beat an upright label", () => {
@@ -3154,6 +3216,23 @@ describe("exclusions, each at its boundary", () => {
           pg({ text: [txt(`${label}: ________`, 72, 600, { width: 150 })] }),
         ),
       ).toHaveLength(1);
+  });
+
+  // KNOWN MISS (review round 5 fixes, finding 6c): "Tenant initial:" is a
+  // text field while "Landlord initials:" is a signature. A name word
+  // before the singular cannot be allowed: "Middle initial" is the same
+  // shape and is a field for one letter of a name. Invert this when the
+  // detector can tell a party ("Tenant") from a name part ("Middle").
+  it("KNOWN MISS: 'Tenant initial' is a field (as 'Middle initial' must stay); 'Landlord initials' a signature", () => {
+    const line = (label: string) =>
+      pg({ text: [txt(`${label}: ________`, 72, 600, { width: 150 })] });
+    expect(props(line("Tenant initial"))).toEqual([
+      expect.objectContaining({ label: "Tenant initial", type: "text" }),
+    ]);
+    expect(props(line("Middle initial"))).toEqual([
+      expect.objectContaining({ label: "Middle initial", type: "text" }),
+    ]);
+    expect(firstRule(line("Landlord initials"))).toBe("signature");
   });
 
   // A letter's sign-off ("Yours sincerely," above a line, the printed name
