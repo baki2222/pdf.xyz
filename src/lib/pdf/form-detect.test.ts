@@ -2936,6 +2936,24 @@ describe("square-checkbox", () => {
         expect(labels(p)).toEqual(items);
       });
 
+      // The letter filter above made the prices in the test before it
+      // unreadable as labels, so taking the NEAREST lettered text instead
+      // of the first stayed green (mutant f23-nearest, rerun in round 5).
+      it("the row's FIRST lettered text, not a lettered note nearer the box", () => {
+        const p = pg({
+          rects: [0, 1].map((i) => rect(494, 520 - 20 * i, 12, 12)),
+          text: [
+            ...["Full delegate", "Student"].map((s, i) =>
+              txt(s, 75, 525 - 20 * i, { size: 9, width: 60 }),
+            ),
+            ...["incl. lunch", "no lunch"].map((s, i) =>
+              txt(s, 283, 525 - 20 * i, { size: 9, width: 45 }),
+            ),
+          ],
+        });
+        expect(labels(p)).toEqual(["Full delegate", "Student"]);
+      });
+
       /** Squares at (400, 600) and (400, 570), "Item one" / "Item two" at 72. */
       const items = (extra: Partial<CardPage> = {}) =>
         pg({
