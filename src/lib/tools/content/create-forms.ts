@@ -124,8 +124,8 @@ const content: ToolContent = {
   intro: [
     "Create Fillable Forms turns a flat PDF, such as a printed-style application or checklist, into one people can type into. You describe each field in a card: its type, a unique name, the page it sits on, and its box in whole PDF points measured from the page's bottom-left corner. Each card shows the width and height of the page it points at, and the Page box only accepts pages the document has. A preview of the page shows every field's box where its numbers put it: click the page to move a field's bottom-left corner there, drag a box, or nudge it with the arrow keys, and its X and Y change to match. Width and height are typed on the card.",
     `Or let the builder suggest fields for you to check: press “Find fields”. ${FIND_FIELDS} Each suggestion is listed with its label and page and drawn dotted on the preview, and nothing is added until you add it. It can miss a field or suggest a wrong one, so check the page as well. A scanned page, a picture of a form, is not searched.`,
-    "The output is a classic AcroForm, the form type PDF readers with form support can fill. Text fields can carry pre-filled text, a character limit and multiple lines; checkboxes can start ticked; dropdowns can accept free typing, and lists can accept several selections; dropdowns, lists and radio groups take their choices one per line. Existing pages and AcroForm fields are kept, and new names are checked against the old ones first.",
-    `Your browser does the whole build: the PDF is read from your device, the fields are written into it in memory, and the result is saved to your device without a copy going to pdf.xyz. PDFs up to ${maxMb} MB are accepted.${betaSentence} This builder has no ${SIGNATURE_FIELD.toLowerCase()} type: ${EDIT_PDF.name} adds one with the field tools in its ${EDITOR_FORMS_GROUP} group, also in your browser. There is no font, border or colour styling and no XFA output; if the source carries an XFA layer, for instance a hybrid AcroForm-and-XFA form, the saved copy drops that layer and keeps only its AcroForm fields. A password-protected PDF is refused until you unlock it.`,
+    "The output is a classic AcroForm, the form type PDF readers with form support can fill. Text fields can carry pre-filled text, a character limit and multiple lines; checkboxes can start ticked; dropdowns can accept free typing, and lists can accept several selections; dropdowns, lists and radio groups take their choices one per line. Existing pages and AcroForm fields are kept, and new names are checked against the old ones first. Fill Forms here can fill the result and flatten it once it is filled; Flatten PDF does that step on its own, baking the values into the page so they stop being editable.",
+    `Your browser does the whole build: the PDF is read from your device, the fields are written into it in memory, and the result is saved to your device without a copy of it, or of what you type into the cards, going to pdf.xyz. PDFs up to ${maxMb} MB are accepted.${betaSentence} This builder has no ${SIGNATURE_FIELD.toLowerCase()} type: ${EDIT_PDF.name} adds one with the field tools in its ${EDITOR_FORMS_GROUP} group, also in your browser. There is no font, border or colour styling and no XFA output; if the source carries an XFA layer, for instance a hybrid AcroForm-and-XFA form, the saved copy drops that layer and keeps only its AcroForm fields. A password-protected PDF is refused until you unlock it.`,
   ],
 
   useCases: [
@@ -180,10 +180,6 @@ const content: ToolContent = {
       a: `A radio group needs at least two options. The first button sits at your X and Y, and each further option stacks downward, ${RADIO_STACK_GAP} points below the previous one, every button using the Button W and Button H you set. If the stack would run past the bottom of the page, the card tells you before anything is created.`,
     },
     {
-      q: "Do the PDF or my field names leave my device?",
-      a: "No. The fields are added by code running in your browser tab and the file is saved straight to your device, so pdf.xyz never receives the document or what you type into the cards.",
-    },
-    {
       q: "Can I drag fields into place or style them?",
       a: `You can move a field on the page preview: drag its box, click where its bottom-left corner should go, or select it and use the arrow keys. Each move changes the X and Y on its card, and the form is built from those numbers, so the saved field sits where the preview showed it. Width and height are typed on the card, or come filled in on a field you add from a Find fields suggestion. Fields come in one plain default style, with no choice of font, colour or border. For a ${SIGNATURE_FIELD.toLowerCase()}, use ${EDIT_PDF.name}: the field tools in its ${EDITOR_FORMS_GROUP} group drag one onto the page, saved as a real form field, and it also runs in your browser.`,
     },
@@ -198,10 +194,6 @@ const content: ToolContent = {
     {
       q: "Why was a default value or a dropdown or list option refused for its characters?",
       a: "New fields are drawn with a standard PDF font that covers only the Western (WinAnsi) character set, and a PDF reader redraws a field's text from that font. When you press “Create form”, every text default and every dropdown or list option is checked against that set; one containing, say, Cyrillic, Greek or Bengali letters stops the build with a message naming the characters, instead of turning them into question marks. Field names and radio-button options are never drawn, so they can be in any alphabet.",
-    },
-    {
-      q: "How do people complete and lock the form afterwards?",
-      a: "Any PDF reader with form support can fill it, as can Fill Forms here, which can flatten the form once it is filled. Flatten PDF does that step on its own, baking the values into the page so they stop being editable.",
     },
   ],
 

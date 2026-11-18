@@ -1021,7 +1021,7 @@ export const tools: Tool[] = [
     seoTitle: "Create Fillable PDF Forms",
     tagline: "Turn a PDF into a fillable form.",
     description:
-      "Add text fields, checkboxes, dropdowns, radio groups, and lists by position, or add the ones it suggests, to build a reusable fillable AcroForm PDF — right in your browser.",
+      "Add text fields, checkboxes, dropdowns, radio groups, and lists by position, or add the ones it suggests, to build a fillable AcroForm PDF in your browser.",
     category: "sign",
     icon: "createForm",
     processing: "client",

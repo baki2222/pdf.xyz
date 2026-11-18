@@ -1655,7 +1655,8 @@ const TOOL_PAGES_TO_COME = {
   // the finder's chunk. Measured gzip -9 over each page's first-load chunks
   // (scripts/page-weight.ts's method), main 5370cc73 (E:/wforms2-base) and
   // the branch (= that main + S2, the merged build), each built on Windows:
-  //  - tools/create-forms 249,488 -> 249,790 (+302, inside S2's 0.3 KB):
+  //  - tools/create-forms 249,488 -> 249,789 (+301, inside S2's 0.3 KB =
+  //    307 B; +302 on an earlier build of the same runner):
   //    the runner chunk +296, webpack's runtime +7 (one more async chunk
   //    in its map), the page/error/main-app chunks -1 net. WAS +759 as first written, with the review list's
   //    handlers, Add and the preview's wiring in the runner; they moved
