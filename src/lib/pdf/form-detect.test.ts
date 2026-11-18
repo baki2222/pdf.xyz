@@ -120,6 +120,68 @@ const props = (p: CardPage, o?: ClassifyOptions) => run(p, o).proposals;
 const firstRule = (p: CardPage, o?: ClassifyOptions) =>
   run(p, o).excluded[0]?.rule;
 
+/**
+ * Cost SHAPE, never wall-clock. The cost tests below once held their page
+ * to an absolute bound in ms (`< 250`, `< 800`, `< 1100`, ...) set on one
+ * Windows machine, and CI's 4-vCPU Linux runners, three test files at a
+ * time, read the machine instead of the shape: 451 and 527 ms against 400
+ * (PR #382's runs, the headed grid below, converted first in PR #384) and
+ * 809.6 against 800 (run 44402871424, the label column, on a runner that
+ * took 30.7 s for this file against 19.6 on another). Additive margins in
+ * ms (`< 2 * (a + b) + 50`) fail the other way: on a slow runner the
+ * constant is lost in the noise. So each test now compares its own page
+ * with itself, in one run on one machine: the same work at two sizes (or
+ * a control the defect does not touch), the ratio held under a bound set
+ * between the cost the test claims and the defect's growth, each side the
+ * best of 3. Each bound is at least 2x over the worst ratio the fixed code
+ * read (5 runs of this file, then 4 at once) and at least 1.5x under the
+ * lowest of 3 runs with the defect put back; each test's comment names
+ * that mutant and the numbers.
+ *
+ * `fns` run once each in turn, `reps` times, INTERLEAVED, so a transient
+ * slowdown (GC, another worker) lands on every side; the first one, the
+ * cheapest by convention, runs once untimed first to warm the code paths.
+ * Each side keeps its best time, since a pause only ever adds, and its
+ * last result for the caller's health checks.
+ */
+function interleavedBest<T>(
+  fns: readonly (() => T)[],
+  reps = 3,
+): { ms: number; got: T }[] {
+  fns[0]!();
+  const out = fns.map(() => ({ ms: Infinity, got: undefined as T }));
+  for (let k = 0; k < reps; k++)
+    fns.forEach((fn, i) => {
+      const t0 = performance.now();
+      const got = fn();
+      const ms = performance.now() - t0;
+      out[i] = { ms: Math.min(out[i]!.ms, ms), got };
+    });
+  return out;
+}
+
+/**
+ * `num / den` under `bound`, health-checked: a denominator under 1 ms
+ * would make any ratio pass or fail at random. On GitHub Actions the ratio
+ * is printed, pass or fail, as `[time-bound] <name>: ratio X (bound B)`
+ * (the convention of src/tests/hostile/decode-budget.test.ts), so a CI
+ * log shows each test's headroom, not only its failures.
+ */
+function expectRatioUnder(
+  name: string,
+  num: number,
+  den: number,
+  bound: number,
+): void {
+  const said = `${name}: ratio ${(num / den).toFixed(2)} (bound ${bound})`;
+  if (process.env.GITHUB_ACTIONS === "true")
+    console.log(
+      `[time-bound] ${said} ${num.toFixed(1)} ms / ${den.toFixed(1)} ms`,
+    );
+  expect(den, `${said}: too short to time`).toBeGreaterThan(1);
+  expect(num / den, said).toBeLessThan(bound);
+}
+
 /** "Address:" (right edge 120) and a rule from 130 to 330 at y 600. */
 function labelledRule(
   parts: { text?: CardText[]; segs?: CardSeg[] } = {},
@@ -954,6 +1016,15 @@ describe("labelled-rule", () => {
         // Mutant BH1 (the tall test written `b1 - b0 > TALL`): a rect
         // whose bands are both infinite has no finite span, and walking
         // its buckets one by one never ends.
+        //
+        // This test also held the call to `< 250` ms, and that bound could
+        // never fail on BH1: the walk does not return, so the clock is not
+        // read. BH1 is red here as a RangeError ("Invalid array length",
+        // the bucket's list overflowing after 2.2 to 2.4 s on Windows, 3 of
+        // 3 runs) thrown from the walk itself, and so is `TALL = Infinity`
+        // (the frame walked from -Infinity; 2.5 s, 1 run). An infinite cost
+        // has no ratio, so the bound is gone, not converted: the cost of a
+        // rect's height is pinned as a ratio by the test after this one.
         it("a cell with an infinite top and bottom holds its label; a rect at an infinite height is read once, not bucket by bucket", () => {
           const frame: CardRect = {
             ...rect(70, 0, 64, 0),
@@ -972,36 +1043,63 @@ describe("labelled-rule", () => {
               txt("Notes", 142, 619, { size: 7, width: 20 }),
             ],
           });
-          const t0 = performance.now();
           const got = props(p)
             .filter((x) => x.x === 141)
             .map((x) => x.label);
-          expect(performance.now() - t0).toBeLessThan(250);
           expect(got).toEqual(["Notes"]);
         });
 
+        // A rect taller than TALL buckets is met by every question instead
+        // of being filed in a bucket per 50 pt of its height. First pinned
+        // as one 2e8 pt rect classified in `< 250` ms, a wall-clock bound
+        // (see interleavedBest). Now the cost of the HEIGHT: a 16x taller
+        // holder must cost what the shorter one costs, and filed bucket by
+        // bucket it costs 16x. Each sample classifies its page 200 times,
+        // as one classification of this page is too short to time.
+        // Measured (Windows; 10 runs of this file, 8 more 4 at a time):
+        // fixed 0.88 to 1.18, under load 0.85 to 1.35; with `TALL =
+        // Infinity` (every rect filed bucket by bucket), 22.0, 20.4 and
+        // 18.2. The bound, 4, is 3.0x over the first and 4.5x under the
+        // second.
         it("a rect far taller than the page holds its text too, without a bucket per point", () => {
-          const p = pg({
-            rects: [rect(70, -1e8, 64, 2e8), rect(140, 600, 200, 24)],
-            text: [
-              txt("Received by:", 72, 605.5, { size: 10, width: 60 }),
-              txt("Notes", 142, 619, { size: 7, width: 20 }),
-            ],
-          });
-          const t0 = performance.now();
-          const got = props(p)
-            .filter((x) => x.x === 141)
-            .map((x) => x.label);
-          expect(performance.now() - t0).toBeLessThan(250);
-          expect(got).toEqual(["Notes"]);
-        });
+          const page = (h: number) =>
+            pg({
+              rects: [rect(70, -h / 2, 64, h), rect(140, 600, 200, 24)],
+              text: [
+                txt("Received by:", 72, 605.5, { size: 10, width: 60 }),
+                txt("Notes", 142, 619, { size: 7, width: 20 }),
+              ],
+            });
+          const labels = (p: CardPage) => () => {
+            let got: (string | null)[] = [];
+            for (let i = 0; i < 200; i++)
+              got = props(p)
+                .filter((x) => x.x === 141)
+                .map((x) => x.label);
+            return got;
+          };
+          const [short, tall] = interleavedBest([
+            labels(page(2.5e5)),
+            labels(page(4e6)),
+          ]);
+          // Health: at both heights the holder holds "Received by:", so the
+          // box takes its own caption.
+          expect(short!.got).toEqual(["Notes"]);
+          expect(tall!.got).toEqual(["Notes"]);
+          expectRatioUnder(
+            "rect far taller than the page",
+            tall!.ms,
+            short!.ms,
+            4,
+          );
+        }, 60_000);
 
         // Review round 6 test honesty: each held-label question reads only
         // the rects round its text's baseline. A mutant that met every
         // rect in every question stayed green; it cost 8,000 left hits x
-        // 20,000 far rects here.
+        // 20,000 far rects here (16,000 hits since the test became a ratio).
         it("each left hit asks only the rects round it: 20,000 far rects cost nothing per hit", () => {
-          /** A 3,000 pt box, its own caption, 8,000 hits in a cell on its left. */
+          /** A 3,000 pt box, its own caption, 16,000 hits in a cell on its left. */
           const page = (holderFirst: boolean) => {
             const far: CardRect[] = [];
             for (let j = 0; j < 20_000; j++)
@@ -1011,9 +1109,12 @@ describe("labelled-rule", () => {
             const holder = rect(70, 500, 64, 3000);
             const box = rect(140, 500, 200, 3000);
             const text = [txt("Notes", 142, 3490, { size: 7, width: 20 })];
-            for (let i = 0; i < 8000; i++)
+            for (let i = 0; i < 16_000; i++)
               text.push(
-                txt("ab", 100, 510 + (2900 * i) / 8000, { size: 6, width: 6 }),
+                txt("ab", 100, 510 + (2900 * i) / 16_000, {
+                  size: 6,
+                  width: 6,
+                }),
               );
             return {
               withHolder: pg({
@@ -1026,26 +1127,34 @@ describe("labelled-rule", () => {
               bare: pg({ height: 4000, rects: [...far, box], text }),
             };
           };
-          const best = (p: CardPage) => {
-            let ms = Infinity;
-            let got: (string | null)[] = [];
-            for (let k = 0; k < 3; k++) {
-              const t0 = performance.now();
-              got = props(p).map((x) => x.label);
-              ms = Math.min(ms, performance.now() - t0);
-            }
-            return { ms, got };
-          };
-          const last = best(page(false).withHolder);
-          const first = best(page(true).withHolder);
+          const labels = (p: CardPage) => () => props(p).map((x) => x.label);
+          const [first, last] = interleavedBest([
+            labels(page(true).withHolder),
+            labels(page(false).withHolder),
+          ]);
           // Health checks: the hits are held (the box takes its own
           // caption), and without the holder they label the box.
-          expect(last.got).toEqual(["Notes"]);
-          expect(first.got).toEqual(["Notes"]);
-          expect(best(page(false).bare).got).toEqual(["ab"]);
-          // The holder last among the rects costs what it costs first.
-          expect(last.ms).toBeLessThan(3 * first.ms + 20);
-        });
+          expect(last!.got).toEqual(["Notes"]);
+          expect(first!.got).toEqual(["Notes"]);
+          expect(labels(page(false).bare)()).toEqual(["ab"]);
+          // The holder last among the rects costs what it costs first. This
+          // was `last < 3 * first + 20` ms: the additive 20 ms is a larger
+          // share of a fast machine's run than a slow one's, so the margin
+          // moved with the runner. A question that met every rect stops at
+          // the holder when it is first and reads all 20,000 when it is last.
+          // Measured (Windows; 10 runs of this file, 8 more 4 at a time):
+          // fixed 0.85 to 1.02, under load 0.83 to 1.15; with the question
+          // written `p.rects.some(holds)`, 8.22, 8.13 and 7.44 (4.5 to 6.1
+          // at 8,000 hits, too near a bound 2x over the fixed code, so the
+          // hits were doubled). The bound, 3, is 2.6x over the first and
+          // 2.5x under the second.
+          expectRatioUnder(
+            "each left hit, holder last vs first",
+            last!.ms,
+            first!.ms,
+            3,
+          );
+        }, 60_000);
       });
     });
   });
@@ -1828,36 +1937,68 @@ describe("labelled-rule", () => {
     // so a page of small text under rules went from linear to quadratic
     // (4.6 s at 20,000 items on the reviewer's head, 11 s once the title
     // test landed). Both now read a per-page index.
+    //
+    // First pinned as 20,000 items in `< 800` ms ("measured before: 11 s;
+    // after: about 0.15 s"), a wall-clock bound (see interleavedBest): CI
+    // took up to 443 ms for the whole test. Now the SHAPE: 16 times the
+    // items under the same 200 rules must cost far less than 256 times
+    // (each caption reading every item). 16, not 8: the linear page reads
+    // 10 to 11 at 8 times (a sort is n log n), too near a defect that is
+    // diluted to 50 there by what does not grow.
+    // Measured (Windows; 10 runs of this file, 8 more 4 at a time): fixed
+    // 19.4 to 22.4, under load 20.1 to 22.4; with `title ??=` as `title =`
+    // (the title size read again for every caption), 142, 164 and 160.
+    // The bound, 56, is 2.5x over the first and 2.5x under the second.
     it("20,000 tiny items as captions under 200 rules are classified in linear time", () => {
-      const segs: CardSeg[] = [];
-      const text: CardText[] = [];
-      for (let k = 0; k < 200; k++) segs.push(hseg(72, 540, 30 + 3.7 * k));
-      for (let k = 0; k < 20_000; k++) {
-        const layer = Math.floor(k / 200) % 3;
-        text.push(
-          txt("ab", 72 + (k % 150) * 3, 28.5 + 3.7 * (k % 200) - 0.3 * layer, {
-            size: 2 - 0.6 * layer,
-            width: 2,
-          }),
-        );
+      const page = (n: number) => {
+        const segs: CardSeg[] = [];
+        const text: CardText[] = [];
+        for (let k = 0; k < 200; k++) segs.push(hseg(72, 540, 30 + 3.7 * k));
+        for (let k = 0; k < n; k++) {
+          const layer = Math.floor(k / 200) % 3;
+          text.push(
+            txt(
+              "ab",
+              72 + (k % 150) * 3,
+              28.5 + 3.7 * (k % 200) - 0.3 * layer,
+              { size: 2 - 0.6 * layer, width: 2 },
+            ),
+          );
+        }
+        return pg({ segs, text });
+      };
+      const few = page(1_250);
+      const many = page(20_000);
+      const [small, large] = interleavedBest([() => run(few), () => run(many)]);
+      // Health: every rule is a candidate, and the page is read the same
+      // at both sizes: the rules in the page bands are page-band, the rest
+      // a table ruled in rows (each rule's captions read on the way).
+      for (const r of [small!.got, large!.got]) {
+        expect(r.counts.candidates).toBe(200);
+        const rules = r.excluded.map((e) => e.rule);
+        expect(rules.filter((x) => x === "page-band")).toHaveLength(21);
+        expect(rules.filter((x) => x === "table-grid")).toHaveLength(179);
       }
-      const t0 = performance.now();
-      const r = run(pg({ segs, text }));
-      const ms = performance.now() - t0;
-      // Health: every rule is a candidate, and the captions were read.
-      expect(r.counts.candidates).toBe(200);
-      // Measured before: 11 s; after: about 0.15 s.
-      expect(ms).toBeLessThan(800);
-    });
+      expectRatioUnder(
+        "20,000 captions under 200 rules",
+        large!.ms,
+        small!.ms,
+        56,
+      );
+    }, 60_000);
 
     // Review round 6 test honesty, cost finding 6: an outlined box's
     // caption (inside it, or over its top), an unlabelled line's caption
     // under it and a candidate's sign-off over it were each read by
     // scanning every text item on the page, so 5,000 boxes and 20,000
     // text items far from them cost 3 s where the boxes alone and the
-    // text alone cost 0.2 s.
-    it("5,000 outlined boxes and 20,000 text items far from them cost what each costs alone", () => {
+    // text alone cost 0.2 s. 80,000 items since the test became a ratio:
+    // one window put back to a scan of every item cost less than twice
+    // the sum of each alone with 20,000 (2.67, see below), and words are
+    // the cheap side of that sum.
+    it("5,000 outlined boxes and 80,000 text items far from them cost what each costs alone", () => {
       const N = 5000;
+      const W = 80_000;
       const page = (boxes: boolean, words: boolean) => {
         const rects: CardRect[] = [];
         const text: CardText[] = [];
@@ -1867,32 +2008,41 @@ describe("labelled-rule", () => {
               rect(20 + (i % 10) * 58, 100 + 40 * Math.floor(i / 10), 50, 30),
             );
         if (words)
-          for (let k = 0; k < 4 * N; k++)
+          for (let k = 0; k < W; k++)
             text.push(
-              txt("x", 20 + (k % 100) * 5.8, 20_500 + 4 * Math.floor(k / 100), {
+              txt("x", 20 + (k % 200) * 2.9, 20_500 + 4 * Math.floor(k / 200), {
                 size: 2,
                 width: 1,
               }),
             );
-        return pg({ height: 21_500, rects, text });
+        return pg({ height: 20_500 + 4 * (W / 200) + 500, rects, text });
       };
-      const best = (p: CardPage) => {
-        let ms = Infinity;
-        let candidates = 0;
-        for (let k = 0; k < 2; k++) {
-          const t0 = performance.now();
-          candidates = run(p).counts.candidates;
-          ms = Math.min(ms, performance.now() - t0);
-        }
-        return { ms, candidates };
-      };
-      const both = best(page(true, true));
-      const boxes = best(page(true, false));
-      const words = best(page(false, true));
-      // Health: each box's two edges are candidates, with the text or not.
-      expect(both.candidates).toBe(2 * N);
-      expect(boxes.candidates).toBe(2 * N);
-      expect(both.ms).toBeLessThan(2 * (boxes.ms + words.ms) + 50);
+      const pages = [page(false, true), page(true, false), page(true, true)];
+      const [words, boxes, both] = interleavedBest(
+        pages.map((p) => () => run(p).counts.candidates),
+      );
+      // Health: each box's two edges are candidates, with the text or not;
+      // the text alone has none.
+      expect(both!.got).toBe(2 * N);
+      expect(boxes!.got).toBe(2 * N);
+      expect(words!.got).toBe(0);
+      // Both together against the sum of each alone. This was `both < 2 *
+      // (boxes + words) + 50` ms: CI took up to 6 s for the test, so the
+      // additive 50 ms was noise there and a margin only on a fast machine.
+      // A per-box scan of every text item multiplies the two costs.
+      // Measured (Windows; 10 runs of this file, 8 more 4 at a time): fixed
+      // 0.98 to 1.04, under load 0.87 to 1.13; with the rule caption loop
+      // reading `p.text` instead of its window, 5.66, 5.88 and 6.17 (2.67
+      // with 20,000 items). Each of the other three windows put back to a
+      // scan, once each: box inside 9.72, over the box 6.61, sign-off
+      // 11.38. The bound, 2.5, is 2.2x over the first and 2.3x under the
+      // weakest window.
+      expectRatioUnder(
+        "5,000 boxes with 80,000 words vs each alone",
+        both!.ms,
+        boxes!.ms + words!.ms,
+        2.5,
+      );
     }, 60_000);
 
     // KNOWN MISS (review round 4 fixes, finding 8): a section heading
@@ -2594,35 +2744,55 @@ describe("labelled-rule: a label column (labels flush left, lines at one tab sto
   // cap). Rows with one line start and label edge are asked once, and the
   // blockers are read from y-sorted lists.
   // 20,000 lines: the walker's primitive cap (PATH_LIMITS.maxPrimitives).
+  //
+  // First pinned as 20,000 lines in `< 800` ms ("measured before: 2 s at
+  // 5,000 lines; after: about 0.35 s at 20,000"), a wall-clock bound (see
+  // interleavedBest): CI read 809.6 ms on the fixed code (PR #382's run
+  // 44402871424, a slow runner). Now the SHAPE: 16 times the lines must
+  // cost far less than 256 times (each line reading every other's text).
+  // 16, not 8: at 8 times the linear page read up to 9.9 and the defect
+  // 40, too close to set a bound 2x from one and 1.5x from the other.
+  // Measured (Windows; 10 runs of this file, 8 more 4 at a time): fixed
+  // 13.9 to 17.9, under load 11.3 to 18.7; with the left-label search
+  // reading `p.text` instead of `bandText(ix, r)` (every line meeting every
+  // text item), 145, 110 and 129. The bound, 48, is 2.6x over the first
+  // and 2.3x under the second.
   it("a 20,000-line label column is classified in linear time", () => {
+    const column = (n: number) => {
+      const segs: CardSeg[] = [];
+      const text: CardText[] = [];
+      for (let k = 0; k < n; k++) {
+        const y = 40 + 30 * k;
+        segs.push(hseg(160, 450, y));
+        text.push(
+          txt(k % 2 ? "City:" : "Date of birth:", 72, y, {
+            size: 10,
+            width: k % 2 ? 24 : 70,
+          }),
+        );
+      }
+      return pg({ height: 40 + 30 * n + 100, segs, text });
+    };
     const N = 20_000;
-    const segs: CardSeg[] = [];
-    const text: CardText[] = [];
-    for (let k = 0; k < N; k++) {
-      const y = 40 + 30 * k;
-      segs.push(hseg(160, 450, y));
-      text.push(
-        txt(k % 2 ? "City:" : "Date of birth:", 72, y, {
-          size: 10,
-          width: k % 2 ? 24 : 70,
-        }),
-      );
+    const few = column(N / 16);
+    const many = column(N);
+    const [small, large] = interleavedBest([() => run(few), () => run(many)]);
+    // Health: every line is a field (City only by the column), capped at
+    // 60, at both sizes.
+    for (const [res, n] of [
+      [small!.got, N / 16],
+      [large!.got, N],
+    ] as const) {
+      expect(res.counts.candidates).toBe(n);
+      expect(res.excluded).toEqual([]);
+      expect(res.counts.capped).toBe(n - 60);
+      expect(res.proposals.map((x) => x.label).slice(0, 2)).toEqual([
+        "City",
+        "Date of birth",
+      ]);
     }
-    const p = pg({ height: 40 + 30 * N + 100, segs, text });
-    const t0 = performance.now();
-    const res = run(p);
-    const ms = performance.now() - t0;
-    // Health: every line is a field (City only by the column), capped at 60.
-    expect(res.counts.candidates).toBe(N);
-    expect(res.excluded).toEqual([]);
-    expect(res.counts.capped).toBe(N - 60);
-    expect(res.proposals.map((x) => x.label).slice(0, 2)).toEqual([
-      "City",
-      "Date of birth",
-    ]);
-    // Measured before: 2 s at 5,000 lines; after: about 0.35 s at 20,000.
-    expect(ms).toBeLessThan(800);
-  });
+    expectRatioUnder("20,000-line label column", large!.ms, small!.ms, 48);
+  }, 60_000);
 
   // The text between a label and its line is read from the label band's
   // bottom up, stopping at the first baseline over the band of the page's
@@ -2659,25 +2829,29 @@ describe("labelled-rule: a label column (labels flush left, lines at one tab sto
           );
       return pg({ height: top + 4 * (K / 100) + 100, segs, text });
     };
-    const best = (p: CardPage) => {
-      let ms = Infinity;
-      let candidates = 0;
-      for (let k = 0; k < 2; k++) {
-        const t0 = performance.now();
-        candidates = run(p).counts.candidates;
-        ms = Math.min(ms, performance.now() - t0);
-      }
-      return { ms, candidates };
-    };
-    const both = best(page(true, true));
-    const rows = best(page(true, false));
-    const words = best(page(false, true));
+    const pages = [page(false, true), page(true, false), page(true, true)];
+    const [words, rows, both] = interleavedBest(
+      pages.map((p) => () => run(p).counts.candidates),
+    );
     // Health: every line is a candidate, with the text or not; the text
     // alone has none.
-    expect(both.candidates).toBe(N);
-    expect(rows.candidates).toBe(N);
-    expect(words.candidates).toBe(0);
-    expect(both.ms).toBeLessThan(2 * (rows.ms + words.ms) + 50);
+    expect(both!.got).toBe(N);
+    expect(rows!.got).toBe(N);
+    expect(words!.got).toBe(0);
+    // Both together against the sum of each alone. This was `both < 2 *
+    // (rows + words) + 50` ms, an additive margin that is most of a fast
+    // machine's run and noise on a slow one (CI took up to 980 ms for the
+    // test). Rows that each read every text item over them multiply.
+    // Measured (Windows; 10 runs of this file, 8 more 4 at a time): fixed
+    // 0.95 to 1.18, under load 0.96 to 1.11; with the `break` turned back
+    // into `continue`, 6.63, 5.14 and 5.46. The bound, 2.5, is 2.1x over
+    // the first and 2.1x under the second.
+    expectRatioUnder(
+      "5,000 column rows with 50,000 words vs each alone",
+      both!.ms,
+      rows!.ms + words!.ms,
+      2.5,
+    );
   }, 60_000);
 
   // Review round 4 fixes, finding 19: derived boundaries of the column
@@ -2854,8 +3028,26 @@ describe("table-cell: a two-column table of labels and empty cells", () => {
   // (gridTouches), are in both. First written against the table drawn in
   // whole lines, which a later speed-up of the rest of the page made too
   // cheap a control to hold under parallel load.
+  //
+  // The pieces come in a fixed pseudo-random order, as a content stream may
+  // give them. In drawing order the defect's sort per pair meets presorted
+  // runs and is linear, which leaves only its filter: a constant factor on
+  // a page whose own gridTouches is rows x verticals already. Measured that
+  // way, the defect read 1.46 against a fixed 0.39 alone and 0.71 to 0.78
+  // among this file's other tests, no room for a bound 2x from one and
+  // 1.5x from the other. Shuffled, each pair's sort is n log n.
   it("a 4,000-row label table drawn in Word-style pieces costs no more than the same rules unstacked", () => {
     const N = 4000;
+    const pieces: CardSeg[] = [];
+    for (const x of [50, 200, 450])
+      for (let i = 0; i < N; i++)
+        pieces.push(vseg(x, 40 + 20 * i, 40 + 20 * (i + 1)));
+    let seed = 1;
+    for (let i = pieces.length - 1; i > 0; i--) {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      const j = seed % (i + 1);
+      [pieces[i], pieces[j]] = [pieces[j]!, pieces[i]!];
+    }
     const page = (stacked: boolean) => {
       const segs: CardSeg[] = [];
       const text: CardText[] = [];
@@ -2869,35 +3061,39 @@ describe("table-cell: a two-column table of labels and empty cells", () => {
                 40 + 20 * i,
               ),
         );
-      for (const x of [50, 200, 450])
-        for (let i = 0; i < N; i++)
-          segs.push(vseg(x, 40 + 20 * i, 40 + 20 * (i + 1)));
+      segs.push(...pieces);
       for (let i = 0; i < N; i++)
         text.push(txt(`Label ${i}`, 54, 46 + 20 * i, { size: 10, width: 40 }));
       return pg({ height: 40 + 20 * N + 100, segs, text });
     };
-    const best = (p: CardPage) => {
-      let ms = Infinity;
-      let got: FieldProposal[] = [];
-      for (let k = 0; k < 3; k++) {
-        const t0 = performance.now();
-        got = props(p);
-        ms = Math.min(ms, performance.now() - t0);
-      }
-      return { ms, got };
-    };
-    const stacked = best(page(true));
-    const unstacked = best(page(false));
+    const stackedPage = page(true);
+    const unstackedPage = page(false);
+    const [stacked, unstacked] = interleavedBest<FieldProposal[]>([
+      () => props(stackedPage),
+      () => props(unstackedPage),
+    ]);
     // Health: the stacked page is read as the label table (the page CAP
     // keeps 60), the unstacked one has no table cell.
-    expect(stacked.got).toHaveLength(60);
-    expect(stacked.got.slice(0, 2).map((x) => [x.rule, x.label])).toEqual([
+    expect(stacked!.got).toHaveLength(60);
+    expect(stacked!.got.slice(0, 2).map((x) => [x.rule, x.label])).toEqual([
       ["table-cell", "Label 3999"],
       ["table-cell", "Label 3998"],
     ]);
-    expect(unstacked.got.filter((x) => x.rule === "table-cell")).toEqual([]);
-    // Measured: before, 1,087 ms against 615; after, 259 against 489.
-    expect(stacked.ms).toBeLessThan(unstacked.ms + 50);
+    expect(unstacked!.got.filter((x) => x.rule === "table-cell")).toEqual([]);
+    // Measured: before, 1,087 ms against 615; after, 259 against 489. This
+    // was `stacked < unstacked + 50` ms, and CI took 4 to 5 s for each
+    // side, so the 50 ms was about 1% there, far inside the noise.
+    // Measured (Windows; 10 runs of this file, 8 more 4 at a time): fixed
+    // 0.56 to 0.70, under load 0.54 to 0.72 (0.35 with this test alone);
+    // with `outer ??=` written `outer =` (each pair gathering and sorting
+    // the plumb lines again), 7.85, 9.00 and 8.14. The bound, 2, is 2.8x
+    // over the first and 3.9x under the second.
+    expectRatioUnder(
+      "Word-style pieces stacked vs unstacked",
+      stacked!.ms,
+      unstacked!.ms,
+      2,
+    );
   }, 60_000);
 
   // Review round 6 test honesty: the column lines are counted inside the
@@ -3273,24 +3469,44 @@ describe("underscore-run", () => {
   // Each text item filtered every piece on the page to find its own:
   // quadratic in text items, which nothing caps (2.2 s for a page of 20,000
   // items through the reader; review finding).
+  //
+  // First pinned as 20,001 items in `< 300` ms ("measured before: about
+  // 1.5 s; after: well under 100 ms"), a wall-clock bound (see
+  // interleavedBest). Now the SHAPE: 8 times the items must cost far less
+  // than 64 times (each item filtering every piece).
+  // Measured (Windows; 10 runs of this file, 8 more 4 at a time): fixed
+  // 8.59 to 11.4, under load 9.30 to 11.9; with `byItem.get(item)` written
+  // `all.filter((pc) => pc.item === item)`, 52.3, 54.4 and 49.7. The
+  // bound, 28, is 2.4x over the first and 1.8x under the second.
   it("finds each item's pieces in one pass, not one scan per item", () => {
-    const text: CardText[] = [];
-    for (let k = 0; k < 20_000; k++)
-      text.push(
-        txt("ab", 10 + (k % 75) * 8, 10 + Math.floor(k / 75) * 2.9, {
-          size: 2,
-          width: 2,
-        }),
-      );
-    text.push(txt("Name: ________", 10, 780, { size: 2, width: 40 }));
-    const t0 = performance.now();
-    const r = run(pg({ text }));
-    const ms = performance.now() - t0;
-    // Health: the one run among them is still found.
-    expect(r.counts.candidates).toBe(1);
-    // Measured before: about 1.5 s; after: well under 100 ms.
-    expect(ms).toBeLessThan(300);
-  });
+    const page = (n: number) => {
+      const text: CardText[] = [];
+      for (let k = 0; k < n; k++)
+        text.push(
+          txt("ab", 10 + (k % 75) * 8, 10 + Math.floor(k / 75) * 2.9, {
+            size: 2,
+            width: 2,
+          }),
+        );
+      text.push(txt("Name: ________", 10, 780, { size: 2, width: 40 }));
+      return pg({ text });
+    };
+    const few = page(2_500);
+    const many = page(20_000);
+    const [small, large] = interleavedBest([
+      () => run(few).counts.candidates,
+      () => run(many).counts.candidates,
+    ]);
+    // Health: the one run among them is still found, at both sizes.
+    expect(small!.got).toBe(1);
+    expect(large!.got).toBe(1);
+    expectRatioUnder(
+      "each item's pieces in one pass",
+      large!.ms,
+      small!.ms,
+      28,
+    );
+  }, 60_000);
 });
 
 describe("UNDERSCORE_EMS: placing a run inside its item", () => {
@@ -4361,19 +4577,42 @@ describe("square-checkbox", () => {
       expect(props(crowded(17))).toEqual([]);
     });
 
+    // First pinned as 400 triples at one corner in `< 250` ms ("measured
+    // before the bound: about 900 ms; after it: a few ms"), a wall-clock
+    // bound (see interleavedBest). Now the SHAPE: 4 times the edges at each
+    // of 200 corners must cost far less than 64 times (every left paired
+    // with every right, each pairing re-scanning the corner). 200 corners,
+    // as one corner's linear cost is too short to time.
+    // Measured (Windows; 10 runs of this file, 8 more 4 at a time): fixed
+    // 3.94 to 5.30, under load 3.40 to 4.91; without the JOIN_CROWD bound
+    // (`near` returning `lists.flat()` however crowded), 34.1, 31.3 and
+    // 31.3. The bound, 16, is 3.0x over the first and 2.0x under the
+    // second.
     it("edges crowded at one corner cost linear time, not cubic", () => {
-      const segs: CardSeg[] = [];
-      for (let k = 0; k < 400; k++)
-        segs.push(
-          hseg(100, 110, 100),
-          vseg(100, 100, 110),
-          vseg(110, 100, 115),
-        );
-      const t0 = performance.now();
-      run(pg({ segs }));
-      // Measured before the bound: about 900 ms; after it: a few ms.
-      expect(performance.now() - t0).toBeLessThan(250);
-    });
+      const page = (n: number) => {
+        const segs: CardSeg[] = [];
+        for (let c = 0; c < 200; c++) {
+          const x = 20 + 30 * (c % 20);
+          const y = 20 + 30 * Math.floor(c / 20);
+          for (let k = 0; k < n; k++)
+            segs.push(
+              hseg(x, x + 10, y),
+              vseg(x, y, y + 10),
+              vseg(x + 10, y, y + 15),
+            );
+        }
+        return pg({ segs });
+      };
+      const few = page(20);
+      const many = page(80);
+      const [small, large] = interleavedBest([() => run(few), () => run(many)]);
+      // Health: no corner makes a box (none has a top edge), at both sizes.
+      for (const r of [small!.got, large!.got]) {
+        expect(r.proposals).toEqual([]);
+        expect(r.excluded).toEqual([]);
+      }
+      expectRatioUnder("edges crowded at a corner", large!.ms, small!.ms, 16);
+    }, 60_000);
   });
 
   it("an unlabelled square is kept beside two labelled squares of its size", () => {
@@ -4764,31 +5003,50 @@ describe("exclusions, each at its boundary", () => {
   // Every band line scanned every other page's whole list of band lines:
   // pages^2 x lines^2 for a run, 24 s for 50 pages of 2,000 (review
   // finding). Each page's lines are now indexed once and looked up.
+  //
+  // First pinned as 2,100 lines against 49 pages in `< 250` ms ("measured
+  // before: about 590 ms; after: under 50 ms"), a wall-clock bound (see
+  // interleavedBest). Now the SHAPE, on the axis the defect grows on: 8
+  // times the band lines on every page must cost far less than 64 times
+  // (each line scanning every other page's lines; more PAGES cost both
+  // linearly, so pages cannot tell them apart). 105 rows of lines is all
+  // the band holds at this pitch, so the factor is 105 / 13.
+  // Measured (Windows; 10 runs of this file, 11 more 3 or 4 at a time):
+  // fixed 9.36 to 10.9, under load 7.22 to 13.0; with each other page
+  // scanned whole (`segs.some` for the cell lookup), 66.9, 67.5 and 74.9.
+  // The bound, 32, is 2.5x over the first and 2.1x under the second.
   it("the repeat check is a lookup: 2,100 band lines against 49 pages", () => {
-    const bandSegs = (dx: number) => {
+    const bandSegs = (dx: number, rows: number) => {
       const out: CardSeg[] = [];
-      for (let r = 0; r < 105; r++)
+      for (let r = 0; r < rows; r++)
         for (const y of [1 + 0.6 * r, H - 1 - 0.6 * r])
           for (let c = 0; c < 10; c++)
             out.push(hseg(10 + 58 * c + dx, 60 + 58 * c + dx, y));
       return out;
     };
-    const p = pg({ segs: bandSegs(0) });
-    const others = Array.from({ length: 49 }, () => bandSegs(5));
-    const t0 = performance.now();
-    const r = run(p, { repeatsAcrossPages: others });
-    const ms = performance.now() - t0;
-    // Health: every line was a band candidate that asked for repeats.
-    expect(r.counts.candidates).toBe(2100);
-    expect(r.excluded.map((e) => e.rule)).not.toContain("page-band");
+    const check = (rows: number) => {
+      const p = pg({ segs: bandSegs(0, rows) });
+      const others = Array.from({ length: 49 }, () => bandSegs(5, rows));
+      return () => run(p, { repeatsAcrossPages: others });
+    };
+    const [small, large] = interleavedBest([check(13), check(105)]);
+    // Health: every line was a band candidate that asked for repeats, and
+    // none was found on another page, at both sizes.
+    for (const [r, n] of [
+      [small!.got, 260],
+      [large!.got, 2100],
+    ] as const) {
+      expect(r.counts.candidates).toBe(n);
+      expect(r.excluded.map((e) => e.rule)).not.toContain("page-band");
+    }
     // A match on one other page still makes it a band.
-    const twice = run(pg({ segs: bandSegs(0).slice(0, 1) }), {
-      repeatsAcrossPages: [...others, bandSegs(0)],
+    const others = Array.from({ length: 49 }, () => bandSegs(5, 105));
+    const twice = run(pg({ segs: bandSegs(0, 105).slice(0, 1) }), {
+      repeatsAcrossPages: [...others, bandSegs(0, 105)],
     });
     expect(twice.excluded.map((e) => e.rule)).toEqual(["page-band"]);
-    // Measured before: about 590 ms; after: under 50 ms.
-    expect(ms).toBeLessThan(250);
-  });
+    expectRatioUnder("repeat check, 49 pages", large!.ms, small!.ms, 32);
+  }, 60_000);
 
   it("GRID_TOUCHES: three plumb lines across the line make a grid, two do not", () => {
     const with_ = (xs: number[]) =>
@@ -4871,53 +5129,65 @@ describe("exclusions, each at its boundary", () => {
     // and every run without a label scanned every item for one: quadratic
     // in text, which nothing caps. Measured on the reviewer's head about
     // 5 s for this page; after, about 0.65 s (best of two runs).
+    //
+    // First pinned at `< 1100` ms on the best of two runs, a wall-clock
+    // bound (see interleavedBest): CI took up to 1,271 ms for the whole
+    // test of two runs. Now the SHAPE: 8 times the rows (runs and items
+    // alike) must cost far less than 64 times (each run scanning every
+    // item).
+    // Measured (Windows; 10 runs of this file, 11 more 3 or 4 at a time):
+    // fixed 10.3 to 12.6, under load 10.7 to 13.5; with the unlabelled
+    // run's search reading `p.text.filter(...)` instead of its baseline
+    // band, 78.5, 80.7 and 78.2. The bound, 32, is 2.4x over the first and
+    // 2.4x under the second.
     it("a ruled grid of 8,000 runs in cells, with 40,000 more items, is classified in linear time", () => {
       const pairs = 40;
-      const rows = 200;
-      const segs: CardSeg[] = [];
-      const text: CardText[] = [];
-      const right = 50 + 150 * pairs;
-      for (let i = 0; i <= rows; i++) segs.push(hseg(50, right, 50 + 20 * i));
-      for (let c = 0; c <= pairs; c++) {
-        segs.push(vseg(50 + 150 * c, 50, 50 + 20 * rows));
-        if (c < pairs) segs.push(vseg(90 + 150 * c, 50, 50 + 20 * rows));
-      }
-      for (let r = 0; r < rows; r++)
-        for (let c = 0; c < pairs; c++) {
-          text.push(
-            txt(`R${r}C${c}`, 54 + 150 * c, 56 + 20 * r, {
-              size: 8,
-              width: 10,
-            }),
-          );
-          text.push(
-            txt("____________", 96 + 150 * c, 56 + 20 * r, {
-              size: 8,
-              width: 100,
-            }),
-          );
+      const grid = (rows: number) => {
+        const segs: CardSeg[] = [];
+        const text: CardText[] = [];
+        const right = 50 + 150 * pairs;
+        for (let i = 0; i <= rows; i++) segs.push(hseg(50, right, 50 + 20 * i));
+        for (let c = 0; c <= pairs; c++) {
+          segs.push(vseg(50 + 150 * c, 50, 50 + 20 * rows));
+          if (c < pairs) segs.push(vseg(90 + 150 * c, 50, 50 + 20 * rows));
         }
-      for (let k = 0; k < 40_000; k++)
-        text.push(
-          txt("x", 60 + (k % 1000) * 3, 4200 + Math.floor(k / 1000) * 4, {
-            size: 2,
-            width: 1,
-          }),
-        );
-      const p = pg({ width: right + 50, height: 4400, segs, text });
-      let best = Infinity;
-      let first: string | null | undefined;
-      for (let k = 0; k < 2; k++) {
-        const t0 = performance.now();
-        const r = run(p);
-        best = Math.min(best, performance.now() - t0);
-        first = r.proposals[0]?.label;
-      }
+        for (let r = 0; r < rows; r++)
+          for (let c = 0; c < pairs; c++) {
+            text.push(
+              txt(`R${r}C${c}`, 54 + 150 * c, 56 + 20 * r, {
+                size: 8,
+                width: 10,
+              }),
+            );
+            text.push(
+              txt("____________", 96 + 150 * c, 56 + 20 * r, {
+                size: 8,
+                width: 100,
+              }),
+            );
+          }
+        // 40,000 more items at 200 rows, in proportion at fewer.
+        for (let k = 0; k < 200 * rows; k++)
+          text.push(
+            txt("x", 60 + (k % 1000) * 3, 4200 + Math.floor(k / 1000) * 4, {
+              size: 2,
+              width: 1,
+            }),
+          );
+        return pg({ width: right + 50, height: 4400, segs, text });
+      };
+      const few = grid(25);
+      const many = grid(200);
+      const [small, large] = interleavedBest([
+        () => run(few).proposals[0]?.label,
+        () => run(many).proposals[0]?.label,
+      ]);
       // Health check: the runs took their cells' labels (the page CAP keeps
-      // 60 proposals), so the cell path ran.
-      expect(first).toMatch(/^R\d+C0$/);
-      expect(best).toBeLessThan(1100);
-    });
+      // 60 proposals), so the cell path ran, at both sizes.
+      expect(small!.got).toMatch(/^R\d+C0$/);
+      expect(large!.got).toMatch(/^R\d+C0$/);
+      expectRatioUnder("ruled grid of 8,000 runs", large!.ms, small!.ms, 32);
+    }, 60_000);
 
     it("two lines in the left cell, or none: no label", () => {
       expect(
@@ -5321,19 +5591,39 @@ describe("exclusions, each at its boundary", () => {
   // Each next square in a row was found by scanning the whole sorted list
   // from its start: a page of graph-paper cells under the primitive cap took
   // 3.4 s (review finding). The next square is now looked up by its corner.
+  //
+  // First pinned as 12,500 squares in `< 400` ms ("measured before: about
+  // 1.2 s; after: under 100 ms"), a wall-clock bound (see
+  // interleavedBest). Now the SHAPE: 125 rows of squares against 16 (7.8
+  // times the squares) must cost far less than 61 times (each next square
+  // found by a scan of the whole list).
+  // Measured (Windows; 13 runs of this file, 11 more 3 or 4 at a time):
+  // fixed 6.75 to 11.6, under load 7.58 to 12.5; with the corner lookup
+  // replaced by one scan of `sorted` per next square (the `for` over
+  // `byCorner.get(...)` written `dx === 0 && dy === 0 ? sorted : []`),
+  // 85.0, 72.0 and 83.9. The bound, 32, is 2.6x over the first and 2.3x
+  // under the second.
   it("a grid of 12,500 small squares is read as combs in linear time", () => {
-    const rects: CardRect[] = [];
-    for (let r = 0; r < 125; r++)
-      for (let k = 0; k < 100; k++)
-        rects.push(rect(5 + 6 * k, 5 + 6 * r, 6, 6));
-    const t0 = performance.now();
-    const res = run(pg({ rects }));
-    const ms = performance.now() - t0;
-    expect(res.excluded).toHaveLength(12_500);
-    expect(res.excluded.every((e) => e.rule === "comb")).toBe(true);
-    // Measured before: about 1.2 s; after: under 100 ms.
-    expect(ms).toBeLessThan(400);
-  });
+    const grid = (rows: number) => {
+      const rects: CardRect[] = [];
+      for (let r = 0; r < rows; r++)
+        for (let k = 0; k < 100; k++)
+          rects.push(rect(5 + 6 * k, 5 + 6 * r, 6, 6));
+      return pg({ rects });
+    };
+    const few = grid(16);
+    const many = grid(125);
+    const [small, large] = interleavedBest([() => run(few), () => run(many)]);
+    // Health: every square is a comb's, at both sizes.
+    for (const [res, n] of [
+      [small!.got, 1_600],
+      [large!.got, 12_500],
+    ] as const) {
+      expect(res.excluded).toHaveLength(n);
+      expect(res.excluded.every((e) => e.rule === "comb")).toBe(true);
+    }
+    expectRatioUnder("12,500 squares as combs", large!.ms, small!.ms, 32);
+  }, 60_000);
 
   // Review round 4 fixes, finding 11: the duplicate pass walked every
   // later survivor past DUP_DY with `continue` on a list sorted by y, so it
@@ -5350,6 +5640,17 @@ describe("exclusions, each at its boundary", () => {
   // Measured, best of 3, Windows: fixed 6.69; with the `break` turned back
   // into `continue` (the defect), 30.1 and 38.2. The bound, 16, is 2.4x
   // above the first and 1.9x below the second.
+  //
+  // That 6.69 did not hold. Timed interleaved (interleavedBest) the fixed
+  // page read 7.1 to 11.3 over 13 runs of this file, 4 of them at once,
+  // and the defect 30.0 to 35.5: a bound 2x over the one is 1.3x under the
+  // other. Timed as first written, a scratch run read 6.23 on its first
+  // trial and 9.1 to 10.1 on the next three: the 6.69 was a denominator
+  // still warming (14.7 ms against 7.1 ms once warm). So the large grid is
+  // now 400 rows, 16 times the small one: fixed 20.5 to 28.2 in 5 runs of
+  // this file and 19.6 to 29.4 in 4 at a time (21.1 to 23.7 alone), the
+  // defect 126.9, 122.5 and 119.8. The bound, 60, is 2.0x over the first
+  // and 2.0x under the second.
   it("a headed grid of labelled squares is classified in linear time", () => {
     const grid = (rows: number) => {
       const rects: CardRect[] = [];
@@ -5364,35 +5665,28 @@ describe("exclusions, each at its boundary", () => {
         text.push(txt(`H${c}`, 200 + 12 * c, top + 6, { size: 5, width: 7 }));
       return pg({ width: 1500, height: top + 100, rects, text });
     };
-    // Best of 3: a pause during one run (GC, another worker) only ever adds.
-    const bestMs = (p: CardPage) => {
-      let best = Infinity;
-      for (let k = 0; k < 3; k++) {
-        const t0 = performance.now();
-        run(p);
-        best = Math.min(best, performance.now() - t0);
-      }
-      return best;
-    };
-    const small = grid(25);
-    const large = grid(200);
-    run(small); // warm the code paths before either is timed
-    const smallMs = bestMs(small);
-    const largeMs = bestMs(large);
+    // Best of 3, interleaved, warmed (interleavedBest; it was written here
+    // first, the sizes timed one after the other, and moved there when the
+    // other cost tests were converted to ratios).
+    const few = grid(25);
+    const many = grid(400);
+    const [small, large] = interleavedBest([() => run(few), () => run(many)]);
     // Health: every square is labelled by the grid (the page cap keeps 60),
     // at both sizes, so both runs took the path the defect lived on.
-    const res = run(large);
-    expect(res.counts.candidates).toBe(20_000);
+    const res = large!.got;
+    expect(res.counts.candidates).toBe(40_000);
     expect(res.proposals).toHaveLength(60);
-    expect(res.counts.capped).toBe(20_000 - 60);
-    expect(res.proposals[0]!.label).toBe("Row 199 H0");
-    const few = run(small);
-    expect(few.counts.candidates).toBe(2_500);
-    expect(few.proposals[0]!.label).toBe("Row 24 H0");
-    // Health: the small run is long enough to time (a 0 ms run would make
-    // any ratio pass or fail at random).
-    expect(smallMs).toBeGreaterThan(1);
-    expect(largeMs / smallMs).toBeLessThan(16);
+    expect(res.counts.capped).toBe(40_000 - 60);
+    expect(res.proposals[0]!.label).toBe("Row 399 H0");
+    expect(small!.got.counts.candidates).toBe(2_500);
+    expect(small!.got.proposals[0]!.label).toBe("Row 24 H0");
+    // The small run is long enough to time: expectRatioUnder checks it.
+    expectRatioUnder(
+      "headed grid of labelled squares",
+      large!.ms,
+      small!.ms,
+      60,
+    );
   }, 60_000);
 
   it("a filled square is a bullet", () => {
@@ -5601,14 +5895,46 @@ describe("cleanLabel", () => {
   // The trailing trim was an anchored regex that backtracked over every run
   // of ':' and '.' that did not end the string, so one 40,005-character text
   // item beside 40 rules took 32 s for one page (review finding).
+  //
+  // First pinned as two 50,005-character labels in `< 100` ms ("measured
+  // before: about 1.3 s; after: well under 1 ms"), a wall-clock bound (see
+  // interleavedBest). Now the SHAPE, at equal work per sample: 16,000
+  // labels of 255 characters against 2,000 of 2,005 (the same 4,000,000
+  // characters of punctuation) cost no more when the trim is linear (less:
+  // each call's fixed cost counts 8 times as often in the short ones), and
+  // 8 times as much when each run is backtracked over. One label is too
+  // quick to time, and a sample long enough to time on the linear trim is
+  // long for the defect, so the labels are short.
+  // Measured (Windows; 10 runs of this file, 8 more 4 at a time): fixed
+  // 0.39 to 0.53, under load 0.37 to 0.69; with the trim loop replaced by
+  // the old anchored regex (`end = mid.replace(/[\s:.\-...]+$/u,
+  // "").length`), 7.04, 7.09 and 7.19. The bound, 2, is 2.9x over the
+  // first and 3.5x under the second.
   it("trims in linear time, whatever runs of punctuation the label holds", () => {
-    const inner = "Name" + ".:".repeat(25_000) + "x";
-    const t0 = performance.now();
-    expect(cleanLabel(inner)).toBe(inner);
+    const label = (n: number) => "Name" + ".:".repeat(n) + "x";
+    const trims = (s: string, times: number) => () => {
+      let out: string | null = null;
+      for (let i = 0; i < times; i++) out = cleanLabel(s);
+      return out;
+    };
+    const shortLabel = label(125);
+    const longLabel = label(1_000);
+    const [short, long] = interleavedBest([
+      trims(shortLabel, 16_000),
+      trims(longLabel, 2_000),
+    ]);
+    // Health: an inner run is kept whole, at both lengths, and a run that
+    // ends the label is trimmed.
+    expect(short!.got).toBe(shortLabel);
+    expect(long!.got).toBe(longLabel);
     expect(cleanLabel("Name" + ".:".repeat(25_000))).toBe("Name");
-    // Measured before: about 1.3 s; after: well under 1 ms.
-    expect(performance.now() - t0).toBeLessThan(100);
-  });
+    expectRatioUnder(
+      "trim, 8x longer labels at equal work",
+      long!.ms,
+      short!.ms,
+      2,
+    );
+  }, 60_000);
 
   // Review round 3, finding 2: the "/" between a date's box groups was the
   // boxes' label. A label holds a letter or a digit.
