@@ -1246,13 +1246,17 @@ function headingTest(
   // its caption (review round 4 fixes, finding 3; corpus P37). And the
   // body is set in the page's body size: two hint lines smaller than it
   // were read as one, and a signature line lost its caption (review round
-  // 5 fixes, finding 4; corpus P47).
+  // 5 fixes, finding 4; corpus P47). Unless the heading itself is set
+  // larger than the body: a sidebar's heading over its smaller text
+  // became a rule's caption (review round 6 fixes, finding 3; corpus N49).
   return (t) =>
     anyUnder(
       t,
       t.size - DETECT.HEADING_SMALLER_BY,
       (u) =>
-        (!prose || !smallerThanBody(u, prose)) &&
+        (!prose ||
+          !smallerThanBody(u, prose) ||
+          t.size >= prose.body + DETECT.HEADING_SMALLER_BY) &&
         anyUnder(u, u.size, () => true),
     );
 }

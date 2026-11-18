@@ -1284,6 +1284,46 @@ describe("labelled-rule", () => {
       expect(firstRule(page(2))).toBe("signature");
     });
 
+    // Review round 6 fixes, finding 3 (a regression from the fix above):
+    // a prose article's boxed-out sidebar, a rule over a heading over
+    // 8 pt text, got a field: the sidebar text is smaller than the page's
+    // 10 pt body, so it stopped counting as the heading's body and the
+    // heading became the rule's caption. A heading set larger than the
+    // page's body (by HEADING_SMALLER_BY) keeps a smaller body; the
+    // signature caption above is set AT body size and stays a caption.
+    it("a sidebar heading set larger than the page's body keeps its smaller text as its body", () => {
+      const article = (size: number) =>
+        pg({
+          segs: [hseg(340, 540, 704)],
+          text: [
+            ...Array.from({ length: 20 }, (_, i) =>
+              txt(
+                "Body text of the article runs on line after line.",
+                72,
+                700 - 13 * i,
+                {
+                  size: 10,
+                  width: 250,
+                },
+              ),
+            ),
+            txt("Did you know", 340, 688, { size, width: 66 }),
+            ...[676, 666, 656].map((y) =>
+              txt("Sidebar text set smaller than the body.", 340, y, {
+                size: 8,
+                width: 150,
+              }),
+            ),
+          ],
+        });
+      expect(props(article(10.5))).toEqual([]);
+      expect(firstRule(article(10.5))).toBe("unlabelled");
+      // 0.1 pt short of the body plus 0.5, it is the rule's caption again.
+      expect(props(article(10.4)).map((x) => x.label)).toEqual([
+        "Did you know",
+      ]);
+    });
+
     describe("a heading's body is two lines: one smaller line under a caption is its hint", () => {
       /**
        * "Full name" (10 pt) under a rule, a 5 pt hint 10 pt under it, and a

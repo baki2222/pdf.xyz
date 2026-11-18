@@ -77,14 +77,14 @@ describe("corpus health (FATAL when it fails)", () => {
       "P1b",
       "P1c",
       ...range("P", 2, 51),
-      ...range("N", 1, 48),
+      ...range("N", 1, 49),
       ...range("O", 1, 7),
     ];
-    expect(expected).toHaveLength(108);
+    expect(expected).toHaveLength(109);
     expect([...DETECT_CASES.map((c) => c.id)].sort()).toEqual(expected.sort());
     for (const [k, n] of [
       ["positive", 56],
-      ["negative", 45],
+      ["negative", 46],
       ["outcome", 7],
     ] as const)
       expect(kind(k).length, k).toBe(n);

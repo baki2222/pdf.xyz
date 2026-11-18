@@ -488,6 +488,26 @@ const P50 = {
  * caption's descent.
  */
 const P51 = { h: 20, size: 7, base: 650 + 20 - 2 - 0.7 * 7 };
+/** N49's article: its body (set twice, at y 700 and 550) and sidebar lines. */
+const N49 = {
+  body: [
+    "Heating and cooling account for nearly half of a typical",
+    "household's energy bill. Small changes in how a home is",
+    "insulated, ventilated and heated add up over a winter, and",
+    "most of them cost little or nothing to make. Sealing the",
+    "gaps around doors and windows is the cheapest place to",
+    "start, followed by insulating the loft and hot water pipes.",
+    "A programmable thermostat lets the heating run only when",
+    "the house is occupied, and lowering it by one degree can",
+    "cut a bill by as much as ten percent over a season.",
+    "Curtains drawn at dusk keep the warmth of the day indoors.",
+  ],
+  sidebar: [
+    "A dripping hot tap can waste enough",
+    "energy in a week to fill a bath.",
+    "Fixing a washer costs a few pence.",
+  ],
+};
 /** P43's empty boxes, each captioned with its baseline 4 pt over the top. */
 const P43 = [
   { caption: "Dietary requirements", y: 340, h: 70 },
@@ -2909,6 +2929,31 @@ export const DETECT_CASES: readonly DetectCase[] = [
     decidedBy: "unlabelled",
     at: { page: 1, x: 300, y: 695 },
     seamAlsoDisable: ["no-clearance"],
+  },
+  {
+    id: "N49",
+    kind: "negative",
+    note: 'a prose article in 10 pt with a boxed-out sidebar: a rule over a 10.5 pt "Did you know" over three 8 pt lines: no field',
+    // Review round 6 fixes, finding 3: the sidebar's text is smaller than
+    // the page's body, so after round 5's finding 4 it stopped counting as
+    // the heading's body, and the heading labelled the rule.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await text(page, "serif", "Saving on Energy at Home", 72, 730, 18);
+      for (const [i, s] of N49.body.entries()) {
+        await text(page, "serif", s, 72, 700 - 13 * i, 10);
+        await text(page, "serif", s, 72, 550 - 13 * i, 10);
+      }
+      rule(page, 340, 540, 704);
+      await text(page, H, "Did you know", 340, 688, 10.5);
+      for (const [i, s] of N49.sidebar.entries())
+        await text(page, H, s, 340, 676 - 10 * i, 8);
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "unlabelled",
+    at: { page: 1, x: 440, y: 710 },
   },
   {
     id: "P46",
