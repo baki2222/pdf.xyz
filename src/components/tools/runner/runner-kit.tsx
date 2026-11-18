@@ -719,6 +719,7 @@ function ProgressLine({ done, total, unit }: RunProgress) {
   return (
     <div
       role="progressbar"
+      aria-label="Progress"
       aria-valuemin={0}
       aria-valuemax={total}
       aria-valuenow={done}

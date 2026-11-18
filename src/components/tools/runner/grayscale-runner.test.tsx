@@ -15,6 +15,7 @@ import { PDFDocument, PDFName, PDFRawStream, rgb } from "pdf-lib";
 import { getRunnerKind } from "@/lib/pdf/registry";
 import {
   GRAYSCALE_DPI_PRESETS,
+  grayscalePdf,
   grayscalePresetTradeoff,
   grayscaleTitle,
 } from "@/lib/pdf/grayscale";
@@ -382,4 +383,126 @@ describe("grayscale-pdf: the 300 DPI preset reaches the page images", () => {
     const out = await convertThroughTheUi(await makeSource(), "chart.pdf");
     expect(await widths(out)).toEqual([300, 300]);
   }, 30_000);
+});
+
+/**
+ * Perf sweep 2026-11-18, P4: a 1,000-page run took about 80 s, and there was
+ * no way to stop it. The runner already made an AbortController and passed
+ * its signal through `grayscalePdf` to `capturePdfPages`; nothing on screen
+ * reached it. Asserted at the RENDERER, by counting the canvases pdf.js is
+ * handed, not at the button: a Cancel that only reset the screen would pass
+ * every check on the screen while the pages went on rendering behind it.
+ */
+describe("grayscale-pdf: Cancel stops the run", () => {
+  const PAGES = 40;
+
+  async function longSource(): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < PAGES; i++) {
+      const page = doc.addPage([612, 792]);
+      page.drawRectangle({
+        x: 72,
+        y: 72 + (i % 10) * 40,
+        width: 300,
+        height: 24,
+        color: rgb(0.2, 0.4, 0.8),
+      });
+    }
+    return doc.save();
+  }
+
+  /**
+   * Review finding (LOW): on an abort the renderer resolves with the pages it
+   * had, and `grayscalePdf` still SAVED them — a 203 ms long task 31 ms after
+   * Cancel on the sweep's F2, measured in Chromium — for a result the runner
+   * then threw away. Asserted at the saver, since nothing on screen shows it.
+   */
+  it("a cancelled run is not saved: grayscalePdf stops with an AbortError and never calls save()", async () => {
+    const source = await longSource();
+    const save = vi.spyOn(PDFDocument.prototype, "save");
+    const controller = new AbortController();
+    const outcome = await grayscalePdf(source, {
+      dpi: 36,
+      signal: controller.signal,
+      onProgress: (done) => {
+        if (done === 3) controller.abort();
+      },
+    }).then(
+      () => "resolved",
+      (error: unknown) => (error as { name?: string }).name,
+    );
+    expect(outcome).toBe("AbortError");
+    expect(save).toHaveBeenCalledTimes(0);
+  }, 30_000);
+
+  it("POSITIVE CONTROL: the same spy sees the save of a run that is not cancelled", async () => {
+    const source = await longSource();
+    const save = vi.spyOn(PDFDocument.prototype, "save");
+    const result = await grayscalePdf(source, { dpi: 36 });
+    expect(result.pageCount).toBe(PAGES);
+    expect(save).toHaveBeenCalledTimes(1);
+  }, 30_000);
+
+  it("Cancel while busy stops rendering and returns to the start, with no result and no error", async () => {
+    const { container } = render(
+      <Router>
+        <ToolRunner kind={getRunnerKind(SLUG)!} slug={SLUG} />
+      </Router>,
+    );
+    await runnerMounted(container);
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: {
+        files: [
+          new File([(await longSource()).slice()], "long.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    const run = await screen.findByRole("button", {
+      name: /convert to grayscale/i,
+    });
+    await waitFor(() => expect(run).toBeEnabled());
+    const before = canvasesMade;
+    fireEvent.click(run);
+    // Rendering is under way: two pages drawn, most still to come.
+    await waitFor(
+      () => expect(canvasesMade - before).toBeGreaterThanOrEqual(2),
+      {
+        timeout: 20_000,
+      },
+    );
+
+    // Review finding (LOW, already on main): axe's aria-progressbar-name —
+    // the progress bar under the button had no name to be read out by.
+    expect(screen.getByRole("progressbar", { name: "Progress" })).toBeTruthy();
+
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(cancel).toBeEnabled();
+    cancel.focus();
+    fireEvent.click(cancel);
+    // Review finding (LOW): Cancel removes itself, and focus fell to <body>,
+    // sending a keyboard or screen-reader user back to the top of the page.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: /convert to grayscale/i }),
+    );
+    const atCancel = canvasesMade - before;
+    expect(atCancel, "the run finished before Cancel").toBeLessThan(PAGES);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /convert to grayscale/i }),
+      ).toBeEnabled(),
+    );
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    // Long enough for several more pages, had the renderer not been told.
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    // At most the page already being drawn when Cancel was pressed.
+    expect(canvasesMade - before).toBeLessThanOrEqual(atCancel + 1);
+    expect(
+      screen.queryByRole("heading", { name: /grayscale pdf ready/i }),
+    ).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(downloads).toHaveLength(0);
+  }, 40_000);
 });

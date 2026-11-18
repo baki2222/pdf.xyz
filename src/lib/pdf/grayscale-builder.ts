@@ -1,6 +1,8 @@
 import { drawRasterImage, embedRasterImage, loadPdfLib } from "./pdf-lib";
 import { baseName } from "./files";
 import { encodeGrayJpeg } from "./gray-jpeg";
+import { grayJpegCanBeat } from "./gray-jpeg-bound";
+import { deflateNatively } from "./gray-deflate";
 import { clampJpegQuality } from "./pdf-to-image";
 import type { RasterCanvasInfo, RasterPage } from "./render";
 
@@ -80,13 +82,27 @@ export interface GrayPageRecord {
  * is colour. (The canvas JPEG this replaced was three-component, so pdf-lib
  * embedded neutral pixels as DeviceRGB: grey to the eye, colour to the printer.)
  *
- * Each plane is stored both ways and the smaller is kept:
+ * Each page keeps the smaller of two encodings:
  *  - a one-component baseline JPEG (`DCTDecode`), which wins on photographs
  *    and scans; or
  *  - the raw plane under `FlateDecode`, which is LOSSLESS and wins on text —
  *    measured at 150 DPI on a Letter page of body text, 125 KB against 270 KB.
  * So no page is ever larger than the one-component JPEG alone, and text pages
  * lose no sharpness to JPEG ringing.
+ *
+ * Flate is made first, and the JPEG only when it could still be smaller:
+ * `grayJpegCanBeat` (`./gray-jpeg-bound`) grows a lower bound on the JPEG's
+ * size — from the transformed non-blank blocks, never by guessing — and the
+ * JPEG is made only while that bound has not passed the Flate image. When it
+ * has, the old rule (keep the smaller) would have kept Flate: same choice,
+ * same bytes, tolerance zero. Measured on rendered Letter text pages at
+ * 150 DPI, the JPEG was about three times the Flate image at every density
+ * (6 lines: 90 KB against 30 KB; 50 lines: 646 KB against 232 KB) and was
+ * the largest cost of a text run (perf sweep 2026-11-18, P3); the bound
+ * settles those pages in 2–12 ms where the JPEG took 33–61 ms (Node,
+ * measured for the PR). A photo or scan page, where the JPEG wins,
+ * pays about 3 ms for the bound to give up. `grayscale-encode-once.test.ts`
+ * and `gray-jpeg-bound.test.ts` pin both halves.
  *
  * Pure pdf-lib, DOM-free: the Node tests drive this same builder.
  */
@@ -126,19 +142,34 @@ export async function createGrayscaleBuilder({
         );
       }
       const [pageWidth, pageHeight] = pageSizeForRaster(page);
-      const jpeg = encodeGrayJpeg(plane, page.width, page.height, jpegQuality);
-      const flate = doc.context.flateStream(plane, {
+      const imageDict = {
         Type: "XObject",
         Subtype: "Image",
         Width: page.width,
         Height: page.height,
         ColorSpace: "DeviceGray",
         BitsPerComponent: 8,
-      });
+      };
+      // The platform's deflater where there is one (about twice pako's
+      // speed, `./gray-deflate`); pdf-lib's otherwise.
+      const deflated = await deflateNatively(plane);
+      const flate = deflated
+        ? doc.context.stream(deflated, { ...imageDict, Filter: "FlateDecode" })
+        : doc.context.flateStream(plane, imageDict);
+      // `null`: no JPEG could be smaller than this Flate image (see above).
+      const jpeg = grayJpegCanBeat(
+        plane,
+        page.width,
+        page.height,
+        jpegQuality,
+        flate.contents.length,
+      )
+        ? encodeGrayJpeg(plane, page.width, page.height, jpegQuality)
+        : null;
 
       // No background fill: the image is opaque and covers the whole page.
       const outPage = doc.addPage([pageWidth, pageHeight]);
-      if (flate.contents.length <= jpeg.length) {
+      if (jpeg === null || flate.contents.length <= jpeg.length) {
         const name = outPage.node.newXObject("Im", doc.context.register(flate));
         outPage.pushOperators(
           pushGraphicsState(),

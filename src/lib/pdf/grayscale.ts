@@ -118,8 +118,11 @@ export async function grayscalePdf(
       return builder.addPage(luminancePlane(data), page);
     },
   });
-  // Counted from the builder, not from `pages`: on an abort the page being
-  // captured is already in the document when the loop stops.
+  // On an abort the renderer resolves with the pages it had. Saving them is
+  // one long task (203 ms measured on a 40-page scan) for a result nobody
+  // will see, so stop here, as an abort, before `save()`.
+  if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  // Counted from the builder: it holds every page that went into the output.
   if (builder.pages.length === 0)
     throw new Error("No pages could be rendered from this PDF.");
 
