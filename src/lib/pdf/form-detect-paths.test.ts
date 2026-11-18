@@ -351,6 +351,41 @@ describe("scanPaths", () => {
     expect(r.rects[0]!.width).toBeCloseTo(8, 6);
   });
 
+  // A Rect's level and plumb thicknesses could be handed to pushRect in
+  // either order with everything green: the Rect's own width is the larger
+  // of the two, and the only cut-outline test used line width 0. A clipped
+  // outline under a stretched CTM then gave its visible edges the other
+  // axis's thickness (review finding).
+  it("a clipped outline under a stretched CTM cuts each edge at its own thickness", () => {
+    const cut = (cm: number[], box: number[], clip: number[]) =>
+      scan([
+        [OPS.clip, []],
+        path(OPS.endPath, ...re(clip[0]!, clip[1]!, clip[2]!, clip[3]!)),
+        [OPS.transform, cm],
+        [OPS.setLineWidth, [4]],
+        path(OPS.stroke, ...re(box[0]!, box[1]!, box[2]!, box[3]!)),
+      ]).segs.map((s) => [
+        Math.abs(s.y1 - s.y0) < 0.01 ? "level" : "plumb",
+        s.width,
+      ]);
+    // Both boxes are [130 600 330 620] on the page, clipped to x 150..310,
+    // which drops the plumb sides and cuts the level edges. Under
+    // [8 0 0 0.125] its level edges are 0.5 thick (plumb ones 32) ...
+    expect(
+      cut([8, 0, 0, 0.125, 0, 0], [16.25, 4800, 25, 160], [150, 0, 160, 792]),
+    ).toEqual([
+      ["level", 0.5],
+      ["level", 0.5],
+    ]);
+    // ... and under the transpose [0.125 0 0 8] they are 32 thick.
+    expect(
+      cut([0.125, 0, 0, 8, 0, 0], [1040, 75, 1600, 2.5], [150, 0, 160, 792]),
+    ).toEqual([
+      ["level", 32],
+      ["level", 32],
+    ]);
+  });
+
   it("enters a form XObject with its matrix and leaves it at its end", () => {
     const r = scan([
       [
