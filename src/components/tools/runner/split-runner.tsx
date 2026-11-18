@@ -665,7 +665,13 @@ export function SplitEditor({
           <RunnerSection
             title={`Preview · ${parts.length} file${parts.length === 1 ? "" : "s"}`}
           >
-            <ul className="flex max-h-52 flex-col gap-1.5 overflow-auto pr-1">
+            {/* Nothing inside takes focus, so the list itself does: a
+                keyboard can scroll it (axe scrollable-region-focusable). */}
+            <ul
+              aria-label="Files this split will make"
+              tabIndex={0}
+              className="focus-visible:ring-ok/50 flex max-h-52 flex-col gap-1.5 overflow-auto pr-1 outline-none focus-visible:ring-2"
+            >
               {parts.map((part, i) => (
                 <li
                   key={part.name}

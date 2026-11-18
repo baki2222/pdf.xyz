@@ -100,9 +100,16 @@ export function PdfToMarkdownEditor({
       >
         {result.hasMarkdown ? (
           <div className="flex flex-col gap-4">
-            <div className="border-line text-fg bg-canvas rounded-panel max-h-72 overflow-auto border p-4 font-mono text-sm leading-6 whitespace-pre-wrap">
+            {/* A named, focusable region: a keyboard can scroll it (axe
+                scrollable-region-focusable, found on the result 2026-11-18;
+                PDF to Text had the same fix a day earlier). */}
+            <section
+              aria-label="Markdown preview"
+              tabIndex={0}
+              className="border-line text-fg bg-canvas rounded-panel focus-visible:ring-ok/50 max-h-72 overflow-auto border p-4 font-mono text-sm leading-6 whitespace-pre-wrap outline-none focus-visible:ring-2"
+            >
               {result.markdown}
-            </div>
+            </section>
             <button
               type="button"
               onClick={() =>
