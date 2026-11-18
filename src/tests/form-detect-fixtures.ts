@@ -469,6 +469,19 @@ const P42 = {
   captions: ["Received by", "Signature", "Date"],
   x: (i: number) => 72 + i * 159,
 };
+/**
+ * P50's row of separate captioned boxes (a W-2's): 150 pt wide, 10 pt
+ * apart, `h` tall from y 650, an 8 pt caption 2 pt under each top-left.
+ */
+const P50 = {
+  captions: [
+    "1 Wages, tips, other compensation",
+    "2 Federal income tax withheld",
+    "3 Social security wages",
+  ],
+  x: (i: number) => 72 + i * 160,
+  h: 24,
+};
 /** P43's empty boxes, each captioned with its baseline 4 pt over the top. */
 const P43 = [
   { caption: "Dietary requirements", y: 340, h: 70 },
@@ -3021,6 +3034,37 @@ export const DETECT_CASES: readonly DetectCase[] = [
         box: squareBox(x, P49.y(i), 12),
       })),
     ),
+  },
+  {
+    id: "P50",
+    kind: "positive",
+    note: 'a row of three separate 24 pt boxes 10 pt apart, each with an 8 pt caption in its top-left ("1 Wages, tips, other compensation", "2 Federal income tax withheld", "3 Social security wages"): each box labelled with its own caption',
+    // Review round 6 fixes, finding 1: box 2 took box 1's caption, which
+    // ends 26 pt to its left, as its left label (a regression from round
+    // 4's finding 24, a left label anywhere up a box's side).
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const [i, s] of P50.captions.entries()) {
+        page.drawRectangle({
+          x: P50.x(i),
+          y: 650,
+          width: 150,
+          height: P50.h,
+          borderColor: rgb(0, 0, 0),
+          borderWidth: 0.75,
+        });
+        await text(page, H, s, P50.x(i) + 2, 650 + P50.h - 7.6, 8);
+      }
+      return save(d);
+    },
+    expect: P50.captions.map((s, i) => ({
+      rule: "labelled-rule" as const,
+      type: "text" as const,
+      label: s,
+      page: 1,
+      box: ruleBox(P50.x(i), P50.x(i) + 150, 650, 8),
+    })),
   },
 
   // ---------------------------------------------------------- outcomes

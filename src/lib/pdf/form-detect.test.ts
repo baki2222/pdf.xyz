@@ -657,6 +657,89 @@ describe("labelled-rule", () => {
         merged.segs = [hseg(269.5, 300, 650)];
         expect(label(merged)).toEqual([]);
       });
+
+      // Review round 6 fixes, finding 1 (a regression from finding 24's
+      // band): in a row of separate captioned boxes 10 pt apart (a W-2's),
+      // a box's left neighbour's caption ends within the 36 pt left gap
+      // and sits up the box's side, so it labelled the box over the box's
+      // own caption. Text inside another outlined box that ends left of
+      // the box is that box's caption, and the box's own caption wins.
+      describe("a row of separate captioned boxes: each box takes its own caption", () => {
+        const CAPS = [
+          "1 Wages, tips, other compensation",
+          "2 Federal income tax withheld",
+          "3 Social security wages",
+        ];
+        /** Three 150 pt boxes `h` tall, 8 pt captions 2 pt under the tops. */
+        const row = (h: number, more: Partial<CardPage> = {}) =>
+          pg({
+            rects: CAPS.map((_, i) => rect(72 + 160 * i, 650, 150, h)),
+            // Caption 1 ends at 206, 26 pt left of box 2 (at 232).
+            text: CAPS.map((s, i) =>
+              txt(s, 74 + 160 * i, 650 + h - 7.6, { size: 8 }),
+            ),
+            ...more,
+          });
+
+        it("24 and 28 pt boxes: box 2 takes '2 Federal income tax withheld', not box 1's caption", () => {
+          for (const h of [24, 28])
+            expect(label(row(h))).toEqual(CAPS.map((s) => [s, 651]));
+        });
+
+        it("a label in a cell of its own beside an EMPTY box still labels it", () => {
+          const p = pg({
+            rects: [rect(72, 650, 60, 24), rect(140, 650, 130, 24)],
+            text: [txt("Total hours", 74, 657.5, { size: 10, width: 55 })],
+          });
+          expect(label(p)).toEqual([["Total hours", 651]]);
+        });
+
+        it("a left label not wholly inside a box ending left of the box keeps labelling it", () => {
+          // "Received by:" over the top of a box under it, under the bottom
+          // of a box over it, overhanging the left side of a narrower one
+          // and the right side of another, and inside a frame round the
+          // whole row: none holds it as its own text.
+          const beside = (frame: CardRect) =>
+            props(
+              pg({
+                rects: [rect(140, 600, 200, 24), frame],
+                text: [
+                  txt("Received by:", 72, 605.5, { size: 10, width: 60 }),
+                  txt("Notes", 142, 619, { size: 7, width: 20 }),
+                ],
+              }),
+            )
+              .filter((x) => x.x === 141)
+              .map((x) => [x.label, x.y]);
+          for (const frame of [
+            rect(72, 560, 60, 40),
+            rect(72, 610, 60, 30),
+            rect(80, 600, 52, 20),
+            rect(60, 600, 50, 20),
+            rect(60, 590, 400, 40),
+          ])
+            expect(beside(frame)).toEqual([["Received by", 601]]);
+          // The control: wholly inside a cell of its own, it is that
+          // cell's text, and the box's own caption wins.
+          expect(beside(rect(70, 600, 64, 20))).toEqual([["Notes", 601]]);
+        });
+
+        it("a rect far taller than the page holds its text too, without a bucket per point", () => {
+          const p = pg({
+            rects: [rect(70, -1e8, 64, 2e8), rect(140, 600, 200, 24)],
+            text: [
+              txt("Received by:", 72, 605.5, { size: 10, width: 60 }),
+              txt("Notes", 142, 619, { size: 7, width: 20 }),
+            ],
+          });
+          const t0 = performance.now();
+          const got = props(p)
+            .filter((x) => x.x === 141)
+            .map((x) => x.label);
+          expect(performance.now() - t0).toBeLessThan(250);
+          expect(got).toEqual(["Notes"]);
+        });
+      });
     });
   });
 

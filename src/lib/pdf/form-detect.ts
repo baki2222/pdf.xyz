@@ -1412,6 +1412,45 @@ function pullQuotes(
 }
 
 /**
+ * Whether text lies wholly inside a drawn rect (a box, a cell) that ends
+ * left of `x`: it is that rect's own text. The rects are bucketed by
+ * height, so each question reads only the rects round the text's
+ * baseline; scanning every rect for every box's left label was quadratic
+ * in a column of boxes. A rect spanning more than `TALL` buckets (or with
+ * an edge that is not finite) is met by every question instead.
+ */
+function boxHolder(p: CardPage): (t: CardText, x: number) => boolean {
+  const STEP = 50;
+  const TALL = 64;
+  const band = (y: number) => Math.floor(y / STEP);
+  const buckets = new Map<number, CardRect[]>();
+  const tall: CardRect[] = [];
+  for (const q of p.rects) {
+    const b0 = band(q.y0);
+    const b1 = band(q.y1);
+    if (!(b1 - b0 <= TALL)) {
+      tall.push(q);
+      continue;
+    }
+    for (let b = b0; b <= b1; b++) {
+      const list = buckets.get(b);
+      if (list) list.push(q);
+      else buckets.set(b, [q]);
+    }
+  }
+  return (t, x) => {
+    const right = t.x + Math.max(0, t.width);
+    const holds = (q: CardRect) =>
+      q.x1 <= x + 1 &&
+      t.x >= q.x0 - 1 &&
+      right <= q.x1 + 1 &&
+      t.y > q.y0 &&
+      t.y < q.y1;
+    return (buckets.get(band(t.y)) ?? []).some(holds) || tall.some(holds);
+  };
+}
+
+/**
  * The caption of an outlined box whose bottom edge is `r` and whose top is
  * at `top` ({@link DETECT.NOTICE_MIN_WORDS}): its one interior text, set
  * under its top-left, or, when it holds no text, the nearest upright text
@@ -1576,6 +1615,7 @@ function ruleCandidates(
   const prose = proseOf(p);
   const quotes = pullQuotes(p, lines, prose);
   const heading = headingTest(p.text, prose);
+  const heldBy = boxHolder(p);
   for (const r of lines.rules) {
     const len = r.x1 - r.x0;
     if (len < DETECT.RULE_MIN_LEN) continue;
@@ -1606,8 +1646,20 @@ function ruleCandidates(
       band.lo,
       hi,
     );
-    let pick = pickLabel(left);
-    let size = left.find((h) => h.text.upright)?.text.size;
+    // Text inside another drawn box that ends left of this one is that
+    // box's own caption: in a row of separate captioned boxes (a W-2's) a
+    // neighbour's caption ends within the left gap, up this box's side,
+    // and it labelled the box over the box's own caption (review round 6
+    // fixes, finding 1; corpus P50). A label in a cell of its own beside
+    // an EMPTY box still labels it.
+    const owned =
+      boxTop !== undefined && left.some((h) => heldBy(h.text, r.x0))
+        ? left.filter((h) => !heldBy(h.text, r.x0))
+        : left;
+    const mine =
+      owned !== left && boxCaption(p, r, boxTop!) !== null ? owned : left;
+    let pick = pickLabel(mine);
+    let size = mine.find((h) => h.text.upright)?.text.size;
     // A line in a label column takes its column's label from farther away.
     const inColumn = pick.state === "found" ? undefined : column.get(r);
     if (inColumn) {
