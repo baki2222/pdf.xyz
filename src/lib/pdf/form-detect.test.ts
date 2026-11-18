@@ -835,6 +835,85 @@ describe("labelled-rule", () => {
           expect(beside(rect(70, 600, 64, 20))).toEqual([["Notes", 601]]);
         });
 
+        // Regression verify after review round 6: the frames above sit 8
+        // to 12 pt off every edge of the cell test, so each of its five
+        // edges could move (1 pt of slack dropped, strict made loose) with
+        // every test green (mutants BH2, BH4, BH5, BH6, BH7). Each edge is
+        // pinned here at the boundary and just past it.
+        it("the cell holding a left label: 1 pt of slack at its sides and right, none at its top and bottom", () => {
+          const beside = (frame: CardRect, lab: Partial<CardText> = {}) =>
+            props(
+              pg({
+                rects: [rect(140, 600, 200, 24), frame],
+                text: [
+                  txt("Received by:", 72, 605.5, {
+                    size: 10,
+                    width: 60,
+                    ...lab,
+                  }),
+                  txt("Notes", 142, 619, { size: 7, width: 20 }),
+                ],
+              }),
+            )
+              .filter((x) => x.x === 141)
+              .map((x) => x.label);
+          const HELD = ["Notes"];
+          const FREE = ["Received by"];
+          // Its left edge up to 1 pt right of the label's start (72).
+          expect(beside(rect(72.5, 600, 61.5, 20))).toEqual(HELD);
+          expect(beside(rect(73, 600, 61, 20))).toEqual(HELD);
+          expect(beside(rect(73.1, 600, 61, 20))).toEqual(FREE);
+          // Its right edge up to 1 pt left of the label's end (132).
+          expect(beside(rect(70, 600, 61.5, 20))).toEqual(HELD);
+          expect(beside(rect(70, 600, 61, 20))).toEqual(HELD);
+          expect(beside(rect(70, 600, 60.9, 20))).toEqual(FREE);
+          // Its right edge up to 1 pt into the box (from 140), the cell
+          // short enough not to meet the box's top or bottom.
+          expect(beside(rect(70, 603, 70.5, 10))).toEqual(HELD);
+          expect(beside(rect(70, 603, 71, 10))).toEqual(HELD);
+          expect(beside(rect(70, 603, 71.1, 10))).toEqual(FREE);
+          // The baseline (605.5) strictly inside: on the bottom or the top
+          // edge is outside the cell.
+          expect(beside(rect(70, 605.4, 64, 20))).toEqual(HELD);
+          expect(beside(rect(70, 605.5, 64, 20))).toEqual(FREE);
+          expect(beside(rect(70, 590, 64, 15.6))).toEqual(HELD);
+          expect(beside(rect(70, 590, 64, 15.5))).toEqual(FREE);
+          // A negative width reaches no farther left than the label's
+          // start: starting 5 pt right of the cell, it is outside it.
+          expect(beside(rect(70, 600, 50, 20), { x: 125, width: -10 })).toEqual(
+            FREE,
+          );
+        });
+
+        // Mutant BH1 (the tall test written `b1 - b0 > TALL`): a rect
+        // whose bands are both infinite has no finite span, and walking
+        // its buckets one by one never ends.
+        it("a cell with an infinite top and bottom holds its label; a rect at an infinite height is read once, not bucket by bucket", () => {
+          const frame: CardRect = {
+            ...rect(70, 0, 64, 0),
+            y0: -Infinity,
+            y1: Infinity,
+          };
+          const lost: CardRect = {
+            ...rect(400, 0, 50, 0),
+            y0: Infinity,
+            y1: Infinity,
+          };
+          const p = pg({
+            rects: [rect(140, 600, 200, 24), frame, lost],
+            text: [
+              txt("Received by:", 72, 605.5, { size: 10, width: 60 }),
+              txt("Notes", 142, 619, { size: 7, width: 20 }),
+            ],
+          });
+          const t0 = performance.now();
+          const got = props(p)
+            .filter((x) => x.x === 141)
+            .map((x) => x.label);
+          expect(performance.now() - t0).toBeLessThan(250);
+          expect(got).toEqual(["Notes"]);
+        });
+
         it("a rect far taller than the page holds its text too, without a bucket per point", () => {
           const p = pg({
             rects: [rect(70, -1e8, 64, 2e8), rect(140, 600, 200, 24)],
