@@ -3286,6 +3286,32 @@ describe("exclusions, each at its boundary", () => {
     expect(ms).toBeLessThan(400);
   });
 
+  // Review round 4 fixes, finding 11: the duplicate pass walked every
+  // later survivor past DUP_DY with `continue` on a list sorted by y, so it
+  // was quadratic in labelled squares, and a headed grid labels them all
+  // (824 ms at 20,000 on the reviewer's machine). It stops at DUP_DY now.
+  it("a headed grid of 20,000 labelled squares is classified in linear time", () => {
+    const rects: CardRect[] = [];
+    const text: CardText[] = [];
+    for (let r = 0; r < 200; r++) {
+      for (let c = 0; c < 100; c++)
+        rects.push(rect(200 + 12 * c, 20 + 12 * r, 8, 8));
+      text.push(txt(`Row ${r}`, 40, 22 + 12 * r, { size: 6, width: 30 }));
+    }
+    const top = 20 + 12 * 199 + 8;
+    for (let c = 0; c < 100; c++)
+      text.push(txt(`H${c}`, 200 + 12 * c, top + 6, { size: 5, width: 7 }));
+    const t0 = performance.now();
+    const res = run(pg({ width: 1500, height: top + 100, rects, text }));
+    const ms = performance.now() - t0;
+    // Health: every square is labelled by the grid (the page cap keeps 60).
+    expect(res.counts.candidates).toBe(20_000);
+    expect(res.proposals).toHaveLength(60);
+    expect(res.counts.capped).toBe(20_000 - 60);
+    expect(res.proposals[0]!.label).toBe("Row 199 H0");
+    expect(ms).toBeLessThan(400);
+  });
+
   it("a filled square is a bullet", () => {
     const p = pg({
       rects: [rect(72, 600, 8, 8, { filled: true, stroked: false })],

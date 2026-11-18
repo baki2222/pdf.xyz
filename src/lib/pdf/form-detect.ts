@@ -2453,6 +2453,10 @@ export function classifyPage(
       if (gone.has(a)) continue;
       for (let j = i + 1; j < survivors.length; j++) {
         const b = survivors[j]!;
+        // Sorted by bottom: nothing later is within DUP_DY either. With
+        // `continue` here the pass was quadratic in labelled squares
+        // (review round 4 fixes, finding 11).
+        if (b.c.box.y0 - a.c.box.y0 > DETECT.DUP_DY) break;
         if (gone.has(b) || a.c.type !== b.c.type) continue;
         if (Math.abs(a.c.box.y0 - b.c.box.y0) > DETECT.DUP_DY) continue;
         const ov = overlap(a.c.box.x0, a.c.box.x1, b.c.box.x0, b.c.box.x1);
