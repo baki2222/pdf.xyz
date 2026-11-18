@@ -2173,6 +2173,23 @@ describe("square-checkbox", () => {
       });
       expect(labels(p)).toEqual(["Colour", "Red"]);
     });
+    // Review round 4 fixes, finding 17: the reader gives a label no width
+    // when pdf.js gives none, so "Yes" was measured as ending where it
+    // starts, tied with the "No" across the box, and the Yes box read
+    // "No". The row rule reads this row from its left side in full.
+    it("'Yes [] No []' with the labels' widths unknown (0) still reads Yes, No", () => {
+      const p = (wYes: number, wNo: number) =>
+        pg({
+          rects: [rect(100, 200, 10, 10), rect(150, 200, 10, 10)],
+          text: [
+            txt("Yes", 80, 202, { size: 10, width: wYes }),
+            txt("No", 130, 202, { size: 10, width: wNo }),
+          ],
+        });
+      expect(labels(p(16, 14))).toEqual(["Yes", "No"]);
+      expect(labels(p(0, 14))).toEqual(["Yes", "No"]);
+      expect(labels(p(0, 0))).toEqual(["Yes", "No"]);
+    });
   });
 
   // Review round 3, finding 7: a condition x Yes / No grid, or a rating
