@@ -572,6 +572,7 @@ function pieces(t: CardText, item: number): Piece[] {
 
 const TRAILING = /[\s:.\-\u2013\u2014]/u;
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
+const LETTER = /\p{L}/u;
 
 /**
  * Label text: underscores and trailing colons dropped, spaces collapsed.
@@ -1959,7 +1960,9 @@ function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
   // its band). A ruled fee table's "Select" column, its names in the first
   // cell, proposed none of its boxes (review round 4 fixes, finding 23;
   // corpus P41). Without "alone", a headless Yes / No grid read
-  // "Asthma", "Asthma".
+  // "Asthma", "Asthma". The text must hold a letter: a numbered list's
+  // boxes were named "1" to "5" (review round 5 fixes, finding 3;
+  // corpus P46).
   const bySquare = new Map(out.map((c) => [c.square, c]));
   // Rows by bottom alone (any size of square shares a row), within
   // COMB_EPS of the row's first.
@@ -1987,7 +1990,7 @@ function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
         s.y0 - DETECT.RUN_BASELINE_EMS * 12,
         () => s.y1,
       )
-        .filter((h) => h.text.upright)
+        .filter((h) => h.text.upright && LETTER.test(h.str))
         .pop();
       if (!first) continue;
       const c = bySquare.get(s)!;

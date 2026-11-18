@@ -533,6 +533,12 @@ const N46 = {
     ["2", "Archive boxes (pack of 10)", "AB-10"],
   ],
 };
+/** P46's packing list: items, row baselines, the Packed column's boxes. */
+const P46 = {
+  items: ["Passport", "Tickets", "Charger", "Medication", "Keys"],
+  y: (i: number) => 620 - 20 * i,
+  boxX: 405,
+};
 /** N47's two 8-box date combs (14 pt, edge to edge), one head per box. */
 const N47 = {
   rows: ["Date of birth", "Date of arrival"],
@@ -2865,6 +2871,33 @@ export const DETECT_CASES: readonly DetectCase[] = [
     decidedBy: "unlabelled",
     at: { page: 1, x: 300, y: 695 },
     seamAlsoDisable: ["no-clearance"],
+  },
+  {
+    id: "P46",
+    kind: "positive",
+    note: "a numbered checklist (No. | Item | Packed) with a 9 pt box on each row: each box named after its item, not its number",
+    // Review round 5 fixes, finding 3: P41's checklist rule named these
+    // boxes "1" to "5", each row's first text.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await text(page, H, "No.", 72, 640, 10);
+      await text(page, H, "Item", 110, 640, 10);
+      await text(page, H, "Packed", 395, 640, 10);
+      for (const [i, s] of P46.items.entries()) {
+        await text(page, H, `${i + 1}`, 72, P46.y(i), 10);
+        await text(page, H, s, 110, P46.y(i), 10);
+        square(page, P46.boxX, P46.y(i) - 1, 9);
+      }
+      return save(d);
+    },
+    expect: P46.items.map((s, i) => ({
+      rule: "square-checkbox" as const,
+      type: "checkbox" as const,
+      label: s,
+      page: 1,
+      box: squareBox(P46.boxX, P46.y(i) - 1, 9),
+    })),
   },
 
   // ---------------------------------------------------------- outcomes

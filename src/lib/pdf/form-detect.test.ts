@@ -2752,6 +2752,21 @@ describe("square-checkbox", () => {
         expect(labels(p)).toEqual(["Full delegate", "Student"]);
       });
 
+      // Review round 5 fixes, finding 3: in a numbered list the row's
+      // first text is its number, and the boxes were named "1" to "3". A
+      // label names something; a row number names a position.
+      it("the row's first text WITH A LETTER: a numbered checklist's boxes take their items, not their numbers", () => {
+        const items = ["Passport", "Tickets", "Charger"];
+        const p = pg({
+          rects: items.map((_, i) => rect(405, 619 - 20 * i, 9, 9)),
+          text: items.flatMap((s, i) => [
+            txt(`${i + 1}`, 72, 620 - 20 * i, { size: 10, width: 6 }),
+            txt(s, 110, 620 - 20 * i, { size: 10, width: 40 }),
+          ]),
+        });
+        expect(labels(p)).toEqual(items);
+      });
+
       it("each box must be alone on its row: a headless two-column grid stays unlabelled", () => {
         expect(labels(grid({ heads: [] }))).toEqual([]);
       });
