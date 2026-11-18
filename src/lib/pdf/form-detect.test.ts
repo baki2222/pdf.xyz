@@ -544,6 +544,33 @@ describe("labelled-rule", () => {
         ["Date", 659],
       ]);
     });
+
+    // KNOWN MISS (review round 4 fixes, finding 5): captions under their
+    // lines in a stack that ends with a bare line (address line 2) read as
+    // strips, so every caption moves one line down and the top line loses
+    // its own. Its geometry is the strips' exactly (a caption just under
+    // each rule but the lowest; 9 pt captions 3.7 pt under here, 7 pt 2.1
+    // pt under in P29), so no rule tells them apart, and the narrowest
+    // change tried (strips need 4 rules or more) gave up every 3-rule
+    // strip and still shifted the 4-rule C2. Pinned as it is, for the
+    // owner: invert it when a signal is found.
+    it("KNOWN MISS: captions under three lines with a bare third line move down one line (the C1 shape)", () => {
+      const p = pg({
+        segs: [640, 610, 580].map((y) => hseg(72, 400, y)),
+        text: [
+          txt("Name", 72, 630, { size: 9, width: 24 }),
+          txt("Address", 72, 600, { size: 9, width: 34 }),
+        ],
+      });
+      // Wanted: ["Name", 641], ["Address", 611].
+      expect(labelled(p)).toEqual([
+        ["Name", 611],
+        ["Address", 581],
+      ]);
+      expect(run(p).excluded).toEqual([
+        expect.objectContaining({ rule: "unlabelled" }),
+      ]);
+    });
   });
 
   // Review round 3, finding 8: a multi-line "Address:" or "Notes:" field
