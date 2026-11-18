@@ -1916,6 +1916,55 @@ describe("square-checkbox", () => {
       expect(labels(p)).toEqual(["Music", "Sports", "Reading", "Travel"]);
     });
 
+    // Review round 4 fixes, finding 2: two option lists set side by side,
+    // each under its own heading (or under an instruction drawn as two text
+    // items), passed for a headed grid, and every box was labelled with the
+    // heading instead of its own option. A square with its own upright
+    // label on its right is no grid cell.
+    it("two headed option lists side by side keep their own labels", () => {
+      const p = (heads: [string, number][]) =>
+        pg({
+          rects: [0, 1, 2].flatMap((i) =>
+            [72, 300].map((x) => rect(x, 594 - 18 * i, 10, 10)),
+          ),
+          text: [
+            ...heads.map(([s, x]) => txt(s, x, 612, { size: 10, width: 60 })),
+            ...[
+              ["Fever", "Insulin"],
+              ["Cough", "Inhaler"],
+              ["Headache", "Aspirin"],
+            ].flatMap(([a, b], i) => [
+              txt(a!, 88, 596 - 18 * i, { size: 10, width: 40 }),
+              txt(b!, 316, 596 - 18 * i, { size: 10, width: 40 }),
+            ]),
+          ],
+        });
+      const own = [
+        "Fever",
+        "Insulin",
+        "Cough",
+        "Inhaler",
+        "Headache",
+        "Aspirin",
+      ];
+      expect(
+        labels(
+          p([
+            ["Symptoms", 72],
+            ["Medication", 300],
+          ]),
+        ),
+      ).toEqual(own);
+      expect(
+        labels(
+          p([
+            ["Which of these have you had?", 72],
+            ["(tick all that apply)", 300],
+          ]),
+        ),
+      ).toEqual(own);
+    });
+
     it("a grid needs two squares in each row and in each column", () => {
       // One column of squares under a head ...
       expect(labels(grid({ xs: [400], heads: ["Tick"] }))).toEqual([]);

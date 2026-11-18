@@ -1387,7 +1387,8 @@ function squareGroups(
  * first square. Such grids once proposed nothing, or with dot leaders only
  * the first column, named after the row alone (review round 3, finding 7;
  * corpus P30, P31). An option list in columns under one instruction is no
- * grid: its other columns have no head.
+ * grid: its other columns have no head. A square with its own label on its
+ * right does not take its grid label (`squareCandidates`; corpus P36).
  */
 function gridLabels(
   p: CardPage,
@@ -1506,7 +1507,10 @@ function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
     const { right, left, r, l, rGap, lGap } = sides.get(sq)!;
     const leftWins = rowLeft.get(sq) ?? lGap < rGap;
     let pick: ReturnType<typeof pickLabel>;
-    const inGrid = grid.get(sq);
+    // A square with its own upright label on its right is an option, never
+    // a grid cell: two headed option lists side by side once passed for a
+    // grid and took their headings (review round 4 fixes, finding 2; P36).
+    const inGrid = r ? undefined : grid.get(sq);
     if (inGrid) pick = { label: inGrid, state: "found" };
     else if (l && leftWins) pick = { label: l.str, state: "found" };
     else if (r) pick = { label: r.str, state: "found" };

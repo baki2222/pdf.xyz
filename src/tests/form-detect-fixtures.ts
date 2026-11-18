@@ -407,6 +407,11 @@ const P35 = {
   male: P35_MALE,
   female: P35_MALE + 11 + textWidth(H, "Female", 10) + 4,
 };
+/** P36's two headed option lists, at x 72 and 300 (Helvetica 10). */
+const P36 = [
+  { head: "Symptoms", options: ["Fever", "Cough", "Headache"] },
+  { head: "Medication", options: ["Insulin", "Inhaler", "Aspirin"] },
+];
 /** N32's line starts 40 pt right of where "Address:" (12 pt) ends. */
 const N32_X0 = 72 + textWidth(H, "Address:", 12) + 40;
 /**
@@ -2253,6 +2258,36 @@ export const DETECT_CASES: readonly DetectCase[] = [
       page: 1,
       box: squareBox(x, y, 10),
     })),
+  },
+  {
+    id: "P36",
+    kind: "positive",
+    note: 'two option lists side by side, "Symptoms" over "[box] Fever / Cough / Headache" and "Medication" over "[box] Insulin / Inhaler / Aspirin": each box takes its own option',
+    // Review round 4 fixes, finding 2: the two lists passed for a headed
+    // checkbox grid, and every box was labelled "Symptoms" or "Medication".
+    // P30 and P31 are the controls: real grids keep their grid labels.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const [k, list] of P36.entries()) {
+        const x = 72 + 228 * k;
+        await text(page, H, list.head, x, 612, 10);
+        for (const [i, s] of list.options.entries()) {
+          square(page, x, 594 - 18 * i, 10);
+          await text(page, H, s, x + 16, 596 - 18 * i, 10);
+        }
+      }
+      return save(d);
+    },
+    expect: [0, 1, 2].flatMap((i) =>
+      P36.map((list, k) => ({
+        rule: "square-checkbox" as const,
+        type: "checkbox" as const,
+        label: list.options[i]!,
+        page: 1,
+        box: squareBox(72 + 228 * k, 594 - 18 * i, 10),
+      })),
+    ),
   },
 
   // ---------------------------------------------------------- outcomes
