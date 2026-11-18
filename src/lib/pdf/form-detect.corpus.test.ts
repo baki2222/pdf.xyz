@@ -50,18 +50,44 @@ const runOf = (c: DetectCase) => {
 describe("corpus health (FATAL when it fails)", () => {
   it("the corpus is not empty, and not implausibly small", () => {
     expect(DETECT_CASES.length, "corpus implausibly small").toBeGreaterThan(0);
+    // Raised in review round 5 fixes (finding 9) from 14 / 15 / 6, which
+    // let rounds 4 and 5 drop their cases with every test green.
     expect(
       kind("positive").length,
       "corpus implausibly small",
-    ).toBeGreaterThanOrEqual(14);
+    ).toBeGreaterThanOrEqual(54);
     expect(
       kind("negative").length,
       "corpus implausibly small",
-    ).toBeGreaterThanOrEqual(15);
+    ).toBeGreaterThanOrEqual(45);
     expect(
       kind("outcome").length,
       "corpus implausibly small",
-    ).toBeGreaterThanOrEqual(6);
+    ).toBeGreaterThanOrEqual(7);
+  });
+
+  // The case ids, literally (review round 5 fixes, finding 9): a dropped,
+  // renamed or duplicated case turns this red, which a count cannot see
+  // when one case is swapped for another. A new case is added here too.
+  it("the corpus is exactly these cases", () => {
+    const range = (k: string, a: number, b: number) =>
+      Array.from({ length: b - a + 1 }, (_, i) => `${k}${a + i}`);
+    const expected = [
+      "P1a",
+      "P1b",
+      "P1c",
+      ...range("P", 2, 49),
+      ...range("N", 1, 48),
+      ...range("O", 1, 7),
+    ];
+    expect(expected).toHaveLength(106);
+    expect([...DETECT_CASES.map((c) => c.id)].sort()).toEqual(expected.sort());
+    for (const [k, n] of [
+      ["positive", 54],
+      ["negative", 45],
+      ["outcome", 7],
+    ] as const)
+      expect(kind(k).length, k).toBe(n);
   });
 
   // Raised deliberately in review round 4 (was 80 cases / 120 proposals,
