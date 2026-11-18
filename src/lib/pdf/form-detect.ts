@@ -903,6 +903,99 @@ function labelBand(r: Line): { lo: number; hi: (t: CardText) => number } {
 }
 
 /**
+ * Items (text items, or text pieces) by baseline, for the per-line and
+ * per-field searches (a line's left label, its caption, its label
+ * column's row, the words along it, the text over a field): each reads
+ * only the items whose baseline can satisfy its test, in their page
+ * order, so every exact test, tie-break and sum is unchanged. Items whose
+ * baseline or size is not finite are in every slice, as every scan once
+ * met them. Scanning every item for every line or field was quadratic on
+ * a stacked page (review round 4 fixes, finding 18).
+ */
+interface YIndex<T> {
+  /** Finite baseline and size, sorted by baseline. */
+  sorted: T[];
+  /** The rest, met by every slice. */
+  odd: T[];
+  order: Map<T, number>;
+  y: (v: T) => number;
+  minSize: number;
+  maxSize: number;
+}
+type TextIndex = YIndex<CardText>;
+
+function yIndex<T>(
+  xs: readonly T[],
+  y: (v: T) => number,
+  size: (v: T) => number,
+): YIndex<T> {
+  const order = new Map<T, number>();
+  const odd: T[] = [];
+  const fine: T[] = [];
+  let minSize = Infinity;
+  let maxSize = -Infinity;
+  xs.forEach((v, i) => {
+    order.set(v, i);
+    if (!Number.isFinite(y(v)) || !Number.isFinite(size(v))) odd.push(v);
+    else {
+      fine.push(v);
+      minSize = Math.min(minSize, size(v));
+      maxSize = Math.max(maxSize, size(v));
+    }
+  });
+  fine.sort((a, b) => y(a) - y(b));
+  return { sorted: fine, odd, order, y, minSize, maxSize };
+}
+
+const textIndex = (text: readonly CardText[]): TextIndex =>
+  yIndex(
+    text,
+    (t) => t.y,
+    (t) => t.size,
+  );
+
+/** The items with a baseline in [lo, hi] (and the odd ones), page order. */
+function ySlice<T>(ix: YIndex<T>, lo: number, hi: number): T[] {
+  const out: T[] = [...ix.odd];
+  for (let i = from(ix.sorted, ix.y, lo); i < ix.sorted.length; i++) {
+    const v = ix.sorted[i]!;
+    if (ix.y(v) > hi) break;
+    out.push(v);
+  }
+  return out.sort((a, b) => ix.order.get(a)! - ix.order.get(b)!);
+}
+const textBand = ySlice<CardText>;
+
+/**
+ * A line's label-band slice ({@link labelBand}): baselines in [y - 2,
+ * y + 0.6 x the largest size], 1 pt generous at each end.
+ */
+function bandText(ix: TextIndex, r: Line): CardText[] {
+  return textBand(
+    ix,
+    r.y - DETECT.LABEL_BELOW_RULE - 1,
+    r.y + DETECT.LABEL_ABOVE_RULE_EMS * Math.max(0, ix.maxSize) + 1,
+  );
+}
+
+/** The items with a finite `y`, sorted by it (for {@link from}). */
+function byY<T>(xs: readonly T[], y: (v: T) => number): T[] {
+  return xs.filter((v) => Number.isFinite(y(v))).sort((a, b) => y(a) - y(b));
+}
+
+/** The first index of y-sorted `xs` whose `y` is at least `lo`. */
+function from<T>(xs: readonly T[], y: (v: T) => number, lo: number): number {
+  let a = 0;
+  let z = xs.length;
+  while (a < z) {
+    const m = (a + z) >> 1;
+    if (y(xs[m]!) < lo) a = m + 1;
+    else z = m;
+  }
+  return a;
+}
+
+/**
  * The labels lines take as members of a LABEL COLUMN, by line. A form that
  * sets its labels flush left and starts every line at one tab stop leaves
  * a short label ("City:") far from its line while a long one ("Date of
@@ -920,15 +1013,29 @@ function labelBand(r: Line): { lo: number; hi: (t: CardText) => number } {
  * least one of whose labels ends within LABEL_LEFT_GAP_RULE of its line:
  * the column is anchored by a label the lone-line rule already accepts.
  */
-function labelColumns(p: CardPage, lines: PageLines): Map<Line, LabelHit> {
+function labelColumns(
+  p: CardPage,
+  lines: PageLines,
+  ix: TextIndex,
+): Map<Line, LabelHit> {
   const eps = DETECT.GRID_ROW_EPS;
   type Row = { line: Line; hit: LabelHit; gap: number };
   const rows: Row[] = [];
+  // The blockers are looked up by baseline in y-sorted lists, each slice
+  // held to the exact test: scanning all text and all rules for every line
+  // added two quadratic terms (review round 4 fixes, finding 18).
+  const texts = byY(
+    p.text.filter((t) => t.str.trim() !== ""),
+    (t) => t.y,
+  );
+  const ruleYs = byY(lines.rules, (r) => r.y);
+  let maxSize = 0;
+  for (const t of texts) if (t.size > maxSize) maxSize = t.size;
   for (const r of lines.rules) {
     if (r.x1 - r.x0 < DETECT.RULE_MIN_LEN) continue;
     const band = labelBand(r);
     const hit = leftOf(
-      p.text,
+      bandText(ix, r),
       r.x0,
       DETECT.LABEL_COLUMN_GAP_MAX,
       band.lo,
@@ -940,34 +1047,82 @@ function labelColumns(p: CardPage, lines: PageLines): Map<Line, LabelHit> {
     // Strictly between: the label (ending at `right`) and the line itself
     // (starting at r.x0) overlap this gap by nothing, so neither blocks.
     const across = (x0: number, x1: number) => overlap(x0, x1, right, r.x0) > 0;
-    const textBetween = p.text.some(
-      (t) =>
-        t.str.trim() !== "" &&
+    let textBetween = false;
+    const textTop = r.y + DETECT.LABEL_ABOVE_RULE_EMS * maxSize;
+    for (let i = from(texts, (t) => t.y, band.lo); i < texts.length; i++) {
+      const t = texts[i]!;
+      if (t.y > textTop) break;
+      if (
         t.y >= band.lo &&
         t.y <= band.hi(t) &&
-        across(t.x, t.x + Math.max(0, t.width)),
-    );
-    const ruleBetween = lines.rules.some(
-      (o) => o.y >= band.lo && o.y <= top && across(o.x0, o.x1),
-    );
+        across(t.x, t.x + Math.max(0, t.width))
+      ) {
+        textBetween = true;
+        break;
+      }
+    }
+    let ruleBetween = false;
+    for (let i = from(ruleYs, (o) => o.y, band.lo); i < ruleYs.length; i++) {
+      const o = ruleYs[i]!;
+      if (o.y > top) break;
+      if (o.y >= band.lo && across(o.x0, o.x1)) {
+        ruleBetween = true;
+        break;
+      }
+    }
     const plumbBetween = lines.verticals.some(
       (v) => v.x > right && v.x < r.x0 && v.y1 >= band.lo && v.y0 <= top,
     );
     if (textBetween || ruleBetween || plumbBetween) continue;
     rows.push({ line: r, hit, gap: r.x0 - right });
   }
+  // Rows with the same line start and label edge have the same column, so
+  // each such group is asked once, and its neighbours are looked up in
+  // cells GRID_ROW_EPS wide (filtering every row for every row was
+  // quadratic in a long column; finding 18). A group already labelled is
+  // not labelled again.
+  type Group = { x0: number; tx: number; rows: Row[]; anchor: boolean };
+  const groups = new Map<string, Group>();
+  for (const o of rows) {
+    const k = `${o.line.x0}|${o.hit.text.x}`;
+    let g = groups.get(k);
+    if (!g) {
+      g = { x0: o.line.x0, tx: o.hit.text.x, rows: [], anchor: false };
+      groups.set(k, g);
+    }
+    g.rows.push(o);
+    if (o.gap <= DETECT.LABEL_LEFT_GAP_RULE) g.anchor = true;
+  }
+  const cell = (a: number, b: number) =>
+    `${Math.floor(a / eps)}|${Math.floor(b / eps)}`;
+  const cells = new Map<string, Group[]>();
+  for (const g of groups.values()) {
+    const k = cell(g.x0, g.tx);
+    const list = cells.get(k);
+    if (list) list.push(g);
+    else cells.set(k, [g]);
+  }
   const out = new Map<Line, LabelHit>();
-  for (const seed of rows) {
-    const column = rows.filter(
-      (o) =>
-        Math.abs(o.line.x0 - seed.line.x0) <= eps &&
-        Math.abs(o.hit.text.x - seed.hit.text.x) <= eps,
-    );
-    if (
-      column.length >= DETECT.LABEL_COLUMN_MIN &&
-      column.some((o) => o.gap <= DETECT.LABEL_LEFT_GAP_RULE)
-    )
-      for (const o of column) out.set(o.line, o.hit);
+  const done = new Set<Group>();
+  for (const seed of groups.values()) {
+    const column: Group[] = [];
+    const cx = Math.floor(seed.x0 / eps);
+    const ct = Math.floor(seed.tx / eps);
+    for (const dx of [-1, 0, 1])
+      for (const dt of [-1, 0, 1])
+        for (const g of cells.get(`${cx + dx}|${ct + dt}`) ?? [])
+          if (
+            Math.abs(g.x0 - seed.x0) <= eps &&
+            Math.abs(g.tx - seed.tx) <= eps
+          )
+            column.push(g);
+    const n = column.reduce((s, g) => s + g.rows.length, 0);
+    if (n >= DETECT.LABEL_COLUMN_MIN && column.some((g) => g.anchor))
+      for (const g of column) {
+        if (done.has(g)) continue;
+        done.add(g);
+        for (const o of g.rows) out.set(o.line, o.hit);
+      }
   }
   return out;
 }
@@ -1100,7 +1255,7 @@ function titleSize(r: Line, text: readonly CardText[]): number {
   const eps = DETECT.GRID_ROW_EPS;
   const mid = (r.x0 + r.x1) / 2;
   let best = -Infinity;
-  for (const u of text)
+  for (const u of text) {
     if (
       u.upright &&
       u.str.trim() !== "" &&
@@ -1111,6 +1266,7 @@ function titleSize(r: Line, text: readonly CardText[]): number {
       r.x1 - r.x0 <= Math.max(0, u.width) + eps
     )
       best = u.size;
+  }
   return best;
 }
 
@@ -1132,10 +1288,30 @@ function pullQuotes(
   const long = lines.rules.filter((r) => r.x1 - r.x0 >= DETECT.RULE_MIN_LEN);
   const bodyText = (t: CardText) =>
     t.upright && t.str.trim() !== "" && !smallerThanBody(t, prose);
+  // Rules by their ends, in cells GRID_ROW_EPS wide: filtering every rule
+  // for every rule was quadratic, and only "exactly two" is asked, so the
+  // lookup stops at a third (review round 4 fixes, finding 18).
+  const cellOf = (r: Line) =>
+    `${Math.floor(r.x0 / eps)}|${Math.floor(r.x1 / eps)}`;
+  const byEnds = new Map<string, Line[]>();
+  for (const r of long) {
+    const k = cellOf(r);
+    const list = byEnds.get(k);
+    if (list) list.push(r);
+    else byEnds.set(k, [r]);
+  }
   for (const lo of long) {
-    const pair = long.filter(
-      (r) => Math.abs(r.x0 - lo.x0) <= eps && Math.abs(r.x1 - lo.x1) <= eps,
-    );
+    const pair: Line[] = [];
+    const c0 = Math.floor(lo.x0 / eps);
+    const c1 = Math.floor(lo.x1 / eps);
+    search: for (const d0 of [-1, 0, 1])
+      for (const d1 of [-1, 0, 1])
+        for (const r of byEnds.get(`${c0 + d0}|${c1 + d1}`) ?? []) {
+          if (Math.abs(r.x0 - lo.x0) > eps || Math.abs(r.x1 - lo.x1) > eps)
+            continue;
+          pair.push(r);
+          if (pair.length > 2) break search;
+        }
     if (pair.length !== 2) continue;
     // Each pair is met twice; met from its upper rule, nothing is between.
     const hi = pair.find((r) => r !== lo)!;
@@ -1285,7 +1461,8 @@ function ruleCandidates(
 ): Candidate[] {
   const out: Candidate[] = [];
   const rows = new Map<Line, RuleRow>();
-  const column = labelColumns(p, lines);
+  const ix = textIndex(p.text);
+  const column = labelColumns(p, lines, ix);
   const prose = proseOf(p);
   const quotes = pullQuotes(p, lines, prose);
   const heading = headingTest(p.text);
@@ -1294,7 +1471,7 @@ function ruleCandidates(
     if (len < DETECT.RULE_MIN_LEN) continue;
     const band = labelBand(r);
     const left = leftOf(
-      p.text,
+      bandText(ix, r),
       r.x0,
       DETECT.LABEL_LEFT_GAP_RULE,
       band.lo,
@@ -1996,9 +2173,13 @@ function gridTouches(line: Line, verticals: PageLines["verticals"]): boolean {
  */
 function rowTables(rules: readonly Line[], all: readonly Piece[]): Set<Line> {
   const out = new Set<Line>();
-  const words = all.filter((pc) => pc.kind === "text");
+  const words = yIndex(
+    all.filter((pc) => pc.kind === "text"),
+    (pc) => pc.baseline,
+    (pc) => pc.size,
+  );
   const columns = (lo: Line, hi: Line, x0: number, x1: number) => {
-    const inBand = words
+    const inBand = ySlice(words, lo.y, hi.y)
       .filter(
         (pc) =>
           pc.baseline > lo.y &&
@@ -2206,6 +2387,26 @@ export function overlapsExisting(a: Edges, b: Edges): boolean {
  * round 3, finding 3; corpus N34, and the squareness check over every
  * corpus run in form-detect.corpus.test.ts).
  */
+/**
+ * The pieces {@link clearBox} can act on for `c`: resting on or over its
+ * box (baseline from its bottom + 0.2 x the smallest size up to its top +
+ * CLEARANCE_GAP) or reaching up across its bottom (baseline from its
+ * bottom - 0.7 x the largest size up to its bottom + 0.2 x the largest),
+ * 1 pt generous at each end (finding 18).
+ */
+function clearSlice(pix: YIndex<Piece>, c: Candidate): Piece[] {
+  const y0 = c.box.y0;
+  const lo = Math.min(
+    y0 + DETECT.TEXT_DESCENT_EMS * pix.minSize,
+    y0 - DETECT.TEXT_ASCENT_EMS * pix.maxSize,
+  );
+  const hi = Math.max(
+    c.box.y1 + DETECT.CLEARANCE_GAP,
+    y0 + DETECT.TEXT_DESCENT_EMS * pix.maxSize,
+  );
+  return ySlice(pix, lo - 1, hi + 1);
+}
+
 function clearBox(
   c: Candidate,
   all: readonly Piece[],
@@ -2268,6 +2469,11 @@ export function classifyPage(
   };
 
   const all = p.text.flatMap((t, i) => pieces(t, i));
+  const pix = yIndex(
+    all,
+    (pc) => pc.baseline,
+    (pc) => pc.size,
+  );
   const lines = readLines(p);
   const rowTable = rowTables(lines.rules, all);
   const runs = runCandidates(p, all);
@@ -2349,7 +2555,11 @@ export function classifyPage(
       const len = line.x1 - line.x0;
       if (on("underline")) {
         // Upright words 0..3 pt over the line, along half of it together.
-        const along = all
+        const along = ySlice(
+          pix,
+          line.y - 1,
+          line.y + DETECT.UNDERLINE_MAX_GAP + 1,
+        )
           .filter(
             (pc) =>
               pc.kind === "text" &&
@@ -2437,7 +2647,7 @@ export function classifyPage(
       }
     }
     // 5. Text on the field's own line.
-    const cleared = clearBox(c, all);
+    const cleared = clearBox(c, clearSlice(pix, c));
     if (on("overlaps-text") && cleared.overlapsText) {
       exclude("overlaps-text", c.box);
       continue;

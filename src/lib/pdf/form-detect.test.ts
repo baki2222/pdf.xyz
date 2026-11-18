@@ -1628,6 +1628,42 @@ describe("labelled-rule: a label column (labels flush left, lines at one tab sto
     expect(labelAt(q, 3)).toBe("City");
   });
 
+  // Review round 4 fixes, finding 18: the column rule filtered every row
+  // for every row and scanned all text and all rules for every line, new
+  // quadratic terms on a stacked label column (within the 20,000-primitive
+  // cap). Rows with one line start and label edge are asked once, and the
+  // blockers are read from y-sorted lists.
+  // 20,000 lines: the walker's primitive cap (PATH_LIMITS.maxPrimitives).
+  it("a 20,000-line label column is classified in linear time", () => {
+    const N = 20_000;
+    const segs: CardSeg[] = [];
+    const text: CardText[] = [];
+    for (let k = 0; k < N; k++) {
+      const y = 40 + 30 * k;
+      segs.push(hseg(160, 450, y));
+      text.push(
+        txt(k % 2 ? "City:" : "Date of birth:", 72, y, {
+          size: 10,
+          width: k % 2 ? 24 : 70,
+        }),
+      );
+    }
+    const p = pg({ height: 40 + 30 * N + 100, segs, text });
+    const t0 = performance.now();
+    const res = run(p);
+    const ms = performance.now() - t0;
+    // Health: every line is a field (City only by the column), capped at 60.
+    expect(res.counts.candidates).toBe(N);
+    expect(res.excluded).toEqual([]);
+    expect(res.counts.capped).toBe(N - 60);
+    expect(res.proposals.map((x) => x.label).slice(0, 2)).toEqual([
+      "City",
+      "Date of birth",
+    ]);
+    // Measured before: 2 s at 5,000 lines; after: about 0.35 s at 20,000.
+    expect(ms).toBeLessThan(800);
+  });
+
   // Review round 4 fixes, finding 19: derived boundaries of the column
   // rule that no test sat exactly on; each mutant named stayed green.
   it("the column's anchor may end exactly LABEL_LEFT_GAP_RULE (36 pt) from its line (mutant C1)", () => {
