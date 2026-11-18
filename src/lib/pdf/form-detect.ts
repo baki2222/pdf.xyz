@@ -101,6 +101,16 @@ export const DETECT = {
   RULE_MERGE_GAP: 1,
   /** How far left of a line its label may end. */
   LABEL_LEFT_GAP_RULE: 36,
+  /**
+   * A LABEL COLUMN: labels set flush left and every line started at one tab
+   * stop, so a short label ("City:") ends far from its line while a long one
+   * ("Date of birth:") sits close. At least LABEL_COLUMN_MIN lines whose
+   * left ends line up, and whose labels' left edges line up, each within
+   * GRID_ROW_EPS, one of the labels within LABEL_LEFT_GAP_RULE: each line
+   * in it takes the text to its left up to LABEL_COLUMN_GAP_MAX (2 in).
+   */
+  LABEL_COLUMN_MIN: 3,
+  LABEL_COLUMN_GAP_MAX: 144,
   /** How far from a run or a square its label may be. */
   LABEL_LEFT_GAP: 24,
   /** A line's label baseline sits in [y - 2, y + 0.6 x size]. */
@@ -768,20 +778,106 @@ function pickLabel(hits: LabelHit[]): {
   return { label: null, state: "none" };
 }
 
+/** Where a line's label may sit: baselines in [y - 2, y + 0.6 x size]. */
+function labelBand(r: Line): { lo: number; hi: (t: CardText) => number } {
+  return {
+    lo: r.y - DETECT.LABEL_BELOW_RULE,
+    hi: (t) => r.y + DETECT.LABEL_ABOVE_RULE_EMS * t.size,
+  };
+}
+
+/**
+ * The labels lines take as members of a LABEL COLUMN, by line. A form that
+ * sets its labels flush left and starts every line at one tab stop leaves
+ * a short label ("City:") far from its line while a long one ("Date of
+ * birth:") sits close, and {@link DETECT.LABEL_LEFT_GAP_RULE} alone read
+ * the short ones as unlabelled (review round 2, finding 6; the owner's
+ * decision). A lone line keeps that gap.
+ *
+ * A line of candidate length is a ROW when the nearest text to its left on
+ * its label band, ending within {@link DETECT.LABEL_COLUMN_GAP_MAX}, is
+ * upright, and nothing else lies between that text and the line: no other
+ * text on the band, no level rule on the band, no plumb line crossing it.
+ * A COLUMN is {@link DETECT.LABEL_COLUMN_MIN} or more rows whose lines'
+ * left ends, and whose labels' left edges, each lie within
+ * {@link DETECT.GRID_ROW_EPS} of one row's (the idiom of `rowTables`), at
+ * least one of whose labels ends within LABEL_LEFT_GAP_RULE of its line:
+ * the column is anchored by a label the lone-line rule already accepts.
+ */
+function labelColumns(p: CardPage, lines: PageLines): Map<Line, LabelHit> {
+  const eps = DETECT.GRID_ROW_EPS;
+  type Row = { line: Line; hit: LabelHit; gap: number };
+  const rows: Row[] = [];
+  for (const r of lines.rules) {
+    if (r.x1 - r.x0 < DETECT.RULE_MIN_LEN) continue;
+    const band = labelBand(r);
+    const hit = leftOf(
+      p.text,
+      r.x0,
+      DETECT.LABEL_COLUMN_GAP_MAX,
+      band.lo,
+      band.hi,
+    )[0];
+    if (!hit || !hit.text.upright) continue;
+    const right = hit.text.x + Math.max(0, hit.text.width);
+    const top = band.hi(hit.text);
+    // Strictly between: the label (ending at `right`) and the line itself
+    // (starting at r.x0) overlap this gap by nothing, so neither blocks.
+    const across = (x0: number, x1: number) => overlap(x0, x1, right, r.x0) > 0;
+    const textBetween = p.text.some(
+      (t) =>
+        t.str.trim() !== "" &&
+        t.y >= band.lo &&
+        t.y <= band.hi(t) &&
+        across(t.x, t.x + Math.max(0, t.width)),
+    );
+    const ruleBetween = lines.rules.some(
+      (o) => o.y >= band.lo && o.y <= top && across(o.x0, o.x1),
+    );
+    const plumbBetween = lines.verticals.some(
+      (v) => v.x > right && v.x < r.x0 && v.y1 >= band.lo && v.y0 <= top,
+    );
+    if (textBetween || ruleBetween || plumbBetween) continue;
+    rows.push({ line: r, hit, gap: r.x0 - right });
+  }
+  const out = new Map<Line, LabelHit>();
+  for (const seed of rows) {
+    const column = rows.filter(
+      (o) =>
+        Math.abs(o.line.x0 - seed.line.x0) <= eps &&
+        Math.abs(o.hit.text.x - seed.hit.text.x) <= eps,
+    );
+    if (
+      column.length >= DETECT.LABEL_COLUMN_MIN &&
+      column.some((o) => o.gap <= DETECT.LABEL_LEFT_GAP_RULE)
+    )
+      for (const o of column) out.set(o.line, o.hit);
+  }
+  return out;
+}
+
 function ruleCandidates(p: CardPage, lines: PageLines): Candidate[] {
   const out: Candidate[] = [];
+  const column = labelColumns(p, lines);
   for (const r of lines.rules) {
     const len = r.x1 - r.x0;
     if (len < DETECT.RULE_MIN_LEN) continue;
+    const band = labelBand(r);
     const left = leftOf(
       p.text,
       r.x0,
       DETECT.LABEL_LEFT_GAP_RULE,
-      r.y - DETECT.LABEL_BELOW_RULE,
-      (t) => r.y + DETECT.LABEL_ABOVE_RULE_EMS * t.size,
+      band.lo,
+      band.hi,
     );
     let pick = pickLabel(left);
     let size = left.find((h) => h.text.upright)?.text.size;
+    // A line in a label column takes its column's label from farther away.
+    const inColumn = pick.state === "found" ? undefined : column.get(r);
+    if (inColumn) {
+      pick = { label: inColumn.str, state: "found" };
+      size = inColumn.text.size;
+    }
     const leftLabel = pick.state === "found";
     if (pick.state !== "found") {
       const captions: LabelHit[] = [];

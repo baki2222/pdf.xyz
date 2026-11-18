@@ -161,6 +161,8 @@ describe("rule tables", () => {
       RULE_MAX_WIDTH: 2,
       RULE_MERGE_GAP: 1,
       LABEL_LEFT_GAP_RULE: 36,
+      LABEL_COLUMN_MIN: 3, // owner, round 3
+      LABEL_COLUMN_GAP_MAX: 144, // owner, round 3
       LABEL_LEFT_GAP: 24,
       LABEL_BELOW_RULE: 2,
       LABEL_ABOVE_RULE_EMS: 0.6,
@@ -363,6 +365,262 @@ describe("labelled-rule", () => {
       disable: new Set(["unlabelled"]),
     });
     expect(p[0]).toMatchObject({ label: null, height: 14 });
+  });
+});
+
+// Review round 2, finding 6 (the owner's decision, round 3): a form that sets
+// its labels flush left and starts every line at one tab stop leaves a short
+// label ("City:") far from its line while a long one ("Date of birth:") sits
+// close, and the 36 pt gap read the short ones as unlabelled. A line in a
+// LABEL COLUMN now takes the text to its left up to LABEL_COLUMN_GAP_MAX;
+// a lone line keeps the 36 pt gap. Every condition of the column has a test
+// here that turns red when the condition is removed or loosened.
+describe("labelled-rule: a label column (labels flush left, lines at one tab stop)", () => {
+  interface Row {
+    label: string;
+    /** The label's right end. */
+    right: number;
+    /** The label's left edge (72). */
+    x?: number;
+    /** The line's left end (the tab stop). */
+    x0?: number;
+    o?: Partial<CardText>;
+  }
+  /** Row i: label baseline and line at y 600 - 30 i, the line to `end` (450). */
+  const rowY = (i: number) => 600 - 30 * i;
+  function column(
+    rows: Row[],
+    tab: number,
+    more: { text?: CardText[]; segs?: CardSeg[]; end?: number } = {},
+  ): CardPage {
+    return pg({
+      text: [
+        ...rows.map((r, i) => {
+          const x = r.x ?? 72;
+          return txt(r.label, x, rowY(i), { width: r.right - x, ...r.o });
+        }),
+        ...(more.text ?? []),
+      ],
+      segs: [
+        ...rows.map((r, i) => hseg(r.x0 ?? tab, more.end ?? 450, rowY(i))),
+        ...(more.segs ?? []),
+      ],
+    });
+  }
+  /** The label proposed on row i's line (undefined: nothing proposed there). */
+  const labelAt = (p: CardPage, i: number) =>
+    props(p).find((q) => q.y === rowY(i) + 1)?.label;
+  /** The rule that decided row i's line. */
+  const decidedAt = (p: CardPage, i: number) =>
+    run(p).excluded.find((e) => Math.round(e.box.y) === rowY(i) + 1)?.rule;
+
+  // Lines at 160. Gaps: Name 53, Email 55, Date of birth 19, City 64,
+  // Telephone 28. Only Date of birth and Telephone are within 36 pt.
+  const TAB = 160;
+  const A1: Row[] = [
+    { label: "Name:", right: 107 },
+    { label: "Email:", right: 105 },
+    { label: "Date of birth:", right: 141 },
+    { label: "City:", right: 96 },
+    { label: "Telephone:", right: 132 },
+  ];
+  const NAMES = ["Name", "Email", "Date of birth", "City", "Telephone"];
+
+  it("every line of a 5-row column takes its label, however short (the a1 shape)", () => {
+    const p = column(A1, TAB);
+    expect(NAMES.map((_, i) => labelAt(p, i))).toEqual(NAMES);
+    expect(run(p).excluded).toEqual([]);
+  });
+
+  it("stays unlabelled: a lone line with text 40 pt to its left (36 pt holds outside a column)", () => {
+    const p = pg({
+      text: [txt("Address:", 72, 600, { width: 48 })],
+      segs: [hseg(160, 400, 600)],
+    });
+    expect(props(p)).toEqual([]);
+    expect(firstRule(p)).toBe("unlabelled");
+  });
+
+  // Lines at 250: Name, Date of birth and Email are in reach, City is the
+  // one moved to the boundary.
+  const FAR = (cityRight: number): Row[] => [
+    { label: "Name:", right: 240 },
+    { label: "Date of birth:", right: 230 },
+    { label: "Email:", right: 200 },
+    { label: "City:", right: cityRight },
+  ];
+
+  it("LABEL_COLUMN_GAP_MAX: a column label ending 144 pt left of its line counts, 144.1 does not", () => {
+    expect(labelAt(column(FAR(106), 250), 3)).toBe("City");
+    const out = column(FAR(105.9), 250);
+    expect(labelAt(out, 3)).toBeUndefined();
+    expect(decidedAt(out, 3)).toBe("unlabelled");
+    // The rest of the column is still a column.
+    expect([0, 1, 2].map((i) => labelAt(out, i))).toEqual([
+      "Name",
+      "Date of birth",
+      "Email",
+    ]);
+  });
+
+  it("stays unlabelled: a 150 pt gap in a column", () => {
+    const p = column(FAR(100), 250);
+    expect(labelAt(p, 3)).toBeUndefined();
+    expect(decidedAt(p, 3)).toBe("unlabelled");
+  });
+
+  it("GRID_ROW_EPS: column labels whose left edges are 2 pt apart line up, 2.1 pt apart do not", () => {
+    const moved = (x: number) =>
+      column(
+        A1.map((r, i) => (i === 3 ? { ...r, x, right: r.right + x - 72 } : r)),
+        TAB,
+      );
+    expect(labelAt(moved(74), 3)).toBe("City");
+    expect(labelAt(moved(70), 3)).toBe("City");
+    expect(labelAt(moved(74.1), 3)).toBeUndefined();
+    expect(decidedAt(moved(74.1), 3)).toBe("unlabelled");
+    expect(labelAt(moved(69.9), 3)).toBeUndefined();
+  });
+
+  it("stays unlabelled: a column whose labels are ragged (left edges 4 pt apart)", () => {
+    const p = column(
+      A1.map((r, i) => ({ ...r, x: 72 + 4 * i, right: r.right + 4 * i })),
+      TAB + 16,
+    );
+    // Gaps: 69, 67, 27, 68, 28. The lone-line rule still labels two.
+    expect(NAMES.map((_, i) => labelAt(p, i))).toEqual([
+      undefined,
+      undefined,
+      "Date of birth",
+      undefined,
+      "Telephone",
+    ]);
+    expect(decidedAt(p, 0)).toBe("unlabelled");
+  });
+
+  it("GRID_ROW_EPS: lines whose left ends are 2 pt apart line up, 2.1 pt apart do not", () => {
+    const moved = (x0: number) =>
+      column(
+        A1.map((r, i) => (i === 3 ? { ...r, x0 } : r)),
+        TAB,
+      );
+    expect(labelAt(moved(162), 3)).toBe("City");
+    expect(labelAt(moved(158), 3)).toBe("City");
+    expect(labelAt(moved(162.1), 3)).toBeUndefined();
+    expect(decidedAt(moved(162.1), 3)).toBe("unlabelled");
+    expect(labelAt(moved(157.9), 3)).toBeUndefined();
+  });
+
+  it("LABEL_COLUMN_MIN: 3 lines make a column, 2 do not (a line at another tab stop does not count)", () => {
+    const three = column([A1[2]!, A1[1]!, A1[3]!], TAB);
+    expect([0, 1, 2].map((i) => labelAt(three, i))).toEqual([
+      "Date of birth",
+      "Email",
+      "City",
+    ]);
+    // Row 1 is a column of two; row 2 is labelled within 36 pt but its line
+    // starts at 340 and its label at 300, so it is in neither column.
+    const two = column(
+      [A1[2]!, A1[1]!, { label: "Phone:", x: 300, right: 330, x0: 340 }],
+      TAB,
+    );
+    expect(labelAt(two, 0)).toBe("Date of birth");
+    expect(labelAt(two, 2)).toBe("Phone");
+    expect(labelAt(two, 1)).toBeUndefined();
+    expect(decidedAt(two, 1)).toBe("unlabelled");
+  });
+
+  it("the column needs a label the lone-line rule accepts, in the same column", () => {
+    // Left: the A1 column (anchored by Date of birth and Telephone). Right:
+    // labels at 320 and lines at 400, every gap over 36 pt.
+    const right = ["Ref:", "Code:", "Group:", "Unit:"].map((s, i) =>
+      txt(s, 320, rowY(i), { width: 30 }),
+    );
+    const p = column(A1, TAB, {
+      text: right,
+      segs: right.map((_, i) => hseg(400, 560, rowY(i))),
+      end: 300,
+    });
+    expect(NAMES.map((_, i) => labelAt(p, i))).toEqual(NAMES);
+    const far = props(p).filter((q) => q.x === 401);
+    expect(far).toEqual([]);
+    expect(
+      run(p).excluded.filter((e) => Math.round(e.box.x) === 401),
+    ).toHaveLength(4);
+    // And alone, with no anchor anywhere on the page.
+    const alone = column(
+      A1.map((r) => ({ ...r, right: Math.min(r.right, 110) })),
+      TAB,
+    );
+    expect(props(alone)).toEqual([]);
+  });
+
+  it("stays unlabelled: another text piece between a label and its line", () => {
+    // A word ("(work)") 40 pt short of the line: the nearest text is not the
+    // column's.
+    const word = column(A1, TAB, {
+      text: [txt("(work)", 108, rowY(1), { width: 12 })],
+    });
+    expect(labelAt(word, 1)).toBeUndefined();
+    expect(decidedAt(word, 1)).toBe("unlabelled");
+    // A dot leader, which is no label itself, between "Email:" and the line.
+    const leader = column(A1, TAB, {
+      text: [txt("........", 108, rowY(1), { width: 40 })],
+    });
+    expect(labelAt(leader, 1)).toBeUndefined();
+    expect(decidedAt(leader, 1)).toBe("unlabelled");
+    // The other rows stay a column.
+    expect(labelAt(leader, 3)).toBe("City");
+  });
+
+  it("stays unlabelled: a rule, or a plumb line, between a label and its line", () => {
+    const level = column(A1, TAB, { segs: [hseg(110, 140, rowY(1))] });
+    expect(labelAt(level, 1)).toBeUndefined();
+    expect(decidedAt(level, 1)).toBe("unlabelled");
+    expect(labelAt(level, 3)).toBe("City");
+    const plumb = column(A1, TAB, {
+      segs: [vseg(130, rowY(1) - 5, rowY(1) + 10)],
+    });
+    expect(labelAt(plumb, 1)).toBeUndefined();
+    expect(decidedAt(plumb, 1)).toBe("unlabelled");
+    expect(labelAt(plumb, 3)).toBe("City");
+  });
+
+  it("stays unlabelled: a column label that is not upright", () => {
+    const p = column(
+      A1.map((r, i) => (i === 1 ? { ...r, o: { upright: false } } : r)),
+      TAB,
+    );
+    expect(labelAt(p, 1)).toBeUndefined();
+    expect(decidedAt(p, 1)).toBe("unlabelled");
+    expect(labelAt(p, 3)).toBe("City");
+  });
+
+  it("a column label sits on its line's label band: 2 pt under the line counts, 2.1 does not; 0.6 em over it counts, more does not", () => {
+    const low = (dy: number) =>
+      column(
+        A1.map((r, i) => (i === 1 ? { ...r, o: { y: rowY(1) - dy } } : r)),
+        TAB,
+      );
+    expect(labelAt(low(2), 1)).toBe("Email");
+    expect(labelAt(low(2.1), 1)).toBeUndefined();
+    expect(decidedAt(low(2.1), 1)).toBe("unlabelled");
+    // And above it: 0.6 em (7.2 pt at 12 pt) counts, 7.3 does not.
+    expect(labelAt(low(-7.2), 1)).toBe("Email");
+    expect(labelAt(low(-7.3), 1)).toBeUndefined();
+    expect(decidedAt(low(-7.3), 1)).toBe("unlabelled");
+  });
+
+  it("a line in a column takes its left label before a caption under it", () => {
+    const p = column(A1, TAB, {
+      text: [txt("(as on your passport)", TAB + 2, rowY(4) - 10, { size: 10 })],
+    });
+    expect(labelAt(p, 4)).toBe("Telephone");
+    const q = column(A1, TAB, {
+      text: [txt("(as on your passport)", TAB + 2, rowY(3) - 12, { size: 10 })],
+    });
+    // City is 64 pt from its line, so only the column reaches it.
+    expect(labelAt(q, 3)).toBe("City");
   });
 });
 

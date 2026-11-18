@@ -6,6 +6,7 @@ import {
   DETECT_CASES,
   decidingAt,
   runCase,
+  textWidth,
   unexplained,
   type CaseRun,
   type DetectCase,
@@ -71,6 +72,18 @@ describe("corpus health (FATAL when it fails)", () => {
       0,
     );
     expect(proposals, "corpus implausibly large").toBeLessThanOrEqual(120);
+  });
+
+  // P27 is the label-column case only while two of its labels end beyond the
+  // lone-line gap and one within it; measured with pdf-lib's own widths, so
+  // a font or layout change cannot quietly turn it into a 36 pt case.
+  it("P27's geometry: Email and City end over 36 pt from the tab stop, Name / Date of birth / Telephone within", () => {
+    const gap = (s: string) => 140 - (72 + textWidth("sans", s, 11));
+    expect(gap("Email:")).toBeGreaterThan(36);
+    expect(gap("City:")).toBeGreaterThan(36);
+    for (const s of ["Name:", "Date of birth:", "Telephone:"])
+      expect(gap(s)).toBeLessThanOrEqual(36);
+    expect(Math.max(gap("Email:"), gap("City:"))).toBeLessThanOrEqual(144);
   });
 
   it("case ids are unique and every case ran", () => {

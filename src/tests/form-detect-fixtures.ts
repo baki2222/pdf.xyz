@@ -347,6 +347,11 @@ const H: Face = "sans";
 const T: Face = "serif";
 const C: Face = "mono";
 
+/** P27's label column, top to bottom. */
+const P27_LABELS = ["Name:", "Email:", "Date of birth:", "City:", "Telephone:"];
+/** N32's line starts 40 pt right of where "Address:" (12 pt) ends. */
+const N32_X0 = 72 + textWidth(H, "Address:", 12) + 40;
+
 function p1(key: FontKey, id: string): DetectCase {
   return {
     id,
@@ -1065,6 +1070,30 @@ export const DETECT_CASES: readonly DetectCase[] = [
       },
     ],
   },
+  {
+    id: "P27",
+    kind: "positive",
+    note: "a label column: Name / Email / Date of birth / City / Telephone flush left at 72, every line from one tab stop at 140; Email and City end over 36 pt from their lines",
+    // Review round 2, finding 6 (decided by the owner in round 3). Helvetica
+    // 11: Name ends 35.6 pt from its line, Email 37.4, Date of birth 5.0,
+    // City 46.0, Telephone 13.0, so the 36 pt gap alone loses two of five.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const [i, s] of P27_LABELS.entries()) {
+        await text(page, H, s, 72, 600 - 30 * i, 11);
+        rule(page, 140, 300, 600 - 30 * i, 0.5);
+      }
+      return save(d);
+    },
+    expect: P27_LABELS.map((s, i) => ({
+      rule: "labelled-rule" as const,
+      type: "text" as const,
+      label: s.slice(0, -1),
+      page: 1,
+      box: ruleBox(140, 300, 600 - 30 * i, 11),
+    })),
+  },
 
   // ---------------------------------------------------------- negatives
   {
@@ -1560,6 +1589,21 @@ export const DETECT_CASES: readonly DetectCase[] = [
     build: () =>
       addressWith("q 1 0 0 0 0 600 cm 0 G 3 w 130 300 200 50 re S Q"),
     expect: "none",
+  },
+  {
+    id: "N32",
+    kind: "negative",
+    note: "a lone line whose nearest text ends 40 pt to its left: no label (the 36 pt gap holds for a line in no label column)",
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await text(page, H, "Address:", 72, 600);
+      rule(page, N32_X0, N32_X0 + 200, 600);
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "unlabelled",
+    at: { page: 1, x: N32_X0 + 50, y: 605 },
   },
 
   // ---------------------------------------------------------- outcomes
