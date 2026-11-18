@@ -824,6 +824,31 @@ describe("exclusions, each at its boundary", () => {
       ]);
     });
 
+    // The docblock said "the close is upright text" and only the docblock
+    // did: removing the check stayed green (review finding).
+    it("a close that is not upright text does not count", () => {
+      const turned = pg({
+        segs: [hseg(72, 252, 470)],
+        text: [
+          txt("Kind regards,", 72, 500, {
+            width: 60,
+            size: 11,
+            upright: false,
+          }),
+          txt("John Smith", 72, 456, { width: 55, size: 11 }),
+        ],
+      });
+      expect(props(turned)).toEqual([
+        expect.objectContaining({ label: "John Smith" }),
+      ]);
+      // Control: the same close upright makes it a signature line.
+      const upright = pg({
+        ...turned,
+        text: [{ ...turned.text[0]!, upright: true }, turned.text[1]!],
+      });
+      expect(firstRule(upright)).toBe("signature");
+    });
+
     it("a line labelled to its left keeps its own label's verdict", () => {
       const p = pg({
         segs: [hseg(130, 330, 470)],
