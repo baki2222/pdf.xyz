@@ -38,6 +38,7 @@ import { COMPARE_REDLINE_CHUNK } from "@/components/tools/runner/compare/redline
 import { TABLE_PREVIEW_CHUNK } from "@/components/tools/table-extract-preview";
 import { REQUEST_FIELD_EDITOR_CHUNK } from "@/components/tools/request-field-editor";
 import { CREATE_FORMS_PREVIEW_CHUNK } from "@/components/tools/runner/create-forms-preview";
+import { CREATE_FORMS_DETECT_CHUNK } from "@/components/tools/runner/create-forms-detect";
 import { RESULT_ENDING_CHUNK } from "@/components/intent/result-ending-chunk";
 import { AI_RESULT_CHUNK } from "@/components/tools/ai-result-chunk";
 import { AI_EXTRACT_SCHEMAS_CHUNK } from "@/components/tools/ai-extract-schemas-chunk";
@@ -423,6 +424,18 @@ const OUR_LAZY: LazyLibrary[] = [
     what: "Create Fillable Forms' page preview",
     marker: CREATE_FORMS_PREVIEW_CHUNK,
     why: "fetched when a PDF is opened on Create Fillable Forms",
+    allowedAtLoad: {},
+  },
+  // Create Fillable Forms' Find fields (backlog #17, S2, 2026-11-18): the
+  // review list and its summary, and the field finder itself (the op-list
+  // walker, the classifiers and the pdf.js reader, form-detect*.ts). Fetched
+  // when Find fields is pressed, never before and never prefetched: most
+  // visits never press it, and pdf.js is already warm from the preview.
+  // "Find fields is a chunk of its own" below bounds what the press fetches.
+  {
+    what: "Create Fillable Forms' Find fields",
+    marker: CREATE_FORMS_DETECT_CHUNK,
+    why: "fetched when Find fields is pressed on Create Fillable Forms; a visit that never presses it never downloads it",
     allowedAtLoad: {},
   },
   // Sign PDF's handwriting faces (audit sign-pdf#1, 2026-11-09). As first
@@ -1088,11 +1101,17 @@ function manyLoads(text: string): string[][] {
  * 2026-11-15 (S2): only the first form was read, so a one-chunk import
  * (Compare PDF's page view) failed "no chunk loads it" for the wrong reason.
  * EXTENDED again 2026-11-15 (S3): ids in exponent form (`n.e(8e3)`).
+ * EXTENDED 2026-11-18 (Create Forms S2): a load behind the comma operator
+ * (`L||(_("loading"),a.e(9089).then(`, Find fields' press) was excluded by
+ * the look-behind, which refused a preceding "," to keep Promise.all's
+ * members out; those are followed by "," or "]", never by `.then(`, so
+ * the "," was never needed, and the one-chunk import read as "no chunk
+ * loads it", for the wrong reason (rule 4: the set lost a member).
  */
 function loadsIn(text: string): string[][] {
   const one = [
     ...text.matchAll(
-      new RegExp(String.raw`(?<![\w,[])\w+\.e\((${CHUNK_ID})\)\.then\(`, "g"),
+      new RegExp(String.raw`(?<![\w[])\w+\.e\((${CHUNK_ID})\)\.then\(`, "g"),
     ),
   ].map((m) => [chunkId(m[1]!)]);
   return [...manyLoads(text), ...one];
@@ -1156,6 +1175,14 @@ describe("Compare PDF's page view is a chunk of its own", () => {
   it("positive control: an id in exponent form is read as its number", () => {
     // Minified as the build writes them (chunk 8000 is `8e3`).
     expect(loadsIn("a=n.e(8e3).then(n.bind(n,1))")).toEqual([["8000"]]);
+    // Behind a comma operator (Find fields' press, 2026-11-18), and a
+    // Promise.all still read once, as its pair.
+    expect(
+      loadsIn('L||(_("loading"),a.e(9089).then(a.bind(a,19089)))'),
+    ).toEqual([["9089"]]);
+    expect(loadsIn("Promise.all([n.e(1),n.e(2)]).then(f)")).toEqual([
+      ["1", "2"],
+    ]);
     expect(loadsIn("Promise.all([n.e(1e3),n.e(12)]).then(f)")).toEqual([
       ["1000", "12"],
     ]);
@@ -1401,6 +1428,72 @@ describe("Compare PDF's redline is a chunk of its own", () => {
  * sentence its findings module renders) carries neither the preview nor
  * JSZip, and the preview's chunk is loaded by the panel's chunk alone.
  */
+/**
+ * What pressing Find fields fetches from the Create Fillable Forms page, gz:
+ * the chunk carrying {@link CREATE_FORMS_DETECT_CHUNK} and whatever it
+ * loads that the page did not (pdf.js itself is not among them: it is
+ * fetched by the preview, and is the pdfjs entry's business above).
+ * Design target 9 KB gz (S2 budgets). MEASURED 2026-11-18 on the S2
+ * branch (= main 5370cc73 + S2, built on Windows from an empty .next):
+ * ONE chunk, 20,100 B gz (19.63 KB), the whole finder concatenated into
+ * one module with the panel, Add, the run bar's note and the preview's
+ * third state (moved here from the runner to keep the page's first load
+ * inside its 0.3 KB). The 9 KB target was MISSED, by the detector core S1
+ * shipped (form-detect.ts alone is ~3,300 lines), not by the panel; it is
+ * an open issue in the S2 PR, not hidden. Bound: the measurement plus 5%,
+ * so growth fails here and the figure moves only by a written
+ * re-measurement.
+ */
+const FIND_FIELDS_FETCH_GZ_KB = 20.6;
+
+describe("Create Fillable Forms' Find fields is a chunk of its own", () => {
+  const built = existsSync(path.join(NEXT_DIR, "server", "app"));
+  const PAGE = "tools/create-forms.html";
+
+  it("is not the runner's or the preview's chunk, and only the runner loads it", () => {
+    if (!built) return;
+    const all = walkJs(CHUNKS_DIR);
+    const idOf = (f: string) => /^(\d+)[-.]/.exec(path.basename(f))?.[1];
+    const detect = all.filter((f) =>
+      read(f).includes(CREATE_FORMS_DETECT_CHUNK),
+    );
+    const preview = all.filter((f) =>
+      read(f).includes(CREATE_FORMS_PREVIEW_CHUNK),
+    );
+    // The runner's own sentence: its note when the finder fails to load.
+    const RUNNER = "Find fields didn't load; use Add field.";
+    const runner = all.filter((f) => read(f).includes(RUNNER));
+    // Health: each is found, once.
+    expect(detect).toHaveLength(1);
+    expect(preview).toHaveLength(1);
+    expect(runner).toHaveLength(1);
+    expect(path.resolve(detect[0]!)).not.toBe(path.resolve(runner[0]!));
+    expect(path.resolve(detect[0]!)).not.toBe(path.resolve(preview[0]!));
+    const id = idOf(detect[0]!)!;
+    expect(id).toBeTruthy();
+    const importers = all.filter((f) =>
+      loadersOf([f]).some((ids) => ids.includes(id)),
+    );
+    expect(importers.map((f) => path.basename(f))).toEqual([
+      path.basename(runner[0]!),
+    ]);
+    // The runner's chunk is in the page's first load; the finder is not.
+    const onPage = chunkFiles(NEXT_DIR, PAGE).map((f) => path.resolve(f));
+    expect(onPage).toContain(path.resolve(runner[0]!));
+    expect(onPage).not.toContain(path.resolve(detect[0]!));
+  });
+
+  it(`pressing it fetches at most ${FIND_FIELDS_FETCH_GZ_KB} KB gz`, () => {
+    if (!built) return;
+    const fetch = onDemandFetch(CREATE_FORMS_DETECT_CHUNK, PAGE);
+    expect(fetch.counted.length).toBeGreaterThanOrEqual(1);
+    expect(
+      fetch.gz,
+      `Find fields' fetch is ${fetch.gz.toFixed(2)} KB gz over ${fetch.counted.map((f) => path.basename(f)).join(", ")}`,
+    ).toBeLessThanOrEqual(FIND_FIELDS_FETCH_GZ_KB);
+  });
+});
+
 describe("Extract Tables' preview is a chunk of its own", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));
   /** The panel's own ready sentence (`table-extract-findings.tsx`). */

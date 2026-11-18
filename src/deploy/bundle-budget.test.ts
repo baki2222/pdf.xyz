@@ -1650,6 +1650,21 @@ const TOOL_PAGES_TO_COME = {
   //    arbitrary-value classes only the old preview used (its 220 px
   //    width cap and its 8 px label size) and gained none: 15,285 ->
   //    15,273 gz.
+  // RECORDED, 2026-11-18, by Create Fillable Forms' Find fields (backlog
+  // #17, S2): the button, the suggestions' state and one object handed to
+  // the finder's chunk. Measured gzip -9 over each page's first-load chunks
+  // (scripts/page-weight.ts's method), main 5370cc73 (E:/wforms2-base) and
+  // the branch (= that main + S2, the merged build), each built on Windows:
+  //  - tools/create-forms 249,488 -> 249,790 (+302, inside S2's 0.3 KB):
+  //    the runner chunk +296, webpack's runtime +7 (one more async chunk
+  //    in its map), the page/error/main-app chunks -1 net. WAS +759 as first written, with the review list's
+  //    handlers, Add and the preview's wiring in the runner; they moved
+  //    into the finder's chunk behind one `Finder` object.
+  //  - every other page +6..7: the runtime's chunk map.
+  //  - on demand, never first load: the finder's chunk, 20,100 B gz,
+  //    fetched when Find fields is pressed and bounded in
+  //    lazy-chunks.test.ts. No new stylesheet class (inline styles).
+  // Nothing allocated: every row has the headroom (test:bundle green).
   unallocated:
     UNALLOCATED -
     NEW_TOOLS_2026_10_30 -
