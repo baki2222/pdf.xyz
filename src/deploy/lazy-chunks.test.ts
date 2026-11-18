@@ -1431,8 +1431,9 @@ describe("Compare PDF's redline is a chunk of its own", () => {
 /**
  * What pressing Find fields fetches from the Create Fillable Forms page, gz:
  * the chunk carrying {@link CREATE_FORMS_DETECT_CHUNK} and whatever it
- * loads that the page did not (pdf.js itself is not among them: it is
- * fetched by the preview, and is the pdfjs entry's business above).
+ * loads that the page did not (pdf.js itself is not among them: the file
+ * open fetches it, with or without the preview, and it is the pdfjs entry's
+ * business above).
  * Design target 9 KB gz (S2 budgets). MEASURED 2026-11-18 on the S2
  * branch (= main 5370cc73 + S2, built on Windows from an empty .next):
  * ONE chunk, 20,100 B gz (19.63 KB), the whole finder concatenated into
@@ -1445,20 +1446,20 @@ describe("Compare PDF's redline is a chunk of its own", () => {
  * re-measurement.
  */
 const FIND_FIELDS_FETCH_GZ_KB = 20.6;
-/**
- * The same press on a page whose preview chunk never arrived (it failed, or
- * the press beat it): the finder's chunk and every chunk it loads that the
- * page's first load does not carry. MEASURED 2026-11-18 UTC (review round
- * 7, the merged build = main 5370cc73 + S2, Windows, empty .next): 51.76
- * KB gz over three chunks, the finder's 20,662 B and the two it loads
- * (25,500 B and 6,836 B, the pdf.js open guard's: `preflightPdfjsOpen`,
- * `pdfjsPageCount`), which the preview otherwise fetches first. 2.6x the
- * warm figure, paid only when the
- * preview's chunk did not arrive. Bound: the measurement plus 5%. The S2
- * design target (9 KB for the finder's chunk) is MISSED either way; that is
- * an open decision for the owner, recorded in the PR, not moved here.
+/*
+ * HISTORY (review rounds 7 and 8, 2026-11-19). Round 7 added a bound here
+ * for the press on a page whose preview chunk never arrived: every chunk
+ * the finder's code can `import()`, one hop, outside the page's first load,
+ * at most 54.4 KB gz (measured 51.76 over three chunks). Round 8 refused
+ * the preview's chunk on the served build and read the wire: the FILE OPEN
+ * fetches pdf.js and the open guard whether or not the preview arrives, and
+ * the press fetched ONE chunk, the finder's (20,662 B gz). The static set
+ * counted a chunk the press never fetched and, one hop deep, missed what
+ * that chunk loads in turn: wrong both ways (house rule 4). That case is
+ * now held where it happens, in e2e/create-forms-detect.spec.ts ("with the
+ * preview's chunk refused, the press fetches the finder's chunk and nothing
+ * else"), and the finder's chunk is the one the bound below measures.
  */
-const FIND_FIELDS_COLD_FETCH_GZ_KB = 54.4;
 
 describe("Create Fillable Forms' Find fields is a chunk of its own", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));
@@ -1495,48 +1496,6 @@ describe("Create Fillable Forms' Find fields is a chunk of its own", () => {
     const onPage = chunkFiles(NEXT_DIR, PAGE).map((f) => path.resolve(f));
     expect(onPage).toContain(path.resolve(runner[0]!));
     expect(onPage).not.toContain(path.resolve(detect[0]!));
-  });
-
-  // Review round 7: the bound above counts only what the press fetches
-  // beside chunks the PREVIEW has already fetched (the finder's chunk loads
-  // two of the preview's). Where the preview's chunk never arrived, the press
-  // fetches those too, and nothing bounded that.
-  it(`with nothing of the preview's fetched, pressing it fetches at most ${FIND_FIELDS_COLD_FETCH_GZ_KB} KB gz`, () => {
-    if (!built) return;
-    const all = walkJs(CHUNKS_DIR);
-    const own = all.filter((f) => read(f).includes(CREATE_FORMS_DETECT_CHUNK));
-    expect(own).toHaveLength(1);
-    const fileOf = (id: string) => {
-      const f = all.find((c) => declaredIds(read(c)).includes(id));
-      expect(f, `chunk ${id} is not on disk`).toBeTruthy();
-      return path.resolve(f!);
-    };
-    const onPage = new Set(
-      chunkFiles(NEXT_DIR, PAGE).map((f) => path.resolve(f)),
-    );
-    // What the finder's chunk itself loads (`import()` edges in its own
-    // code), not what THOSE chunks may load later: pdf.js's decoders and
-    // character maps are fetched only for a page that needs them, and pdf.js
-    // itself is the pdfjs entry's business above. Following them made a
-    // first draft of this test count 19 chunks, 254 KB, that a press never
-    // fetches (house rule 4: widening the set is a defect too).
-    const seen = new Set([path.resolve(own[0]!)]);
-    for (const ids of loadsIn(read(own[0]!)))
-      for (const id of ids) {
-        const g = fileOf(id);
-        if (!onPage.has(g)) seen.add(g);
-      }
-    // Health: the two preview chunks it loads are among them.
-    expect(seen.size).toBeGreaterThanOrEqual(3);
-    const gz =
-      [...seen].reduce(
-        (sum, f) => sum + gzipSync(readFileSync(f), { level: 9 }).length,
-        0,
-      ) / 1024;
-    expect(
-      gz,
-      `Find fields' cold fetch is ${gz.toFixed(2)} KB gz over ${[...seen].map((f) => path.basename(f)).join(", ")}`,
-    ).toBeLessThanOrEqual(FIND_FIELDS_COLD_FETCH_GZ_KB);
   });
 
   it(`pressing it fetches at most ${FIND_FIELDS_FETCH_GZ_KB} KB gz`, () => {

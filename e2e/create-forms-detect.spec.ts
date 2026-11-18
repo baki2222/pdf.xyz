@@ -283,3 +283,60 @@ test("Find fields: a line under the untouched starter card is suggested, and Add
     ).sort(),
   ).toEqual(["email", "full_name"]);
 });
+
+test("Find fields: with the preview's chunk refused, the press fetches the finder's chunk and nothing else", async ({
+  page,
+}) => {
+  // Review round 8: lazy-chunks.test.ts bounded this case STATICALLY, from
+  // every chunk the finder's code can `import()`, one hop: 54.4 KB gz over
+  // three chunks. On the served build the file open itself fetches pdf.js
+  // and the open guard, preview or not, and the press fetched ONE chunk;
+  // the static set counted one the press never fetched and missed what the
+  // open guard loads in turn (house rule 4, both ways). So the case is held
+  // here, where it happens: the chunk carrying the preview's marker is
+  // refused, and what the press fetches is read off the wire.
+  const PREVIEW = "pdfxyz:lazy:create-forms-preview";
+  const DETECT = "pdfxyz:lazy:create-forms-detect";
+  const carries = new Map<string, string>();
+  let refused = 0;
+  await page.route("**/_next/static/chunks/**/*.js", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.body()).toString("utf8");
+    if (body.includes(PREVIEW)) {
+      refused += 1;
+      return route.abort();
+    }
+    carries.set(route.request().url(), body.includes(DETECT) ? DETECT : "");
+    return route.fulfill({ response, body });
+  });
+  await page.addInitScript((key) => {
+    window.localStorage.setItem(key, "denied");
+  }, CONSENT_STORAGE_KEY);
+  await page.goto("/tools/create-forms");
+  const input = fileInput(page);
+  await waitForHydration(input);
+  await input.setInputFiles({
+    name: "flat-form.pdf",
+    mimeType: "application/pdf",
+    buffer: await flatForm(),
+  });
+  await expect(
+    page.getByText("The page preview didn't load.", { exact: false }),
+  ).toBeVisible({ timeout: 20_000 });
+  await page.waitForLoadState("networkidle");
+  // Health: the preview's chunk was asked for, and refused.
+  expect(refused).toBeGreaterThanOrEqual(1);
+  const before = new Set(carries.keys());
+  // Health: the file open fetched chunks of its own, so "before" is real.
+  expect(before.size).toBeGreaterThan(3);
+  expect([...carries.values()]).not.toContain(DETECT);
+  await page.getByRole("button", { name: "Find fields" }).click();
+  await expect(page.getByTestId("find-fields-summary")).toContainText(
+    "Found 8 possible fields on 2 of 4 pages: check each one, as nothing is added until you add it.",
+    { timeout: 30_000 },
+  );
+  await page.waitForLoadState("networkidle");
+  const pressed = [...carries.entries()].filter(([url]) => !before.has(url));
+  // The finder's chunk, whose size lazy-chunks.test.ts bounds, and no other.
+  expect(pressed.map(([, marker]) => marker)).toEqual([DETECT]);
+});
