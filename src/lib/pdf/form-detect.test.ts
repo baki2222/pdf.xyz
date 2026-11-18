@@ -2858,6 +2858,28 @@ describe("square-checkbox", () => {
         expect(labels(p)).toEqual(items);
       });
 
+      /** Squares at (400, 600) and (400, 570), "Item one" / "Item two" at 72. */
+      const items = (extra: Partial<CardPage> = {}) =>
+        pg({
+          rects: [rect(400, 600, 12, 12), rect(400, 570, 12, 12)],
+          text: [
+            txt("Item one", 72, 602, { size: 10, width: 40 }),
+            txt("Item two", 72, 572, { size: 10, width: 40 }),
+          ],
+          ...extra,
+        });
+
+      // Review round 5 fixes, finding 12: upright text only (mutant CL2: a
+      // turned margin note left of the row named its box).
+      it("the row's first UPRIGHT text: a turned margin note further left is passed over", () => {
+        const p = items();
+        p.text.push(
+          txt("SIDE", 40, 572, { size: 10, width: 20, upright: false }),
+        );
+        expect(labels(p)).toEqual(["Item one", "Item two"]);
+      });
+
+      // Review round 5 fixes, finding 15 (mutant CL3): squares within
       it("each box must be alone on its row: a headless two-column grid stays unlabelled", () => {
         expect(labels(grid({ heads: [] }))).toEqual([]);
       });
