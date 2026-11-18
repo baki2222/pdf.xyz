@@ -170,6 +170,7 @@ describe("rule tables", () => {
       CAPTION_MIN: 1,
       CAPTION_MAX: 14,
       CAPTION_SPAN: 0.4,
+      CONTINUATION_BELOW: 28, // review round 3
       HEADING_LEAD_EMS: 1.6, // review round 3
       HEADING_SMALLER_BY: 0.5, // review round 3
       TEXT_H_RUN: { ems: 1.2, min: 12, max: 22 },
@@ -520,6 +521,112 @@ describe("labelled-rule", () => {
         ["Caption 1", 711],
         ["Caption 2", 685],
         ["Date", 659],
+      ]);
+    });
+  });
+
+  // Review round 3, finding 8: a multi-line "Address:" or "Notes:" field
+  // draws its first line beside the label and the rest under it, from the
+  // margin; those were all unlabelled. A bare line directly under a line
+  // labelled from its left, ending where it ends, now continues it.
+  describe("continuation lines under a labelled line", () => {
+    /** "Address:" (72..116) and its line 120..400 at 576, then `more` lines. */
+    const block = (more: CardSeg[], text: CardText[] = []) =>
+      pg({
+        segs: [hseg(120, 400, 576), ...more],
+        text: [txt("Address:", 72, 576, { size: 10, width: 44 }), ...text],
+      });
+    const labelled = (p: CardPage) =>
+      props(p).map((x) => [x.label, x.y] as const);
+
+    it("two lines from the margin under 'Address:' are Address too", () => {
+      const p = block([hseg(72, 400, 552), hseg(72, 400, 528)]);
+      expect(labelled(p)).toEqual([
+        ["Address", 577],
+        ["Address", 553],
+        ["Address", 529],
+      ]);
+    });
+
+    it("CONTINUATION_BELOW: 28 pt under the labelled line counts, 28.1 does not", () => {
+      expect(labelled(block([hseg(72, 400, 548)]))).toHaveLength(2);
+      expect(labelled(block([hseg(72, 400, 547.9)]))).toEqual([
+        ["Address", 577],
+      ]);
+    });
+
+    it("GRID_ROW_EPS: right ends 2 pt apart count, 2.1 do not; it may start 2 pt right of the labelled line, not 2.1", () => {
+      expect(labelled(block([hseg(72, 402, 552)]))).toHaveLength(2);
+      expect(labelled(block([hseg(72, 402.1, 552)]))).toHaveLength(1);
+      expect(labelled(block([hseg(122, 400, 552)]))).toHaveLength(2);
+      expect(labelled(block([hseg(122.1, 400, 552)]))).toHaveLength(1);
+    });
+
+    it("text between the two lines, or a line between them, ends it", () => {
+      expect(
+        labelled(
+          block(
+            [hseg(72, 400, 552)],
+            [txt("Postal address", 74, 562, { size: 8, width: 60 })],
+          ),
+        ),
+      ).toHaveLength(1);
+      // The nearest line above that overlaps it is not the labelled one.
+      expect(
+        labelled(block([hseg(300, 500, 566), hseg(72, 400, 552)])),
+      ).toEqual([["Address", 577]]);
+    });
+
+    it("the label above, set up to 2 pt under its own line, is not text between", () => {
+      const p = pg({
+        segs: [hseg(120, 400, 576), hseg(72, 400, 552)],
+        text: [txt("Address:", 72, 574, { size: 10, width: 44 })],
+      });
+      expect(labelled(p)).toEqual([
+        ["Address", 577],
+        ["Address", 553],
+      ]);
+    });
+
+    it("text on its own row to its left ends it: a label 36.5 pt off is not inherited", () => {
+      const p = block(
+        [hseg(120, 400, 552)],
+        [txt("Date:", 120 - 36.5 - 26, 552, { size: 10, width: 26 })],
+      );
+      expect(labelled(p)).toEqual([["Address", 577]]);
+      expect(run(p).excluded.map((e) => e.rule)).toEqual(["unlabelled"]);
+    });
+
+    it("only a LEFT label continues: a captioned line passes nothing on", () => {
+      const p = pg({
+        segs: [hseg(72, 400, 576), hseg(72, 400, 552)],
+        text: [txt("Street", 74, 568, { size: 6, width: 20 })],
+      });
+      expect(labelled(p)).toEqual([["Street", 577]]);
+      // A caption under a line always sits between it and a line below, so
+      // the left-label condition is seen on a strip's moved caption, which
+      // sits ABOVE its line: the line 22 pt under the lowest strip is bare.
+      const strips = pg({
+        segs: [710, 684, 658, 632, 610].map((y) => hseg(72, 540, y)),
+        text: [710, 684, 658].map((y, i) =>
+          txt(`Caption ${i + 1}`, 74, y - 7, { size: 7, width: 30 }),
+        ),
+      });
+      expect(labelled(strips)).toEqual([
+        ["Caption 1", 685],
+        ["Caption 2", 659],
+        ["Caption 3", 633],
+      ]);
+    });
+
+    it("a margin-to-margin continuation is a field, not a divider", () => {
+      const p = pg({
+        segs: [hseg(80, 576, 600), hseg(36, 576, 576)],
+        text: [txt("Notes:", 36, 600, { size: 10, width: 30 })],
+      });
+      expect(labelled(p)).toEqual([
+        ["Notes", 601],
+        ["Notes", 577],
       ]);
     });
   });

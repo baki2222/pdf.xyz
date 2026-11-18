@@ -12,6 +12,7 @@ import {
   O2_CONTENT,
   damagedBytes,
   legacyPdfjs,
+  matches,
   runBox,
   runCase,
   ruleBox,
@@ -19,6 +20,7 @@ import {
   textWidth,
   unexplained,
   type DetectCase,
+  type Expect,
 } from "@/tests/form-detect-fixtures";
 import {
   detectFormFields,
@@ -557,4 +559,28 @@ describe("composed chain: detect -> name -> validate -> createFormFields -> pdf.
     const { specs } = await chain(await byId("P14").build());
     expect(specs.map((s) => s.name)).toEqual(["prenom"]);
   });
+
+  // Every expectation that names its field is held here, so `name` in the
+  // corpus is a check and not a note (review round 3, finding 8's P32 names
+  // its three Address lines apart).
+  it("every name the corpus expects is the name the chain gives", async () => {
+    const named = DETECT_CASES.filter(
+      (c) => c.expect !== "none" && c.expect.some((e) => e.name),
+    );
+    expect(named.map((c) => c.id)).toEqual(
+      expect.arrayContaining(["P14", "N17", "P32"]),
+    );
+    for (const c of named) {
+      const { proposals, specs } = await chain(
+        await c.build(),
+        c.existingNames,
+      );
+      for (const e of c.expect as Expect[]) {
+        if (!e.name) continue;
+        const i = proposals.findIndex((p) => matches(p, e));
+        expect(i, `${c.id}: ${e.label} not proposed`).toBeGreaterThanOrEqual(0);
+        expect(specs[i]!.name, `${c.id}: ${e.label}`).toBe(e.name);
+      }
+    }
+  }, 60_000);
 });

@@ -443,6 +443,26 @@ function headedExpect(g: {
     })),
   );
 }
+/**
+ * P32's address block (Helvetica 10, lines 24 pt apart, each line 4 pt
+ * right of its label): Name, Address and two lines from the margin under
+ * it, Postcode; then a Print name line, and a Date line at Print name's tab
+ * stop whose label ends 36.5 pt to its left.
+ */
+const P32 = {
+  rows: [
+    ["Name:", 600],
+    ["Address:", 576],
+    [null, 552],
+    [null, 528],
+    ["Postcode:", 504],
+    ["Print name:", 460],
+  ] as const,
+  printName: 72 + textWidth(H, "Print name:", 10) + 4,
+  dateY: 436,
+};
+const p32Start = (s: string | null) =>
+  s === null ? 72 : 72 + textWidth(H, s, 10) + 4;
 /** N34's 16 pt box, 6 pt right of its label (Helvetica 10). */
 const N34_X = 72 + textWidth(H, "Number of dependants", 10) + 6;
 /**
@@ -1288,6 +1308,39 @@ export const DETECT_CASES: readonly DetectCase[] = [
       return save(d);
     },
     expect: headedExpect(P31),
+  },
+  {
+    id: "P32",
+    kind: "positive",
+    note: 'an address block: "Address:" and its line, then two lines from the margin under it; and a Date line whose label ends 36.5 pt off, under Print name',
+    // Review round 3, finding 8: the two lines under Address were
+    // unlabelled. The Date line is the guard: text on its own row keeps it
+    // from inheriting "Print name".
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const [s, y] of P32.rows) {
+        if (s) await text(page, H, s, 72, y, 10);
+        rule(page, p32Start(s), 400, y, 0.5);
+      }
+      const date = P32.printName - 36.5 - textWidth(H, "Date:", 10);
+      await text(page, H, "Date:", date, P32.dateY, 10);
+      rule(page, P32.printName, 400, P32.dateY, 0.5);
+      return save(d);
+    },
+    expect: P32.rows.map(([s, y], i) => ({
+      rule: "labelled-rule" as const,
+      type: "text" as const,
+      label: (s ?? "Address:").slice(0, -1),
+      page: 1,
+      box: ruleBox(p32Start(s), 400, y, 10),
+      // The block's three Address lines, named apart.
+      ...(i >= 1 && i <= 3
+        ? { name: ["address", "address_2", "address_3"][i - 1] }
+        : {}),
+    })),
+    decidedBy: "unlabelled",
+    at: { page: 1, x: 300, y: P32.dateY + 5 },
   },
 
   // ---------------------------------------------------------- negatives

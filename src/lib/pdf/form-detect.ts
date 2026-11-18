@@ -123,6 +123,15 @@ export const DETECT = {
   CAPTION_MAX: 14,
   CAPTION_SPAN: 0.4,
   /**
+   * A CONTINUATION line (the 2nd and 3rd lines of "Address:"): a line with
+   * no label up to this far under a line labelled from its left (or a
+   * continuation itself), the nearest line above that overlaps it, ending
+   * within GRID_ROW_EPS of where it ends and starting no more than
+   * GRID_ROW_EPS right of where it starts, with no text between them and
+   * no upright text on its own row to its left, takes that label.
+   */
+  CONTINUATION_BELOW: 28,
+  /**
    * A HEADING is no caption: text with text at least HEADING_SMALLER_BY pt
    * smaller starting at its x (within GRID_ROW_EPS) whose baseline is up to
    * HEADING_LEAD_EMS x its size under its own (the body under a heading).
@@ -948,6 +957,60 @@ function stripCaptions(
   }
 }
 
+/**
+ * Continuation lines ({@link DETECT.CONTINUATION_BELOW}): a multi-line
+ * "Address:" or "Notes:" field draws its first line beside the label and
+ * the rest under it from the margin, and those were all unlabelled (review
+ * round 3, finding 8; corpus P32). Taken top down, so a continuation passes
+ * its label on to the line under it. The own-row guard keeps a line whose
+ * label just misses the 36 pt gap (P32's Date line) from inheriting the
+ * label of the line above. A continuation counts as labelled from its
+ * left, so a margin-to-margin one is no divider.
+ */
+function continuationLines(p: CardPage, rows: Map<Line, RuleRow>): void {
+  const eps = DETECT.GRID_ROW_EPS;
+  const sorted = [...rows.keys()].sort((a, b) => b.y - a.y);
+  sorted.forEach((r, i) => {
+    const row = rows.get(r)!;
+    if (row.c.labelState !== "none") return;
+    // The nearest line above that overlaps it, within reach.
+    let above: Line | undefined;
+    for (let j = i - 1; j >= 0; j--) {
+      const o = sorted[j]!;
+      if (o.y - r.y > DETECT.CONTINUATION_BELOW) break;
+      if (o.y > r.y && overlap(o.x0, o.x1, r.x0, r.x1) > 0) {
+        above = o;
+        break;
+      }
+    }
+    if (!above) return;
+    const a = rows.get(above)!;
+    // Labelled from its left (which implies a label), or a continuation.
+    if (!a.c.leftLabel) return;
+    if (Math.abs(above.x1 - r.x1) > eps || r.x0 > above.x0 + eps) return;
+    const textBetween = p.text.some(
+      (t) =>
+        t.str.trim() !== "" &&
+        t.y > r.y &&
+        t.y < above.y - DETECT.LABEL_BELOW_RULE &&
+        overlap(t.x, t.x + Math.max(0, t.width), r.x0, r.x1) > 0,
+    );
+    if (textBetween) return;
+    const band = labelBand(r);
+    const ownRow = leftOf(p.text, r.x0, p.width, band.lo, band.hi).some(
+      (h) => h.text.upright,
+    );
+    if (ownRow) return;
+    row.c.label = a.c.label;
+    row.c.labelState = "found";
+    row.c.leftLabel = true;
+    row.size = a.size;
+    row.c.box.y1 =
+      row.c.box.y0 +
+      textHeight(a.size ?? DETECT.DEFAULT_SIZE, DETECT.TEXT_H_RULE);
+  });
+}
+
 function ruleCandidates(
   p: CardPage,
   lines: PageLines,
@@ -1021,6 +1084,7 @@ function ruleCandidates(
     rows.set(r, { c, captioned, size });
   }
   stripCaptions(lines, rows, rowTable);
+  continuationLines(p, rows);
   return out;
 }
 
