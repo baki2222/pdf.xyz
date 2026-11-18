@@ -185,6 +185,17 @@ export interface WorkerStatus {
    * Optional: absent reads as `false`.
    */
   ocrOwnerPassword?: boolean;
+  /**
+   * Whether the running worker writes each Request Signatures box's label
+   * into prepared.pdf as the box's tooltip (2026-11-18). True only when an
+   * OBSERVED heartbeat proves `requestSignatureLabels`
+   * (`liveWorkerWritesRequestSignatureLabels`): an image built before PR
+   * #364 writes the label to manifest.json only, and the image ships
+   * separately from this web tier. Nothing is gated on it; it is the field
+   * an operator reads to see the catalogue's tooltip sentence is true of
+   * the running worker. Optional: absent reads as `false`.
+   */
+  requestSignatureLabels?: boolean;
 }
 
 const NO_COMPRESS: CompressCapability = {
@@ -331,6 +342,11 @@ export function buildWorkerStatus(
    * (`liveWorkerOcrsWithOwnerPassword`, the predicate the admission gate uses).
    */
   workerOcrOwnerPassword?: boolean,
+  /**
+   * Whether the observed worker's heartbeat proves `requestSignatureLabels`
+   * (`liveWorkerWritesRequestSignatureLabels`).
+   */
+  workerRequestSignatureLabels?: boolean,
 ): WorkerStatus {
   const ocr = buildOcrCapability(
     mode,
@@ -370,6 +386,8 @@ export function buildWorkerStatus(
     workerObserved === true && workerCsvImportOptions === true;
   const ocrOwnerPassword =
     workerObserved === true && workerOcrOwnerPassword === true;
+  const requestSignatureLabels =
+    workerObserved === true && workerRequestSignatureLabels === true;
 
   if (mode === "local-dev") {
     const engines = DEEP_COMPRESSION_TOOLS.filter((tool) => tools?.[tool]);
@@ -397,6 +415,7 @@ export function buildWorkerStatus(
       translatePageRange,
       csvImportOptions,
       ocrOwnerPassword,
+      requestSignatureLabels,
     };
   }
 
@@ -424,6 +443,7 @@ export function buildWorkerStatus(
       translatePageRange,
       csvImportOptions,
       ocrOwnerPassword,
+      requestSignatureLabels,
     };
   }
 
@@ -453,5 +473,6 @@ export function buildWorkerStatus(
     translatePageRange,
     csvImportOptions,
     ocrOwnerPassword,
+    requestSignatureLabels,
   };
 }

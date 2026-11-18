@@ -23,6 +23,7 @@ import {
   liveWorkerTranslatesPageRanges,
   liveWorkerReadsCsvImportOptions,
   liveWorkerOcrsWithOwnerPassword,
+  liveWorkerWritesRequestSignatureLabels,
   liveWorkerTranslatesScans,
   readWorkerHeartbeatLiveness,
 } from "@/lib/workers/heartbeat";
@@ -135,6 +136,12 @@ export async function GET(request: Request): Promise<Response> {
   // predicate `POST /api/jobs` admits an OCR job carrying `ownerPassword`
   // on. An older image publishes no key; absent is false.
   const workerOcrOwnerPassword = liveWorkerOcrsWithOwnerPassword(liveness);
+  // Request Signatures' box labels as tooltips in prepared.pdf (PR #364):
+  // reported from a fresh beat that proves it. Nothing is gated on it; the
+  // catalogue states the tooltip because the worker reports this. An older
+  // image publishes no key; absent is false.
+  const workerRequestSignatureLabels =
+    liveWorkerWritesRequestSignatureLabels(liveness);
 
   return respond(
     ok(
@@ -156,6 +163,7 @@ export async function GET(request: Request): Promise<Response> {
         workerTranslatePageRange,
         workerCsvImportOptions,
         workerOcrOwnerPassword,
+        workerRequestSignatureLabels,
       ),
     ),
   );

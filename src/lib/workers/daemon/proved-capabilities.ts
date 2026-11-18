@@ -57,6 +57,7 @@ import { provesTranslatePageMap } from "@/lib/workers/translate/page-map-capabil
 import { provesTranslatePageRange } from "@/lib/workers/translate/page-range-capability";
 import { provesCsvImportOptions } from "@/lib/workers/office-conversion/csv-capability";
 import { provesOcrOwnerPassword } from "@/lib/workers/ocr-owner-capability";
+import { provesRequestSignatureLabels } from "@/lib/workers/request-signatures/labels-capability";
 import { provesHtmlZip } from "@/lib/workers/html-render/zip-capability";
 import { provesChatRetrieval } from "@/lib/workers/chat-with-pdf/retrieval-capability";
 import { provesSummarizePages } from "@/lib/workers/summarize/pages-capability";
@@ -197,6 +198,14 @@ export const PROVED_CAPABILITIES = defineProvers({
   // `worker:ocr-owner-proof` in the image).
   ocrOwnerPassword: {
     prove: (env) => provesOcrOwnerPassword(env),
+    parse: bool,
+  },
+  // Request Signatures' box labels as tooltips in prepared.pdf (PR #364):
+  // one real job through the executor's order with the daemon's own
+  // registry and deps, prepared.pdf read back with pdf-lib. Pure pdf-lib,
+  // so it runs in-process and needs no native tool.
+  requestSignatureLabels: {
+    prove: (env) => provesRequestSignatureLabels(env),
     parse: bool,
   },
 });

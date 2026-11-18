@@ -45,6 +45,7 @@ const CAPS: HeartbeatCapabilities = {
   translatePageRange: true,
   csvImportOptions: true,
   ocrOwnerPassword: true,
+  requestSignatureLabels: true,
 };
 
 /** A mutable fake clock. */
