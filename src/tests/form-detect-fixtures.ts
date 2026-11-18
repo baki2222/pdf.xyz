@@ -2833,6 +2833,39 @@ export const DETECT_CASES: readonly DetectCase[] = [
     decidedBy: "comb",
     at: { page: 1, x: N47.x(3) + 7, y: N47.ys[0]! + 7 },
   },
+  {
+    id: "N48",
+    kind: "negative",
+    note: "a stop-less instruction framed in a 30 pt box (Please use block capitals and black ink throughout): no field",
+    // Review round 5 fixes, finding 2: the negative twin of N44 without a
+    // full stop. It became a field labelled with the instruction, squeezed
+    // under it; a captioned box needs room to write under its caption.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      page.drawRectangle({
+        x: 72,
+        y: 690,
+        width: 468,
+        height: 30,
+        borderColor: rgb(0, 0, 0),
+        borderWidth: 0.75,
+      });
+      await text(
+        page,
+        H,
+        "Please use block capitals and black ink throughout",
+        80,
+        702,
+        10,
+      );
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "unlabelled",
+    at: { page: 1, x: 300, y: 695 },
+    seamAlsoDisable: ["no-clearance"],
+  },
 
   // ---------------------------------------------------------- outcomes
   {

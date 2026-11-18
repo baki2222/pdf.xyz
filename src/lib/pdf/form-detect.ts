@@ -1402,7 +1402,8 @@ function pullQuotes(
  * The caption of an outlined box whose bottom edge is `r` and whose top is
  * at `top` ({@link DETECT.NOTICE_MIN_WORDS}): its one interior text, set
  * under its top-left, or, when it holds no text, the nearest upright text
- * just over its top. A notice (one sentence) is no caption.
+ * just over its top. A notice (one sentence) is no caption, nor is an
+ * interior text with less than a field's height of room under it.
  */
 function boxCaption(p: CardPage, r: Line, top: number): LabelHit | null {
   const span = r.x0 + DETECT.CAPTION_SPAN * (r.x1 - r.x0);
@@ -1419,7 +1420,14 @@ function boxCaption(p: CardPage, r: Line, top: number): LabelHit | null {
   if (inside.length === 1) {
     const t = inside[0]!;
     const gap = top - (t.y + DETECT.TEXT_ASCENT_EMS * t.size);
-    if (inSpan(t) && gap >= -1 && gap <= DETECT.CAPTION_MAX) cap = t;
+    // Room to write under it: a box only as tall as its text is a framed
+    // notice, and a stop-less one ("Please use block capitals") was a
+    // field squeezed under itself (review round 5 fixes, finding 2;
+    // corpus N48).
+    const room =
+      t.y - DETECT.TEXT_DESCENT_EMS * t.size - r.y >=
+      textHeight(t.size, DETECT.TEXT_H_RULE);
+    if (inSpan(t) && room && gap >= -1 && gap <= DETECT.CAPTION_MAX) cap = t;
   } else if (inside.length === 0) {
     for (const t of p.text) {
       if (!t.upright || !inSpan(t)) continue;

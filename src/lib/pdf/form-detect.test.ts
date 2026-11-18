@@ -532,6 +532,37 @@ describe("labelled-rule", () => {
         ]);
       });
 
+      // Review round 5 fixes, finding 2: a one-line instruction framed in a
+      // 30 pt box, written without a full stop, passed as a caption and
+      // became a field squeezed under it. A captioned box has room to
+      // write under its caption: from the caption's descent to the box's
+      // bottom, at least a field's height (14 pt for 10 pt text).
+      it("a captioned box has room under its caption: 14 pt counts, 13.9 does not (a framed instruction)", () => {
+        const framed = (h: number) =>
+          pg({
+            rects: [rect(72, 690, 468, h)],
+            // Baseline 12 pt over the bottom: descent bottom 10 pt over it.
+            text: [
+              txt(
+                "Please use block capitals and black ink throughout",
+                80,
+                702 + (h - 30),
+                { size: 10, width: 240 },
+              ),
+            ],
+          });
+        // A5's 30 pt box: 10 pt of room.
+        expect(labels(framed(30))).toEqual([]);
+        expect(run(framed(30)).excluded.map((e) => e.rule)).toEqual([
+          "unlabelled",
+          "unlabelled",
+        ]);
+        expect(labels(framed(34))).toEqual([
+          ["Please use block capitals and black ink throughout", 691],
+        ]);
+        expect(labels(framed(33.9))).toEqual([]);
+      });
+
       it("a bottom edge merged with another line is no box's bottom: it takes no box caption", () => {
         const p = box([txt("Comments:", 72, 364, { size: 10, width: 50 })], {
           segs: [hseg(20, 72.5, 300)],
