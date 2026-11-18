@@ -631,6 +631,36 @@ describe("square-checkbox", () => {
       expect(props(sized(6, 0.6))).toEqual([]);
     });
 
+    // Two joinSquares guards were untested: skipping joined edges in
+    // readLines, and joining stroked segments only (review finding).
+    it("a joined square's edges are not lines too: squares on a rule leave it a field", () => {
+      // Without the skip, the squares' sides were plumb lines touching the
+      // rule, which turned it table-grid.
+      const sq = (x: number): CardSeg[] => [
+        hseg(x, x + 12, 600),
+        vseg(x + 12, 600, 612),
+        hseg(x + 12, x, 612),
+        vseg(x, 612, 600),
+      ];
+      const p = labelledRule({
+        segs: [hseg(130, 330, 600), ...sq(150), ...sq(200), ...sq(250)],
+      });
+      expect(props(p)).toEqual([expect.objectContaining({ label: "Address" })]);
+      expect(run(p).excluded.map((e) => e.rule)).toEqual(
+        Array(3).fill("unlabelled"),
+      );
+    });
+
+    it("only stroked edges are joined: four filled `m l f` edges are no box", () => {
+      // pdf.js paints nothing for a zero-area fill; joined, it was a phantom
+      // checkbox (joinSquares makes every box it joins stroked).
+      const fills = four(
+        edges().map((s) => ({ ...s, stroked: false, filled: true })),
+      );
+      expect(run(fills).excluded).toEqual([]);
+      expect(props(fills)).toEqual([]);
+    });
+
     // Edges sharing a corner were paired every left with every right, each
     // pairing re-scanning the corner: cubic, so 2,400 stroked segments took
     // 12.7 s, and the cap allows 20,000 (review finding). A corner crowded
