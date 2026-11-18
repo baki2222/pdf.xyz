@@ -499,6 +499,20 @@ describe("labelled-rule", () => {
         expect(labels(p)).toEqual([]);
       });
 
+      // Review round 5 fixes, finding 10: pdf.js emits whitespace items
+      // often, and the box's ONE interior text must not count them
+      // (mutant BC7: a blank item made two and the caption was lost).
+      it("a blank item inside the box does not count as its second text", () => {
+        const p = pg({
+          rects: [rect(72, 600, 300, 40)],
+          text: [
+            txt("Received by", 74, 630, { size: 7, width: 40 }),
+            txt(" ", 74, 615, { size: 10, width: 3 }),
+          ],
+        });
+        expect(props(p).map((x) => x.label)).toEqual(["Received by"]);
+      });
+
       it("a turned interior text is no caption", () => {
         const p = box([
           txt("Received by", 74, 350, { size: 7, width: 40, upright: false }),
