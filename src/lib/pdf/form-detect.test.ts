@@ -608,6 +608,29 @@ describe("square-checkbox", () => {
       expect(props(four(edges().slice(0, 3)))).toEqual([]);
     });
 
+    // The edges tried were 12 pt only, so either end of the join's length
+    // window could be narrowed with everything green, and 6 pt and 20 pt
+    // checkboxes drawn as four lines were then silently lost (review
+    // finding). `short` draws the bottom edge that much shorter, centred.
+    it("the join window: 6 to 20 pt sides join, with JOIN_EPS of slack below", () => {
+      const sized = (s: number, short = 0) =>
+        pg({
+          segs: [
+            hseg(72 + short / 2, 72 + s - short / 2, 500),
+            vseg(72 + s, 500, 500 + s),
+            hseg(72 + s, 72, 500 + s),
+            vseg(72, 500 + s, 500),
+          ],
+          text: [txt("Yes", 72 + s + 6, 502, { size: 10, width: 15 })],
+        });
+      expect(props(sized(6))).toHaveLength(1);
+      expect(props(sized(20))).toHaveLength(1);
+      // A 6 pt square's bottom edge drawn 5.5 pt long still joins (the box
+      // is 6 pt from its other edges); 5.4 pt long does not.
+      expect(props(sized(6, 0.5))).toHaveLength(1);
+      expect(props(sized(6, 0.6))).toEqual([]);
+    });
+
     // Edges sharing a corner were paired every left with every right, each
     // pairing re-scanning the corner: cubic, so 2,400 stroked segments took
     // 12.7 s, and the cap allows 20,000 (review finding). A corner crowded
