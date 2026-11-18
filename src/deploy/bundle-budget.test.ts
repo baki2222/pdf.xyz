@@ -1665,6 +1665,11 @@ const TOOL_PAGES_TO_COME = {
   //  - on demand, never first load: the finder's chunk, 20,100 B gz,
   //    fetched when Find fields is pressed and bounded in
   //    lazy-chunks.test.ts. No new stylesheet class (inline styles).
+  //  RE-MEASURED 2026-11-18 UTC after review round 7's fixes (a loading
+  //  line while the chunk arrives; the rest went into the chunk): 249,483
+  //  -> 249,788 (+305 <= 307), the runner chunk 7,543 -> 7,839, Fill Forms
+  //  +9 (the runtime's map). Now EXECUTABLE: "Create Fillable Forms' first
+  //  load" above holds the page against Fill Forms (growth 296 B of 307).
   // Nothing allocated: every row has the headroom (test:bundle green).
   unallocated:
     UNALLOCATED -
@@ -1738,6 +1743,39 @@ function layoutChunkGzBytes(html: string): number {
   expect(layout, `${html}: exactly one root layout chunk`).toHaveLength(1);
   return layout[0]!.gzBytes;
 }
+
+/**
+ * Create Fillable Forms' Find fields (S2) may add 0.3 KB gz (307 B) to the
+ * page's first load (design.budgets). Until review round 7 that figure was
+ * only RECORDED (the comment in TOOL_PAGES_TO_COME), and the page's one
+ * executable bound was EVERY_TOOL_PAGE, ~7 KB above it: a comment is not a
+ * guard. Held as a RELATIONSHIP, so growth every page shares (the layout,
+ * the runtime's map) moves both sides: the page against Fill Forms, its
+ * sibling that loads the same kits and not the builder. Measured gzip -9
+ * over each page's first load, main 5370cc73 built on Windows from an
+ * empty .next (the weigher's per-chunk sum): create-forms 249,483 B,
+ * fill-forms 242,447 B, a difference of 7,036 B.
+ */
+const CREATE_FORMS_OVER_FILL_FORMS_BASE_B = 249_483 - 242_447;
+const S2_FIRST_LOAD_ALLOWANCE_B = 307;
+
+describe("Create Fillable Forms' first load: Find fields' 0.3 KB", () => {
+  it("the page outweighs Fill Forms by no more than it did before Find fields, plus 0.3 KB gz", () => {
+    if (!existsSync(APP_DIR)) return;
+    const gz = (html: string) => {
+      const w = weigh(html);
+      expect(w, `${html} is not in the build output`).not.toBeNull();
+      return w!.sized.reduce((sum, c) => sum + c.gzBytes, 0);
+    };
+    const over = gz("tools/create-forms.html") - gz("tools/fill-forms.html");
+    // Health: the two pages differ by the builder, as they did at the base.
+    expect(over).toBeGreaterThan(CREATE_FORMS_OVER_FILL_FORMS_BASE_B / 2);
+    expect(
+      over - CREATE_FORMS_OVER_FILL_FORMS_BASE_B,
+      `Create Fillable Forms grew ${over - CREATE_FORMS_OVER_FILL_FORMS_BASE_B} B gz over Fill Forms since main 5370cc73`,
+    ).toBeLessThanOrEqual(S2_FIRST_LOAD_ALLOWANCE_B);
+  });
+});
 
 describe("client bundle budget", () => {
   const built = existsSync(APP_DIR);
