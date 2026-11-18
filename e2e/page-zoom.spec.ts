@@ -110,4 +110,59 @@ test.describe("page boards · view a page larger", () => {
     await page.keyboard.press("Escape");
     await expect(cut).toHaveAttribute("aria-pressed", pressed!);
   });
+
+  // The page area scrolls only when the page does not fit beside the
+  // dialog's controls: measured on 2026-11-18 it never did at 1280x800,
+  // 1280x500, 812x375, 375x812, 360x640 or 320x568 (on a short desktop
+  // window the dialog itself scrolls instead), and did at 320x480 (360px
+  // of page in 348px). A box that is always a tab stop was an empty stop
+  // between Close and Next page at every common size, so it is one exactly
+  // while it scrolls (review finding, 2026-11-18).
+  test("the page area is a tab stop only while it scrolls", async ({
+    page,
+  }) => {
+    await page.goto("/tools/rotate-pdf");
+    await uploadFiles(page, await writeShapesPdf());
+    const dialog = page.getByRole("dialog");
+    const area = dialog.getByRole("region", { name: "Page 1" });
+    const open = async (width: number, height: number) => {
+      await page.setViewportSize({ width, height });
+      await zoomButton(page, 1).click();
+      await shownAspect(dialog);
+      await expect(dialog.getByRole("button", { name: "Close" })).toBeFocused();
+      return area.evaluate((el) => el.scrollHeight - el.clientHeight);
+    };
+
+    // It does not fit (opened first, so the page is drawn afresh and the
+    // area learns it overflows only when the image arrives): the area is the
+    // next stop, named by the heading, and the arrow keys scroll it; axe
+    // finds nothing in the dialog.
+    expect(await open(320, 480), "health: the page overflows").toBeGreaterThan(
+      0,
+    );
+    await page.keyboard.press("Tab");
+    await expect(area).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect
+      .poll(() => area.evaluate((el) => el.scrollTop))
+      .toBeGreaterThan(0);
+    expect(await dialogViolations(page)).toEqual([]);
+
+    // The window grows with the dialog open: the page fits, and the area
+    // stops being a stop.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect
+      .poll(() => area.evaluate((el) => el.scrollHeight - el.clientHeight))
+      .toBe(0);
+    await expect(area).not.toHaveAttribute("tabindex");
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+
+    // It fits from the start: Tab goes from Close straight to Previous page.
+    expect(await open(1280, 800), "health: the page fits").toBe(0);
+    await page.keyboard.press("Tab");
+    await expect(
+      dialog.getByRole("button", { name: /previous page/i }),
+    ).toBeFocused();
+  });
 });

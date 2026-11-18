@@ -18,7 +18,7 @@
  * goes back to the button that opened it. Loaded with next/dynamic when first
  * opened, so the board pays nothing for it until then.
  */
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -109,6 +109,31 @@ export function PageZoomDialog({
     closeRef.current = onClose;
   }, [onClose]);
 
+  // Whether the page area scrolls: only when the page does not fit beside
+  // the controls (a phone about 480px tall; elsewhere the page is capped
+  // to fit, or the dialog itself scrolls). It is a tab stop exactly then,
+  // so a keyboard can scroll it, and is no empty stop the rest of the time
+  // (axe scrollable-region-focusable; e2e/page-zoom.spec.ts "the page area
+  // is a tab stop only while it scrolls").
+  const areaRef = useRef<HTMLElement>(null);
+  const [scrolls, setScrolls] = useState(false);
+  useEffect(() => {
+    const area = areaRef.current;
+    if (!area) return;
+    const read = () =>
+      setScrolls(
+        area.scrollHeight > area.clientHeight ||
+          area.scrollWidth > area.clientWidth,
+      );
+    read();
+    if (typeof ResizeObserver === "undefined") return;
+    // The area for the window, its page for the image arriving.
+    const ro = new ResizeObserver(read);
+    ro.observe(area);
+    if (area.firstElementChild) ro.observe(area.firstElementChild);
+    return () => ro.disconnect();
+  }, [image, state, place]);
+
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
@@ -171,7 +196,13 @@ export function PageZoomDialog({
             <X className="size-4" aria-hidden />
           </button>
         </div>
-        <div className="bg-wash rounded-panel grid min-h-0 flex-1 place-items-center overflow-auto p-3">
+        {/* Named by the heading; a tab stop only while it scrolls (above). */}
+        <section
+          ref={areaRef}
+          aria-labelledby={headingId}
+          tabIndex={scrolls ? 0 : undefined}
+          className="bg-wash rounded-panel focus-visible:ring-ok/50 grid min-h-0 flex-1 place-items-center overflow-auto p-3 outline-none focus-visible:ring-2"
+        >
           {place?.blank ? (
             <BlankSheet size={place.blank} rotation={place.rotation} />
           ) : image ? (
@@ -190,7 +221,7 @@ export function PageZoomDialog({
               className="bg-canvas rounded-sheet aspect-[1/1.414] h-[60vh] max-w-full"
             />
           )}
-        </div>
+        </section>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <ChipButton onClick={() => go(index - 1)} disabled={index === 0}>
