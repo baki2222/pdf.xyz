@@ -5374,3 +5374,110 @@ describe("proposalToDraftFields and filterValid", () => {
     });
   });
 });
+
+// Review round 6 fixes, findings 6 to 9: shapes a fresh sweep found that
+// predate round 4 and have no narrow, safe fix. Each is pinned as it
+// stands, with its reason, so a change to it is seen and decided. The
+// detector only proposes: a miss costs the user one manual add, a wrong
+// proposal one reject. Invert a KNOWN MISS (keeping its history) when it
+// is fixed.
+describe("review round 6 sweep: known misses and a product choice", () => {
+  const rows = (p: CardPage) =>
+    props(p).map((x) => [x.rule, x.label, x.x, x.y]);
+
+  // KNOWN MISS (finding 6): a resume whose section rules start at the
+  // body's left edge (the section heads sit in the left margin) gets a
+  // field per section, labelled with the first body line under the rule.
+  // A line followed by more lines of its size reads as a caption; telling
+  // a paragraph from a caption needs a guard for printed-name and role
+  // blocks under signature lines, which have the same two-line shape.
+  it("KNOWN MISS: a resume's section rules over their body text are fields named after the first body line", () => {
+    const text: CardText[] = [txt("Alex Morgan", 72, 730, { size: 20 })];
+    const segs: CardSeg[] = [];
+    const sections: [string, string[]][] = [
+      [
+        "Experience",
+        [
+          "Senior designer, Northwind Studio, 2021 to present",
+          "Led the redesign of the booking flow used by 2 million people.",
+        ],
+      ],
+      [
+        "Education",
+        [
+          "BA Graphic Design, Lakeside University, 2017",
+          "Graduated with honours; thesis on wayfinding systems.",
+        ],
+      ],
+    ];
+    let y = 680;
+    for (const [head, body] of sections) {
+      text.push(txt(head, 72, y, { size: 11 }));
+      segs.push(hseg(160, 540, y + 3, { width: 0.5 }));
+      y -= 18;
+      for (const s of body) {
+        text.push(txt(s, 160, y, { size: 10 }));
+        y -= 13;
+      }
+      y -= 14;
+    }
+    expect(rows(pg({ text, segs }))).toEqual([
+      [
+        "labelled-rule",
+        "Senior designer, Northwind Studio, 2021 to present",
+        161,
+        684,
+      ],
+      [
+        "labelled-rule",
+        "BA Graphic Design, Lakeside University, 2017",
+        161,
+        626,
+      ],
+    ]);
+  });
+
+  // KNOWN MISS (finding 7): a heading over blank writing lines ("Defects
+  // found / comments" over three full-width rules 20 pt apart) proposes
+  // nothing. A label over a line must sit within 0.6 em of it, and a
+  // continuation line needs a labelled first line. The wanted reading (the
+  // top line takes the heading, the others follow it) needs a guard for
+  // a heading over a page's ruled body.
+  it("KNOWN MISS: a heading 20 pt over three blank writing lines leaves all three unlabelled", () => {
+    const p = pg({
+      text: [txt("Defects found / comments", 72, 400)],
+      segs: [hseg(72, 540, 380), hseg(72, 540, 360), hseg(72, 540, 340)],
+    });
+    expect(props(p)).toEqual([]);
+    expect(run(p).excluded.map((e) => e.rule)).toEqual([
+      "unlabelled",
+      "unlabelled",
+      "unlabelled",
+    ]);
+  });
+
+  // PRODUCT CHOICE (finding 9): on a numbered tax worksheet each amount
+  // line is labelled with the line number set just left of it ("1"), not
+  // the description at the margin ("Wages, salaries, tips"). Kept: forms
+  // like the IRS's name their lines by number, and the number is the
+  // nearest text on the line's baseline. Before round 4 two of these
+  // lines had no label at all.
+  it("PRODUCT CHOICE: a worksheet's amount lines take the line number set left of them", () => {
+    const text: CardText[] = [];
+    const segs: CardSeg[] = [];
+    ["Wages, salaries, tips", "Taxable interest", "Ordinary dividends"].forEach(
+      (s, i) => {
+        const y = 640 - 22 * i;
+        const n = String(i + 1);
+        text.push(txt(n, 72, y, { size: 10 }), txt(s, 90, y, { size: 10 }));
+        text.push(txt(n, 432, y, { size: 9 }));
+        segs.push(hseg(446, 540, y - 2));
+      },
+    );
+    expect(rows(pg({ text, segs }))).toEqual([
+      ["labelled-rule", "1", 447, 639],
+      ["labelled-rule", "2", 447, 617],
+      ["labelled-rule", "3", 447, 595],
+    ]);
+  });
+});

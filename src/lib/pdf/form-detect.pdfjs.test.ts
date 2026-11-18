@@ -584,3 +584,56 @@ describe("composed chain: detect -> name -> validate -> createFormFields -> pdf.
     }
   }, 60_000);
 });
+
+// KNOWN MISS (review round 6 fixes, finding 8): a ballot's ovals are never
+// proposed. Option marks are found as squares only, so a "Vote for one"
+// contest drawn with ovals gets nothing, while the same contest drawn with
+// squares gets a checkbox per candidate. Reading ovals is a new shape
+// (curves, not lines) with its own false positives to rule out (letters
+// "O", bullets, logos), so it waits for a product decision. Invert this
+// test (keeping its history) when ovals are read.
+describe("KNOWN MISS: ballot ovals", () => {
+  it("a contest drawn with ovals proposes nothing; drawn with squares, a checkbox per candidate", async () => {
+    const names = ["Elena Marsh", "Robert Kim", "Dana Whitfield"];
+    const ballot = async (mark: "oval" | "square") => {
+      const d = await PDFDocument.create();
+      const f = await d.embedFont(StandardFonts.Helvetica);
+      const page = d.addPage([612, 792]);
+      page.drawText("For Mayor", { x: 72, y: 664, size: 11, font: f });
+      names.forEach((s, i) => {
+        const y = 632 - 20 * i;
+        if (mark === "oval")
+          page.drawEllipse({
+            x: 80,
+            y: y + 3,
+            xScale: 6,
+            yScale: 4,
+            borderColor: rgb(0, 0, 0),
+            borderWidth: 0.75,
+          });
+        else
+          page.drawRectangle({
+            x: 76,
+            y: y - 1,
+            width: 9,
+            height: 9,
+            borderColor: rgb(0, 0, 0),
+            borderWidth: 0.75,
+          });
+        page.drawText(s, { x: 94, y, size: 10, font: f });
+      });
+      const report = await detectFormFields(await d.save(), {
+        loadReader: legacyPdfjs,
+      });
+      return report.pages.flatMap((p) =>
+        p.outcome === "found" ? p.proposals : [],
+      );
+    };
+    expect(await ballot("oval")).toEqual([]);
+    // Control: the reader and the page are sound; only the mark differs.
+    const boxes = await ballot("square");
+    expect(boxes.map((x) => [x.type, x.label])).toEqual(
+      names.map((s) => ["checkbox", s]),
+    );
+  }, 60_000);
+});
