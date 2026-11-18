@@ -151,6 +151,15 @@ export function ruleBox(x0: number, x1: number, y: number, size: number): Box {
   return rounded(x0 + 1, bottom, x1 - 1, bottom + clamp(1.4 * size, 14, 22));
 }
 
+/** The field filling a table cell from (x0, y0) to (x1, y1), inset 1 pt. */
+export function cellBox(x0: number, x1: number, y0: number, y1: number): Box {
+  return rounded(x0 + 1, y0 + 1, x1 - 1, y1 - 1);
+}
+
+/** N38's Word-style table: its rules, and the labels in its left cells. */
+const N38_YS = [600, 576, 552, 528, 504];
+const N38_LABELS = ["Name", "Address", "Telephone", "Email"];
+
 /** The checkbox inside a square drawn at (x, y) with side s. */
 export function squareBox(x: number, y: number, s: number): Box {
   return rounded(x + 1, y + 1, x + s - 1, y + s - 1);
@@ -1976,28 +1985,77 @@ export const DETECT_CASES: readonly DetectCase[] = [
   },
   {
     id: "N38",
-    kind: "negative",
+    // INVERTED in review round 4: the owner ruled that the right cells of
+    // such a table are fields. Round 3 (finding 9) left it a documented
+    // MISS: kind "negative", expect "none", decided by table-grid at
+    // (300, 605), its seam also disabling unlabelled. The id is kept (as
+    // N17's is), so the history reads in one place.
+    kind: "positive",
     note: 'a Word-style two-column table: "Name", "Address", "Telephone", "Email" in the left cells, the right cells empty',
-    // Review round 3, finding 9, left to the owner: a MISS documented, not
-    // a decision. N4 pins a labelled empty grid as table-grid; if the
-    // owner rules that the right cells of such a table are fields, this
-    // becomes a positive with four fields in them.
     build: async () => {
       const d = await doc();
       const page = d.addPage(LETTER);
-      const ys = [600, 576, 552, 528, 504];
-      for (const y of ys) rule(page, 72, 400, y, 0.5);
+      for (const y of N38_YS) rule(page, 72, 400, y, 0.5);
       for (const x of [72, 180, 400]) vline(page, x, 504, 600);
-      for (const [i, s] of ["Name", "Address", "Telephone", "Email"].entries())
-        await text(page, H, s, 76, ys[i]! - 16, 10);
+      for (const [i, s] of N38_LABELS.entries())
+        await text(page, H, s, 76, N38_YS[i]! - 16, 10);
+      return save(d);
+    },
+    expect: N38_LABELS.map((label, i) => ({
+      rule: "table-cell" as const,
+      type: "text" as const,
+      label,
+      page: 1,
+      box: cellBox(180, 400, N38_YS[i + 1]!, N38_YS[i]!),
+    })),
+  },
+  {
+    id: "N39",
+    kind: "negative",
+    note: 'N38 with a header row ("Question" | "Answer"): text in a right cell, so the grid stays a table',
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      const ys = [624, ...N38_YS];
+      for (const y of ys) rule(page, 72, 400, y, 0.5);
+      for (const x of [72, 180, 400]) vline(page, x, 504, 624);
+      await text(page, H, "Question", 76, 608, 10);
+      await text(page, H, "Answer", 184, 608, 10);
+      for (const [i, s] of N38_LABELS.entries())
+        await text(page, H, s, 76, N38_YS[i]! - 16, 10);
       return save(d);
     },
     expect: "none",
     decidedBy: "table-grid",
-    at: { page: 1, x: 300, y: 605 },
-    // Read as strips without the grid (each label at the top of its row),
-    // the top rule takes no label: unlabelled would decide it next.
-    seamAlsoDisable: ["unlabelled"],
+    at: { page: 1, x: 300, y: 581 },
+    // Read without the grid as strips, each rule takes the caption of the
+    // row above it, and that row's own label leaves it no room to type:
+    // no-clearance would decide it next.
+    seamAlsoDisable: ["no-clearance"],
+  },
+  {
+    id: "P33",
+    kind: "positive",
+    note: "a Word-style two-column table with an underscore run typed alone in each right cell: each run labelled from its left cell",
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      const ys = N38_YS.slice(0, 3);
+      for (const y of ys) rule(page, 72, 400, y, 0.5);
+      for (const x of [72, 180, 400]) vline(page, x, 552, 600);
+      for (const [i, s] of ["Name", "Email"].entries()) {
+        await text(page, H, s, 76, ys[i]! - 16, 10);
+        await text(page, H, UNDERSCORES, 190, ys[i]! - 16, 10);
+      }
+      return save(d);
+    },
+    expect: ["Name", "Email"].map((label, i) => ({
+      rule: "underscore-run" as const,
+      type: "text" as const,
+      label,
+      page: 1,
+      box: runBox("sans", 190, N38_YS[i]! - 16, 10, "", UNDERSCORES),
+    })),
   },
 
   // ---------------------------------------------------------- outcomes

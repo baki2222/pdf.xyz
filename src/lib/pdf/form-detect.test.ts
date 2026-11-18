@@ -134,7 +134,9 @@ describe("rule tables", () => {
   it("every id is unique and the tables are the documented size", () => {
     const ids = [...DETECTION_RULES, ...EXCLUSION_RULES].map((r) => r.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(DETECTION_RULES).toHaveLength(3);
+    // 3 until review round 4 added table-cell (the owner's decision on the
+    // Word-style two-column table, round 3's finding 9).
+    expect(DETECTION_RULES).toHaveLength(4);
     expect(EXCLUSION_RULES).toHaveLength(17);
   });
 
@@ -205,6 +207,8 @@ describe("rule tables", () => {
       COMB_MIN: 2, // review round 3 (the brief's was 4)
       COMB_EPS: 1,
       GRID_HEAD_ABOVE: 20, // review round 3
+      CELL_ROWS_MIN: 2, // owner, round 4
+      CELL_LABEL_MAX: 40, // owner, round 4
       SIGNOFF_ABOVE: 80, // review
       IOU_EXISTING: 0.3,
       DUP_DY: 4,
@@ -1048,6 +1052,217 @@ describe("labelled-rule: a label column (labels flush left, lines at one tab sto
     });
     // City is 64 pt from its line, so only the column reaches it.
     expect(labelAt(q, 3)).toBe("City");
+  });
+});
+
+// Review round 4: the owner's decision on round 3's finding 9. A ruled grid
+// of exactly two columns and two or more rows, every LEFT cell holding one
+// short upright label line inside it and every RIGHT cell empty, is a form
+// (a Word-exported "label | answer" table): one text field fills each right
+// cell inside its borders, labelled from its left cell. Corpus N38 (once the
+// KNOWN MISS negative) and N4 (a 3 x 3 grid labelled from OUTSIDE, which
+// stays table-grid).
+describe("table-cell: a two-column table of labels and empty cells", () => {
+  const LABELS = ["Name", "Address", "Telephone", "Email"];
+  /** Rules from 72 to 400 every 24 pt down from 600; plumb lines at `xs`. */
+  const table = (
+    o: {
+      rows?: number;
+      xs?: number[];
+      left?: (CardText | null)[];
+      text?: CardText[];
+      segs?: CardSeg[];
+      rects?: CardRect[];
+      plumbs?: CardSeg[];
+    } = {},
+  ) => {
+    const rows = o.rows ?? 4;
+    const ys = Array.from({ length: rows + 1 }, (_, i) => 600 - 24 * i);
+    const xs = o.xs ?? [72, 180, 400];
+    const left =
+      o.left ??
+      LABELS.slice(0, rows).map((s, i) =>
+        txt(s, 76, ys[i]! - 16, { size: 10, width: 5 * s.length }),
+      );
+    return pg({
+      segs: [
+        ...ys.map((y) => hseg(72, 400, y)),
+        ...(o.plumbs ?? xs.map((x) => vseg(x, ys[rows]!, 600))),
+        ...(o.segs ?? []),
+      ],
+      rects: o.rects ?? [],
+      text: [
+        ...left.filter((t): t is CardText => t !== null),
+        ...(o.text ?? []),
+      ],
+    });
+  };
+  const cells = (p: CardPage) =>
+    props(p)
+      .filter((x) => x.rule === "table-cell")
+      .map((x) => x.label);
+  const grid = (p: CardPage) =>
+    run(p).excluded.filter((e) => e.rule === "table-grid").length;
+
+  it("one field per right cell, filling it inside its borders (inset 1), labelled from its left cell", () => {
+    const p = table();
+    expect(props(p)).toEqual(
+      LABELS.map((label, i) =>
+        expect.objectContaining({
+          rule: "table-cell",
+          type: "text",
+          label,
+          x: 181,
+          y: 577 - 24 * i,
+          width: 218,
+          height: 22,
+        }),
+      ),
+    );
+    // The grid's own rules are still table-grid, never fields themselves.
+    expect(grid(p)).toBe(5);
+  });
+
+  it("CELL_ROWS_MIN: two rows are a form, one row is not", () => {
+    expect(cells(table({ rows: 2 }))).toEqual(["Name", "Address"]);
+    expect(cells(table({ rows: 1 }))).toEqual([]);
+    expect(grid(table({ rows: 1 }))).toBe(2);
+  });
+
+  it("CELL_LABEL_MAX: a label of 40 characters counts, 41 does not", () => {
+    const of = (n: number) =>
+      table({
+        rows: 2,
+        left: [
+          txt("A".repeat(n), 76, 584, { size: 10, width: 100 }),
+          txt("Email", 76, 560, { size: 10, width: 25 }),
+        ],
+      });
+    expect(cells(of(40))).toEqual(["A".repeat(40), "Email"]);
+    expect(cells(of(41))).toEqual([]);
+  });
+
+  it("a header row (text in both cells) keeps the whole grid a table", () => {
+    const p = table({
+      text: [txt("Your answer", 184, 584, { size: 10, width: 55 })],
+    });
+    expect(props(p)).toEqual([]);
+    expect(grid(p)).toBe(5);
+  });
+
+  it("any text in any right cell keeps it a table (a filled-in answer, a value column)", () => {
+    for (const y of [584, 560, 536, 512]) {
+      const p = table({ text: [txt("x", 300, y, { size: 10, width: 5 })] });
+      expect(props(p), `text at ${y}`).toEqual([]);
+    }
+  });
+
+  it("three or more columns stay a table", () => {
+    expect(props(table({ xs: [72, 180, 290, 400] }))).toEqual([]);
+  });
+
+  it("a left cell holding two lines, or nothing, keeps it a table", () => {
+    const two = table({
+      // "Address" sits at 560; a second line under it in the same cell.
+      text: [txt("(in full)", 76, 546, { size: 6, width: 20 })],
+    });
+    expect(props(two)).toEqual([]);
+    const none = table({
+      left: [
+        txt("Name", 76, 584, { size: 10, width: 25 }),
+        null,
+        txt("Telephone", 76, 536, { size: 10, width: 45 }),
+        txt("Email", 76, 512, { size: 10, width: 25 }),
+      ],
+    });
+    expect(props(none)).toEqual([]);
+  });
+
+  it("left-cell text that is not upright, or that crosses the column line, keeps it a table", () => {
+    const turned = table({
+      rows: 2,
+      left: [
+        txt("Name", 76, 584, { size: 10, width: 25, upright: false }),
+        txt("Email", 76, 560, { size: 10, width: 25 }),
+      ],
+    });
+    expect(props(turned)).toEqual([]);
+    const spills = table({
+      rows: 2,
+      left: [
+        txt("Name of the applicant", 76, 584, { size: 10, width: 110 }),
+        txt("Email", 76, 560, { size: 10, width: 25 }),
+      ],
+    });
+    expect(props(spills)).toEqual([]);
+    // Text starting left of the grid's own border is not inside its cell.
+    const outside = table({
+      rows: 2,
+      left: [
+        txt("Name", 64, 584, { size: 10, width: 25 }),
+        txt("Email", 76, 560, { size: 10, width: 25 }),
+      ],
+    });
+    expect(props(outside)).toEqual([]);
+  });
+
+  it("a grid open at one end (no plumb line there) is no label table", () => {
+    const open = table({
+      plumbs: [vseg(72, 504, 600), vseg(180, 504, 600), vseg(300, 504, 600)],
+    });
+    expect(props(open)).toEqual([]);
+  });
+
+  it("N4's shape: a 3 x 3 grid of empty cells labelled from OUTSIDE stays a table", () => {
+    const p = pg({
+      segs: [
+        ...[500, 520, 540, 560].map((y) => hseg(200, 440, y)),
+        ...[200, 280, 360, 440].map((x) => vseg(x, 500, 560)),
+      ],
+      text: [1, 2, 3, 4].map((n, i) =>
+        txt(`Row ${n}`, 165, 502 + 20 * i, { size: 10, width: 25 }),
+      ),
+    });
+    expect(props(p)).toEqual([]);
+    expect(grid(p)).toBe(4);
+  });
+
+  it("a square, or a rule, inside a right cell keeps it a table", () => {
+    expect(props(table({ rects: [rect(300, 580, 10, 10)] }))).toEqual([]);
+    expect(props(table({ segs: [hseg(200, 380, 564)] }))).toEqual([]);
+  });
+
+  it("the middle plumb line must run the whole height of the grid", () => {
+    const short = table({
+      plumbs: [vseg(72, 504, 600), vseg(180, 528, 600), vseg(400, 504, 600)],
+    });
+    expect(props(short)).toEqual([]);
+  });
+
+  it("plumb lines drawn cell by cell (one piece a row) are one line", () => {
+    const ys = [600, 576, 552, 528, 504];
+    const pieces = ys
+      .slice(1)
+      .flatMap((y, i) => [72, 180, 400].map((x) => vseg(x, y, ys[i]!)));
+    expect(cells(table({ plumbs: pieces }))).toEqual(LABELS);
+  });
+
+  it("two such tables at one margin, apart, are each a form", () => {
+    const lower = pg({
+      segs: [
+        ...[400, 376, 352].map((y) => hseg(72, 400, y)),
+        ...[72, 180, 400].map((x) => vseg(x, 352, 400)),
+      ],
+      text: [
+        txt("Referee", 76, 384, { size: 10, width: 35 }),
+        txt("Phone", 76, 360, { size: 10, width: 25 }),
+      ],
+    });
+    const both = pg({
+      segs: [...table().segs, ...lower.segs],
+      text: [...table().text, ...lower.text],
+    });
+    expect(cells(both)).toEqual([...LABELS, "Referee", "Phone"]);
   });
 });
 
@@ -1946,13 +2161,14 @@ describe("exclusions, each at its boundary", () => {
     expect(firstRule(p)).toBe("table-grid");
   });
 
-  // Review round 3, finding 9, left to the owner: corpus N4 pins a labelled
-  // empty grid as table-grid, so a Word-style "label cell | empty cell"
-  // table proposes nothing (corpus N38), and a run typed alone in its right
-  // cell is proposed with NO label (its label sits across the cell border,
-  // past LABEL_LEFT_GAP). KNOWN MISS, pinned as it is today: if the owner
-  // rules such tables are forms, invert this test (do not delete it).
-  it("KNOWN MISS: a run alone in a table cell is proposed with no label (its label is in the cell to its left)", () => {
+  // INVERTED in review round 4 (the owner's decision on round 3's finding
+  // 9). This test read "KNOWN MISS: a run alone in a table cell is proposed
+  // with no label (its label is in the cell to its left)" and pinned
+  // [underscore-run, null] twice: the label sits across the cell border,
+  // past LABEL_LEFT_GAP. A run typed alone in a ruled cell now takes the
+  // label of the cell to its left in the same row, when that cell holds one
+  // label line. The table's rules stay table-grid: its right cells hold text.
+  it("a run alone in a table cell takes its label from the cell to its left", () => {
     const p = pg({
       segs: [
         ...[600, 576, 552].map((y) => hseg(72, 400, y)),
@@ -1972,12 +2188,120 @@ describe("exclusions, each at its boundary", () => {
       ],
     });
     expect(props(p).map((x) => [x.rule, x.label])).toEqual([
-      ["underscore-run", null],
-      ["underscore-run", null],
+      ["underscore-run", "Name"],
+      ["underscore-run", "Email"],
     ]);
     expect(run(p).excluded.map((e) => e.rule)).toEqual(
       Array(3).fill("table-grid"),
     );
+  });
+
+  describe("a run in a table cell: only alone, and only from one label line", () => {
+    /** Row 600..576, columns 72 | 180 | 400; `left` in the left cell. */
+    const cell = (left: CardText[], extra: CardText[] = [], mid = 180) =>
+      pg({
+        segs: [
+          ...[600, 576].map((y) => hseg(72, 400, y)),
+          ...[72, mid, 400].map((x) => vseg(x, 576, 600)),
+        ],
+        text: [
+          ...left,
+          txt("______________________________", 184, 584, {
+            size: 10,
+            width: 160,
+          }),
+          ...extra,
+        ],
+      });
+    const runLabel = (p: CardPage) =>
+      props(p).find((x) => x.rule === "underscore-run")?.label;
+    const name = txt("Name", 76, 584, { size: 10, width: 25 });
+
+    it("positive control: one label line in the left cell", () => {
+      expect(runLabel(cell([name]))).toBe("Name");
+    });
+
+    it("two lines in the left cell, or none: no label", () => {
+      expect(
+        runLabel(
+          cell([name, txt("(in full)", 76, 579, { size: 4, width: 15 })]),
+        ),
+      ).toBe(null);
+      expect(runLabel(cell([]))).toBe(null);
+    });
+
+    it("another word in the run's own cell: no label from across the border", () => {
+      expect(
+        runLabel(
+          cell([name], [txt("(optional)", 350, 584, { size: 8, width: 40 })]),
+        ),
+      ).toBe(null);
+    });
+
+    it("no plumb line between them: no cell, no label", () => {
+      const p = pg({
+        segs: [600, 576].map((y) => hseg(72, 400, y)),
+        text: [
+          name,
+          txt("______________________________", 184, 584, {
+            size: 10,
+            width: 160,
+          }),
+        ],
+      });
+      expect(runLabel(p)).toBe(null);
+    });
+
+    it("the left cell must be closed: a bottom rule stopping short of its left border leaves no cell", () => {
+      const open = (x0: number) =>
+        pg({
+          segs: [
+            hseg(72, 400, 600),
+            hseg(x0, 400, 576),
+            ...[72, 180, 400].map((x) => vseg(x, 576, 600)),
+          ],
+          text: [
+            name,
+            txt("______________________________", 184, 584, {
+              size: 10,
+              width: 160,
+            }),
+          ],
+        });
+      expect(runLabel(open(72))).toBe("Name");
+      expect(runLabel(open(150))).toBe(null);
+    });
+
+    it("a left cell that spans only part of the run's row gives no label", () => {
+      // The run's cell runs 552..600; the left column is split at 576.
+      const p = pg({
+        segs: [
+          hseg(72, 400, 600),
+          hseg(72, 180, 576),
+          hseg(72, 400, 552),
+          ...[72, 180, 400].map((x) => vseg(x, 552, 600)),
+        ],
+        text: [
+          name,
+          txt("______________________________", 184, 584, {
+            size: 10,
+            width: 160,
+          }),
+        ],
+      });
+      expect(runLabel(p)).toBe(null);
+      // Control: the same rows with the split drawn across both columns.
+      p.segs[1] = hseg(72, 400, 576);
+      expect(runLabel(p)).toBe("Name");
+    });
+
+    it("left-cell text that is not upright is no label", () => {
+      expect(
+        runLabel(
+          cell([txt("Name", 76, 584, { size: 10, width: 25, upright: false })]),
+        ),
+      ).toBe(null);
+    });
   });
 
   // A table ruled with level lines only (invoices, statements) had its top

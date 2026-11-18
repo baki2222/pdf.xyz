@@ -63,15 +63,18 @@ describe("corpus health (FATAL when it fails)", () => {
     ).toBeGreaterThanOrEqual(6);
   });
 
+  // Raised deliberately in review round 4 (was 80 cases / 120 proposals,
+  // which round 4's cases passed): headroom for the next round, still a
+  // bound a runaway generator or a duplicated case list would cross.
   it("the corpus is not implausibly large", () => {
     expect(DETECT_CASES.length, "corpus implausibly large").toBeLessThanOrEqual(
-      80,
+      110,
     );
     const proposals = kind("positive").reduce(
       (s, c) => s + runOf(c).proposals.length,
       0,
     );
-    expect(proposals, "corpus implausibly large").toBeLessThanOrEqual(120);
+    expect(proposals, "corpus implausibly large").toBeLessThanOrEqual(160);
   });
 
   // P27 is the label-column case only while two of its labels end beyond the

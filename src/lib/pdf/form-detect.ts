@@ -7,11 +7,14 @@ import type { Rect, Seg } from "./form-detect-paths";
  * propose where a fillable field might go, and say why each other shape was
  * passed over.
  *
- * LIMITS, in plain words. It looks at three shapes only: a run of
- * underscores typed in the text, a straight line with a label near it
+ * LIMITS, in plain words. It looks at four shapes only: a run of
+ * underscores typed in the text (labelled beside it, or, alone in a ruled
+ * cell, by the cell to its left), a straight line with a label near it
  * (beside it, under it, at the top of the strip it closes, or on the
- * labelled line it continues), and a small empty square (labelled beside
- * it, or by its row and the head of its column). It reads only text that is
+ * labelled line it continues), a small empty square (labelled beside it,
+ * or by its row and the head of its column), and the empty right cells of
+ * a two-column table whose left cells each hold one label line. It reads
+ * only text that is
  * upright in the page's content and lines and boxes drawn in the PDF
  * itself, so it finds nothing on a scanned page (a picture of a form). It
  * PROPOSES and never writes: nothing here adds a field, and every proposal
@@ -41,6 +44,7 @@ export const DETECTION_RULES = [
   { id: "underscore-run", plain: "runs of underscores" },
   { id: "labelled-rule", plain: "blank lines next to a label" },
   { id: "square-checkbox", plain: "small empty boxes" },
+  { id: "table-cell", plain: "empty cells beside a label in a table" },
 ] as const;
 
 /** Why a shape was passed over, in the order they are decided (mostly). */
@@ -210,6 +214,16 @@ export const DETECT = {
    * square, its baseline up to this far above the square's top.
    */
   GRID_HEAD_ABOVE: 20,
+  /**
+   * A LABEL TABLE (a Word-exported "label | answer" table; the owner's
+   * decision in review round 4): a ruled grid of exactly two columns and
+   * at least CELL_ROWS_MIN rows, every left cell holding one upright label
+   * line of at most CELL_LABEL_MAX characters (after `cleanLabel`) inside
+   * it, every right cell empty. Each right cell becomes a field. The same
+   * one-line left cell labels an underscore run typed alone in its cell.
+   */
+  CELL_ROWS_MIN: 2,
+  CELL_LABEL_MAX: 40,
   /** A label naming a signature line. */
   SIGNATURE_RE: /\b(sign(ature|ed)?|initials)\b/i,
   /**
@@ -1304,6 +1318,264 @@ function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Table cells
+ * ------------------------------------------------------------------ */
+
+/**
+ * Whether plumb lines at x (within {@link DETECT.GRID_TOUCH_EPS}) run the
+ * whole way from y0 to y1, as one line or as pieces (a Word table draws
+ * each cell's border on its own).
+ */
+function plumbCovers(
+  verticals: PageLines["verticals"],
+  x: number,
+  y0: number,
+  y1: number,
+): boolean {
+  const eps = DETECT.GRID_TOUCH_EPS;
+  const at = verticals
+    .filter((v) => Math.abs(v.x - x) <= eps)
+    .sort((a, b) => a.y0 - b.y0);
+  let reach = y0;
+  for (const v of at) {
+    if (v.y0 > reach + eps) break;
+    reach = Math.max(reach, v.y1);
+  }
+  return reach >= y1 - eps;
+}
+
+/** Whether a level rule at y runs from x0 to x1 (rules are merged). */
+function levelCovers(
+  rules: readonly Line[],
+  y: number,
+  x0: number,
+  x1: number,
+): boolean {
+  const eps = DETECT.GRID_TOUCH_EPS;
+  return rules.some(
+    (r) => Math.abs(r.y - y) <= eps && r.x0 <= x0 + eps && r.x1 >= x1 - eps,
+  );
+}
+
+/** The four sides of a cell are drawn, each the whole way. */
+function closedCell(lines: PageLines, c: Edges): boolean {
+  return (
+    levelCovers(lines.rules, c.y0, c.x0, c.x1) &&
+    levelCovers(lines.rules, c.y1, c.x0, c.x1) &&
+    plumbCovers(lines.verticals, c.x0, c.y0, c.y1) &&
+    plumbCovers(lines.verticals, c.x1, c.y0, c.y1)
+  );
+}
+
+/**
+ * The ruled cell round (x, y): the nearest level rule under and over the
+ * point, the nearest plumb line left and right of it, when all four close
+ * the cell. Null when the point is in no closed cell.
+ */
+function cellAround(lines: PageLines, x: number, y: number): Edges | null {
+  let y0 = -Infinity;
+  let y1 = Infinity;
+  for (const r of lines.rules) {
+    if (r.x0 > x || r.x1 < x) continue;
+    if (r.y < y) y0 = Math.max(y0, r.y);
+    else if (r.y > y) y1 = Math.min(y1, r.y);
+  }
+  let x0 = -Infinity;
+  let x1 = Infinity;
+  for (const v of lines.verticals) {
+    if (v.y0 > y || v.y1 < y) continue;
+    if (v.x < x) x0 = Math.max(x0, v.x);
+    else if (v.x > x) x1 = Math.min(x1, v.x);
+  }
+  const c = { x0, y0, x1, y1 };
+  return Object.values(c).every(Number.isFinite) && closedCell(lines, c)
+    ? c
+    : null;
+}
+
+/** Text whose baseline is inside the cell and which reaches across it. */
+function textIn(p: CardPage, c: Edges): CardText[] {
+  return p.text.filter(
+    (t) =>
+      t.str.trim() !== "" &&
+      t.y > c.y0 &&
+      t.y < c.y1 &&
+      overlap(t.x, t.x + Math.max(0, t.width), c.x0, c.x1) > 0.5,
+  );
+}
+
+/**
+ * The one label line a cell holds: its text all upright, starting inside
+ * the cell (within 1 pt of its left border), on one baseline (within
+ * {@link DETECT.GRID_ROW_EPS}), and read with `cleanLabel` into at most
+ * {@link DETECT.CELL_LABEL_MAX} characters. Null for two lines, none, or
+ * anything else. Text reaching past the right border needs no check here:
+ * it is in the next cell too, which both callers require to be empty.
+ */
+function cellLabel(p: CardPage, c: Edges): string | null {
+  const items = textIn(p, c).sort((a, b) => a.x - b.x);
+  if (items.length === 0) return null;
+  const first = items[0]!;
+  const one = items.every(
+    (t) =>
+      t.upright &&
+      t.x >= c.x0 - 1 &&
+      Math.abs(t.y - first.y) <= DETECT.GRID_ROW_EPS,
+  );
+  if (!one) return null;
+  const str = cleanLabel(items.map((t) => t.str).join(" "));
+  if (!str || Array.from(str).length > DETECT.CELL_LABEL_MAX) return null;
+  return str;
+}
+
+/**
+ * The fields of LABEL TABLES ({@link DETECT.CELL_ROWS_MIN}): stacks of
+ * rules whose ends line up (within {@link DETECT.GRID_ROW_EPS}), split
+ * wherever the outer plumb lines break (two tables at one margin), with
+ * exactly three plumb lines inside, at the two ends and one between, each
+ * running the stack's whole height, and no other line inside. Every row's
+ * left cell must hold one label line ({@link cellLabel}) and every right
+ * cell nothing at all: no text (an underscore run included), no square. A
+ * header row, a value column, a third column, or a left cell of two lines
+ * or none leaves the whole grid to `table-grid` (corpus N4, N39).
+ */
+function tableCells(p: CardPage, lines: PageLines): Candidate[] {
+  const eps = DETECT.GRID_ROW_EPS;
+  const tEps = DETECT.GRID_TOUCH_EPS;
+  const long = lines.rules
+    .filter((r) => r.x1 - r.x0 >= DETECT.RULE_MIN_LEN)
+    .sort((a, b) => a.y - b.y);
+  const seen = new Set<Line>();
+  const out: Candidate[] = [];
+  for (const seed of long) {
+    if (seen.has(seed)) continue;
+    const stack = long.filter(
+      (r) => Math.abs(r.x0 - seed.x0) <= eps && Math.abs(r.x1 - seed.x1) <= eps,
+    );
+    stack.forEach((r) => seen.add(r));
+    // Split where the outer plumb lines do not join two rules.
+    const parts: Line[][] = [[stack[0]!]];
+    for (let i = 1; i < stack.length; i++) {
+      const a = stack[i - 1]!;
+      const b = stack[i]!;
+      const joined =
+        plumbCovers(lines.verticals, seed.x0, a.y, b.y) &&
+        plumbCovers(lines.verticals, seed.x1, a.y, b.y);
+      if (joined) parts[parts.length - 1]!.push(b);
+      else parts.push([b]);
+    }
+    for (const part of parts) {
+      if (part.length - 1 < DETECT.CELL_ROWS_MIN) continue;
+      const lo = part[0]!.y;
+      const hi = part[part.length - 1]!.y;
+      const xs: number[] = [];
+      for (const v of lines.verticals
+        .filter(
+          (v) =>
+            v.x >= seed.x0 - tEps &&
+            v.x <= seed.x1 + tEps &&
+            v.y1 > lo + tEps &&
+            v.y0 < hi - tEps,
+        )
+        .sort((a, b) => a.x - b.x))
+        if (xs.length === 0 || v.x - xs[xs.length - 1]! > tEps) xs.push(v.x);
+      // The part's outer plumb lines are among them (it was split where
+      // they break), so three are the two ends and one column line.
+      if (xs.length !== 3) continue;
+      const mid = xs[1]!;
+      if (!plumbCovers(lines.verticals, mid, lo, hi)) continue;
+      const stray = lines.rules.some(
+        (r) =>
+          !part.includes(r) &&
+          r.y > lo + tEps &&
+          r.y < hi - tEps &&
+          overlap(r.x0, r.x1, seed.x0, seed.x1) > tEps,
+      );
+      if (stray) continue;
+      const rows: Candidate[] = [];
+      for (let i = 1; i < part.length; i++) {
+        const y0 = part[i - 1]!.y;
+        const y1 = part[i]!.y;
+        const label = cellLabel(p, { x0: seed.x0, x1: mid, y0, y1 });
+        const cell = { x0: mid, x1: seed.x1, y0, y1 };
+        const empty =
+          textIn(p, cell).length === 0 &&
+          !lines.squares.some(
+            (s) =>
+              overlap(s.x0, s.x1, mid, seed.x1) > 0 && s.y1 > y0 && s.y0 < y1,
+          );
+        if (!label || !empty) break;
+        const inset = DETECT.FIELD_INSET;
+        rows.push({
+          rule: "table-cell",
+          type: "text",
+          box: {
+            x0: mid + inset,
+            x1: seed.x1 - inset,
+            y0: y0 + inset,
+            y1: y1 - inset,
+          },
+          line: null,
+          square: null,
+          label,
+          labelState: "found",
+          leftLabel: true,
+          ownPiece: null,
+          order: 0,
+        });
+      }
+      if (rows.length === part.length - 1) out.push(...rows);
+    }
+  }
+  return out;
+}
+
+/**
+ * An underscore run typed ALONE in a ruled cell, with no label of its own,
+ * takes the label of the cell to its left in the same row when that cell
+ * holds one label line ({@link cellLabel}): its label sits across the cell
+ * border, past {@link DETECT.LABEL_LEFT_GAP} (review round 3, finding 9;
+ * the owner's decision in round 4; corpus P33).
+ */
+function cellRunLabels(
+  p: CardPage,
+  lines: PageLines,
+  all: readonly Piece[],
+  runs: readonly Candidate[],
+): void {
+  for (const c of runs) {
+    const pc = c.ownPiece;
+    if (!pc || c.labelState !== "none") continue;
+    const mid = pc.baseline + DETECT.RUN_BASELINE_EMS * pc.size;
+    const cell = cellAround(lines, (pc.x0 + pc.x1) / 2, mid);
+    if (!cell) continue;
+    const alone = all.every(
+      (o) =>
+        o === pc ||
+        !(
+          o.baseline > cell.y0 &&
+          o.baseline < cell.y1 &&
+          overlap(o.x0, o.x1, cell.x0, cell.x1) > 0.5
+        ),
+    );
+    if (!alone) continue;
+    const left = cellAround(lines, cell.x0 - DETECT.GRID_ROW_EPS, mid);
+    if (
+      !left ||
+      Math.abs(left.x1 - cell.x0) > DETECT.GRID_TOUCH_EPS ||
+      Math.abs(left.y0 - cell.y0) > DETECT.GRID_TOUCH_EPS ||
+      Math.abs(left.y1 - cell.y1) > DETECT.GRID_TOUCH_EPS
+    )
+      continue;
+    const label = cellLabel(p, left);
+    if (!label) continue;
+    c.label = label;
+    c.labelState = "found";
+    c.leftLabel = true;
+  }
+}
+
+/* ------------------------------------------------------------------ *
  *  Exclusions
  * ------------------------------------------------------------------ */
 
@@ -1676,10 +1948,12 @@ export function classifyPage(
   const lines = readLines(p);
   const rowTable = rowTables(lines.rules, all);
   const runs = runCandidates(p, all);
+  cellRunLabels(p, lines, all, runs.cands);
   const cands = [
     ...ruleCandidates(p, lines, rowTable),
     ...runs.cands,
     ...squareCandidates(p, lines),
+    ...tableCells(p, lines),
   ];
   cands.forEach((c, i) => (c.order = i));
   counts.candidates = cands.length + runs.short.length;
