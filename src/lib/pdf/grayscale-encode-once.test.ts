@@ -13,14 +13,17 @@
  * ── THE FIX, AND ITS TOLERANCE ──────────────────────────────────────────────
  *
  * A JPEG from `encodeGrayJpeg` can never be smaller than
- * `grayJpegFloorBytes(width, height)` (2 bits per 8×8 block plus headers;
- * 8,280 bytes for a Letter page at 150 DPI). When the Flate image is already
- * no larger than that, the JPEG would have lost the comparison, so it is not
- * made. The choice is the one the old rule made, byte for byte: the
- * tolerance is ZERO. Ratio rules were measured and rejected: a smooth photo
- * page deflates to 12% of its plane while its JPEG is 4.6 times smaller
- * still, so "Flate under plane / 8" would have stored a page 4.6 times larger
- * than the JPEG alone.
+ * `grayJpegFloorBytes(width, height)` (2 bits per 8×8 block plus 158 bytes of
+ * headers; 8,438 bytes for a Letter page at 150 DPI — 158 + 8,280. An earlier
+ * version of this note said 8,280, leaving out the headers). That floor alone
+ * settles only nearly blank pages, so the builder grows it into a lower bound
+ * on the JPEG from the page's non-blank blocks (`./gray-jpeg-bound`), and
+ * makes the JPEG only while that bound is not above the Flate image. When it
+ * is, the JPEG would have lost the comparison. The choice is the one the old
+ * rule made, byte for byte: the tolerance is ZERO. Ratio rules were measured
+ * and rejected: a smooth photo page deflates to 12% of its plane while its
+ * JPEG is 4.6 times smaller still, so "Flate under plane / 8" would have
+ * stored a page 4.6 times larger than the JPEG alone.
  *
  * The spy is `vi.spyOn` on the module namespace, restored after each test,
  * never `vi.mock` (the suite shares one module cache, `isolate: false`).
@@ -29,6 +32,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import * as grayJpeg from "./gray-jpeg";
 import { grayJpegFloorBytes } from "./gray-jpeg-floor";
+import { deflateNatively } from "./gray-deflate";
 import { createGrayscaleBuilder } from "./grayscale-builder";
 
 afterEach(() => {
@@ -86,7 +90,10 @@ function photoPlane(width: number, height: number): Uint8Array {
   return out;
 }
 
+/** The Flate image the builder stores: the platform's deflater, else pako's. */
 async function flateBytes(plane: Uint8Array): Promise<number> {
+  const native = await deflateNatively(plane);
+  if (native) return native.length;
   const doc = await PDFDocument.create();
   return doc.context.flateStream(plane, {}).contents.length;
 }
@@ -98,6 +105,25 @@ describe("grayscale builder: a JPEG is made only when it could win", () => {
     // Health check on the fixture: the shape the finding names.
     expect(white).toBeGreaterThanOrEqual(0.99);
     expect(white).toBeLessThan(1);
+    const spy = vi.spyOn(grayJpeg, "encodeGrayJpeg");
+    const builder = await createGrayscaleBuilder();
+    const record = await builder.addPage(plane, info(W, H));
+    expect(record.encoding).toBe("flate");
+    expect(spy).toHaveBeenCalledTimes(0);
+  });
+
+  it("a page of dense body text, whose Flate image is above the size floor, is stored as Flate with encodeGrayJpeg called 0 times", async () => {
+    // Review finding (HIGH): the floor alone settled only nearly blank pages.
+    // Measured in Chromium on rendered Helvetica pages at 150 DPI, 6 lines
+    // deflate to 29.8 KB and 50 lines to 232 KB, against a floor of 8.4 KB,
+    // so the JPEG (90 KB, 646 KB) was still made and thrown away.
+    const plane = denseTextPlane();
+    const flate = await flateBytes(plane);
+    // Health check on the fixture: the shape the review named.
+    expect(flate).toBeGreaterThan(4 * grayJpegFloorBytes(W, H));
+    expect(flate).toBeLessThan(
+      grayJpeg.encodeGrayJpeg(plane, W, H, 0.88).length,
+    );
     const spy = vi.spyOn(grayJpeg, "encodeGrayJpeg");
     const builder = await createGrayscaleBuilder();
     const record = await builder.addPage(plane, info(W, H));
@@ -135,8 +161,11 @@ describe("grayscale builder: a JPEG is made only when it could win", () => {
       expect(record.encoding, label).toBe(flate <= jpeg ? "flate" : "jpeg");
     }
     // Both branches taken, so neither is certified unseen.
-    expect(skipped).toEqual(["sparse text", "flat", "one pixel"]);
-    expect(encoded).toEqual(["dense text", "photo"]);
+    // INVERTED (review of this PR, HIGH): this line first read
+    //   skipped ["sparse text", "flat", "one pixel"], encoded ["dense text", "photo"]
+    // which pinned the defect — dense text still paid for a JPEG it lost.
+    expect(skipped).toEqual(["sparse text", "dense text", "flat", "one pixel"]);
+    expect(encoded).toEqual(["photo"]);
   });
 });
 
