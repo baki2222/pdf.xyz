@@ -940,6 +940,33 @@ describe("labelled-rule", () => {
       });
     });
 
+    // Review round 4 fixes, finding 10: the heading test scanned every
+    // text item for every caption, and the title-rule test did the same,
+    // so a page of small text under rules went from linear to quadratic
+    // (4.6 s at 20,000 items on the reviewer's head, 11 s once the title
+    // test landed). Both now read a per-page index.
+    it("20,000 tiny items as captions under 200 rules are classified in linear time", () => {
+      const segs: CardSeg[] = [];
+      const text: CardText[] = [];
+      for (let k = 0; k < 200; k++) segs.push(hseg(72, 540, 30 + 3.7 * k));
+      for (let k = 0; k < 20_000; k++) {
+        const layer = Math.floor(k / 200) % 3;
+        text.push(
+          txt("ab", 72 + (k % 150) * 3, 28.5 + 3.7 * (k % 200) - 0.3 * layer, {
+            size: 2 - 0.6 * layer,
+            width: 2,
+          }),
+        );
+      }
+      const t0 = performance.now();
+      const r = run(pg({ segs, text }));
+      const ms = performance.now() - t0;
+      // Health: every rule is a candidate, and the captions were read.
+      expect(r.counts.candidates).toBe(200);
+      // Measured before: 11 s; after: about 0.15 s.
+      expect(ms).toBeLessThan(800);
+    });
+
     // KNOWN MISS (review round 4 fixes, finding 8): a section heading
     // under a separator rule whose next line is a form's label more than
     // HEADING_LEAD_EMS under it has no body in reach, so the heading is

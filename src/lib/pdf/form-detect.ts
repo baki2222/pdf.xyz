@@ -973,31 +973,71 @@ function labelColumns(p: CardPage, lines: PageLines): Map<Line, LabelHit> {
 }
 
 /**
- * Whether `t` is a heading ({@link DETECT.HEADING_LEAD_EMS}): smaller text
- * starts at its x directly under it. A heading under a border-top rule was
+ * The page's test of whether a text item is a heading ({@link
+ * DETECT.HEADING_LEAD_EMS}): a smaller body of two lines starts at its x
+ * directly under it. A heading under a border-top rule was
  * that rule's caption, a field on plain prose (review round 3, finding 6;
  * corpus N36).
  */
-function isHeading(t: CardText, text: readonly CardText[]): boolean {
-  // Upright text no larger than `size` starting at `top`'s x, its baseline
-  // up to HEADING_LEAD_EMS x `top`'s size under `top`'s.
-  const under = (top: CardText, size: number) =>
-    text.filter(
-      (u) =>
-        u.upright &&
-        u.str.trim() !== "" &&
-        u.size <= size &&
-        Math.abs(u.x - top.x) <= DETECT.GRID_ROW_EPS &&
-        u.y < top.y &&
-        top.y - u.y <= DETECT.HEADING_LEAD_EMS * top.size,
-    );
+function headingTest(text: readonly CardText[]): (t: CardText) => boolean {
+  const eps = DETECT.GRID_ROW_EPS;
+  // Upright text by x (cells GRID_ROW_EPS wide, so text within eps of an x
+  // is in its cell or a neighbour), each cell sorted by baseline. Scanning
+  // every item for every caption made a page of small text under rules
+  // quadratic (review round 4 fixes, finding 10).
+  const cells = new Map<number, CardText[]>();
+  for (const u of text) {
+    if (!u.upright || u.str.trim() === "") continue;
+    if (!Number.isFinite(u.x) || !Number.isFinite(u.y)) continue;
+    const k = Math.floor(u.x / eps);
+    const list = cells.get(k);
+    if (list) list.push(u);
+    else cells.set(k, [u]);
+  }
+  for (const list of cells.values()) list.sort((a, b) => a.y - b.y);
+  // Whether upright text no larger than `size` starts at `top`'s x, its
+  // baseline up to HEADING_LEAD_EMS x `top`'s size under `top`'s, and
+  // passes `also`. The slice is found by a binary search 1 pt generous,
+  // and every item in it is held to the exact predicate.
+  const anyUnder = (
+    top: CardText,
+    size: number,
+    also: (u: CardText) => boolean,
+  ): boolean => {
+    const reach = DETECT.HEADING_LEAD_EMS * top.size;
+    const lo = top.y - reach - 1;
+    const k = Math.floor(top.x / eps);
+    for (const dk of [-1, 0, 1]) {
+      const list = cells.get(k + dk);
+      if (!list) continue;
+      let a = 0;
+      let z = list.length;
+      while (a < z) {
+        const m = (a + z) >> 1;
+        if (list[m]!.y < lo) a = m + 1;
+        else z = m;
+      }
+      for (let i = a; i < list.length && list[i]!.y < top.y; i++) {
+        const u = list[i]!;
+        if (
+          u.size <= size &&
+          Math.abs(u.x - top.x) <= eps &&
+          top.y - u.y <= reach &&
+          also(u)
+        )
+          return true;
+      }
+    }
+    return false;
+  };
   // `t` itself never passes: it is not smaller than itself. The body is
   // TWO lines: one smaller line under a caption is the caption's hint
   // ("(as shown on your passport)"), and read as a body it cost the line
   // its caption (review round 4 fixes, finding 3; corpus P37).
-  return under(t, t.size - DETECT.HEADING_SMALLER_BY).some(
-    (u) => under(u, u.size).length > 0,
-  );
+  return (t) =>
+    anyUnder(t, t.size - DETECT.HEADING_SMALLER_BY, (u) =>
+      anyUnder(u, u.size, () => true),
+    );
 }
 
 /** What the prose rules read of the page ({@link DETECT.FOOTNOTE_SPAN}). */
@@ -1049,23 +1089,29 @@ function isFootnote(r: Line, t: CardText, prose: Prose | null): boolean {
 }
 
 /**
- * Whether line `r` is a title rule for caption `t` ({@link
- * DETECT.TITLE_LARGER}): the byline under a title's rule was its caption
- * (review round 3, finding 6; corpus N41).
+ * The size of the largest title line `r` sits under ({@link
+ * DETECT.TITLE_LARGER}), or -Infinity: line `r` is a title rule for any
+ * caption of at most 1 / TITLE_LARGER of it. The byline under a title's
+ * rule was its caption (review round 3, finding 6; corpus N41). Read once
+ * per line, not once per caption: the per-caption scan made a page of
+ * small text under rules quadratic (review round 4 fixes, finding 10).
  */
-function underTitle(r: Line, t: CardText, text: readonly CardText[]): boolean {
+function titleSize(r: Line, text: readonly CardText[]): number {
   const eps = DETECT.GRID_ROW_EPS;
   const mid = (r.x0 + r.x1) / 2;
-  return text.some(
-    (u) =>
+  let best = -Infinity;
+  for (const u of text)
+    if (
       u.upright &&
       u.str.trim() !== "" &&
-      u.size >= DETECT.TITLE_LARGER * t.size &&
+      u.size > best &&
       u.y > r.y &&
       u.y - r.y <= DETECT.TITLE_ABOVE_EMS * u.size &&
       Math.abs(u.x + Math.max(0, u.width) / 2 - mid) <= eps &&
-      r.x1 - r.x0 <= Math.max(0, u.width) + eps,
-  );
+      r.x1 - r.x0 <= Math.max(0, u.width) + eps
+    )
+      best = u.size;
+  return best;
 }
 
 /**
@@ -1242,6 +1288,7 @@ function ruleCandidates(
   const column = labelColumns(p, lines);
   const prose = proseOf(p);
   const quotes = pullQuotes(p, lines, prose);
+  const heading = headingTest(p.text);
   for (const r of lines.rules) {
     const len = r.x1 - r.x0;
     if (len < DETECT.RULE_MIN_LEN) continue;
@@ -1268,6 +1315,7 @@ function ruleCandidates(
     // round 3, finding 4; corpus N35).
     if (pick.state !== "found" && !r.boxTop) {
       const captions: LabelHit[] = [];
+      let title: number | undefined;
       for (const t of p.text) {
         const top = t.y + DETECT.TEXT_ASCENT_EMS * t.size;
         const below = r.y - top;
@@ -1277,9 +1325,10 @@ function ruleCandidates(
         const str = cleanLabel(t.str);
         // Prose under a rule is no caption: a heading's body text, a
         // footnote, a byline under a title's rule, a pull quote's text.
-        if (!str || isHeading(t, p.text)) continue;
+        if (!str || heading(t)) continue;
         if (isFootnote(r, t, prose)) continue;
-        if (underTitle(r, t, p.text)) continue;
+        title ??= titleSize(r, p.text);
+        if (title >= DETECT.TITLE_LARGER * t.size) continue;
         if (quotes.get(r)?.(t)) continue;
         captions.push({ text: t, str });
       }
