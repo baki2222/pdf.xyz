@@ -513,6 +513,20 @@ describe("labelled-rule", () => {
         expect(props(p).map((x) => x.label)).toEqual(["Received by"]);
       });
 
+      // Review round 5 fixes, finding 11: over an EMPTY box only upright
+      // text competes for nearest (mutant BC3: a turned "DRAFT" nearer
+      // the top won, and the caption was lost).
+      it("over an empty box a nearer turned text does not beat the upright caption", () => {
+        const p = pg({
+          rects: [rect(72, 600, 300, 40)],
+          text: [
+            txt("Received by", 72, 652, { size: 10, width: 55 }),
+            txt("DRAFT", 72, 643, { size: 10, width: 30, upright: false }),
+          ],
+        });
+        expect(props(p).map((x) => x.label)).toEqual(["Received by"]);
+      });
+
       it("a turned interior text is no caption", () => {
         const p = box([
           txt("Received by", 74, 350, { size: 7, width: 40, upright: false }),
