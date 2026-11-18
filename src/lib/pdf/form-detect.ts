@@ -1019,11 +1019,12 @@ const textBand = ySlice<CardText>;
  * y + 0.6 x the largest size], 1 pt generous at each end.
  */
 function bandText(ix: TextIndex, r: Line): CardText[] {
-  return textBand(
-    ix,
-    r.y - DETECT.LABEL_BELOW_RULE - 1,
-    r.y + DETECT.LABEL_ABOVE_RULE_EMS * Math.max(0, ix.maxSize) + 1,
-  );
+  return textBand(ix, r.y - DETECT.LABEL_BELOW_RULE - 1, bandTop(ix, r) + 1);
+}
+
+/** The highest baseline a line's label band can reach on this page. */
+function bandTop(ix: TextIndex, r: Line): number {
+  return r.y + DETECT.LABEL_ABOVE_RULE_EMS * Math.max(0, ix.maxSize);
 }
 
 /** The items with a finite `y`, sorted by it (for {@link from}). */
@@ -1558,12 +1559,31 @@ function ruleCandidates(
     const len = r.x1 - r.x0;
     if (len < DETECT.RULE_MIN_LEN) continue;
     const band = labelBand(r);
+    // A box's bottom edge takes a left label anywhere up the box's side,
+    // its baseline up to the box's top less its ascent: a label centred on
+    // a box taller than about 18 pt sat above the band (review round 4
+    // fixes, finding 24; corpus P44). Not in a label column's search.
+    const boxTop = r.boxBottom?.top;
+    const hi =
+      boxTop === undefined
+        ? band.hi
+        : (t: CardText) =>
+            Math.max(band.hi(t), boxTop - DETECT.TEXT_ASCENT_EMS * t.size);
     const left = leftOf(
-      bandText(ix, r),
+      boxTop === undefined
+        ? bandText(ix, r)
+        : textBand(
+            ix,
+            band.lo - 1,
+            Math.max(
+              bandTop(ix, r),
+              boxTop - DETECT.TEXT_ASCENT_EMS * Math.min(0, ix.minSize),
+            ) + 1,
+          ),
       r.x0,
       DETECT.LABEL_LEFT_GAP_RULE,
       band.lo,
-      band.hi,
+      hi,
     );
     let pick = pickLabel(left);
     let size = left.find((h) => h.text.upright)?.text.size;

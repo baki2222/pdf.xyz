@@ -543,6 +543,50 @@ describe("labelled-rule", () => {
         expect(props(p).map((x) => x.label)).toEqual(["Received by"]);
       });
     });
+
+    // Review round 4 fixes, finding 24: a label set vertically centred
+    // beside a box ("Total hours [____]") sat above the bottom edge's label
+    // band (0.6 em over it), so a box taller than about 18 pt lost its
+    // label. A box's bottom edge takes a left label anywhere up its side:
+    // the band reaches to the box's top less the label's ascent.
+    describe("a box's bottom edge takes a left label anywhere up its side", () => {
+      /** A 130 pt wide box `h` tall from y 650, "Total hours" at `base`. */
+      const side = (h: number, base: number) =>
+        pg({
+          rects: [rect(140, 650, 130, h)],
+          text: [txt("Total hours", 72, base, { size: 10, width: 55 })],
+        });
+      const label = (p: CardPage) => props(p).map((x) => [x.label, x.y]);
+
+      it("'Total hours' centred on a 22 pt box, and 'Reference:' on a 30 pt one", () => {
+        expect(label(side(22, 657.5))).toEqual([["Total hours", 651]]);
+        expect(
+          label(
+            pg({
+              rects: [rect(140, 540, 200, 30)],
+              text: [txt("Reference:", 72, 551, { size: 10, width: 50 })],
+            }),
+          ),
+        ).toEqual([["Reference", 541]]);
+      });
+
+      it("the band's top: a baseline at the box's top less 0.7 em counts, 0.1 pt higher does not", () => {
+        // A 30 pt box: its top at 680, so 673 is the highest baseline.
+        expect(label(side(30, 673))).toEqual([["Total hours", 651]]);
+        expect(label(side(30, 673.1))).toEqual([]);
+      });
+
+      it("a plain line keeps its band (0.6 em over it), and so does a box edge merged with a line", () => {
+        const line = pg({
+          segs: [hseg(140, 270, 650)],
+          text: [txt("Total hours", 72, 657.5, { size: 10, width: 55 })],
+        });
+        expect(label(line)).toEqual([]);
+        const merged = side(22, 657.5);
+        merged.segs = [hseg(269.5, 300, 650)];
+        expect(label(merged)).toEqual([]);
+      });
+    });
   });
 
   // Review round 3, finding 5: a W-9's strips are captioned at their TOP,

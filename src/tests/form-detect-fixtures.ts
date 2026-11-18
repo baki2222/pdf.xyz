@@ -489,6 +489,12 @@ const N44 = [
     notice: "Important: bring photo ID to every appointment.",
   },
 ];
+/** P44's boxes at x 140, each label (10 pt) centred on its box's height. */
+const P44 = [
+  { label: "Total hours", y: 650, w: 130, h: 22 },
+  { label: "Received by:", y: 600, w: 200, h: 18 },
+  { label: "Reference:", y: 540, w: 200, h: 30 },
+];
 /** N32's line starts 40 pt right of where "Address:" (12 pt) ends. */
 const N32_X0 = 72 + textWidth(H, "Address:", 12) + 40;
 /**
@@ -2643,6 +2649,37 @@ export const DETECT_CASES: readonly DetectCase[] = [
     // With no caption the bottom edge's field reaches the notice's text,
     // which lowers its top under 10 pt: no-clearance would decide it next.
     seamAlsoDisable: ["no-clearance"],
+  },
+  {
+    id: "P44",
+    kind: "positive",
+    note: 'labels set vertically centred beside boxes: "Total hours" on a 22 pt box, "Received by:" on an 18 pt one, "Reference:" on a 30 pt one',
+    // Review round 4 fixes, finding 24: only the 18 pt box (the control)
+    // was labelled; a taller box's centred label sat above its bottom
+    // edge's label band.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const b of P44) {
+        await text(page, H, b.label, 72, b.y + b.h / 2 - 3.5, 10);
+        page.drawRectangle({
+          x: 140,
+          y: b.y,
+          width: b.w,
+          height: b.h,
+          borderColor: rgb(0, 0, 0),
+          borderWidth: 0.75,
+        });
+      }
+      return save(d);
+    },
+    expect: P44.map((b) => ({
+      rule: "labelled-rule" as const,
+      type: "text" as const,
+      label: b.label.replace(/:$/, ""),
+      page: 1,
+      box: ruleBox(140, 140 + b.w, b.y, 10),
+    })),
   },
 
   // ---------------------------------------------------------- outcomes
