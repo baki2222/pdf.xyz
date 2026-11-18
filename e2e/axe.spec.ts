@@ -51,7 +51,10 @@ const PAGES = [
 interface Violation {
   id: string;
   impact: string | null;
+  /** The first three nodes' selectors. */
   nodes: string[];
+  /** How many nodes axe reported, all of them, not just the three shown. */
+  count: number;
 }
 
 async function violations(page: Page): Promise<Violation[]> {
@@ -80,6 +83,7 @@ async function violations(page: Page): Promise<Violation[]> {
       id: v.id,
       impact: v.impact,
       nodes: v.nodes.slice(0, 3).map((n) => n.target.join(" ")),
+      count: v.nodes.length,
     }));
   }, TAGS);
 }
@@ -170,10 +174,17 @@ const AFTER_UPLOAD_PDF_PAGES = 3;
 
 /**
  * Defects this sweep found that were not yet fixed when it landed, each as
- * `<combo>|<the failure line's exact start, through its first node>`. Both
- * directions are held: a failure that matches no entry fails the sweep, and
- * an entry that matches no failure fails it too ("fixed, remove from
- * KNOWN_OPEN"), so an entry cannot outlive its defect or cover a new one.
+ * `<combo>|<the whole failure line>`, compared by EQUALITY (the line itself
+ * holds " | " between nodes, so the combo ends at the FIRST "|"). The line
+ * carries the rule's node count, so a new node on the same page and rule
+ * changes it even past the three nodes shown. Both directions are held: a
+ * failure no entry equals fails the sweep, and an entry no failure equals
+ * fails it too ("fixed, remove from KNOWN_OPEN"), so an entry cannot outlive
+ * its defect or cover a new one.
+ *
+ * HISTORY (review, 2026-11-18): entries were first a prefix through the
+ * first node, matched by `startsWith`; a contrast failure planted on
+ * sign-pdf dark printed after the known node and the sweep stayed green.
  *
  * sign-pdf, dark (found 2026-11-18 by this sweep's first run, on main with
  * #374-#376, and on 49b71de3 before them): the signature style previews are
@@ -182,8 +193,12 @@ const AFTER_UPLOAD_PDF_PAGES = 3;
  * inline `color: ink`.
  */
 const KNOWN_OPEN: readonly string[] = [
-  'desktop, dark|sign-pdf [post-upload, desktop, dark]: color-contrast (serious) at button[aria-label="Dancing Script"]',
+  'desktop, dark|sign-pdf [post-upload, desktop, dark]: color-contrast (serious) x1 at button[aria-label="Dancing Script"] > .truncate.text-xl.block',
 ];
+/** A KNOWN_OPEN entry's combo: everything before its first "|". */
+const knownCombo = (entry: string) => entry.slice(0, entry.indexOf("|"));
+/** A KNOWN_OPEN entry's failure line: everything after its first "|". */
+const knownLine = (entry: string) => entry.slice(entry.indexOf("|") + 1);
 
 /** How long one load may take to land, and one run to draw its result. */
 const LAND_TIMEOUT = 15_000;
@@ -366,7 +381,10 @@ async function targetsStillTooSmall(page: Page): Promise<string[]> {
   });
 }
 
-/** One page's axe violations, each as `slug [state, combo]: rule ...`. */
+/**
+ * One page's axe violations, each as
+ * `slug [state, combo]: rule (impact) xN at node | node | node`.
+ */
 async function record(
   page: Page,
   slug: string,
@@ -377,12 +395,16 @@ async function record(
   const out: string[] = [];
   for (const v of found) {
     let nodes = v.nodes;
+    let count = v.count;
     if (v.id === "target-size") {
       nodes = await targetsStillTooSmall(page);
-      if (nodes.length === 0) continue;
+      count = nodes.length;
+      if (count === 0) continue;
     }
+    // The node count is in the line so that an exact KNOWN_OPEN entry turns
+    // red when a node is added, even one past the three shown.
     out.push(
-      `${slug} [${state}, ${combo}]: ${v.id} (${v.impact}) at ${nodes.slice(0, 3).join(" | ")}`,
+      `${slug} [${state}, ${combo}]: ${v.id} (${v.impact}) x${count} at ${nodes.slice(0, 3).join(" | ")}`,
     );
   }
   return out;
@@ -435,7 +457,7 @@ test.describe("accessibility: axe after a file is loaded, and on client results"
     // compared and its "fixed" check passes over nothing.
     const combos = AFTER_UPLOAD_COMBOS.map((c) => c.name);
     for (const entry of KNOWN_OPEN)
-      expect(combos, entry).toContain(entry.split("|")[0]);
+      expect(combos, entry).toContain(knownCombo(entry));
   });
 
   test("POSITIVE CONTROL: a planted unfocusable scroller, a button in a button and two tiny targets are found after a load", async ({
@@ -522,19 +544,20 @@ test.describe("accessibility: axe after a file is loaded, and on client results"
         reached.length,
         `reached ${reached.length} of ${FILE_TOOLS.length}: ${reached.join(", ")}`,
       ).toBe(FILE_TOOLS.length);
-      const known = KNOWN_OPEN.filter((k) => k.startsWith(`${combo.name}|`));
-      const isKnown = (f: string) =>
-        known.some((k) => f.startsWith(k.split("|")[1]!));
-      // A known entry nothing matches was fixed: delete it.
-      const fixed = known.filter(
-        (k) => !failures.some((f) => f.startsWith(k.split("|")[1]!)),
-      );
-      expect(
-        fixed,
-        `fixed, remove from KNOWN_OPEN: ${fixed.join("; ")}`,
-      ).toEqual([]);
+      const known = KNOWN_OPEN.filter((k) => knownCombo(k) === combo.name);
+      // EQUALITY, not a prefix: a prefix through the first node let a new
+      // node on the same rule and page pass as the known one (review,
+      // 2026-11-18: a planted contrast failure on sign-pdf dark stayed green).
+      const isKnown = (f: string) => known.some((k) => knownLine(k) === f);
+      // A known entry no line equals was fixed, or changed: either way, red.
+      const fixed = known.filter((k) => !failures.includes(knownLine(k)));
       const fresh = failures.filter((f) => !isKnown(f));
-      expect(fresh, fresh.join("\n")).toEqual([]);
+      // One assertion, so a changed entry shows both its stale form and the
+      // line that replaced it.
+      expect(
+        { fresh, fixed },
+        `${fresh.join("\n")}\nfixed, remove from KNOWN_OPEN: ${fixed.join("; ")}`,
+      ).toEqual({ fresh: [], fixed: [] });
     });
   }
 
