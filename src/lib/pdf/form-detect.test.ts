@@ -3665,6 +3665,55 @@ describe("square-checkbox", () => {
       expect(labels(q)[0]).toBe("Pain Not sure");
     });
 
+    // KNOWN MISS (regression verify after review round 6): a head row the
+    // grid cannot resolve drops the grid's squares as unlabelled, where
+    // round 3 (7316a543) proposed every one (with the split head's words
+    // as names: "Pain Not", "Pain sure"). One head item over two columns
+    // (above), and group heads set 2 pt over the Yes / No row (within
+    // GRID_ROW_EPS, so read as part of it, each over two columns). Falling
+    // back to the row text alone would name two boxes alike in every grid
+    // whose heads collide, which round 5 (finding 15) decided against;
+    // that is a product decision, not a narrow fix.
+    it("KNOWN MISS: a head row whose items each lie over two columns leaves every square unlabelled", () => {
+      const gh3 = pg({
+        rects: [300, 340].flatMap((x) =>
+          [500, 480].map((y) => rect(x, y, 10, 10)),
+        ),
+        text: [
+          txt("Not", 290, 515, { size: 9, width: 14 }),
+          txt("sure", 305, 515, { size: 9, width: 40 }),
+          txt("Pain", 200, 501, { size: 10, width: 20 }),
+          txt("Fever", 200, 481, { size: 10, width: 25 }),
+        ],
+      });
+      expect(props(gh3)).toEqual([]);
+      expect(run(gh3).excluded.map((e) => e.rule)).toEqual(
+        Array(4).fill("unlabelled"),
+      );
+      const xs = [300, 330, 380, 410];
+      const eyes = (groupY: number) =>
+        pg({
+          rects: [0, 1].flatMap((i) =>
+            xs.map((x) => rect(x, 600 - 20 * i, 12, 12)),
+          ),
+          text: [
+            txt("Left eye", 305, groupY, { size: 9, width: 34 }),
+            txt("Right eye", 383, groupY, { size: 9, width: 38 }),
+            ...xs.map((x, k) =>
+              txt(k % 2 ? "No" : "Yes", x + 1, 616, { size: 9, width: 12 }),
+            ),
+            txt("Redness", 72, 602, { size: 10, width: 40 }),
+            txt("Itching", 72, 582, { size: 10, width: 36 }),
+          ],
+        });
+      expect(props(eyes(618))).toEqual([]);
+      expect(run(eyes(618)).excluded.map((e) => e.rule)).toEqual(
+        Array(8).fill("unlabelled"),
+      );
+      // The control: group heads well over the row name every box.
+      expect(labels(eyes(640))[0]).toBe("Redness Left eye Yes");
+    });
+
     it("an option list in two columns under an instruction keeps its own labels", () => {
       const p = pg({
         rects: [0, 1].flatMap((i) =>
