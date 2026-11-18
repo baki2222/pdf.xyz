@@ -723,6 +723,25 @@ describe("labelled-rule", () => {
           expect(label(p)).toEqual([["Total hours", 651]]);
         });
 
+        // Review round 6 test honesty: only a BOX's edge sets a held label
+        // aside. With that guard dropped, a plain line asked for the
+        // caption of a box it is not (an undefined top), found the heading
+        // over it, and lost its label: the mutant stayed green.
+        it("a writing line, no box, beside a label in a cell of its own takes it, a heading over the line or not", () => {
+          const line = (more: CardText[]) =>
+            props(
+              pg({
+                rects: [rect(72, 600, 60, 20)],
+                segs: [hseg(140, 400, 601)],
+                text: [txt("Name", 104, 605, { size: 10, width: 25 }), ...more],
+              }),
+            ).map((x) => [x.label, x.x]);
+          expect(line([])).toEqual([["Name", 141]]);
+          expect(
+            line([txt("Applicant", 150, 700, { size: 12, width: 50 })]),
+          ).toEqual([["Name", 141]]);
+        });
+
         it("a left label not wholly inside a box ending left of the box keeps labelling it", () => {
           // "Received by:" over the top of a box under it, under the bottom
           // of a box over it, overhanging the left side of a narrower one
@@ -767,6 +786,57 @@ describe("labelled-rule", () => {
             .map((x) => x.label);
           expect(performance.now() - t0).toBeLessThan(250);
           expect(got).toEqual(["Notes"]);
+        });
+
+        // Review round 6 test honesty: each held-label question reads only
+        // the rects round its text's baseline. A mutant that met every
+        // rect in every question stayed green; it cost 8,000 left hits x
+        // 20,000 far rects here.
+        it("each left hit asks only the rects round it: 20,000 far rects cost nothing per hit", () => {
+          /** A 3,000 pt box, its own caption, 8,000 hits in a cell on its left. */
+          const page = (holderFirst: boolean) => {
+            const far: CardRect[] = [];
+            for (let j = 0; j < 20_000; j++)
+              far.push(
+                rect(10 + (j % 50) * 11, -5000 - 20 * Math.floor(j / 50), 4, 9),
+              );
+            const holder = rect(70, 500, 64, 3000);
+            const box = rect(140, 500, 200, 3000);
+            const text = [txt("Notes", 142, 3490, { size: 7, width: 20 })];
+            for (let i = 0; i < 8000; i++)
+              text.push(
+                txt("ab", 100, 510 + (2900 * i) / 8000, { size: 6, width: 6 }),
+              );
+            return {
+              withHolder: pg({
+                height: 4000,
+                rects: holderFirst
+                  ? [holder, box, ...far]
+                  : [...far, box, holder],
+                text,
+              }),
+              bare: pg({ height: 4000, rects: [...far, box], text }),
+            };
+          };
+          const best = (p: CardPage) => {
+            let ms = Infinity;
+            let got: (string | null)[] = [];
+            for (let k = 0; k < 3; k++) {
+              const t0 = performance.now();
+              got = props(p).map((x) => x.label);
+              ms = Math.min(ms, performance.now() - t0);
+            }
+            return { ms, got };
+          };
+          const last = best(page(false).withHolder);
+          const first = best(page(true).withHolder);
+          // Health checks: the hits are held (the box takes its own
+          // caption), and without the holder they label the box.
+          expect(last.got).toEqual(["Notes"]);
+          expect(first.got).toEqual(["Notes"]);
+          expect(best(page(false).bare).got).toEqual(["ab"]);
+          // The holder last among the rects costs what it costs first.
+          expect(last.ms).toBeLessThan(3 * first.ms + 20);
         });
       });
     });
