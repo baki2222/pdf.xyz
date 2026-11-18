@@ -1318,9 +1318,31 @@ describe("labelled-rule", () => {
         });
       expect(props(article(10.5))).toEqual([]);
       expect(firstRule(article(10.5))).toBe("unlabelled");
-      // 0.1 pt short of the body plus 0.5, it is the rule's caption again.
+      // 0.1 pt short of the body plus 0.5, it is the rule's caption again
+      // (the boundary).
       expect(props(article(10.4)).map((x) => x.label)).toEqual([
         "Did you know",
+      ]);
+    });
+
+    // Review round 6 fixes, finding 4 (since before round 4): on a
+    // completed statement the printed total under a sum rule was the
+    // rule's caption, a field labelled "65,698.58" on a page with nothing
+    // to fill in. A caption without a letter names nothing.
+    it("a figure under a sum rule is no caption; a caption with a letter in it still is", () => {
+      const sum = (s: string) =>
+        pg({
+          segs: [hseg(470, 540, 640)],
+          text: [
+            txt("1,036.40", 497, 652, { size: 10, width: 43 }),
+            txt(s, 488, 626, { size: 10, width: 52 }),
+          ],
+        });
+      expect(props(sum("65,698.58"))).toEqual([]);
+      expect(firstRule(sum("65,698.58"))).toBe("unlabelled");
+      expect(props(sum("(1)"))).toEqual([]);
+      expect(props(sum("Total 1"))).toEqual([
+        expect.objectContaining({ label: "Total 1", y: 641 }),
       ]);
     });
 

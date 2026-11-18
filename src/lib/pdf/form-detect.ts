@@ -1690,7 +1690,9 @@ function ruleCandidates(
         const str = cleanLabel(t.str);
         // Prose under a rule is no caption: a heading's body text, a
         // footnote, a byline under a title's rule, a pull quote's text.
-        if (!str || heading(t)) continue;
+        // Nor is a figure: a statement's total under its sum rule names
+        // nothing (review round 6 fixes, finding 4; corpus N50).
+        if (!str || !LETTER.test(str) || heading(t)) continue;
         if (isFootnote(r, t, prose)) continue;
         title ??= titleSize(r, p.text);
         if (title >= DETECT.TITLE_LARGER * t.size) continue;

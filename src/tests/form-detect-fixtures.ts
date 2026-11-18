@@ -508,6 +508,15 @@ const N49 = {
     "Fixing a washer costs a few pence.",
   ],
 };
+/** N50's statement: its rows (right-aligned at 540) and the total. */
+const N50 = {
+  rows: [
+    ["Wages", "64,250.00"],
+    ["Interest", "412.18"],
+    ["Dividends", "1,036.40"],
+  ] as const,
+  total: "65,698.58",
+};
 /** P43's empty boxes, each captioned with its baseline 4 pt over the top. */
 const P43 = [
   { caption: "Dietary requirements", y: 340, h: 70 },
@@ -2954,6 +2963,36 @@ export const DETECT_CASES: readonly DetectCase[] = [
     expect: "none",
     decidedBy: "unlabelled",
     at: { page: 1, x: 440, y: 710 },
+  },
+  {
+    id: "N50",
+    kind: "negative",
+    note: "a completed statement: three figures at a 24 pt pitch, a sum rule halfway under the last, the total 14 pt under the rule: no field",
+    // Review round 6 fixes, finding 4 (since before round 4): the printed
+    // total under the sum rule was read as the rule's caption, and a field
+    // labelled "65,698.58" was proposed on a page with nothing to fill in.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await text(page, H, "Statement", 72, 730, 12);
+      for (const [i, [s, n]] of N50.rows.entries()) {
+        await text(page, H, s, 72, 700 - 24 * i, 10);
+        await text(page, H, n, 540 - textWidth(H, n, 10), 700 - 24 * i, 10);
+      }
+      rule(page, 470, 540, 640, 0.75);
+      await text(
+        page,
+        H,
+        N50.total,
+        540 - textWidth(H, N50.total, 10),
+        626,
+        10,
+      );
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "unlabelled",
+    at: { page: 1, x: 505, y: 645 },
   },
   {
     id: "P46",
