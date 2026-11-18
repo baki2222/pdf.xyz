@@ -92,6 +92,14 @@ import {
  *    non-JSON reply is `internal_error`, retryable, and the executor REQUEUES a
  *    retryable failure while attempts remain; only the last attempt's failure
  *    reaches the page (job.error.message, "Retrying may succeed.").
+ *    EXCEPT (2026-11-17): a schema-mode reply produced under structured output
+ *    (engine `extractionSchemaFor`, `jsonSchemaApplied`) that is still not a
+ *    usable object fails once, not retried (STRICT_REPLY_UNUSABLE). So the
+ *    FAQ says the job "may go back" and that the message "says whether trying
+ *    again could help": true of both arms and of a worker image from before
+ *    or after the change, so nothing waits on a capability key (the web tier
+ *    does not know which worker runs a job). Pinned to both arms in
+ *    src/lib/workers/ai-extract/strict-json.test.ts.
  *  - src/lib/workers/ai/truncation.ts — userTruncationNotice names "pages 1–N"
  *    only when a whole page was read and the page table indexes the text;
  *    otherwise it says "the first part of this N-page document".
@@ -235,7 +243,7 @@ const content: ToolContent = {
     },
     {
       q: "Why did my extraction fail, or come back null or wrong?",
-      a: `When the model's reply is not valid JSON, our server can put the job back in its queue for another attempt by itself. Once the attempts run out, the job fails with nothing to download and a message saying a retry may succeed. A wrong value comes from the model's reply or from the text it was given: an OCR layer with misread characters, or side-by-side columns read across as one line, can mislead it. Compare the value with the page, and when a page holds several similar figures, name the exact one you want in a prompt, or in the hint under a field. ${AI_EXTRACT_NULL_INSTRUCTION} ${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} A single-value field asked of a column of figures is where this happens most, since every row holds a candidate.`,
+      a: `When the model's reply is not valid JSON, the job may go back in its queue for another attempt by itself. If it still fails, there is nothing to download, and the message says whether trying again could help. A wrong value comes from the model's reply or from the text it was given: an OCR layer with misread characters, or side-by-side columns read across as one line, can mislead it. Compare the value with the page, and when a page holds several similar figures, name the exact one you want in a prompt, or in the hint under a field. ${AI_EXTRACT_NULL_INSTRUCTION} ${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} A single-value field asked of a column of figures is where this happens most, since every row holds a candidate.`,
     },
   ],
 

@@ -24,6 +24,7 @@ import {
   type AiUsage,
   validateCompletionRequest,
 } from "./provider";
+import { toStrictJsonSchema } from "./structured-output";
 
 /** The Anthropic API version pin the Messages API requires. */
 export const ANTHROPIC_API_VERSION = "2023-06-01";
@@ -70,6 +71,21 @@ interface AnthropicResponseBody {
      */
     cache_creation_input_tokens?: unknown;
   };
+}
+
+/**
+ * Does this 400 body say the model rejected the structured-output parameter?
+ * A model without structured outputs, or a schema the API will not compile,
+ * answers with an `invalid_request_error` naming `output_config` / the format
+ * / the schema. The adapter then retries ONCE without the parameter, which is
+ * the request the tool sent before structured output existed. A 400 costs
+ * nothing, so the retry spends nothing extra. Narrow on purpose: the body
+ * must name the parameter, so an over-long prompt is never retried.
+ */
+export function isAnthropicStructuredOutputRejection(rawBody: string): boolean {
+  return /output_config|output_format|structured[ _-]?outputs?|json_schema/i.test(
+    rawBody,
+  );
 }
 
 /**
@@ -162,6 +178,67 @@ function usageFrom(body: AnthropicResponseBody): AiUsage | undefined {
 }
 
 /**
+ * Build the Messages API request body. Exported so a test can pin the wire
+ * shape without a network. `output_config.format` is included only when the
+ * request carries a `jsonSchema` AND this attempt may send it; without a
+ * `jsonSchema` the body is exactly what it was before structured output.
+ */
+export function buildMessagesBody(
+  model: string,
+  request: AiCompletionRequest,
+  withSchema = true,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    model,
+    max_tokens: request.maxOutputTokens,
+    messages: request.messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    })),
+  };
+  if (request.system !== undefined) {
+    // Anthropic caches only what it is told to. `cache_control` marks the end of a
+    // reusable prefix; the API hashes the bytes up to that point and a later
+    // request whose prefix matches exactly is billed at roughly a tenth of the
+    // input rate. Render order is tools -> system -> messages, so a marker on the
+    // system block covers the whole document the caller framed the task with,
+    // while the growing conversation stays after it and is priced normally.
+    //
+    // `ephemeral` is the 5-minute TTL. That is the right window here: it costs
+    // ~1.25x to write (the 1-hour TTL costs 2x) and follow-up questions in a chat
+    // arrive in seconds, not hours.
+    //
+    // Below roughly a thousand tokens the API declines to cache and says nothing —
+    // no error, no field, just a request that quietly never gets cheaper. Only the
+    // document makes the system prompt big enough to clear that bar; the fixed
+    // instructions are a few lines and would never cache on their own.
+    payload.system = request.cacheSystem
+      ? [
+          {
+            type: "text",
+            text: request.system,
+            cache_control: { type: "ephemeral" },
+          },
+        ]
+      : request.system;
+  }
+  if (request.temperature !== undefined)
+    payload.temperature = request.temperature;
+  if (withSchema && request.jsonSchema !== undefined) {
+    // Structured outputs: the reply is decoded against the schema. Anthropic
+    // needs every object closed; the strict form (shared with OpenAI) also
+    // lists every property as required, optional ones nullable.
+    payload.output_config = {
+      format: {
+        type: "json_schema",
+        schema: toStrictJsonSchema(request.jsonSchema.schema),
+      },
+    };
+  }
+  return payload;
+}
+
+/**
  * Build a real Anthropic-backed {@link AiProvider}. The returned object exposes only
  * the public `id` ("anthropic") and `model`; the API key lives solely in the
  * `complete` closure. Every call validates the request shape first, then maps the
@@ -193,154 +270,150 @@ export function createAnthropicProvider(
         );
       }
 
-      const payload: Record<string, unknown> = {
-        model: config.model,
-        max_tokens: request.maxOutputTokens,
-        messages: request.messages.map((m) => ({
-          role: m.role,
-          content: m.content,
-        })),
-      };
-      if (request.system !== undefined) {
-        // Anthropic caches only what it is told to. `cache_control` marks the end of a
-        // reusable prefix; the API hashes the bytes up to that point and a later
-        // request whose prefix matches exactly is billed at roughly a tenth of the
-        // input rate. Render order is tools -> system -> messages, so a marker on the
-        // system block covers the whole document the caller framed the task with,
-        // while the growing conversation stays after it and is priced normally.
-        //
-        // `ephemeral` is the 5-minute TTL. That is the right window here: it costs
-        // ~1.25x to write (the 1-hour TTL costs 2x) and follow-up questions in a chat
-        // arrive in seconds, not hours.
-        //
-        // Below roughly a thousand tokens the API declines to cache and says nothing —
-        // no error, no field, just a request that quietly never gets cheaper. Only the
-        // document makes the system prompt big enough to clear that bar; the fixed
-        // instructions are a few lines and would never cache on their own.
-        payload.system = request.cacheSystem
-          ? [
-              {
-                type: "text",
-                text: request.system,
-                cache_control: { type: "ephemeral" },
-              },
-            ]
-          : request.system;
-      }
-      if (request.temperature !== undefined)
-        payload.temperature = request.temperature;
+      /**
+       * One attempt, with or without the structured-output parameter. Returns a
+       * completed result, or the sentinel for the one narrowly-matched case: a
+       * 400 that names the parameter (see {@link isAnthropicStructuredOutputRejection}).
+       */
+      const attempt = async (
+        withSchema: boolean,
+      ): Promise<AiCompletionResult | "retry_without_schema"> => {
+        const payload = buildMessagesBody(config.model, request, withSchema);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), config.timeoutMs);
 
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), config.timeoutMs);
-
-      let response: Response;
-      try {
-        response = await doFetch(endpoint, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-api-key": config.apiKey,
-            "anthropic-version": ANTHROPIC_API_VERSION,
-          },
-          body: JSON.stringify(payload),
-          signal: controller.signal,
-        });
-      } catch (error) {
-        const name = (error as { name?: string } | null)?.name;
-        if (name === "AbortError" || name === "TimeoutError") {
-          return aiFailure(
-            "timeout",
-            "The AI provider did not respond before the deadline.",
-          );
-        }
-        return aiFailure(
-          "provider_error",
-          "The AI provider could not be reached.",
-        );
-      } finally {
-        clearTimeout(timer);
-      }
-
-      if (response.status === 429) {
-        return aiFailure(
-          "rate_limited",
-          "The AI provider is rate limiting requests. Try again shortly.",
-        );
-      }
-      if (!response.ok) {
-        // Server (5xx) errors are transient, so they stay retryable. Every 4xx is a
-        // permanent rejection — a bad key, a revoked permission, an unknown model, an
-        // over-long prompt — and is classified below so the job layer stops instead of
-        // replaying a request that cannot succeed. Neither path leaks the upstream body.
-        if (response.status >= 500) {
+        let response: Response;
+        try {
+          response = await doFetch(endpoint, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-api-key": config.apiKey,
+              "anthropic-version": ANTHROPIC_API_VERSION,
+            },
+            body: JSON.stringify(payload),
+            signal: controller.signal,
+          });
+        } catch (error) {
+          const name = (error as { name?: string } | null)?.name;
+          if (name === "AbortError" || name === "TimeoutError") {
+            return aiFailure(
+              "timeout",
+              "The AI provider did not respond before the deadline.",
+            );
+          }
           return aiFailure(
             "provider_error",
-            "The AI provider returned a server error.",
+            "The AI provider could not be reached.",
+          );
+        } finally {
+          clearTimeout(timer);
+        }
+
+        if (response.status === 429) {
+          return aiFailure(
+            "rate_limited",
+            "The AI provider is rate limiting requests. Try again shortly.",
           );
         }
-        let rawBody = "";
-        try {
-          rawBody = await response.text();
-        } catch {
-          rawBody = "";
+        if (!response.ok) {
+          // Server (5xx) errors are transient, so they stay retryable. Every 4xx is a
+          // permanent rejection — a bad key, a revoked permission, an unknown model, an
+          // over-long prompt — and is classified below so the job layer stops instead of
+          // replaying a request that cannot succeed. Neither path leaks the upstream body.
+          if (response.status >= 500) {
+            return aiFailure(
+              "provider_error",
+              "The AI provider returned a server error.",
+            );
+          }
+          let rawBody = "";
+          try {
+            rawBody = await response.text();
+          } catch {
+            rawBody = "";
+          }
+          if (
+            withSchema &&
+            response.status === 400 &&
+            isAnthropicStructuredOutputRejection(rawBody)
+          ) {
+            return "retry_without_schema";
+          }
+          return classifyClientError(response.status, rawBody);
         }
-        return classifyClientError(response.status, rawBody);
-      }
 
-      let body: AnthropicResponseBody;
-      try {
-        body = (await response.json()) as AnthropicResponseBody;
-      } catch {
-        return aiFailure(
-          "invalid_response",
-          "The AI provider returned an unreadable response.",
-        );
-      }
+        let body: AnthropicResponseBody;
+        try {
+          body = (await response.json()) as AnthropicResponseBody;
+        } catch {
+          return aiFailure(
+            "invalid_response",
+            "The AI provider returned an unreadable response.",
+          );
+        }
 
-      // USAGE IS READ HERE, ABOVE THE FAILURE BRANCHES, and that placement is the
-      // point. It used to be computed below them, so `max_tokens` — the branch
-      // that exists BECAUSE the model spent its entire output budget — returned
-      // with the counts sitting in scope, one expression from the `return`, and
-      // dropped them. The most expensive outcome in the system recorded as free.
-      const parsedUsage = usageFrom(body);
+        // USAGE IS READ HERE, ABOVE THE FAILURE BRANCHES, and that placement is the
+        // point. It used to be computed below them, so `max_tokens` — the branch
+        // that exists BECAUSE the model spent its entire output budget — returned
+        // with the counts sitting in scope, one expression from the `return`, and
+        // dropped them. The most expensive outcome in the system recorded as free.
+        const parsedUsage = usageFrom(body);
 
-      if (body.stop_reason === "refusal") {
-        return aiFailure(
-          "content_filtered",
-          "The AI model declined to answer this request.",
-          parsedUsage,
-        );
-      }
+        if (body.stop_reason === "refusal") {
+          return aiFailure(
+            "content_filtered",
+            "The AI model declined to answer this request.",
+            parsedUsage,
+          );
+        }
 
-      // The model ran into `max_tokens` and stopped mid-answer. There IS text here, and
-      // returning it would look like a success — but a summary that stops mid-sentence or
-      // a translation missing its final pages is a wrong answer, not a short one. Fail
-      // honestly instead of letting a truncated artifact be published as complete.
-      if (body.stop_reason === "max_tokens") {
-        return aiFailure(
-          "incomplete_output",
-          "The AI model reached its output limit before finishing, so the answer would have been cut off. Try a shorter document or a briefer output.",
-          parsedUsage,
-        );
-      }
+        // The model ran into `max_tokens` and stopped mid-answer. There IS text here, and
+        // returning it would look like a success — but a summary that stops mid-sentence or
+        // a translation missing its final pages is a wrong answer, not a short one. Fail
+        // honestly instead of letting a truncated artifact be published as complete.
+        if (body.stop_reason === "max_tokens") {
+          return aiFailure(
+            "incomplete_output",
+            "The AI model reached its output limit before finishing, so the answer would have been cut off. Try a shorter document or a briefer output.",
+            parsedUsage,
+          );
+        }
 
-      const text = extractText(body);
-      if (text.length === 0) {
-        return aiFailure(
-          "invalid_response",
-          "The AI provider returned no text.",
-          parsedUsage,
-        );
-      }
+        const text = extractText(body);
+        if (text.length === 0) {
+          return aiFailure(
+            "invalid_response",
+            "The AI provider returned no text.",
+            parsedUsage,
+          );
+        }
 
-      const usage = parsedUsage;
+        const usage = parsedUsage;
 
-      return {
-        ok: true,
-        text,
-        model: config.model,
-        ...(usage ? { usage } : {}),
+        return {
+          ok: true,
+          text,
+          model: config.model,
+          ...(usage ? { usage } : {}),
+          ...(withSchema && request.jsonSchema !== undefined
+            ? { jsonSchemaApplied: true as const }
+            : {}),
+        };
       };
+
+      const first = await attempt(request.jsonSchema !== undefined);
+      if (first !== "retry_without_schema") return first;
+      // Exactly one retry, without the parameter: the request this tool sent
+      // before structured output existed. `attempt(false)` cannot return the
+      // sentinel, so this cannot loop.
+      const second = await attempt(false);
+      return second === "retry_without_schema"
+        ? aiFailure(
+            "rejected",
+            "The AI provider rejected the request. An operator must check the AI configuration.",
+          )
+        : second;
     },
   };
 }
