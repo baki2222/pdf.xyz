@@ -1809,9 +1809,11 @@ function gridLabels(
   // every other item on that baseline (within GRID_ROW_EPS) over the
   // square joined left to right: a head drawn as two items ("Not" "sure")
   // was named after the one first in the content stream (review round 4
-  // fixes, finding 16). Its leftmost item stands for it in the distinct-
-  // heads check, so one text across two columns is still no grid.
-  const headOf = new Map<CardRect[], { item: CardText; str: string }>();
+  // fixes, finding 16). Every one of its items is its own in the distinct-
+  // heads check, so one text across two columns is still no grid: only
+  // the leftmost was compared, and "Not" + "sure" (over both) passed
+  // (review round 5 fixes, finding 15).
+  const headOf = new Map<CardRect[], { items: CardText[]; str: string }>();
   const groupOf = new Map<CardRect[], string>();
   for (const col of new Set(columnOf.values())) {
     const top = col.reduce((a, b) => (b.y1 > a.y1 ? b : a));
@@ -1829,7 +1831,7 @@ function gridLabels(
       .filter((t) => t.y - base <= DETECT.GRID_ROW_EPS)
       .sort((a, b) => a.x - b.x);
     const str = cleanLabel(words.map((t) => t.str).join(" "));
-    if (str) headOf.set(col, { item: words[0]!, str });
+    if (str) headOf.set(col, { items: words, str });
     // A GROUP head over it ("Left eye" over "Yes No"): the nearest upright
     // text over the head row, up to 2 x GRID_HEAD_ABOVE over the column's
     // top square, across the column. Read only where heads repeat (below).
@@ -1850,11 +1852,9 @@ function gridLabels(
       const col = columnOf.get(s);
       return col ? headOf.get(col) : undefined;
     });
-    if (
-      heads.some((h) => !h) ||
-      new Set(heads.map((h) => h!.item)).size !== heads.length
-    )
-      continue;
+    if (heads.some((h) => !h)) continue;
+    const items = heads.flatMap((h) => h!.items);
+    if (new Set(items).size !== items.length) continue;
     const first = row.reduce((a, b) => (b.x0 < a.x0 ? b : a));
     const rowText = leftOf(
       p.text,

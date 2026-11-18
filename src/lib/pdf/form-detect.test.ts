@@ -1433,6 +1433,24 @@ describe("labelled-rule", () => {
     // rule and the note. A short rule at the left margin whose text under
     // it is smaller than the body and opens with a footnote marker is a
     // footnote separator: the note is no caption.
+    // Review round 5 fixes, finding 15 (mutant FN6): a tie in character
+    // counts gives the body size to the size met first. Here that is 10,
+    // so the 8 pt note under the short rule is a footnote; read as 8, it
+    // would be body text and a caption.
+    it("a body-size tie goes to the size met first", () => {
+      const p = pg({
+        segs: [hseg(72, 200, 100)],
+        text: [
+          txt("Body texts", 72, 700, { size: 10, width: 468 }),
+          txt("1 Note abc", 72, 90, { size: 8, width: 40 }),
+        ],
+      });
+      expect(props(p)).toEqual([]);
+      // Control: with the note first, 8 is the body and the note a caption.
+      const q = { ...p, text: [...p.text].reverse() };
+      expect(props(q).map((x) => x.label)).toEqual(["1 Note abc"]);
+    });
+
     it("a footnote separator over the footnote is no field", () => {
       expect(props(footnote())).toEqual([]);
       expect(firstRule(footnote())).toBe("unlabelled");
@@ -2750,6 +2768,33 @@ describe("square-checkbox", () => {
       ).toEqual([]);
     });
 
+    // Review round 5 fixes, finding 15 (mutant GH3), decided under the
+    // brief's delegation: the docblock said one text across two columns
+    // is no grid, but only each head's LEFTMOST item was compared, so
+    // "Not" (over column 1) + "sure" (over both) gave "Pain Not sure" and
+    // "Pain sure". Every item of a head is now its own: a text shared by
+    // two columns' heads makes the row no grid.
+    it("a head item shared by two columns makes no grid ('Not' + 'sure' across both)", () => {
+      const p = (sureW: number) =>
+        pg({
+          rects: [0, 1].flatMap((i) =>
+            [300, 340].map((x) => rect(x, 600 - 20 * i, 12, 12)),
+          ),
+          text: [
+            txt("Pain", 72, 602, { size: 10, width: 20 }),
+            txt("Nausea", 72, 582, { size: 10, width: 30 }),
+            txt("Not", 290, 616, { size: 9, width: 14 }),
+            txt("sure", 305, 616, { size: 9, width: sureW }),
+          ],
+        });
+      expect(labels(p(40)).filter((s) => /Not|sure/.test(s ?? ""))).toEqual([]);
+      // Control: "sure" short of the second column, and a head of its own
+      // over it, is a grid.
+      const q = p(16);
+      q.text.push(txt("No", 342, 616, { size: 9, width: 10 }));
+      expect(labels(q)[0]).toBe("Pain Not sure");
+    });
+
     it("an option list in two columns under an instruction keeps its own labels", () => {
       const p = pg({
         rects: [0, 1].flatMap((i) =>
@@ -2906,6 +2951,19 @@ describe("square-checkbox", () => {
       });
 
       // Review round 5 fixes, finding 15 (mutant CL3): squares within
+      // COMB_EPS of a row's first bottom share it, so a box 1 pt off row
+      // two makes its square no longer alone; 1.1 pt off is a row of its
+      // own.
+      it("COMB_EPS: a box 1 pt off a checklist row shares it (no labels), 1.1 pt off does not", () => {
+        const third = (dy: number) => {
+          const p = items();
+          p.rects.push(rect(450, 570 + dy, 12, 12));
+          return p;
+        };
+        expect(labels(third(1))).not.toContain("Item two");
+        expect(labels(third(1.1))).toContain("Item two");
+      });
+
       it("each box must be alone on its row: a headless two-column grid stays unlabelled", () => {
         expect(labels(grid({ heads: [] }))).toEqual([]);
       });
