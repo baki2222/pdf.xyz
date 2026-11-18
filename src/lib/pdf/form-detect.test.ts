@@ -732,6 +732,23 @@ describe("labelled-rule", () => {
         });
         expect(props(p).map((x) => x.label)).toEqual(["Received by"]);
       });
+
+      // Regression verify after review round 6 (mutant WI2): the box's
+      // interior is read from the baselines up to its top. A window ending
+      // 0.5 pt short of the top left a text 0.3 pt under it out, and the
+      // box took the caption over it instead.
+      it("a text whose baseline is just under the box's top is inside it; on the top it is not", () => {
+        const p = (dy: number) =>
+          pg({
+            rects: [rect(72, 600, 300, 40)],
+            text: [
+              txt("DRAFT", 200, 640 - dy, { size: 10, width: 30 }),
+              txt("Received by", 72, 652, { size: 10, width: 55 }),
+            ],
+          });
+        expect(labels(p(0))).toEqual([["Received by", 601]]);
+        expect(labels(p(0.3))).toEqual([]);
+      });
     });
 
     // Review round 4 fixes, finding 24: a label set vertically centred
@@ -910,6 +927,28 @@ describe("labelled-rule", () => {
           expect(beside(rect(70, 600, 50, 20), { x: 125, width: -10 })).toEqual(
             FREE,
           );
+        });
+
+        // Regression verify after review round 6 (mutant OW5): the field's
+        // height is read from the label it takes. With the held caption
+        // nearer, sizing from every left hit took the held 10 pt "No."
+        // for the free 14 pt "Received by:".
+        it("a free left label beside a held one sizes the field from its own text", () => {
+          const p = (held: number, free: number) =>
+            props(
+              pg({
+                rects: [rect(140, 600, 200, 24), rect(100, 600, 38, 20)],
+                text: [
+                  txt("Received by:", 44, 605.5, { size: free, width: 60 }),
+                  txt("No.", 102, 605.5, { size: held, width: 30 }),
+                  txt("Notes", 142, 619, { size: 7, width: 20 }),
+                ],
+              }),
+            )
+              .filter((x) => x.x === 141)
+              .map((x) => [x.label, x.height]);
+          expect(p(10, 14)).toEqual([["Received by", 17]]);
+          expect(p(14, 10)).toEqual([["Received by", 14]]);
         });
 
         // Mutant BH1 (the tall test written `b1 - b0 > TALL`): a rect
@@ -3026,6 +3065,26 @@ describe("table-cell: a two-column table of labels and empty cells", () => {
       }
     });
 
+    // Regression verify after review round 6 (mutant PC10): the reach of
+    // no pieces at all is minus infinity, not 0. Seeded with 0, a border
+    // that misses the bottom rule joined it whenever the rules lay under
+    // y 0 (a table drawn below the crop box, every field off the page).
+    it("below y 0, a border starting 1.1 pt over the bottom rule still misses it", () => {
+      const below = (y: number) => {
+        const p = table({
+          plumbs: [vseg(72, y, 600), vseg(180, 504, 600), vseg(400, 504, 600)],
+        });
+        const dy = -1000;
+        return run({
+          ...p,
+          segs: p.segs.map((s) => ({ ...s, y0: s.y0 + dy, y1: s.y1 + dy })),
+          text: p.text.map((t) => ({ ...t, y: t.y + dy })),
+        }).excluded.filter((e) => e.rule === "off-page").length;
+      };
+      expect(below(504)).toBe(4);
+      expect(below(505.1)).toBe(3);
+    });
+
     it("a border broken by 1 pt mid-row is one line; by 1.1 pt the table splits there", () => {
       // The break is in the Telephone row (528 to 552): split, only the
       // two rows over it are a table.
@@ -4415,6 +4474,9 @@ describe("exclusions, each at its boundary", () => {
           ],
         });
       expect(firstRule(on(0.5))).toBe("signature");
+      // Regression verify after review round 6 (mutant SO1): a window
+      // starting 0.5 pt over the line kept 0.5 and lost 0.3.
+      expect(firstRule(on(0.3))).toBe("signature");
       expect(props(on(-0.5))).toEqual([
         expect.objectContaining({ label: "John Smith" }),
       ]);
