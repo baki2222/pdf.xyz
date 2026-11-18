@@ -100,3 +100,40 @@ describe("Scan to PDF · Clear", () => {
     expect(screen.queryByText("receipt.png")).toBeNull();
   });
 });
+
+/**
+ * Perf sweep 2026-11-18, P2: a ~30 s Create PDF on 60 photos could not be
+ * stopped — no Cancel, and nothing on the run path took a signal. Cancel
+ * returns to the idle runner: the photos stay, no result, no error.
+ */
+describe("Scan to PDF · Cancel", () => {
+  it("is offered while Create PDF runs and stops it with no result and no error", async () => {
+    await mountWithPhoto("receipt.png");
+    hold = true;
+    fireEvent.click(screen.getByRole("button", { name: SCAN_RUN_LABEL }));
+    await screen.findByText("Creating PDF…", undefined, { timeout: 4_000 });
+    // Health check: the run really is in flight.
+    expect(pending.length).toBe(1);
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(cancel.getAttribute("aria-disabled")).toBeNull();
+    await act(async () => {
+      fireEvent.click(cancel);
+    });
+    // The decode the run was waiting on settles after the press (here, as a
+    // failure): a cancelled run reports nothing either way.
+    await act(async () => {
+      for (const release of pending.splice(0)) release();
+    });
+    await screen.findByRole("button", { name: SCAN_RUN_LABEL });
+    expect(screen.queryByText("Creating PDF…")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("Scan saved as PDF")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    expect(screen.getByText("receipt.png")).toBeTruthy();
+  });
+
+  it("control: with no run in flight there is no Cancel", async () => {
+    await mountWithPhoto("receipt.png");
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+  });
+});

@@ -19,9 +19,9 @@ import {
 } from "@/lib/pdf/scan-enhance";
 import {
   SCAN_PAGE_SIZES,
+  createScanWriter,
   scanOutputName,
-  scansToPdf,
-  type ScanPageInput,
+  yieldToEventLoop,
   type ScanPageSizeId,
   type ScanResult,
 } from "@/lib/pdf/scan-to-pdf";
@@ -89,7 +89,11 @@ export function ScanRunner() {
   const [progress, setProgress] = useState<string | null>(null);
   const idRef = useRef(0);
   const seededRef = useRef(false);
-  const { busy, error, result, run, reset } = useAsyncRun<ScanResult>();
+  // `null`: the run was stopped with Cancel, and there is nothing to show.
+  const { busy, error, result, run, reset } = useAsyncRun<ScanResult | null>();
+  const abortRef = useRef<AbortController | null>(null);
+  // Stop a run still going if the runner goes away.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   // Release every thumbnail when the runner goes away.
   const itemsRef = useRef<ScanItem[]>([]);
@@ -184,22 +188,50 @@ export function ScanRunner() {
     reset();
   };
 
-  const onRun = () =>
-    run(async () => {
-      const inputs: ScanPageInput[] = [];
+  /**
+   * One page at a time, start to finish: decode the photo, clean it up,
+   * encode it into the PDF, let its pixels go, then the next photo — with a
+   * turn of the event loop between each step, so the page repaints, the
+   * progress line moves and Cancel is heard. (Perf sweep 2026-11-18, P1/P2:
+   * all 60 planes were held, ~260 MB, then encoded in ONE ~20 s task, with
+   * no way to stop it.)
+   */
+  const onRun = () => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const { signal } = controller;
+    const photos = items;
+    void run(async () => {
       try {
-        for (const [index, item] of items.entries()) {
-          setProgress(`Preparing page ${index + 1} of ${items.length}…`);
-          inputs.push(
-            await preparePhotoPage(item.file, item.turns, enhancement),
+        const writer = await createScanWriter(pageSize);
+        for (const [index, item] of photos.entries()) {
+          signal.throwIfAborted();
+          setProgress(`Preparing page ${index + 1} of ${photos.length}…`);
+          const input = await preparePhotoPage(
+            item.file,
+            item.turns,
+            enhancement,
           );
+          await yieldToEventLoop();
+          signal.throwIfAborted();
+          await writer.addPage(input);
+          await yieldToEventLoop();
         }
+        signal.throwIfAborted();
         setProgress("Saving the PDF…");
-        return await scansToPdf(inputs, pageSize);
+        return await writer.save();
+      } catch (err) {
+        // Stopped: whatever the step in hand did, nothing is shown.
+        if (signal.aborted) return null;
+        throw err;
       } finally {
-        setProgress(null);
+        if (abortRef.current === controller) setProgress(null);
       }
     });
+  };
+
+  const onCancel = () => abortRef.current?.abort();
 
   if (handoff.status === "loading") return <HandoffLoading />;
 
@@ -359,6 +391,15 @@ export function ScanRunner() {
               className={buttonVariants({ variant: "secondary", size: "lg" })}
             >
               Clear
+            </button>
+          )}
+          {busy && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className={buttonVariants({ variant: "secondary", size: "lg" })}
+            >
+              Cancel
             </button>
           )}
           <RunButton
