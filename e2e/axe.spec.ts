@@ -235,6 +235,38 @@ const CLIENT_SLUGS = new Set(processingSplit().neverUploads.map((t) => t.slug));
 /** The client tools that take a file: the candidates for a result pass. */
 const CLIENT_FILE_TOOLS = FILE_TOOLS.filter((t) => CLIENT_SLUGS.has(t.slug));
 
+/**
+ * The client tools with no live run button once one file is in, each with
+ * what its page says it still needs (the greyed-out button's reason, as
+ * `whyNoRun` printed it on 2026-11-18). Every other candidate must RUN: the
+ * result pass asserts its no-run members EQUAL these, so a tool that loses
+ * its run button is red by name, and one that gains one forces this list to
+ * change.
+ *
+ * HISTORY (review, 2026-11-18): the pass first held only `ran >= 10` and
+ * pdf-to-markdown, so 14 of the 24 results could drop into the printed no-run
+ * list with the test green (split-pdf was dropped that way and it passed).
+ */
+const NEEDS_MORE_THAN_A_FILE: Readonly<Record<string, string>> = {
+  "merge-pdf": "Add one more PDF first.",
+  "organize-pages": "Rearrange, rotate, add or delete a page first.",
+  "extract-pages": "Select at least one page first.",
+  "remove-pages": "Select at least one page first.",
+  "rotate-pdf": "Rotate at least one page first.",
+  "edit-pdf": "Change or add something on a page first.",
+  "pdf-viewer": "no run button: a viewer has nothing to run",
+  "annotate-pdf": "Add a highlight, ..., drawing or note to a page first.",
+  "overlay-pdf": "Add the PDF to lay over the pages first.",
+  // Greyed out with no reason shown: the fixture has no annotations, so there
+  // is nothing to remove (`!inventory || toRemove === 0`).
+  "remove-annotations": "nothing to remove in the fixture",
+  "sign-pdf": "Place your signature, or a date, ... on a page first.",
+  "fill-forms": "no run button: the fixture has no form fields",
+  "redact-pdf": "Mark at least one area to remove first.",
+  // Greyed out with no reason shown: `canCompare` is `items.length === 2`.
+  "compare-pdf": "needs a second PDF",
+};
+
 type Tool = (typeof tools)[number];
 
 /** A page with the worker answering ready and the consent banner answered. */
@@ -382,6 +414,23 @@ async function targetsStillTooSmall(page: Page): Promise<string[]> {
 }
 
 /**
+ * Why a client tool's page has no live run button with only a file chosen:
+ * the text its greyed-out button points at (`aria-describedby`, a runner's
+ * `RunReason`), or that there is no run button at all.
+ */
+const whyNoRun = (page: Page) =>
+  page.evaluate(() => {
+    const trigger = document.querySelector("main [data-run-trigger]");
+    if (!trigger) return "no run button on the page";
+    const ids = trigger.getAttribute("aria-describedby")?.split(/\s+/) ?? [];
+    const said = ids
+      .map((id) => document.getElementById(id)?.textContent?.trim() ?? "")
+      .filter(Boolean)
+      .join(" ");
+    return `greyed out: ${said || "(says no reason)"}`;
+  });
+
+/**
  * One page's axe violations, each as
  * `slug [state, combo]: rule (impact) xN at node | node | node`.
  */
@@ -453,6 +502,12 @@ test.describe("accessibility: axe after a file is loaded, and on client results"
     const candidates = CLIENT_FILE_TOOLS.map((t) => t.slug);
     expect(candidates.length, candidates.join(", ")).toBeGreaterThanOrEqual(10);
     expect(candidates).toContain("pdf-to-markdown");
+    // A second, independent count: every client tool takes a file, so the
+    // candidates are ALL of them. A filter that drops one is red here.
+    expect(candidates.length, candidates.join(", ")).toBe(CLIENT_SLUGS.size);
+    // Every pinned no-run tool is a candidate, or its pin passes over nothing.
+    for (const slug of Object.keys(NEEDS_MORE_THAN_A_FILE))
+      expect(candidates, slug).toContain(slug);
     // Every known-open entry names a combo the sweep runs, or it is never
     // compared and its "fixed" check passes over nothing.
     const combos = AFTER_UPLOAD_COMBOS.map((c) => c.name);
@@ -571,6 +626,7 @@ test.describe("accessibility: axe after a file is loaded, and on client results"
     const notReached: string[] = [];
     const ran: string[] = [];
     const noRun: string[] = [];
+    const noRunWhy: string[] = [];
     for (const tool of CLIENT_FILE_TOOLS) {
       const { notReached: why } = await loadTool(page, tool);
       if (why) {
@@ -584,6 +640,7 @@ test.describe("accessibility: axe after a file is loaded, and on client results"
         (await trigger.getAttribute("aria-disabled")) === "true"
       ) {
         noRun.push(tool.slug);
+        noRunWhy.push(`${tool.slug}: ${await whyNoRun(page)}`);
         continue;
       }
       // The result is a heading the page did not have before the run (a
@@ -618,10 +675,18 @@ test.describe("accessibility: axe after a file is loaded, and on client results"
     }
     await context.close();
     console.log(
-      `AXE_RESULT_SET ran ${ran.length}: ${ran.join(", ")}\nAXE_RESULT_SET no live run button ${noRun.length}: ${noRun.join(", ")}`,
+      `AXE_RESULT_SET ran ${ran.length}: ${ran.join(", ")}\nAXE_RESULT_SET no live run button ${noRun.length}:\n  ${noRunWhy.join("\n  ")}`,
     );
     expect(notReached, notReached.join("\n")).toEqual([]);
-    // Health: enough results were drawn to mean something, and F2's is one.
+    // Health: the candidates PARTITION into ran and no-run, the no-run part is
+    // exactly the pinned list, and F2's result is among those drawn.
+    expect(ran.length + noRun.length, `ran: ${ran.join(", ")}`).toBe(
+      CLIENT_FILE_TOOLS.length,
+    );
+    expect(
+      [...noRun].sort(),
+      `no live run button:\n  ${noRunWhy.join("\n  ")}`,
+    ).toEqual(Object.keys(NEEDS_MORE_THAN_A_FILE).sort());
     expect(ran.length, `ran: ${ran.join(", ")}`).toBeGreaterThanOrEqual(10);
     expect(ran.map((r) => r.split(" ")[0])).toContain("pdf-to-markdown");
     expect(failures, failures.join("\n")).toEqual([]);
