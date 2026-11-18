@@ -510,6 +510,25 @@ export interface HeartbeatCapabilities {
    * `true` on an observed heartbeat. The absence parses as `false`.
    */
   readonly ocrOwnerPassword: boolean;
+  /**
+   * This image's Request Signatures writes the label a requester gave a box
+   * into prepared.pdf as that box's tooltip (/TU, on the field and on its
+   * widget, PR #364), so a signer can see what each box is for. An image
+   * built before #364 writes none (the label reaches manifest.json only).
+   *
+   * PROVEN AT START-UP (`request-signatures/labels-capability.ts`,
+   * `provesRequestSignatureLabels`): a real Request Signatures job through
+   * the executor's order on the daemon's own registry and deps, one signer
+   * with one labelled box and one unlabelled box, its prepared.pdf read back
+   * with pdf-lib (not the engine's writer): true only when the labelled
+   * box's /TU, on the field and every widget, equals the label and the
+   * unlabelled box has none. Any throw, or a run past its time bound, is
+   * false. Nothing is gated on it (a label sent to an older image still
+   * lands in manifest.json); it is what licenses the catalogue to state the
+   * tooltip plainly (claims-vs-capability.test.ts). The absence parses as
+   * `false`.
+   */
+  readonly requestSignatureLabels: boolean;
 }
 
 /**
