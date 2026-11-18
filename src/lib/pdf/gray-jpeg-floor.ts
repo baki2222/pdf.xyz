@@ -15,7 +15,7 @@
  *    a reserved code point, so no code is shorter than 1 bit: at least 2 bits
  *    a block. Magnitude bits and 0xFF stuffing only add to that.
  *
- * `gray-jpeg-floor.test.ts` holds it from both sides: below the encoder's
+ * `grayscale-encode-once.test.ts` holds it from both sides: below the encoder's
  * real output for every plane it tries, and within a few bytes of it for a
  * flat plane (the cheapest content there is), so the floor cannot drift to a
  * value that is true and useless.
