@@ -1423,6 +1423,41 @@ describe("labelled-rule", () => {
       expect(firstRule(headed(12, 10, 14))).toBe("unlabelled");
     });
 
+    // PRODUCT CHOICE (regression verify after review round 6): a heading
+    // over ONE line of body text is a caption, as it has been since review
+    // round 4 fixes (finding 3). Round 3 (7316a543) proposed nothing for
+    // the heading side. The two shapes below differ only in their words: a
+    // larger line over a rule, one smaller line under it. Taking one line
+    // as a body again for a heading set larger than the page's body (the
+    // verify's narrow candidate) turned corpus P37 red, where the 7 pt
+    // hints ARE the page's body size. A wrong proposal costs one reject in
+    // Slice 2's review; a lost caption costs a manual add on a real form.
+    it("PRODUCT CHOICE: a heading over one line of body text is a field named after the heading, as a caption over one hint keeps its line", () => {
+      const oneLine = (
+        head: string,
+        line: string,
+        size: number,
+        body: number,
+      ) =>
+        props(
+          pg({
+            segs: [hseg(72, 538, 606)],
+            text: [
+              txt(head, 72, 592, { size, width: 60 }),
+              txt(line, 72, 578, { size: body, width: 190 }),
+            ],
+          }),
+        ).map((x) => x.label);
+      expect(
+        oneLine("2. Results", "The results start here and run across.", 12, 10),
+      ).toEqual(["2. Results"]);
+      expect(
+        oneLine("Full name", "(as shown on your passport)", 10, 7),
+      ).toEqual(["Full name"]);
+      // The control: a second body line makes it a heading.
+      expect(props(headed(12, 10, 14))).toEqual([]);
+    });
+
     it("HEADING_LEAD_EMS: the body's baseline up to 1.6 x the heading's size under it, not 0.1 pt more", () => {
       expect(props(headed(10, 9, 16))).toEqual([]);
       expect(props(headed(10, 9, 16.1))[0]?.label).toBe("2. Results");
