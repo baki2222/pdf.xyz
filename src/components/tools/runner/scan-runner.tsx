@@ -91,6 +91,8 @@ export function ScanRunner() {
   // `null`: the run was stopped with Cancel, and there is nothing to show.
   const { busy, error, result, run, reset } = useAsyncRun<ScanResult | null>();
   const abortRef = useRef<AbortController | null>(null);
+  // The run whose work has ended (its result may not be drawn yet).
+  const settledRef = useRef<AbortController | null>(null);
   // Stop a run still going if the runner goes away.
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -237,14 +239,21 @@ export function ScanRunner() {
         if (abortRef.current === controller) reset();
         return null;
       } finally {
+        settledRef.current = controller;
         if (abortRef.current === controller) setProgress(null);
       }
     });
   };
 
   const onCancel = () => {
+    const controller = abortRef.current;
     refocusRef.current = true;
-    abortRef.current?.abort();
+    controller?.abort();
+    // The work already ended, and its result is on its way to the screen
+    // (the run waits for the result's ending, then renders): drop it. While
+    // the work is still going, the run stops itself and resets (above), so
+    // Create PDF stays busy until it has really stopped.
+    if (controller && settledRef.current === controller) reset();
   };
 
   if (handoff.status === "loading") return <HandoffLoading />;

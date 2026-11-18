@@ -10,7 +10,11 @@ import {
 } from "@testing-library/react";
 import { PDFDocument } from "pdf-lib";
 import { resetAnnouncer } from "@/components/a11y/live-region";
-import { currentActivity, resetActivityForTests } from "@/lib/activity/bus";
+import {
+  currentActivity,
+  resetActivityForTests,
+  subscribeActivity,
+} from "@/lib/activity/bus";
 import { withAppRouter } from "@/tests/app-router";
 import { SCAN_RUN_LABEL, ScanRunner } from "./scan-runner";
 
@@ -197,6 +201,48 @@ describe("Scan to PDF · Cancel while the PDF is being saved", () => {
     expect(screen.queryByText("Scan saved as PDF")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(currentActivity().state).toBe("idle");
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: SCAN_RUN_LABEL }),
+    );
+    expect(screen.getByText("receipt.png")).toBeTruthy();
+  });
+
+  it("a Cancel after the save finished but before the result is drawn: still no result", async () => {
+    // Found in the browser on the fix (the reviewer's probe, 12 x 12 MP): the
+    // save had finished and the run returned, but the screen still showed
+    // "Saving the PDF…" and Cancel until the next render; a Cancel in that
+    // frame was ignored. The run reports "done" in exactly that gap (after
+    // its result is set, before React draws it), so the press goes there.
+    const held = await holdSave();
+    await mountWithPhoto("receipt.png");
+    let pressed = 0;
+    const stop = subscribeActivity((activity) => {
+      if (activity.state !== "done") return;
+      const cancel = screen.queryByRole("button", { name: "Cancel" });
+      if (cancel) {
+        pressed += 1;
+        cancel.focus();
+        fireEvent.click(cancel);
+      }
+    });
+    try {
+      fireEvent.click(screen.getByRole("button", { name: SCAN_RUN_LABEL }));
+      await screen.findByText("Saving the PDF…", undefined, {
+        timeout: 4_000,
+      });
+      await act(async () => {
+        held.release();
+      });
+      await waitFor(
+        () => expect(screen.queryByText("Creating PDF…")).toBeNull(),
+        { timeout: 4_000 },
+      );
+    } finally {
+      stop();
+    }
+    // Health check: Cancel really was pressed, in that gap.
+    expect(pressed).toBe(1);
+    expect(screen.queryByText("Scan saved as PDF")).toBeNull();
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: SCAN_RUN_LABEL }),
     );
