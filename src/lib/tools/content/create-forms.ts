@@ -72,7 +72,8 @@ import { DETECTION_RULES } from "@/lib/pdf/form-detect";
  * refuses it. The first Add replaces the starter card only if it was never
  * touched (and only by something added). Lines LABELLED as a signature are
  * not suggested (SIGNATURE_RE; "Signatory:" or "Firma:" are not read as
- * one, so this never says "signature lines are never suggested"; counted,
+ * one, so a claim about EVERY signature line is false, and the copy guard's
+ * signatureAlways / signatureVerbFirst shapes refuse it; counted,
  * with links to Edit PDF and Sign PDF); a page that is ONLY a picture (no
  * text layer) is not searched, and a scan with an OCR text layer IS (both
  * bound to the reader by the copy guard: cases O1 and O9); a page whose

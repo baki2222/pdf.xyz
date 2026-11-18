@@ -35,6 +35,12 @@
  * added until you add it") passed; it now counts only when the PERSON adds.
  * And "suggests a field for each one" passed rule 1, which knew every/all
  * but not each.
+ *
+ * Review round 8 (2026-11-19) widened 1 and 4: "Signature lines are never
+ * suggested" was held only by a docblock (and passed every rule, since it
+ * says "add"); the signature shapes now refuse it. And rule 4 knew only
+ * "not searched" and "does not search", so "Scanned pages are skipped."
+ * passed; SCAN_REWORDINGS now holds every spelling it knows, both ways.
  */
 import { describe, expect, it } from "vitest";
 import { DETECTION_RULES, emptyCounts } from "@/lib/pdf/form-detect";
@@ -162,6 +168,13 @@ const BANNED: Record<string, RegExp> = {
   // you add it" (review round 7, each passed every rule before).
   addsForYou:
     /\b(?:it|find fields|the builder|the finder)\s+(?:then\s+|also\s+)?adds\s+(?:the\s+|your\s+)?(?:fields?|them|it|those|what|every|each|all)\b|\b(?:is|are)\s+added\s+for\s+you\b/i,
+  // Every signature line, either way round (review round 8): only lines
+  // LABELLED as a signature are left out, and SIGNATURE_RE does not read
+  // every label ("Signatory:", "Firma:"), so a universal claim is false.
+  signatureAlways:
+    /\bsignatures?\b[^.;:]*\b(?:never|always|every|all|any|none)\b[^.;:]*\b(?:suggest(?:s|ed)?|found|finds?|detect(?:s|ed)?|propos(?:es|ed)?|skip(?:s|ped)?|ignor(?:es|ed)|left out|leaves? out|pass(?:es|ed)? over)\b/i,
+  signatureVerbFirst:
+    /\b(?:never|always|every|all|any|none)\b[^.;:]*\b(?:suggest(?:s|ed)?|found|finds?|detect(?:s|ed)?|propos(?:es|ed)?|skip(?:s|ped)?|ignor(?:es|ed)|left out|leaves? out|pass(?:es|ed)? over)\b[^.;:]*\bsignatures?\b|\b(?:suggest(?:s|ed)?|found|finds?|detect(?:s|ed)?|propos(?:es|ed)?|skip(?:s|ped)?|ignor(?:es|ed)|left out|leaves? out|pass(?:es|ed)? over)\s+(?:every|all|any)\b[^.;:]*\bsignatures?\b/i,
   turnsInto:
     /\bturns?\s+(?:it|them|each|every|all|the)\b[^.]*?\binto\s+(?:a\s+|fillable\s+)?fields?\b/i,
 };
@@ -185,6 +198,12 @@ const OVERCLAIMS = [
   "Press it and the fields it finds are added for you.",
   "It spots each blank line and turns it into a field.",
   "It turns every blank on the page into a field.",
+  // Review round 8: only a comment held these, and the second passed every
+  // rule (it says "add"). False: SIGNATURE_RE does not read "Signatory:"
+  // or "Firma:" as a signature, so such a line IS suggested.
+  "Signature lines are never suggested, so add a signature field by hand.",
+  "Find fields never suggests a signature line, so add one with Edit PDF.",
+  "It skips every signature line; add those by hand.",
 ];
 
 const banned = (s: string) =>
@@ -262,9 +281,45 @@ const freeListing = (s: string) =>
  *  4. Scans
  * ------------------------------------------------------------------ */
 
-/** A sentence saying some scans or pictures are not searched. */
-const SAYS_SCANS_SKIPPED =
-  /\b(?:scan\w*|picture\w*)\b[^.]*\b(?:not searched|was not searched|were not searched)\b|\b(?:does not|doesn't|never) search\b[^.]*\b(?:scan\w*|picture\w*)\b/i;
+/**
+ * A sentence saying some scans or pictures are not searched: a scan word and
+ * a not-searched word, in either order, in any of the spellings below.
+ * Until review round 8 (2026-11-19) this was one regex that knew only "not
+ * searched" and "does not search", so "Scanned pages are skipped." and "A
+ * scan isn't searched." (each false of O9, an OCR'd scan the reader DOES
+ * search) passed with no qualifier: the synonym hole of house rule 1.
+ * {@link SCAN_REWORDINGS} is the corpus that holds each spelling.
+ */
+const SCAN_WORD = /\b(?:scan\w*|picture\w*|image-only|photographs?|photos?)\b/i;
+const NOT_SEARCHED: Record<string, RegExp> = {
+  negPassive:
+    /\b(?:not|isn['’]t|aren['’]t|wasn['’]t|weren['’]t|never|can['’]t be|cannot be|won['’]t be|will not be)\s+(?:be\s+)?(?:searched|read|looked at|looked through|checked|scanned|used)\b/i,
+  skipped:
+    /\b(?:skip(?:s|ped|ping)?|ignor(?:e|es|ed|ing)|pass(?:es|ed)? over|left out|leaves? out|left alone)\b/i,
+  negActive:
+    /\b(?:does not|doesn['’]t|do not|don['’]t|cannot|can['’]t|won['’]t|will not|never)\s+(?:search|read|look at|look through|see|work on|work with|handle|support|check)\b/i,
+  noWork:
+    /\b(?:not supported|unsupported|does not work|doesn['’]t work|won['’]t work|will not work|no good)\b/i,
+};
+const saysScansSkipped = (s: string) =>
+  SCAN_WORD.test(s) && Object.values(NOT_SEARCHED).some((re) => re.test(s));
+/**
+ * Unqualified claims that scans are not searched, each false of O9: each
+ * must be caught, and each NOT_SEARCHED spelling must catch one (house
+ * rule 1, both ways). The first two are review round 8's mutants Ssyn and
+ * Ssyn2, which the old regex passed.
+ */
+const SCAN_REWORDINGS = [
+  "Scanned pages are skipped.",
+  "A scan isn't searched.",
+  "A scanned page, a picture of a form, is not searched.",
+  "It does not search a scanned page.",
+  "Find fields ignores scans.",
+  "It can't read a scanned PDF.",
+  "Scans are not supported.",
+  "Scanned forms won't work.",
+  "A photo of a form is passed over.",
+];
 /** ...and qualifies it to the pages with no text, which is all it skips. */
 const QUALIFIED = /\b(?:only a picture|only pictures|no text)\b/i;
 const IMAGE_ONLY = DETECT_CASES.find((c) => c.id === "O1")!;
@@ -446,7 +501,7 @@ describe(
       expect(picture.report.pages[0]!.outcome).toBe("no-text-layer");
       const ocr = await runCase(OCR_SCAN);
       expect(ocr.report.pages[0]!.outcome).toBe("found");
-      const said = corpus().filter((s) => SAYS_SCANS_SKIPPED.test(s.text));
+      const said = corpus().filter((s) => saysScansSkipped(s.text));
       // Health: the intro, the FAQ, the guide and the summary all say it.
       for (const source of ["content", "summary"])
         expect(
@@ -468,7 +523,7 @@ describe(
         "Page 1 is only a picture, with no text to read, so it was not searched: add its fields by hand.",
       );
       expect(
-        summarize(ocr.report).filter((l) => SAYS_SCANS_SKIPPED.test(l.text)),
+        summarize(ocr.report).filter((l) => saysScansSkipped(l.text)),
       ).toEqual([]);
     });
 
@@ -476,13 +531,22 @@ describe(
       expect(scanClaimHolds(true, 1, 2)).toBe(false);
       expect(scanClaimHolds(true, 0, 0)).toBe(false);
       expect(scanClaimHolds(false, 0, 2)).toBe(false);
-      for (const s of [
-        "A scanned page, a picture of a form, is not searched.",
-        "It does not search a scanned page.",
-      ]) {
-        expect(SAYS_SCANS_SKIPPED.test(s), s).toBe(true);
+      for (const s of SCAN_REWORDINGS) {
+        expect(saysScansSkipped(s), s).toBe(true);
         expect(QUALIFIED.test(s), s).toBe(false);
       }
+      for (const [name, re] of Object.entries(NOT_SEARCHED))
+        expect(
+          SCAN_REWORDINGS.some((s) => re.test(s) && SCAN_WORD.test(s)),
+          `${name} catches a rewording`,
+        ).toBe(true);
+      // ...and it is about scans: the summary's signature sentence says
+      // "skipped" and is not one.
+      expect(
+        saysScansSkipped(
+          "1 line labelled as a signature was skipped: Edit PDF adds a signature field, and Sign PDF signs the PDF.",
+        ),
+      ).toBe(false);
     });
 
     it("the summary's outcomes are the reader's whole union", () => {
