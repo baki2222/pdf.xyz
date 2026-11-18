@@ -8,6 +8,11 @@ import {
 import { PdfEngineError } from "./engine-errors";
 import { drawRasterImage, embedRasterImage, loadPdfLib } from "./pdf-lib";
 import { packBits, type ScanEnhancement } from "./scan-enhance";
+import {
+  estimateFlateBytes,
+  flateCannotWin,
+  flateProbe,
+} from "./scan-gray-choice";
 
 /**
  * Scan to PDF's writer — DOM-free, so the Node tests drive the same code the
@@ -19,7 +24,9 @@ import { packBits, type ScanEnhancement } from "./scan-enhance";
  *  - "original": a colour JPEG (the canvas encoder's), embedded as-is.
  *  - "document": a ONE-channel plane, stored as a DeviceGray image — a
  *    one-component JPEG (`./gray-jpeg`) or the lossless plane under Flate,
- *    whichever is smaller, exactly as Grayscale PDF stores its pages.
+ *    whichever is smaller, exactly as Grayscale PDF stores its pages — except
+ *    that the Flate is not made when a sample of the page shows it cannot
+ *    win (`./scan-gray-choice`: measured, with its tolerance tested).
  *  - "bw": a 0/255 plane, stored as a 1-bit DeviceGray image under Flate.
  *
  * Page sizes are Image to PDF's table (`./image-page-layout`), cut to the three
@@ -92,6 +99,8 @@ export interface ScanPageRecord {
   /** How the image is stored in the PDF. */
   encoding: "rgb-jpeg" | "gray-jpeg" | "gray-flate" | "1-bit-flate";
   imageBytes: number;
+  /** Set when a sample showed Flate could not win, so it was not made. */
+  flateSkipped?: true;
 }
 
 export interface ScanResult {
@@ -101,19 +110,26 @@ export interface ScanResult {
 
 export const SCAN_TITLE = "Scanned document";
 
-/** Build one PDF, one page per photo, in the order given. */
-export async function scansToPdf(
-  inputs: readonly ScanPageInput[],
+/**
+ * A PDF built one page at a time: each page's photo is encoded the moment it
+ * is added, so the caller can let go of its pixels before decoding the next
+ * photo (a 60-photo scan held all 60 planes, ~260 MB, until the end — perf
+ * sweep 2026-11-18). Nothing here yields; a caller that adds many pages
+ * yields between them ({@link scansToPdf} does).
+ */
+export interface ScanWriter {
+  addPage(input: ScanPageInput): Promise<void>;
+  save(): Promise<ScanResult>;
+}
+
+export async function createScanWriter(
   pageSize: ScanPageSizeId,
-): Promise<ScanResult> {
-  if (inputs.length === 0) {
-    throw new PdfEngineError("Add at least one photo first.");
-  }
+): Promise<ScanWriter> {
   const lib = await loadPdfLib();
   const doc = await lib.PDFDocument.create();
   const records: ScanPageRecord[] = [];
 
-  for (const input of inputs) {
+  const addPage = async (input: ScanPageInput): Promise<void> => {
     const { width, height } = input;
     if (
       !Number.isInteger(width) ||
@@ -148,21 +164,24 @@ export async function scansToPdf(
         encoding: "rgb-jpeg",
         imageBytes: input.jpeg.length,
       });
-      continue;
+      return;
     }
 
     if (input.plane.length !== width * height) {
       throw new PdfEngineError("A photo could not be read.");
     }
+    const imageDict = {
+      Type: "XObject",
+      Subtype: "Image",
+      Width: width,
+      Height: height,
+      ColorSpace: "DeviceGray",
+    };
     let stream;
     let encoding: ScanPageRecord["encoding"];
     if (input.enhancement === "bw") {
       stream = doc.context.flateStream(packBits(input.plane, width, height), {
-        Type: "XObject",
-        Subtype: "Image",
-        Width: width,
-        Height: height,
-        ColorSpace: "DeviceGray",
+        ...imageDict,
         BitsPerComponent: 1,
       });
       encoding = "1-bit-flate";
@@ -173,15 +192,26 @@ export async function scansToPdf(
         height,
         SCAN_JPEG_QUALITY,
       );
-      const flate = doc.context.flateStream(input.plane, {
-        Type: "XObject",
-        Subtype: "Image",
-        Width: width,
-        Height: height,
-        ColorSpace: "DeviceGray",
-        BitsPerComponent: 8,
-      });
-      if (flate.contents.length <= jpeg.length) {
+      // The full Flate is skipped when a sample shows it cannot win
+      // (`./scan-gray-choice` has the measurement and the tolerance).
+      const probe = flateProbe(input.plane, width, height);
+      const flateSkipped =
+        probe !== null &&
+        flateCannotWin(
+          estimateFlateBytes(
+            doc.context.flateStream(probe, {}).contents.length,
+            probe.length,
+            input.plane.length,
+          ),
+          jpeg.length,
+        );
+      const flate = flateSkipped
+        ? null
+        : doc.context.flateStream(input.plane, {
+            ...imageDict,
+            BitsPerComponent: 8,
+          });
+      if (flate && flate.contents.length <= jpeg.length) {
         stream = flate;
         encoding = "gray-flate";
       } else {
@@ -192,8 +222,9 @@ export async function scansToPdf(
           enhancement: "document",
           encoding: "gray-jpeg",
           imageBytes: jpeg.length,
+          ...(flateSkipped ? { flateSkipped: true as const } : {}),
         });
-        continue;
+        return;
       }
     }
     const name = page.node.newXObject("Im", doc.context.register(stream));
@@ -208,12 +239,110 @@ export async function scansToPdf(
       encoding,
       imageBytes: stream.contents.length,
     });
-  }
+  };
 
-  doc.setTitle(SCAN_TITLE);
-  doc.setProducer("pdf.xyz");
-  doc.setCreator("pdf.xyz");
-  return { bytes: await doc.save(), pages: records };
+  const save = async (): Promise<ScanResult> => {
+    if (records.length === 0) {
+      throw new PdfEngineError("Add at least one photo first.");
+    }
+    doc.setTitle(SCAN_TITLE);
+    doc.setProducer("pdf.xyz");
+    doc.setCreator("pdf.xyz");
+    return { bytes: await doc.save(), pages: records };
+  };
+
+  return { addPage, save };
+}
+
+/**
+ * Hand the event loop a turn: a TASK, not a microtask, so input, paint and a
+ * Cancel press get in between pages. A zero-delay timer, not
+ * `scheduler.yield`: in Chromium 149 the work that resumes after
+ * `scheduler.yield()` is never reported as a long task (measured 2026-11-18:
+ * six 200 ms loops, the three after `scheduler.yield` missing from the
+ * PerformanceObserver), so a page built on it would hide its own blocking
+ * from every long-task instrument, ours and a visitor's browser's alike.
+ */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+export interface ScanBuildOptions {
+  /**
+   * Checked before and after every step — preparing a photo, adding its
+   * page, saving the PDF; an aborted run rejects with an AbortError, even
+   * when the step in hand finished (a finished save is not a result).
+   */
+  signal?: AbortSignal;
+  /** Called before each photo is prepared: the 1-based page, and how many. */
+  onPrepare?: (page: number, total: number) => void;
+  /** Called after each page is made, with how many are done so far. */
+  onPage?: (done: number, total: number) => void;
+  /** Called once every page is in, as the PDF is saved. */
+  onSave?: () => void;
+}
+
+/**
+ * Build one PDF, one page per photo, in the order given — the loop Scan to
+ * PDF's page runs. With `prepare`, each item (a photo file, in the browser)
+ * is turned into its page input only when its turn comes, and its page is
+ * encoded before the next is prepared: one decoded photo in memory at a
+ * time (all 60 planes of a 60-photo scan, ~260 MB, were held until the end —
+ * perf sweep 2026-11-18).
+ *
+ * The event loop gets a TASK between preparing a page and encoding it, and
+ * another after each page (perf sweep 2026-11-18, P1: the 60-page loop was
+ * ONE task of ~20 s). In Chromium the photo's decode in `prepare` already
+ * ends a task, so on the page the first turn is not what keeps it
+ * responsive (review 2026-11-18: with both removed the responsiveness spec
+ * still passed); they make the bound hold whatever `prepare` awaits —
+ * `scan-to-pdf-yield.test.ts` pins both, on this loop.
+ */
+export function scansToPdf<T>(
+  items: readonly T[],
+  pageSize: ScanPageSizeId,
+  options: ScanBuildOptions & { prepare: (item: T) => Promise<ScanPageInput> },
+): Promise<ScanResult>;
+// Last, so `Parameters<typeof scansToPdf>` reads the plain form.
+export function scansToPdf(
+  inputs: readonly ScanPageInput[],
+  pageSize: ScanPageSizeId,
+  options?: ScanBuildOptions,
+): Promise<ScanResult>;
+export async function scansToPdf<T>(
+  items: readonly T[],
+  pageSize: ScanPageSizeId,
+  {
+    signal,
+    onPrepare,
+    onPage,
+    onSave,
+    prepare,
+  }: ScanBuildOptions & {
+    prepare?: (item: T) => Promise<ScanPageInput>;
+  } = {},
+): Promise<ScanResult> {
+  if (items.length === 0) {
+    throw new PdfEngineError("Add at least one photo first.");
+  }
+  const writer = await createScanWriter(pageSize);
+  for (const [index, item] of items.entries()) {
+    signal?.throwIfAborted();
+    onPrepare?.(index + 1, items.length);
+    const input = prepare
+      ? await prepare(item)
+      : (item as unknown as ScanPageInput);
+    if (prepare) await yieldToEventLoop();
+    signal?.throwIfAborted();
+    await writer.addPage(input);
+    onPage?.(index + 1, items.length);
+    await yieldToEventLoop();
+  }
+  signal?.throwIfAborted();
+  onSave?.();
+  const result = await writer.save();
+  signal?.throwIfAborted();
+  return result;
 }
 
 /** "scan-2026-10-30.pdf", from the day the scan was made. */

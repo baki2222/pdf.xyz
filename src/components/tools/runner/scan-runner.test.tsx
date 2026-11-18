@@ -6,8 +6,15 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
+import { PDFDocument } from "pdf-lib";
 import { resetAnnouncer } from "@/components/a11y/live-region";
+import {
+  currentActivity,
+  resetActivityForTests,
+  subscribeActivity,
+} from "@/lib/activity/bus";
 import { withAppRouter } from "@/tests/app-router";
 import { SCAN_RUN_LABEL, ScanRunner } from "./scan-runner";
 
@@ -41,6 +48,10 @@ beforeEach(() => {
         translate: noop,
         rotate: noop,
         drawImage: noop,
+        // The run reads the drawn photo back (a blank 4 x 3 page here).
+        getImageData: (_x: number, _y: number, w: number, h: number) => ({
+          data: new Uint8ClampedArray(w * h * 4).fill(255),
+        }),
       }) as unknown as CanvasRenderingContext2D,
   );
 });
@@ -49,6 +60,7 @@ afterEach(() => {
   for (const release of pending.splice(0)) release();
   cleanup();
   resetAnnouncer();
+  resetActivityForTests();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -98,5 +110,157 @@ describe("Scan to PDF · Clear", () => {
       fireEvent.click(clear);
     });
     expect(screen.queryByText("receipt.png")).toBeNull();
+  });
+});
+
+/**
+ * Perf sweep 2026-11-18, P2: a ~30 s Create PDF on 60 photos could not be
+ * stopped — no Cancel, and nothing on the run path took a signal. Cancel
+ * returns to the idle runner: the photos stay, no result, no error.
+ */
+describe("Scan to PDF · Cancel", () => {
+  it("is offered while Create PDF runs and stops it with no result and no error", async () => {
+    await mountWithPhoto("receipt.png");
+    hold = true;
+    fireEvent.click(screen.getByRole("button", { name: SCAN_RUN_LABEL }));
+    await screen.findByText("Creating PDF…", undefined, { timeout: 4_000 });
+    // Health check: the run really is in flight.
+    expect(pending.length).toBe(1);
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(cancel.getAttribute("aria-disabled")).toBeNull();
+    await act(async () => {
+      fireEvent.click(cancel);
+    });
+    // The decode the run was waiting on settles after the press (here, as a
+    // failure): a cancelled run reports nothing either way.
+    await act(async () => {
+      for (const release of pending.splice(0)) release();
+    });
+    await screen.findByRole("button", { name: SCAN_RUN_LABEL });
+    expect(screen.queryByText("Creating PDF…")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("Scan saved as PDF")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    expect(screen.getByText("receipt.png")).toBeTruthy();
+  });
+
+  it("control: with no run in flight there is no Cancel", async () => {
+    await mountWithPhoto("receipt.png");
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+  });
+});
+
+/**
+ * Review of the first fix (2026-11-18): a Cancel pressed while "Saving the
+ * PDF…" showed was ignored — nothing checked the signal after the save, so
+ * "Scan saved as PDF" was drawn anyway (12 x 12 MP photos, a Cancel in the
+ * frame that showed the save: 1 result after Cancel). And once the run
+ * stopped, the Cancel button the keyboard was on unmounted and focus fell
+ * to the top of the page; and the stopped run told the masthead and a
+ * hidden tab's title "done". Here the real run goes all the way to the save
+ * on a 4 x 3 photo, and the save is held until the test lets it go.
+ */
+describe("Scan to PDF · Cancel while the PDF is being saved", () => {
+  async function holdSave() {
+    const realSave = PDFDocument.prototype.save;
+    const held: { saves: number; release: () => void } = {
+      saves: 0,
+      release: () => {},
+    };
+    vi.spyOn(PDFDocument.prototype, "save").mockImplementation(function (
+      this: PDFDocument,
+      ...args: Parameters<PDFDocument["save"]>
+    ) {
+      held.saves += 1;
+      return new Promise<Uint8Array>((resolve) => {
+        held.release = () => resolve(realSave.apply(this, args));
+      });
+    });
+    return held;
+  }
+
+  it("shows no result, reports no 'done', and puts the keyboard on Create PDF", async () => {
+    const held = await holdSave();
+    await mountWithPhoto("receipt.png");
+    fireEvent.click(screen.getByRole("button", { name: SCAN_RUN_LABEL }));
+    await screen.findByText("Saving the PDF…", undefined, { timeout: 4_000 });
+    // Health check: the run is inside the save the test is holding.
+    expect(held.saves).toBe(1);
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    cancel.focus();
+    await act(async () => {
+      fireEvent.click(cancel);
+    });
+    await act(async () => {
+      held.release();
+    });
+    await waitFor(
+      () => expect(screen.queryByText("Creating PDF…")).toBeNull(),
+      { timeout: 4_000 },
+    );
+    expect(screen.queryByText("Scan saved as PDF")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(currentActivity().state).toBe("idle");
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: SCAN_RUN_LABEL }),
+    );
+    expect(screen.getByText("receipt.png")).toBeTruthy();
+  });
+
+  it("a Cancel after the save finished but before the result is drawn: still no result", async () => {
+    // Found in the browser on the fix (the reviewer's probe, 12 x 12 MP): the
+    // save had finished and the run returned, but the screen still showed
+    // "Saving the PDF…" and Cancel until the next render; a Cancel in that
+    // frame was ignored. The run reports "done" in exactly that gap (after
+    // its result is set, before React draws it), so the press goes there.
+    const held = await holdSave();
+    await mountWithPhoto("receipt.png");
+    let pressed = 0;
+    const stop = subscribeActivity((activity) => {
+      if (activity.state !== "done") return;
+      const cancel = screen.queryByRole("button", { name: "Cancel" });
+      if (cancel) {
+        pressed += 1;
+        cancel.focus();
+        fireEvent.click(cancel);
+      }
+    });
+    try {
+      fireEvent.click(screen.getByRole("button", { name: SCAN_RUN_LABEL }));
+      await screen.findByText("Saving the PDF…", undefined, {
+        timeout: 4_000,
+      });
+      await act(async () => {
+        held.release();
+      });
+      await waitFor(
+        () => expect(screen.queryByText("Creating PDF…")).toBeNull(),
+        { timeout: 4_000 },
+      );
+    } finally {
+      stop();
+    }
+    // Health check: Cancel really was pressed, in that gap.
+    expect(pressed).toBe(1);
+    expect(screen.queryByText("Scan saved as PDF")).toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: SCAN_RUN_LABEL }),
+    );
+    expect(screen.getByText("receipt.png")).toBeTruthy();
+  });
+
+  it("control: left alone, the same held save ends in the result", async () => {
+    const held = await holdSave();
+    await mountWithPhoto("receipt.png");
+    fireEvent.click(screen.getByRole("button", { name: SCAN_RUN_LABEL }));
+    await screen.findByText("Saving the PDF…", undefined, { timeout: 4_000 });
+    expect(held.saves).toBe(1);
+    await act(async () => {
+      held.release();
+    });
+    await screen.findByText("Scan saved as PDF", undefined, {
+      timeout: 4_000,
+    });
+    expect(currentActivity().state).toBe("done");
   });
 });
