@@ -607,6 +607,12 @@ describe("labelled-rule", () => {
     it("GRID_ROW_EPS: right ends 2 pt apart count, 2.1 do not; it may start 2 pt right of the labelled line, not 2.1", () => {
       expect(labelled(block([hseg(72, 402, 552)]))).toHaveLength(2);
       expect(labelled(block([hseg(72, 402.1, 552)]))).toHaveLength(1);
+      // The short side (review round 4 fixes, finding 14: only an
+      // overshoot was tested, so any shorter line, a postcode box under
+      // "Address:", could inherit the label unnoticed).
+      expect(labelled(block([hseg(72, 398, 552)]))).toHaveLength(2);
+      expect(labelled(block([hseg(72, 397.9, 552)]))).toHaveLength(1);
+      expect(labelled(block([hseg(72, 300, 552)]))).toHaveLength(1);
       expect(labelled(block([hseg(122, 400, 552)]))).toHaveLength(2);
       expect(labelled(block([hseg(122.1, 400, 552)]))).toHaveLength(1);
     });
