@@ -2180,13 +2180,36 @@ function tableCells(ix: TextIndex, lines: PageLines): Candidate[] {
   const long = lines.rules
     .filter((r) => r.x1 - r.x0 >= DETECT.RULE_MIN_LEN)
     .sort((a, b) => a.y - b.y);
+  // Long rules by their ends, in cells GRID_ROW_EPS wide, so a seed's
+  // stack is gathered from its cell and the eight round it: filtering
+  // every long rule for every seed was quadratic in rules (review round 5
+  // fixes, finding 8). Each cell keeps `long`'s order (by y).
+  const cellOf = (a: number, b: number) =>
+    `${Math.floor(a / eps)}|${Math.floor(b / eps)}`;
+  const ends = new Map<string, Line[]>();
+  const at = new Map(long.map((r, i) => [r, i]));
+  for (const r of long) {
+    const k = cellOf(r.x0, r.x1);
+    const list = ends.get(k);
+    if (list) list.push(r);
+    else ends.set(k, [r]);
+  }
   const seen = new Set<Line>();
   const out: Candidate[] = [];
   for (const seed of long) {
     if (seen.has(seed)) continue;
-    const stack = long.filter(
-      (r) => Math.abs(r.x0 - seed.x0) <= eps && Math.abs(r.x1 - seed.x1) <= eps,
-    );
+    const near: Line[] = [];
+    const c0 = Math.floor(seed.x0 / eps);
+    const c1 = Math.floor(seed.x1 / eps);
+    for (const d0 of [-1, 0, 1])
+      for (const d1 of [-1, 0, 1])
+        for (const r of ends.get(`${c0 + d0}|${c1 + d1}`) ?? [])
+          if (
+            Math.abs(r.x0 - seed.x0) <= eps &&
+            Math.abs(r.x1 - seed.x1) <= eps
+          )
+            near.push(r);
+    const stack = near.sort((a, b) => at.get(a)! - at.get(b)!);
     stack.forEach((r) => seen.add(r));
     // Split where the outer plumb lines do not join two rules.
     const parts: Line[][] = [[stack[0]!]];
