@@ -82,3 +82,137 @@ describe("scansToPdf · one task per page", () => {
     await expect(writer.save()).rejects.toThrow(/at least one photo/);
   });
 });
+
+/**
+ * Review of the first fix (2026-11-18): the page ran its OWN loop over
+ * createScanWriter, so every test above checked a function the product no
+ * longer called — five abort and yield mutants on the page's loop stayed
+ * green. The page now runs scansToPdf with a `prepare` step (decode and
+ * clean up one photo), so these hold the loop the page runs: one photo in
+ * hand at a time, a task between preparing a page and encoding it, and a
+ * Cancel heard at every step — including while the PDF is being saved, where
+ * a Cancel was ignored and the result still drawn.
+ */
+describe("scansToPdf with prepare · the loop Scan to PDF runs", () => {
+  const photos = ["a", "b", "c"];
+  const byName = new Map(photos.map((name, k) => [name, inputs(3)[k]!]));
+  const prepare = async (name: string) => byName.get(name)!;
+
+  it("prepares one photo at a time, each added before the next is prepared", async () => {
+    const events: string[] = [];
+    const { pages } = await scansToPdf(photos, "a4", {
+      prepare: async (name) => {
+        events.push(`prepare ${name}`);
+        return prepare(name);
+      },
+      onPage: (done) => events.push(`page ${done}`),
+    });
+    expect(pages).toHaveLength(3);
+    expect(events).toEqual([
+      "prepare a",
+      "page 1",
+      "prepare b",
+      "page 2",
+      "prepare c",
+      "page 3",
+    ]);
+  });
+
+  it("a setTimeout(0) scheduled while a photo is prepared fires before that page is encoded", async () => {
+    const events: string[] = [];
+    await scansToPdf(photos, "a4", {
+      prepare: async (name) => {
+        if (name === "a") setTimeout(() => events.push("timer"), 0);
+        return prepare(name);
+      },
+      onPage: (done) => events.push(`page ${done}`),
+    });
+    // Health check: the timer did fire.
+    expect(events).toContain("timer");
+    expect(events.indexOf("timer")).toBeLessThan(events.indexOf("page 1"));
+  });
+
+  it("a Cancel while a photo is being prepared: that photo is not added, and no later one is prepared", async () => {
+    const controller = new AbortController();
+    const prepared: string[] = [];
+    const added: number[] = [];
+    await expect(
+      scansToPdf(photos, "a4", {
+        signal: controller.signal,
+        prepare: async (name) => {
+          prepared.push(name);
+          if (name === "b") controller.abort();
+          return prepare(name);
+        },
+        onPage: (done) => added.push(done),
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(prepared).toEqual(["a", "b"]);
+    expect(added).toEqual([1]);
+  });
+
+  it("a Cancel while the PDF is being saved: no result", async () => {
+    const controller = new AbortController();
+    let saving = 0;
+    await expect(
+      scansToPdf(photos, "a4", {
+        signal: controller.signal,
+        prepare,
+        onSave: () => {
+          saving += 1;
+          controller.abort();
+        },
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    // Health check: the abort really landed during the save step.
+    expect(saving).toBe(1);
+  });
+
+  it("a Cancel after a page is made: the next photo is not even prepared", async () => {
+    const controller = new AbortController();
+    const prepared: string[] = [];
+    await expect(
+      scansToPdf(photos, "a4", {
+        signal: controller.signal,
+        prepare: async (name) => {
+          prepared.push(name);
+          return prepare(name);
+        },
+        onPage: (done) => {
+          if (done === 1) controller.abort();
+        },
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(prepared).toEqual(["a"]);
+  });
+
+  it("a Cancel after the last page: the PDF is not saved at all", async () => {
+    const controller = new AbortController();
+    const added: number[] = [];
+    let saving = 0;
+    await expect(
+      scansToPdf(photos, "a4", {
+        signal: controller.signal,
+        prepare,
+        onPage: (done) => {
+          added.push(done);
+          if (done === 3) controller.abort();
+        },
+        onSave: () => (saving += 1),
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(added).toEqual([1, 2, 3]);
+    expect(saving).toBe(0);
+  });
+
+  it("control: untouched, it saves once and returns every page", async () => {
+    let saving = 0;
+    const { pages } = await scansToPdf(photos, "a4", {
+      signal: new AbortController().signal,
+      prepare,
+      onSave: () => (saving += 1),
+    });
+    expect(saving).toBe(1);
+    expect(pages).toHaveLength(3);
+  });
+});

@@ -19,9 +19,8 @@ import {
 } from "@/lib/pdf/scan-enhance";
 import {
   SCAN_PAGE_SIZES,
-  createScanWriter,
   scanOutputName,
-  yieldToEventLoop,
+  scansToPdf,
   type ScanPageSizeId,
   type ScanResult,
 } from "@/lib/pdf/scan-to-pdf";
@@ -188,13 +187,28 @@ export function ScanRunner() {
     reset();
   };
 
+  // Cancel unmounts with the run; the keyboard that pressed it goes back to
+  // Create PDF, not to the top of the page.
+  const runRowRef = useRef<HTMLDivElement>(null);
+  const refocusRef = useRef(false);
+  useEffect(() => {
+    if (busy || !refocusRef.current) return;
+    refocusRef.current = false;
+    const active = document.activeElement;
+    if (active === null || active === document.body)
+      runRowRef.current
+        ?.querySelector<HTMLButtonElement>("[data-run-trigger]")
+        ?.focus();
+  }, [busy]);
+
   /**
    * One page at a time, start to finish: decode the photo, clean it up,
-   * encode it into the PDF, let its pixels go, then the next photo — with a
-   * turn of the event loop between each step, so the page repaints, the
-   * progress line moves and Cancel is heard. (Perf sweep 2026-11-18, P1/P2:
-   * all 60 planes were held, ~260 MB, then encoded in ONE ~20 s task, with
-   * no way to stop it.)
+   * encode it into the PDF, let its pixels go, then the next photo, with a
+   * turn of the event loop between steps, so the page repaints, the
+   * progress line moves and Cancel is heard (`scansToPdf` with `prepare`,
+   * the loop its tests hold). Perf sweep 2026-11-18, P1/P2: all 60 planes
+   * were held, ~260 MB, then encoded in ONE ~20 s task, with no way to stop
+   * it.
    */
   const onRun = () => {
     abortRef.current?.abort();
@@ -202,36 +216,36 @@ export function ScanRunner() {
     abortRef.current = controller;
     const { signal } = controller;
     const photos = items;
+    const say = (line: string) => {
+      if (!signal.aborted) setProgress(line);
+    };
     void run(async () => {
       try {
-        const writer = await createScanWriter(pageSize);
-        for (const [index, item] of photos.entries()) {
-          signal.throwIfAborted();
-          setProgress(`Preparing page ${index + 1} of ${photos.length}…`);
-          const input = await preparePhotoPage(
-            item.file,
-            item.turns,
-            enhancement,
-          );
-          await yieldToEventLoop();
-          signal.throwIfAborted();
-          await writer.addPage(input);
-          await yieldToEventLoop();
-        }
-        signal.throwIfAborted();
-        setProgress("Saving the PDF…");
-        return await writer.save();
+        return await scansToPdf(photos, pageSize, {
+          signal,
+          prepare: (item) =>
+            preparePhotoPage(item.file, item.turns, enhancement),
+          onPrepare: (page, total) =>
+            say(`Preparing page ${page} of ${total}…`),
+          onSave: () => say("Saving the PDF…"),
+        });
       } catch (err) {
-        // Stopped: whatever the step in hand did, nothing is shown.
-        if (signal.aborted) return null;
-        throw err;
+        if (!signal.aborted) throw err;
+        // Stopped with Cancel: whatever the step in hand did, nothing is
+        // shown, and the stopped run reports no "done" to the masthead or
+        // a hidden tab's title (the reset ends its activity as cancelled).
+        if (abortRef.current === controller) reset();
+        return null;
       } finally {
         if (abortRef.current === controller) setProgress(null);
       }
     });
   };
 
-  const onCancel = () => abortRef.current?.abort();
+  const onCancel = () => {
+    refocusRef.current = true;
+    abortRef.current?.abort();
+  };
 
   if (handoff.status === "loading") return <HandoffLoading />;
 
@@ -377,7 +391,7 @@ export function ScanRunner() {
       )}
 
       <RunBar>
-        <div className="flex justify-end gap-3">
+        <div ref={runRowRef} className="flex justify-end gap-3">
           {items.length > 0 && (
             // Held while Create PDF runs, like every other input here: the
             // run has already read the photos (useAsyncRun also drops a

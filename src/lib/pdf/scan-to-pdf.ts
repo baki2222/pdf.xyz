@@ -263,39 +263,86 @@ export async function createScanWriter(
  * PerformanceObserver), so a page built on it would hide its own blocking
  * from every long-task instrument, ours and a visitor's browser's alike.
  */
-export function yieldToEventLoop(): Promise<void> {
+function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 export interface ScanBuildOptions {
-  /** Checked between pages; an aborted run rejects with an AbortError. */
+  /**
+   * Checked before and after every step — preparing a photo, adding its
+   * page, saving the PDF; an aborted run rejects with an AbortError, even
+   * when the step in hand finished (a finished save is not a result).
+   */
   signal?: AbortSignal;
+  /** Called before each photo is prepared: the 1-based page, and how many. */
+  onPrepare?: (page: number, total: number) => void;
   /** Called after each page is made, with how many are done so far. */
   onPage?: (done: number, total: number) => void;
+  /** Called once every page is in, as the PDF is saved. */
+  onSave?: () => void;
 }
 
 /**
- * Build one PDF, one page per photo, in the order given — one page per task:
- * the event loop gets a turn after every page (perf sweep 2026-11-18, P1: the
- * 60-page loop was ONE task of ~20 s).
+ * Build one PDF, one page per photo, in the order given — the loop Scan to
+ * PDF's page runs. With `prepare`, each item (a photo file, in the browser)
+ * is turned into its page input only when its turn comes, and its page is
+ * encoded before the next is prepared: one decoded photo in memory at a
+ * time (all 60 planes of a 60-photo scan, ~260 MB, were held until the end —
+ * perf sweep 2026-11-18).
+ *
+ * The event loop gets a TASK between preparing a page and encoding it, and
+ * another after each page (perf sweep 2026-11-18, P1: the 60-page loop was
+ * ONE task of ~20 s). In Chromium the photo's decode in `prepare` already
+ * ends a task, so on the page the first turn is not what keeps it
+ * responsive (review 2026-11-18: with both removed the responsiveness spec
+ * still passed); they make the bound hold whatever `prepare` awaits —
+ * `scan-to-pdf-yield.test.ts` pins both, on this loop.
  */
-export async function scansToPdf(
+export function scansToPdf<T>(
+  items: readonly T[],
+  pageSize: ScanPageSizeId,
+  options: ScanBuildOptions & { prepare: (item: T) => Promise<ScanPageInput> },
+): Promise<ScanResult>;
+// Last, so `Parameters<typeof scansToPdf>` reads the plain form.
+export function scansToPdf(
   inputs: readonly ScanPageInput[],
   pageSize: ScanPageSizeId,
-  { signal, onPage }: ScanBuildOptions = {},
+  options?: ScanBuildOptions,
+): Promise<ScanResult>;
+export async function scansToPdf<T>(
+  items: readonly T[],
+  pageSize: ScanPageSizeId,
+  {
+    signal,
+    onPrepare,
+    onPage,
+    onSave,
+    prepare,
+  }: ScanBuildOptions & {
+    prepare?: (item: T) => Promise<ScanPageInput>;
+  } = {},
 ): Promise<ScanResult> {
-  if (inputs.length === 0) {
+  if (items.length === 0) {
     throw new PdfEngineError("Add at least one photo first.");
   }
   const writer = await createScanWriter(pageSize);
-  for (const [index, input] of inputs.entries()) {
+  for (const [index, item] of items.entries()) {
+    signal?.throwIfAborted();
+    onPrepare?.(index + 1, items.length);
+    const input = prepare
+      ? await prepare(item)
+      : (item as unknown as ScanPageInput);
+    if (prepare) await yieldToEventLoop();
     signal?.throwIfAborted();
     await writer.addPage(input);
-    onPage?.(index + 1, inputs.length);
+    onPage?.(index + 1, items.length);
     await yieldToEventLoop();
   }
   signal?.throwIfAborted();
-  return writer.save();
+  onSave?.();
+  const result = await writer.save();
+  signal?.throwIfAborted();
+  return result;
 }
 
 /** "scan-2026-10-30.pdf", from the day the scan was made. */
