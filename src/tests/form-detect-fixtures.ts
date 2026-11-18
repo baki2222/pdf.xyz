@@ -2899,6 +2899,51 @@ export const DETECT_CASES: readonly DetectCase[] = [
       box: squareBox(P46.boxX, P46.y(i) - 1, 9),
     })),
   },
+  {
+    id: "P47",
+    kind: "positive",
+    note: 'a declaration in 10 pt: "Signature of applicant" under its line with two 7 pt hints under it, a "Date:" line beside: the date proposed, the signature counted',
+    // Review round 5 fixes, finding 4: the caption over two hint lines
+    // was read as a heading, and the signature line went uncounted.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await text(
+        page,
+        H,
+        "I declare that the information I have given on this form is true and complete",
+        72,
+        700,
+        10,
+      );
+      await text(
+        page,
+        H,
+        "to the best of my knowledge, and that a false statement may be refused.",
+        72,
+        687,
+        10,
+      );
+      rule(page, 72, 300, 612, 0.75);
+      await text(page, H, "Signature of applicant", 72, 600, 10);
+      await text(page, H, "(must match your photo ID)", 72, 590, 7);
+      await text(page, H, "(sign in black ink only)", 72, 581, 7);
+      await text(page, H, "Date:", 340, 612, 10);
+      rule(page, 372, 540, 612, 0.75);
+      return save(d);
+    },
+    expect: [
+      {
+        rule: "labelled-rule",
+        type: "text",
+        label: "Date",
+        page: 1,
+        box: ruleBox(372, 540, 612, 10),
+      },
+    ],
+    decidedBy: "signature",
+    at: { page: 1, x: 180, y: 618 },
+  },
 
   // ---------------------------------------------------------- outcomes
   {

@@ -1184,7 +1184,10 @@ function labelColumns(
  * that rule's caption, a field on plain prose (review round 3, finding 6;
  * corpus N36).
  */
-function headingTest(text: readonly CardText[]): (t: CardText) => boolean {
+function headingTest(
+  text: readonly CardText[],
+  prose: Prose | null,
+): (t: CardText) => boolean {
   const eps = DETECT.GRID_ROW_EPS;
   // Upright text by x (cells GRID_ROW_EPS wide, so text within eps of an x
   // is in its cell or a neighbour), each cell sorted by baseline. Scanning
@@ -1238,10 +1241,17 @@ function headingTest(text: readonly CardText[]): (t: CardText) => boolean {
   // `t` itself never passes: it is not smaller than itself. The body is
   // TWO lines: one smaller line under a caption is the caption's hint
   // ("(as shown on your passport)"), and read as a body it cost the line
-  // its caption (review round 4 fixes, finding 3; corpus P37).
+  // its caption (review round 4 fixes, finding 3; corpus P37). And the
+  // body is set in the page's body size: two hint lines smaller than it
+  // were read as one, and a signature line lost its caption (review round
+  // 5 fixes, finding 4; corpus P47).
   return (t) =>
-    anyUnder(t, t.size - DETECT.HEADING_SMALLER_BY, (u) =>
-      anyUnder(u, u.size, () => true),
+    anyUnder(
+      t,
+      t.size - DETECT.HEADING_SMALLER_BY,
+      (u) =>
+        (!prose || !smallerThanBody(u, prose)) &&
+        anyUnder(u, u.size, () => true),
     );
 }
 
@@ -1563,7 +1573,7 @@ function ruleCandidates(
   const column = labelColumns(p, lines, ix);
   const prose = proseOf(p);
   const quotes = pullQuotes(p, lines, prose);
-  const heading = headingTest(p.text);
+  const heading = headingTest(p.text, prose);
   for (const r of lines.rules) {
     const len = r.x1 - r.x0;
     if (len < DETECT.RULE_MIN_LEN) continue;

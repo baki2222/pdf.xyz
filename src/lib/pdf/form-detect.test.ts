@@ -1058,10 +1058,64 @@ describe("labelled-rule", () => {
       expect(label(txt("note", 72, 584, { size: 7, width: 15 }))).toBe(
         "Full name",
       );
-      // The positive control now: TWO smaller lines under it, a body.
+      // INVERTED in review round 5 fixes (finding 4). This read "the
+      // positive control now: TWO smaller lines under it, a body" and
+      // pinned the label undefined for two 7 pt lines under "Full name" on
+      // a 10 pt page: a caption with two hint lines under it lost its line
+      // (a signature line its signature count). Lines smaller than the
+      // page's body are hints, not a body; the caption stays.
       const two = captioned(txt("note", 72, 584, { size: 7, width: 15 }));
       two.text.push(txt("more", 72, 575, { size: 7, width: 15 }));
-      expect(props(two)[0]?.label).toBe(undefined);
+      expect(props(two)[0]?.label).toBe("Full name");
+      // The positive control now: a larger caption over two lines set in
+      // the page's body size is a heading.
+      const body = pg({
+        segs: [hseg(72, 538, 606)],
+        text: [
+          txt("Section A", 72, 594, { size: 12, width: 54 }),
+          txt("Tell us about yourself in your own words.", 72, 580, {
+            size: 10,
+            width: 190,
+          }),
+          txt("Use the space below for anything else.", 72, 567, {
+            size: 10,
+            width: 180,
+          }),
+        ],
+      });
+      expect(props(body)[0]?.label).toBe(undefined);
+    });
+
+    // Review round 5 fixes, finding 4: on a declaration page in 10 pt,
+    // "Signature of applicant" with two 7 pt hints under it was read as a
+    // heading over a body, so the line lost its caption and the signature
+    // went uncounted (one hint line, the control, kept it).
+    it("a signature caption over two hint lines smaller than the page's body is still a signature", () => {
+      const page = (hints: number) =>
+        pg({
+          segs: [hseg(72, 300, 612)],
+          text: [
+            txt(
+              "I declare that the information I have given on this form is true and complete.",
+              72,
+              700,
+              { size: 10, width: 400 },
+            ),
+            txt("Signature of applicant", 72, 600, { size: 10, width: 105 }),
+            txt("(must match your photo ID)", 72, 590, { size: 7, width: 85 }),
+            ...(hints === 2
+              ? [
+                  txt("(sign in black ink only)", 72, 581, {
+                    size: 7,
+                    width: 75,
+                  }),
+                ]
+              : []),
+          ],
+        });
+      expect(run(page(1)).counts.signatureLines).toBe(1);
+      expect(run(page(2)).counts.signatureLines).toBe(1);
+      expect(firstRule(page(2))).toBe("signature");
     });
 
     describe("a heading's body is two lines: one smaller line under a caption is its hint", () => {
