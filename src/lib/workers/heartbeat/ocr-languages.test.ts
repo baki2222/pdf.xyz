@@ -51,6 +51,7 @@ const BEAT: WorkerHeartbeat = {
     translatePageMap: true,
     translatePageRange: true,
     csvImportOptions: true,
+    ocrOwnerPassword: true,
   },
   at: 1_700_000_000_000,
 };

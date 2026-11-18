@@ -4,7 +4,7 @@
  *
  *  - the worker (`workers/chat-with-pdf/engine.ts`) counts it into
  *    manifest.answer.citedPages and the "Cited pages" line;
- *  - the chat panel (`components/tools/chat-answer.tsx`) turns the same
+ *  - the chat panel (`components/tools/citation-buttons.tsx`) turns the same
  *    markers into buttons that show the cited page.
  *
  * ONE grammar, so a button can never open a page the manifest does not list

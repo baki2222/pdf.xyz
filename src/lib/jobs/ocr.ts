@@ -21,6 +21,7 @@
 
 import { IMAGE_PAGE_SIZES } from "@/lib/pdf/image-page-layout";
 import { apiError, type ParseResult } from "./responses";
+import { parsePassword } from "./pdf-password";
 
 /**
  * A supported OCR recognition language (Tesseract / ISO 639-2/T code).
@@ -277,6 +278,25 @@ export interface OcrOptions {
    *    passes no flag to Tesseract, whatever a job asks.
    */
   rotatePages: boolean;
+  /**
+   * The OWNER (permissions) password of a PDF that opens without a password
+   * but carries its author's restrictions (competitor-audit backlog #11,
+   * 2026-11-17). Absent unless the person typed one; never defaulted.
+   *
+   * With it, the worker checks that it IS the file's owner password, against
+   * the file's own encryption dictionary (`src/lib/workers/ocr-owner-password.ts`):
+   * a file that needs a password to open, a password that is not the owner's,
+   * or none, never has its restrictions lifted. Only then does qpdf decrypt
+   * the file, OCRmyPDF read it, and qpdf encrypt the searchable PDF again
+   * with the same restrictions, the same owner password, no open password
+   * and AES-256, which the worker reads back before it delivers anything.
+   *
+   * A password, so it is SEALED before the queue broker sees it (it is
+   * parsed by `parsePassword`, which `sealed-options.chain.test.ts` reads to
+   * derive the sealed fields), and never copied into a result, a log line
+   * or an error message.
+   */
+  ownerPassword?: string;
 }
 
 /**
@@ -484,9 +504,29 @@ export function parseOcrOptions(
     rotatePages = rawRotate;
   }
 
+  // ── ownerPassword ── optional; when present, the password rule every
+  // password-carrying job shares. Never echoed in a message.
+  let ownerPassword: string | undefined;
+  if (options.ownerPassword !== undefined) {
+    const owner = parsePassword(
+      options.ownerPassword,
+      "options.ownerPassword",
+      "Owner password",
+    );
+    if (!owner.ok) return owner;
+    ownerPassword = owner.value;
+  }
+
   return {
     ok: true,
-    value: { languages, outputMode: rawMode, redoOcr, deskew, rotatePages },
+    value: {
+      languages,
+      outputMode: rawMode,
+      redoOcr,
+      deskew,
+      rotatePages,
+      ...(ownerPassword !== undefined ? { ownerPassword } : {}),
+    },
   };
 }
 

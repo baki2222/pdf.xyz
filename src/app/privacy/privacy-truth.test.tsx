@@ -519,6 +519,12 @@ const ASKED_FOR: Record<
       "ExtractOptions.schema[].description": /field/i,
     },
   },
+  // OCR PDF's owner password for a restricted PDF (2026-11-17,
+  // competitor-audit backlog #11): the password paragraph names it.
+  OcrOptions: {
+    tools: ["ocr-pdf"],
+    nouns: { "OcrOptions.ownerPassword": /owner password/i },
+  },
   ProtectPdfOptions: {
     tools: ["protect-pdf"],
     nouns: {

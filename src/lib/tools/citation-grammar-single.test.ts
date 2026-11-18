@@ -64,7 +64,7 @@ describe("the citation grammar is defined once", () => {
     expect(files.size).toBeGreaterThanOrEqual(500);
     expect(files.has(HOME)).toBe(true);
     expect(files.has("src/lib/workers/chat-with-pdf/engine.ts")).toBe(true);
-    expect(files.has("src/components/tools/chat-answer.tsx")).toBe(true);
+    expect(files.has("src/components/tools/citation-buttons.tsx")).toBe(true);
   });
 
   it("exactly one file defines the bracket regex, and it is chat-citations.ts", () => {
@@ -74,7 +74,7 @@ describe("the citation grammar is defined once", () => {
   it("both readers import it rather than parsing for themselves", () => {
     for (const reader of [
       "src/lib/workers/chat-with-pdf/engine.ts",
-      "src/components/tools/chat-answer.tsx",
+      "src/components/tools/citation-buttons.tsx",
     ])
       expect(files.get(reader), reader).toMatch(
         /from "@\/lib\/jobs\/chat-citations"/,

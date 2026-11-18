@@ -212,10 +212,10 @@ describe("the shared pdftotext extractor stays shared, and Translate is not on i
     ).toBeGreaterThan(50);
     const engines = files.filter((f) => f.startsWith("src/lib/workers/"));
     expect(engines.length, JSON.stringify(files)).toBeGreaterThanOrEqual(4);
-    expect(files.length, JSON.stringify(files)).toBeGreaterThanOrEqual(11);
+    expect(files.length, JSON.stringify(files)).toBeGreaterThanOrEqual(12);
   });
 
-  it("the call sites are exactly eleven: the ten consumers and Translate's proof control, and not translate/native.ts", () => {
+  it("the call sites are exactly twelve: the eleven consumers and Translate's proof control, and not translate/native.ts", () => {
     expect(files).not.toContain("src/lib/workers/translate/native.ts");
     expect(files).toEqual(
       [
@@ -225,6 +225,9 @@ describe("the shared pdftotext extractor stays shared, and Translate is not on i
         // Consumers.
         "scripts/worker-ocr-deskew-proof.ts",
         "scripts/worker-ocr-languages-proof.ts",
+        // OCR PDF's owner-password proof (2026-11-17, backlog #11): reads the
+        // decrypted searchable PDF's text like the other OCR proofs.
+        "scripts/worker-ocr-owner-proof.ts",
         "scripts/worker-ocr-redo-proof.ts",
         "scripts/worker-ocr-rotate-proof.ts",
         "src/lib/workers/ai-extract/native.ts",
