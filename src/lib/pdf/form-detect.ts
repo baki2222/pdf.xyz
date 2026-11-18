@@ -776,18 +776,44 @@ function readLines(p: CardPage): PageLines {
   // Merge collinear pieces.
   raw.sort((a, b) => a.y - b.y || a.x0 - b.x0);
   const rules: Line[] = [];
+  // Merged rules keep their first piece's y, so those with a finite y are
+  // in y order: the first that a piece joins is found from a binary search
+  // of the window it can join in, not by scanning every rule (a stack of
+  // 20,000 lines was quadratic; review round 4 fixes, finding 18). A rule
+  // with a y that is not finite joins nothing, as before. Should the sort
+  // have left them out of order, every rule is scanned as before.
+  const finite: Line[] = [];
+  let ordered = true;
+  const joins = (m: Line, l: Line) =>
+    Math.abs(m.y - l.y) <= DETECT.RULE_MAX_DY &&
+    l.x0 <= m.x1 + DETECT.RULE_MERGE_GAP &&
+    l.x1 >= m.x0 - DETECT.RULE_MERGE_GAP;
   for (const l of raw) {
-    const hit = rules.find(
-      (m) =>
-        Math.abs(m.y - l.y) <= DETECT.RULE_MAX_DY &&
-        l.x0 <= m.x1 + DETECT.RULE_MERGE_GAP &&
-        l.x1 >= m.x0 - DETECT.RULE_MERGE_GAP,
-    );
+    let hit: Line | undefined;
+    if (!ordered) hit = rules.find((m) => joins(m, l));
+    else if (Number.isFinite(l.y))
+      for (
+        let i = from(finite, (m) => m.y, l.y - DETECT.RULE_MAX_DY - 1);
+        i < finite.length && finite[i]!.y <= l.y + DETECT.RULE_MAX_DY + 1;
+        i++
+      )
+        if (joins(finite[i]!, l)) {
+          hit = finite[i]!;
+          break;
+        }
     if (hit) {
       hit.x0 = Math.min(hit.x0, l.x0);
       hit.x1 = Math.max(hit.x1, l.x1);
       if (l.boxTop) hit.boxTop = true;
-    } else rules.push({ ...l });
+    } else {
+      const m = { ...l };
+      rules.push(m);
+      if (Number.isFinite(m.y)) {
+        const last = finite[finite.length - 1];
+        if (last && m.y < last.y) ordered = false;
+        finite.push(m);
+      }
+    }
   }
   return { rules, verticals, squares };
 }
