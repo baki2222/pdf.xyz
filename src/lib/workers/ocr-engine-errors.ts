@@ -41,8 +41,31 @@ export const OCR_REFUSAL_KINDS = [
   "prior-text",
   "signed",
   "unreadable",
+  "wrong-owner-password",
+  "restrictions-not-kept",
 ] as const;
 export type OcrRefusalKind = (typeof OCR_REFUSAL_KINDS)[number];
+
+/**
+ * The refusals the runner decides BEFORE OCRmyPDF starts, from the upload
+ * itself: no exit status ever produces them, so {@link classifyOcrmypdfFailure}
+ * never returns one (`ocr-engine-errors.test.ts` holds both halves).
+ */
+export const OCR_PRECHECK_REFUSAL_KINDS = [
+  "wrong-owner-password",
+] as const satisfies readonly OcrRefusalKind[];
+
+/**
+ * The refusals the runner decides AFTER OCRmyPDF succeeded, from what it
+ * made (review finding, 2026-11-18): no exit status produces them either.
+ * Until then a searchable copy that qpdf could not restrict like the upload
+ * was a plain `Error`, so a retryable `internal_error`, and the whole OCR
+ * run was repeated up to the attempt cap to fail the same way: the same
+ * bytes and the same qpdf write the same copy.
+ */
+export const OCR_AFTER_RUN_REFUSAL_KINDS = [
+  "restrictions-not-kept",
+] as const satisfies readonly OcrRefusalKind[];
 
 /**
  * The fixed, content-free copy for each refusal. Typed as a total record over
@@ -51,8 +74,16 @@ export type OcrRefusalKind = (typeof OCR_REFUSAL_KINDS)[number];
 export const OCR_REFUSAL_MESSAGES: Record<OcrRefusalKind, string> = {
   encrypted:
     "This PDF is password-protected, so OCR can't read it. Remove the password with Unlock PDF, then run OCR again. Nothing was processed.",
+  // CHANGED 2026-11-17 (competitor-audit backlog #11): it said "OCR can't
+  // add a text layer to an encrypted file without removing them. Unlock PDF
+  // removes them with the owner (permissions) password that set them; then
+  // run OCR again." A worker that proves `ocrOwnerPassword` now runs OCR
+  // with that password and keeps the restrictions, so this is said by both
+  // kinds of worker: it reaches a person whose job carried no owner
+  // password (the page shows the field only while the live worker proves
+  // it), or whose worker could not use one. True of each.
   restricted:
-    "This PDF opens without a password, but its author encrypted it with restrictions, and OCR can't add a text layer to an encrypted file without removing them. Unlock PDF removes them with the owner (permissions) password that set them; then run OCR again. Nothing was processed.",
+    "This PDF opens without a password, but its author locked it with restrictions, and OCR can't add a text layer to a locked file. Remove them with Unlock PDF and the owner (permissions) password that set them, then run OCR again — or, when this page shows an Owner password field for the file, type that password there and OCR keeps the restrictions on the result, except that screen readers are always allowed to read it. Nothing was processed.",
   // CHANGED 2026-11-08: "… to replace a poor text layer." Redo then replaced
   // only the layers OCRmyPDF detects, not its own. Since the worker's
   // pre-pass it replaces every measured shape (REDO_OCR_LAYER_OUTCOMES); this line
@@ -63,6 +94,17 @@ export const OCR_REFUSAL_MESSAGES: Record<OcrRefusalKind, string> = {
     "This PDF is digitally signed. Adding a text layer would invalidate the signature, so OCR was not run. Nothing was processed.",
   unreadable:
     "This file could not be read as a PDF — it may be damaged. Try Repair PDF, then run OCR again. Nothing was processed.",
+  // Added 2026-11-17 (backlog #11): the typed owner password did not
+  // authenticate as the file's OWNER password against its own encryption
+  // dictionary (`./ocr-owner-password`), so nothing was decrypted.
+  "wrong-owner-password":
+    "That password is not this PDF's owner password, so OCR was not run. Check it and try again. Nothing was processed.",
+  // Added 2026-11-18 (review finding): OCR ran, but the searchable copy
+  // could not be restricted like the upload (qpdf could not write it, or
+  // the read-back found it restricted differently), so it was withheld.
+  // OCR DID run, so this one says nothing was delivered, not processed.
+  "restrictions-not-kept":
+    "We could not keep this PDF's restrictions on the searchable copy, so it was not delivered. Remove them with Unlock PDF and the owner (permissions) password that set them, then run OCR again. Nothing was delivered.",
 };
 
 /**

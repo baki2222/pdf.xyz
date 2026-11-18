@@ -499,6 +499,37 @@ export async function runningWorkerReadsCsvImportOptions(
   );
 }
 
+/**
+ * May OCR PDF run on a restricted PDF with the owner password a person typed
+ * (competitor-audit backlog #11)? ONE pure predicate, read by the page's
+ * offer (`GET /api/worker/status`, which shows the Owner password field)
+ * and by the admission gate (`POST /api/jobs` for an OCR job carrying
+ * `ownerPassword`), so the two cannot drift apart.
+ *
+ * The property is "the running image verifies the owner password and keeps
+ * the author's restrictions on the result", not "the code is merged": an
+ * image built before the feature drops the field without a word and refuses
+ * the file as restricted. Only a fresh, observed heartbeat carrying
+ * `ocrOwnerPassword: true` (proven at the daemon's start-up,
+ * `ocr-owner-capability.ts`) says so; a stale, absent or unreachable beat,
+ * or an older image's record (no key, parsed as false), says no.
+ */
+export function liveWorkerOcrsWithOwnerPassword(
+  liveness: HeartbeatLiveness,
+): boolean {
+  return liveness.observed && liveness.capabilities?.ocrOwnerPassword === true;
+}
+
+/** The admission gate's question, read from the broker. See {@link liveWorkerOcrsWithOwnerPassword}. */
+export async function runningWorkerOcrsWithOwnerPassword(
+  env: EnvSource = process.env,
+  deps: HeartbeatRedisDeps = {},
+): Promise<boolean> {
+  return liveWorkerOcrsWithOwnerPassword(
+    await readWorkerHeartbeatLiveness(env, deps),
+  );
+}
+
 /** The admission gates' question, read from the broker. See {@link liveWorkerRendersHtmlZip}. */
 export async function runningWorkerRendersHtmlZip(
   env: EnvSource = process.env,

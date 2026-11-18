@@ -36,6 +36,7 @@ import {
   type AiProvider,
   validateCompletionRequest,
 } from "./provider";
+import { toStrictJsonSchema } from "./structured-output";
 
 /** The default OpenAI API origin; overridable for a proxy / self-host / gateway. */
 export const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com";
@@ -58,7 +59,8 @@ export interface OpenAiProviderDeps {
 }
 
 interface OpenAiChoice {
-  message?: { content?: unknown };
+  /** `refusal` is set (and `content` null) when a constrained reply is declined. */
+  message?: { content?: unknown; refusal?: unknown };
   finish_reason?: unknown;
 }
 interface OpenAiResponseBody {
@@ -94,6 +96,20 @@ export function isUnsupportedTemperatureError(rawBody: string): boolean {
       rawBody,
     ) && /temperature/i.test(rawBody)
   );
+}
+
+/**
+ * Does this 400 body say the model rejected the structured-output parameter
+ * (`response_format` / its `json_schema`)? An unsupported model, or a schema
+ * the model's own validator will not take, answers with an
+ * `invalid_request_error` naming the parameter. Like the temperature case, the
+ * adapter then retries ONCE without it — the request the tool sent before
+ * structured output existed — rather than failing a job a prompt-only request
+ * would have served. A 400 costs nothing, so the retry spends nothing extra.
+ * Narrow on purpose: the body must name the parameter.
+ */
+export function isOpenAiStructuredOutputRejection(rawBody: string): boolean {
+  return /response_format|json_schema/i.test(rawBody);
 }
 
 /**
@@ -149,6 +165,13 @@ export function extractText(body: OpenAiResponseBody): string {
   return typeof content === "string" ? content.trim() : "";
 }
 
+/** True when the first choice carries a non-empty refusal instead of an answer. */
+function refused(body: OpenAiResponseBody): boolean {
+  if (!Array.isArray(body.choices)) return false;
+  const refusal = (body.choices as OpenAiChoice[])[0]?.message?.refusal;
+  return typeof refusal === "string" && refusal.trim().length > 0;
+}
+
 /** The first choice's finish reason, or `undefined` when absent/unusable. */
 function finishReason(body: OpenAiResponseBody): string | undefined {
   if (!Array.isArray(body.choices)) return undefined;
@@ -168,11 +191,16 @@ function coerceCount(value: unknown): number | undefined {
  * `max_completion_tokens` because the GPT-5 family removed `max_tokens`.
  * `temperature` is included only when the caller asked for one AND this attempt is
  * allowed to send it — see {@link isUnsupportedTemperatureError}.
+ * `response_format` is included only when the request carries a `jsonSchema`
+ * AND this attempt is allowed to send it — see
+ * {@link isOpenAiStructuredOutputRejection}. Without a `jsonSchema` the body
+ * is exactly what it was before structured output existed.
  */
 export function buildChatCompletionsBody(
   model: string,
   request: AiCompletionRequest,
   withTemperature: boolean,
+  withSchema = true,
 ): Record<string, unknown> {
   const messages: { role: string; content: string }[] = [];
   if (request.system !== undefined) {
@@ -189,6 +217,19 @@ export function buildChatCompletionsBody(
   };
   if (withTemperature && request.temperature !== undefined) {
     body.temperature = request.temperature;
+  }
+  if (withSchema && request.jsonSchema !== undefined) {
+    // `strict: true` is what makes the schema a constraint rather than a
+    // hint; it requires the strict form (closed objects, every property
+    // required, optional ones nullable), which `toStrictJsonSchema` builds.
+    body.response_format = {
+      type: "json_schema",
+      json_schema: {
+        name: request.jsonSchema.name,
+        schema: toStrictJsonSchema(request.jsonSchema.schema),
+        strict: true,
+      },
+    };
   }
   return body;
 }
@@ -256,15 +297,20 @@ export function createOpenAiProvider(
       }
 
       /**
-       * One attempt. Returns a completed {@link AiCompletionResult}, or the sentinel
-       * `"retry_without_temperature"` for the single, narrowly-matched compatibility
-       * case. Each attempt gets its own deadline: the retry is a fresh request, so
-       * charging it the remainder of the first attempt's budget would make an
-       * otherwise-fine call fail on a slow first response.
+       * One attempt. Returns a completed {@link AiCompletionResult}, or a sentinel
+       * for one of the two narrowly-matched compatibility cases. Each attempt gets
+       * its own deadline: the retry is a fresh request, so charging it the
+       * remainder of the first attempt's budget would make an otherwise-fine call
+       * fail on a slow first response.
        */
       const attempt = async (
         withTemperature: boolean,
-      ): Promise<AiCompletionResult | "retry_without_temperature"> => {
+        withSchema: boolean,
+      ): Promise<
+        | AiCompletionResult
+        | "retry_without_temperature"
+        | "retry_without_schema"
+      > => {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), config.timeoutMs);
 
@@ -277,7 +323,12 @@ export function createOpenAiProvider(
               authorization: `Bearer ${config.apiKey}`,
             },
             body: JSON.stringify(
-              buildChatCompletionsBody(config.model, request, withTemperature),
+              buildChatCompletionsBody(
+                config.model,
+                request,
+                withTemperature,
+                withSchema,
+              ),
             ),
             signal: controller.signal,
           });
@@ -327,6 +378,13 @@ export function createOpenAiProvider(
           ) {
             return "retry_without_temperature";
           }
+          if (
+            withSchema &&
+            response.status === 400 &&
+            isOpenAiStructuredOutputRejection(rawBody)
+          ) {
+            return "retry_without_schema";
+          }
           return classifyClientError(response.status, rawBody);
         }
 
@@ -351,8 +409,12 @@ export function createOpenAiProvider(
         // in CLAUDE.md rule 3: when the type is fine, the order does the work.
         const parsedUsage = usageFrom(body);
 
+        // Constrained mode reports a declined request as `message.refusal`
+        // with no content. It is a refusal, not an unusable body: replaying it
+        // would pay for the same refusal again.
+        const constrained = withSchema && request.jsonSchema !== undefined;
         const reason = finishReason(body);
-        if (reason === "content_filter") {
+        if (reason === "content_filter" || (constrained && refused(body))) {
           return aiFailure(
             "content_filtered",
             "The AI model declined to answer this request.",
@@ -389,22 +451,28 @@ export function createOpenAiProvider(
           text,
           model: config.model,
           ...(usage ? { usage } : {}),
+          ...(constrained ? { jsonSchemaApplied: true as const } : {}),
         };
       };
 
-      const first = await attempt(request.temperature !== undefined);
-      if (first !== "retry_without_temperature") return first;
-
-      // Exactly one compatibility retry, and only for the narrowly-matched
-      // "this model does not take temperature" 400. `attempt(false)` can never
-      // return the sentinel again, so this cannot loop.
-      const second = await attempt(false);
-      return second === "retry_without_temperature"
-        ? aiFailure(
-            "rejected",
-            "The AI provider rejected the request. An operator must check the AI configuration.",
-          )
-        : second;
+      // At most one compatibility retry PER PARAMETER, each only for its own
+      // narrowly-matched 400. A flag only ever turns off, and a sentinel is
+      // returned only while its flag is on, so this runs at most three
+      // attempts and cannot loop.
+      let withTemperature = request.temperature !== undefined;
+      let withSchema = request.jsonSchema !== undefined;
+      for (;;) {
+        const result = await attempt(withTemperature, withSchema);
+        if (result === "retry_without_temperature") {
+          withTemperature = false;
+          continue;
+        }
+        if (result === "retry_without_schema") {
+          withSchema = false;
+          continue;
+        }
+        return result;
+      }
     },
   };
 }

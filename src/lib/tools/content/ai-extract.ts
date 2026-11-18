@@ -10,6 +10,7 @@ import {
   MAX_FIELD_NAME_CHARS,
   extractionOutputName,
 } from "@/lib/jobs/ai-extract";
+import { MAX_SAVED_SCHEMAS } from "@/lib/jobs/ai-extract-schemas";
 import {
   AI_ALLOWANCE_CLAUSE,
   AI_ALLOWANCE_POOL,
@@ -56,6 +57,18 @@ import {
  *    same `duplicateFieldNames` rule, shows `duplicateFieldMessage` under the
  *    repeated row and keeps Extract data inactive; the route parses the options
  *    before charging, and the worker's processor checks again.
+ *  - src/components/tools/ai-extract-schemas.tsx (a lazy chunk the panel
+ *    fetches when "Saved schemas" is opened) + src/lib/jobs/ai-extract-
+ *    schemas.ts — since 2026-11-17 (competitor audit #16) a field list can be
+ *    saved under a "Schema name" with "Save schema" (localStorage only, at
+ *    most MAX_SAVED_SCHEMAS, a same-named one replaced), put back with
+ *    "Load", removed with "Delete", "Undo" restoring the last delete or
+ *    replace, and moved as a file with "Export JSON" / "Import JSON". Every
+ *    saved or imported schema passes `parseExtractOptions`, the job's own
+ *    check; a refused file changes nothing. Held by
+ *    components/tools/ai-extract-schemas.test.tsx (to the wire) and
+ *    lib/tools/ai-extract-schemas-claims.test.ts. Until then the list started
+ *    empty on every visit, which the steps did not say.
  *  - src/lib/workers/ai-extract/engine.ts — selectable text only (a text-less
  *    PDF is refused as `no_text`, pointing at OCR PDF); the system prompt TELLS
  *    the model to use the names verbatim as keys and to answer null when a value
@@ -79,6 +92,14 @@ import {
  *    non-JSON reply is `internal_error`, retryable, and the executor REQUEUES a
  *    retryable failure while attempts remain; only the last attempt's failure
  *    reaches the page (job.error.message, "Retrying may succeed.").
+ *    EXCEPT (2026-11-17): a schema-mode reply produced under structured output
+ *    (engine `extractionSchemaFor`, `jsonSchemaApplied`) that is still not a
+ *    usable object fails once, not retried (STRICT_REPLY_UNUSABLE). So the
+ *    FAQ says the job "may go back" and that the message "says whether trying
+ *    again could help": true of both arms and of a worker image from before
+ *    or after the change, so nothing waits on a capability key (the web tier
+ *    does not know which worker runs a job). Pinned to both arms in
+ *    src/lib/workers/ai-extract/strict-json.test.ts.
  *  - src/lib/workers/ai/truncation.ts — userTruncationNotice names "pages 1–N"
  *    only when a whole page was read and the page table indexes the text;
  *    otherwise it says "the first part of this N-page document".
@@ -186,6 +207,10 @@ const content: ToolContent = {
       body: `Field schema is selected at first. Under Fields to extract, type a name of up to ${MAX_FIELD_NAME_CHARS} characters, set its type in the drop-down, and optionally type a hint of up to ${MAX_HINT_CHARS} characters in the box under it, such as "the grand total including VAT, not the subtotal": the model reads the hint beside the name, and your JSON key stays the name. Use Add field for more rows, up to ${MAX_EXTRACTION_FIELDS}. The bin icon deletes a row, except the last one left. Rows left blank are skipped. Two fields cannot share a name, even if only their capital letters differ: the page flags the repeat under the row and keeps Extract data inactive until you rename it. Choose Prompt to type into the What to extract box instead.`,
     },
     {
+      title: "Save the fields to use again (optional)",
+      body: `Open Saved schemas under the fields, type a Schema name and press Save schema. The names, types and hints are kept in this browser's own storage, on this device, up to ${MAX_SAVED_SCHEMAS} schemas, and saving under a name already used replaces that schema. On a later visit, Load puts a saved schema back in the field list, Delete removes one, and Undo brings back the last one deleted or replaced. Export JSON downloads the field list as a file, which Import JSON opens in any browser after checking every field the way a job checks it; a file that fails is refused whole, and nothing changes. Pressing Extract data sends only the fields on screen. A private window or blocked site data turns saving off, but Export JSON and Import JSON still work.`,
+    },
+    {
       title: "Press Extract data",
       body: "The button stays inactive until a file is added and the selected mode has something to ask: at least one named field under Field schema, with no two names the same, or some text under Prompt. Once pressed, its label follows the job: Uploading your file… while the PDF uploads, Waiting for our server… while it is queued, Extracting… while the text goes to the AI provider and the reply is packaged, and Downloading the result… at the end.",
     },
@@ -218,7 +243,7 @@ const content: ToolContent = {
     },
     {
       q: "Why did my extraction fail, or come back null or wrong?",
-      a: `When the model's reply is not valid JSON, our server can put the job back in its queue for another attempt by itself. Once the attempts run out, the job fails with nothing to download and a message saying a retry may succeed. A wrong value comes from the model's reply or from the text it was given: an OCR layer with misread characters, or side-by-side columns read across as one line, can mislead it. Compare the value with the page, and when a page holds several similar figures, name the exact one you want in a prompt, or in the hint under a field. ${AI_EXTRACT_NULL_INSTRUCTION} ${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} A single-value field asked of a column of figures is where this happens most, since every row holds a candidate.`,
+      a: `When the model's reply is not valid JSON, the job may go back in its queue for another attempt by itself. If it still fails, there is nothing to download, and the message says whether trying again could help. A wrong value comes from the model's reply or from the text it was given: an OCR layer with misread characters, or side-by-side columns read across as one line, can mislead it. Compare the value with the page, and when a page holds several similar figures, name the exact one you want in a prompt, or in the hint under a field. ${AI_EXTRACT_NULL_INSTRUCTION} ${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} A single-value field asked of a column of figures is where this happens most, since every row holds a candidate.`,
     },
   ],
 

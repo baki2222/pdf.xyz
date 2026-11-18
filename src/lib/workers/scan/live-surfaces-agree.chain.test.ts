@@ -251,6 +251,7 @@ function heartbeat(malwareScan: boolean): WorkerHeartbeat {
       translatePageMap: true,
       translatePageRange: true,
       csvImportOptions: true,
+      ocrOwnerPassword: true,
     },
     at: Date.now(),
   });

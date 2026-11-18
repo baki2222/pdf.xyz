@@ -30,7 +30,7 @@ import type { WorkerStatus } from "@/lib/workers/status";
 import { getProviderReadiness } from "@/lib/workers/providers";
 import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
-import { parseExtractOptions } from "@/lib/jobs/ai-extract";
+import { parseExtractOptions } from "@/lib/jobs/ai-extract-options";
 import { resetTelemetry } from "@/lib/telemetry/track";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { extractPdfText } from "@/lib/pdf/text";

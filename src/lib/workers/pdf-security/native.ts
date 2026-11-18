@@ -39,6 +39,7 @@ import {
   PDF_PERMISSION_KEYS,
   type PdfPermissionKey,
 } from "@/lib/jobs/pdf-permissions";
+import type { QpdfGrant } from "./permission-bits";
 import {
   QPDF_EXIT_ERROR,
   QPDF_EXIT_WARNINGS,
@@ -65,6 +66,20 @@ import {
 
 /** stdout/stderr capture ceiling. qpdf writes results to a file, so this is generous. */
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
+
+/**
+ * qpdf ran and exited with a status that says it wrote no output, for an
+ * owner-only encryption (OCR PDF's searchable copy of a restricted file).
+ * Typed so its caller can tell it from a spawn error or a timeout, which may
+ * be transient: the same bytes and the same qpdf fail the same way again
+ * (review finding, 2026-11-18).
+ */
+export class QpdfEncryptFailed extends Error {
+  constructor() {
+    super("qpdf encryption failed.");
+    this.name = "QpdfEncryptFailed";
+  }
+}
 
 /** The structured outcome of one qpdf invocation. Never carries a password. */
 export interface QpdfExecResult {
@@ -254,6 +269,61 @@ const QPDF_RESTRICTION_FLAG: Record<PdfPermissionKey, string | null> = {
   assemble: "--assemble=n",
 };
 
+/**
+ * What OCR PDF encrypts its searchable copy of a restricted PDF with
+ * (competitor-audit backlog #11): the owner password the person typed —
+ * verified as the original's owner password before anything was decrypted
+ * (`../ocr-owner-password`) — and the original author's grant.
+ */
+export interface QpdfOwnerOnlyInput {
+  ownerPassword: string;
+  grant: QpdfGrant;
+}
+
+const yn = (allowed: boolean): "y" | "n" => (allowed ? "y" : "n");
+
+/**
+ * Build the qpdf argument vector that encrypts a PDF with an owner password,
+ * NO open password, AES-256 (R6), and every restriction switch stated
+ * explicitly from `grant` — so the copy is restricted exactly as the grant
+ * says, whatever qpdf's defaults are. The operands are POSITIONAL (user
+ * password, owner password, key length), the same form `protectArgs` ships:
+ * the user password is the empty string, which the at-file carries as an
+ * empty line. 2026-11-18: the first version used the named
+ * `--owner-password=` / `--bits=` options, and the production image's qpdf
+ * (11.3.0) refuses them ("unrecognized argument … encryption options must
+ * be terminated with --"), so every restricted-PDF OCR job was refused. The
+ * fake qpdf in the unit tests accepted them; `pnpm worker:ocr-owner-proof`
+ * in the image (container.yml) is what found it. The OCR runner reads the
+ * output back (opens with no password, the typed one is its owner
+ * password, the grant matches) before it delivers anything.
+ *
+ * `--accessibility` is not written: qpdf ignores it for AES-256, and PDF
+ * 2.0 (whose AES-256 this is) deprecates the bit and has writers set it.
+ */
+export function ownerOnlyEncryptArgs(
+  inputPath: string,
+  outputPath: string,
+  opts: QpdfOwnerOnlyInput,
+): string[] {
+  const g = opts.grant;
+  return [
+    "--encrypt",
+    "",
+    opts.ownerPassword,
+    "256",
+    `--print=${g.print}`,
+    `--modify-other=${yn(g.modify)}`,
+    `--extract=${yn(g.copy)}`,
+    `--annotate=${yn(g.annotate)}`,
+    `--form=${yn(g.fillForms)}`,
+    `--assemble=${yn(g.assemble)}`,
+    "--",
+    inputPath,
+    outputPath,
+  ];
+}
+
 /** Build the qpdf argument vector for decrypting a PDF with a password. */
 export function unlockArgs(
   inputPath: string,
@@ -316,10 +386,22 @@ export function requiresPasswordArgs(inputPath: string): string[] {
  * that carries a password is passed to qpdf through an at-file in that same temp
  * dir, never on the command line.
  */
+/**
+ * The native runner: the engine's {@link QpdfRunner}, plus the one write OCR
+ * PDF needs for a restricted file ({@link ownerOnlyEncryptArgs}).
+ */
+export interface NativeQpdfRunner extends QpdfRunner {
+  encryptOwnerOnly(
+    input: Uint8Array,
+    opts: QpdfOwnerOnlyInput,
+    run?: { signal?: AbortSignal },
+  ): Promise<Uint8Array>;
+}
+
 export function createNativeQpdfRunner(
   config: NativePdfSecurityConfig,
   seams: QpdfSeams = {},
-): QpdfRunner {
+): NativeQpdfRunner {
   const exec = seams.exec ?? defaultQpdfExec;
   const fs = seams.fs ?? defaultFs;
   const baseTmp = config.tmpDir ?? tmpdir();
@@ -474,6 +556,27 @@ export function createNativeQpdfRunner(
         // the new password to open, so accepting 3 accepts no unproven bytes.
         if (!qpdfWroteOutput(result)) {
           throw new Error("qpdf encryption failed.");
+        }
+        return job.readOutput();
+      });
+    },
+
+    async encryptOwnerOnly(input, opts, run = {}) {
+      return withJob(input, run.signal, async (job) => {
+        const result = await job.run(
+          (inputPath, outputPath) =>
+            ownerOnlyEncryptArgs(inputPath, outputPath, opts),
+          // It carries the owner password: through the at-file.
+          true,
+        );
+        if (result.timedOut) throw new Error("qpdf timed out.");
+        // 0, or 3 = output written with warnings (see protect). The caller
+        // reads the encryption of what was written back before using it.
+        // A real exit status is final; a negative one (spawn error) is not.
+        if (!qpdfWroteOutput(result)) {
+          throw result.code >= 0
+            ? new QpdfEncryptFailed()
+            : new Error("qpdf encryption failed.");
         }
         return job.readOutput();
       });

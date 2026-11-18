@@ -402,6 +402,17 @@ jobs:
       - name: Worker image OCR redo proof — which old text layers --redo-ocr replaces (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:ocr-redo-proof
 
+      # OCR PDF on a restricted PDF with its owner password (competitor-audit
+      # backlog #11), through the image's REAL OCRmyPDF and qpdf: inputs made
+      # by the image's qpdf (AES-256 and RC4 128-bit) plus the revision 2
+      # fixture. The delivered PDF must be V5 R6 AES-256, open with no
+      # password (qpdf --requires-password says so), take the typed password
+      # as its owner password, keep /P bits 3-6, 9, 11 and 12, and read back
+      # the scan after decrypting. Controls: a wrong password and no password
+      # are refused, nothing processed. No user document, secret, queue or store.
+      - name: Worker image OCR owner-password proof — a restricted PDF keeps its restrictions (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:ocr-owner-proof
+
       # The container HEALTHCHECK / readiness probe must honestly report
       # not-configured (exit 2) when nothing is wired — it claims no job.
       - name: Worker readiness probe is honest with no config (exit 2)

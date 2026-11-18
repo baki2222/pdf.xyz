@@ -46,6 +46,15 @@ import { looksLikePdf } from "./compression/engine";
 import { OCR_ENGINES, type OcrEngine, type OcrEngineAvailability } from "./ocr";
 import { classifyOcrmypdfFailure, OcrEngineRefusal } from "./ocr-engine-errors";
 import { opensWithoutPassword } from "./ocr-encryption-probe";
+import { checkOwnerPassword, restrictedLike } from "./ocr-owner-password";
+import {
+  createNativeQpdfRunner,
+  probeQpdfFromConfig,
+  QpdfEncryptFailed,
+  type NativeQpdfRunner,
+  type QpdfSeams,
+} from "./pdf-security/native";
+import { resolveNativePdfSecurityConfig } from "./pdf-security/native-config";
 import { ocrReadyImage } from "./ocr-image";
 import { stripInvisibleText } from "./strip-invisible-text";
 import { fillSkippedSidecarPages, skippedSidecarPages } from "./ocr-sidecar";
@@ -161,7 +170,33 @@ export interface NativeOcrSeams {
    * that shows which layers the engine alone keeps.
    */
   stripInvisibleText?: (pdf: Uint8Array) => Promise<{ bytes: Uint8Array }>;
+  /**
+   * qpdf, for a restricted PDF sent with its owner password (competitor-
+   * audit backlog #11): `unlock` decrypts it once the password is VERIFIED as
+   * the owner's (`./ocr-owner-password`), and `encryptOwnerOnly` restricts
+   * the searchable copy again. Absent: such a job is refused as
+   * "restricted", nothing decrypted. The runner has no default;
+   * {@link nativeOcrDeps} wires the image's qpdf when the host has it.
+   */
+  ownerCrypt?: OcrOwnerCrypt;
+  /**
+   * Seams for the qpdf probe and runner {@link nativeOcrDeps} builds
+   * {@link ownerCrypt} from. Only for tests.
+   */
+  qpdf?: QpdfSeams;
 }
+
+/** A restricted upload whose owner password was verified. */
+type OwnerVerified = Extract<
+  Awaited<ReturnType<typeof checkOwnerPassword>>,
+  { kind: "owner" }
+>;
+
+/** The two qpdf calls OCR PDF makes on a restricted file. */
+export type OcrOwnerCrypt = Pick<
+  NativeQpdfRunner,
+  "unlock" | "encryptOwnerOnly"
+>;
 
 const runExecFile = promisify(execFile);
 /** The real subprocess runner; exported so an abort test drives THIS function. */
@@ -681,6 +716,45 @@ export function createNativeOcrRunner(
       );
     }
 
+    // A restricted PDF sent with its OWNER password (backlog #11). The
+    // password is checked against the file's own encryption dictionary
+    // BEFORE qpdf starts: qpdf decrypts a restricted file with no password
+    // at all, so this check is what holds the rule that only the owner
+    // password lifts a restriction. Anything but a verified owner password
+    // decrypts nothing. Images carry no PDF encryption; their engine never
+    // sees the field.
+    const ownerPassword =
+      engine === "ocrmypdf" ? options.ownerPassword : undefined;
+    let source = input.bytes;
+    let owner: OwnerVerified | null = null;
+    if (ownerPassword !== undefined) {
+      const check = await checkOwnerPassword(input.bytes, ownerPassword);
+      if (check.kind === "wrong-password")
+        throw new OcrEngineRefusal("wrong-owner-password");
+      // Needs a password to open: the owner's would lift that too.
+      if (check.kind === "needs-open-password")
+        throw new OcrEngineRefusal("encrypted");
+      if (check.kind === "owner") {
+        if (!seams.ownerCrypt) throw new OcrEngineRefusal("restricted");
+        throwIfAttemptAborted(signal);
+        const unlocked = await seams.ownerCrypt.unlock(
+          input.bytes,
+          { password: ownerPassword },
+          signalOption(signal),
+        );
+        if (!unlocked.ok)
+          throw new OcrEngineRefusal(
+            unlocked.reason === "wrong-password"
+              ? "wrong-owner-password"
+              : "unreadable",
+          );
+        source = unlocked.output;
+        owner = check;
+      }
+      // "not-read": nothing is decrypted. OCRmyPDF refuses any encrypted
+      // input itself (exit 8, read below), so this lifts nothing.
+    }
+
     const wantPdf =
       options.outputMode === "searchable-pdf" || options.outputMode === "both";
     const wantText =
@@ -699,9 +773,7 @@ export function createNativeOcrRunner(
       engine === "tesseract"
         ? await ocrReadyImage(input.bytes, inputExtension(input))
         : {
-            bytes: options.redoOcr
-              ? (await stripRedo(input.bytes)).bytes
-              : input.bytes,
+            bytes: options.redoOcr ? (await stripRedo(source)).bytes : source,
             ext: inputExtension(input),
           };
     throwIfAttemptAborted(signal);
@@ -755,6 +827,9 @@ export function createNativeOcrRunner(
 
       const base = ocrOutputBase(input.filename);
       const artifacts: ProcessorArtifact[] = [];
+      // The searchable PDF before it is restricted again: the page count is
+      // read from it (a parser reads no encrypted page tree).
+      let searchablePlain: Uint8Array | null = null;
 
       if (wantPdf) {
         const pdf = await fs.readFile(pdfOut);
@@ -765,10 +840,42 @@ export function createNativeOcrRunner(
         ) {
           throw new Error("OCR produced no usable PDF output.");
         }
+        searchablePlain = pdf instanceof Uint8Array ? pdf : new Uint8Array(pdf);
+        let delivered = searchablePlain;
+        if (owner && ownerPassword !== undefined && seams.ownerCrypt) {
+          // The author's restrictions, the same owner password, no open
+          // password, AES-256; then READ BACK from what qpdf wrote: a copy
+          // that is not restricted like the upload is never delivered.
+          // Both failures below are final, not retryable: the same bytes
+          // and the same qpdf make the same copy on every attempt (review
+          // finding, 2026-11-18). A timeout or a spawn error stays a plain
+          // Error, which may be transient.
+          throwIfAttemptAborted(signal);
+          try {
+            delivered = await seams.ownerCrypt.encryptOwnerOnly(
+              searchablePlain,
+              { ownerPassword, grant: owner.grant },
+              signalOption(signal),
+            );
+          } catch (error) {
+            if (error instanceof QpdfEncryptFailed)
+              throw new OcrEngineRefusal("restrictions-not-kept");
+            throw error;
+          }
+          if (
+            !(await restrictedLike(
+              delivered,
+              owner.grant,
+              ownerPassword,
+              owner.strength,
+            ))
+          )
+            throw new OcrEngineRefusal("restrictions-not-kept");
+        }
         artifacts.push({
           filename: `${base}-ocr.pdf`,
           contentType: PDF_CONTENT_TYPE,
-          bytes: pdf instanceof Uint8Array ? pdf : new Uint8Array(pdf),
+          bytes: delivered,
         });
       }
 
@@ -822,7 +929,9 @@ export function createNativeOcrRunner(
         outputMode: options.outputMode,
         producedSearchablePdf: searchablePdf !== null,
         producedTextSidecar: textSidecar !== null,
-        pageCount: searchablePdf ? await countPages(searchablePdf.bytes) : null,
+        pageCount: searchablePdf
+          ? await countPages(searchablePlain ?? searchablePdf.bytes)
+          : null,
         textCharacters: textSidecar
           ? countTextCharacters(textSidecar.bytes)
           : null,
@@ -861,11 +970,20 @@ export function nativeOcrDeps(
   const readExistingText =
     seams.readExistingText ??
     resolveNativePdfTextExtractor(env, seams.pdfText ?? {});
+  // qpdf for a restricted PDF's owner password (backlog #11): the image's
+  // own, under the Protect/Unlock configuration, when the host has it.
+  const qpdfConfig = resolveNativePdfSecurityConfig(env);
+  const ownerCrypt =
+    seams.ownerCrypt ??
+    (probeQpdfFromConfig(qpdfConfig, seams.qpdf ?? {})
+      ? createNativeQpdfRunner(qpdfConfig, seams.qpdf ?? {})
+      : undefined);
   return {
     engines: probeNativeOcrEnginesFromConfig(config, seams),
     runner: createNativeOcrRunner(config, {
       ...seams,
       ...(readExistingText ? { readExistingText } : {}),
+      ...(ownerCrypt ? { ownerCrypt } : {}),
     }),
     // What this host can genuinely recognize, so a request for a language with no
     // pack is refused by name instead of surfacing as a broken document.
