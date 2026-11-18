@@ -2778,6 +2778,38 @@ describe("square-checkbox", () => {
         "comb",
       ]);
     });
+
+    // Review round 5 fixes, finding 1: the exemption above made two date
+    // combs under one "D D M M Y Y Y Y" head row 16 checkboxes ("Date of
+    // birth D", ...). A grid's heads name distinct choices; a comb's heads
+    // name character positions, which repeat. A row whose heads repeat
+    // keeps the comb rule.
+    it("adjoining boxes under REPEATED heads are combs: D D M M Y Y Y Y over two date combs", () => {
+      const p = (heads: string) =>
+        pg({
+          rects: [0, 1].flatMap((i) =>
+            [...heads].map((_, k) => rect(200 + 14 * k, 600 - 30 * i, 14, 14)),
+          ),
+          text: [
+            ...[...heads].map((h, k) =>
+              txt(h, 204 + 14 * k, 618, { size: 8, width: 5 }),
+            ),
+            txt("Date of birth", 72, 603, { size: 10, width: 60 }),
+            txt("Date of arrival", 72, 573, { size: 10, width: 70 }),
+          ],
+        });
+      expect(labels(p("DDMMYYYY"))).toEqual([]);
+      const rules = run(p("DDMMYYYY")).excluded.map((e) => e.rule);
+      expect(rules).toHaveLength(16);
+      expect(new Set(rules)).toEqual(new Set(["comb"]));
+      // Control: distinct heads over adjoining boxes are still a grid.
+      expect(labels(p("YN"))).toEqual([
+        "Date of birth Y",
+        "Date of birth N",
+        "Date of arrival Y",
+        "Date of arrival N",
+      ]);
+    });
   });
 
   // Review round 3, finding 3: text inside a checkbox's square lowered its

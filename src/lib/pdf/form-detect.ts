@@ -1898,6 +1898,17 @@ function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
     const left = lOk && (!rOk || sum("lGap") < sum("rGap"));
     for (const s of row) rowLeft.set(s, left);
   }
+  // A grid's heads name distinct choices; a comb's heads name character
+  // positions, which repeat ("D D M M Y Y Y Y"). A row whose grid labels
+  // repeat keeps its labels but not the comb exemption: two headed date
+  // combs were proposed as 16 checkboxes (review round 5 fixes, finding 1;
+  // corpus N47).
+  const repeated = new Set<CardRect>();
+  for (const row of squareGroups(lines.squares, (s) => s.y0)) {
+    const ls = row.map((s) => grid.get(s));
+    if (ls[0] !== undefined && new Set(ls).size !== ls.length)
+      for (const s of row) repeated.add(s);
+  }
   const out = lines.squares.map((sq) => {
     const { right, left, r, l, rGap, lGap } = sides.get(sq)!;
     const leftWins = rowLeft.get(sq) ?? lGap < rGap;
@@ -1931,7 +1942,7 @@ function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
       leftLabel: false,
       ownPiece: null,
       order: 0,
-      gridCell: inGrid !== undefined,
+      gridCell: inGrid !== undefined && !repeated.has(sq),
     };
   });
   // A CHECKLIST column: 2+ equal squares in a column, each alone on its
@@ -2776,7 +2787,9 @@ export function classifyPage(
     if (c.square) {
       // A square its headed grid labels is a checkbox, however close its
       // neighbour: a Yes / No grid of boxes 1 pt apart was a comb (review
-      // round 4 fixes, finding 7; corpus P40).
+      // round 4 fixes, finding 7; corpus P40). Not when its row's heads
+      // repeat: those name a comb's character positions (round 5, finding
+      // 1; corpus N47).
       if (on("comb") && comb.has(c.square) && !c.gridCell) {
         exclude("comb", c.box);
         continue;

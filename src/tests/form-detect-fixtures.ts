@@ -533,6 +533,13 @@ const N46 = {
     ["2", "Archive boxes (pack of 10)", "AB-10"],
   ],
 };
+/** N47's two 8-box date combs (14 pt, edge to edge), one head per box. */
+const N47 = {
+  rows: ["Date of birth", "Date of arrival"],
+  heads: ["D", "D", "M", "M", "Y", "Y", "Y", "Y"],
+  x: (k: number) => 200 + 14 * k,
+  ys: [600, 570],
+};
 /** N32's line starts 40 pt right of where "Address:" (12 pt) ends. */
 const N32_X0 = 72 + textWidth(H, "Address:", 12) + 40;
 /**
@@ -2802,6 +2809,29 @@ export const DETECT_CASES: readonly DetectCase[] = [
     decidedBy: "table-grid",
     at: { page: 1, x: 300, y: N46.ys[2]! + 2 },
     seamAlsoDisable: ["no-clearance"],
+  },
+  {
+    id: "N47",
+    kind: "negative",
+    note: "headed date combs: D D M M Y Y Y Y over two aligned 8-box combs, no checkboxes",
+    // Review round 5 fixes, finding 1: P40's grid exemption made these 16
+    // checkboxes ("Date of birth D", ...). A comb's heads repeat; a grid's
+    // do not. P40 and N33 are its neighbours.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const [k, h] of N47.heads.entries())
+        await text(page, H, h, N47.x(k) + 7 - textWidth(H, h, 8) / 2, 618, 8);
+      for (const [i, s] of N47.rows.entries()) {
+        await text(page, H, s, 72, N47.ys[i]! + 3, 10);
+        for (const k of N47.heads.keys())
+          square(page, N47.x(k), N47.ys[i]!, 14);
+      }
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "comb",
+    at: { page: 1, x: N47.x(3) + 7, y: N47.ys[0]! + 7 },
   },
 
   // ---------------------------------------------------------- outcomes
