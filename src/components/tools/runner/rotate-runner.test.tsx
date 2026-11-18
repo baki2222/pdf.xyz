@@ -17,6 +17,7 @@ import {
   readDocumentStructure,
 } from "@/tests/fixtures-structured-pdf";
 import { ToolRunner } from "./tool-runner";
+import { PageTile } from "./page-tile";
 import { runnerMounted } from "@/tests/runner-mounted";
 
 /**
@@ -223,5 +224,142 @@ describe("rotate-pdf: what the downloaded file still carries", () => {
     const after = await readDocumentStructure(rebuilt);
     expect(after.rotations).toEqual([90, 90, 90]);
     expect(lostStructure(before, after).length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Press a key on `el` the way a browser does for a native `<button>`: Enter
+ * clicks on keydown, Space clicks on keyup, and either click is skipped when
+ * the keydown was cancelled. jsdom has no activation behaviour of its own, so
+ * without this a keyboard test of a button proves nothing in either
+ * direction. The cancelled-keydown branch is the one the defect lived in: a
+ * selectable tile cancels Enter/Space for its OWN activation, and a button
+ * inside it lost its click to that.
+ */
+function pressLikeABrowser(el: HTMLElement, key: "Enter" | " ") {
+  el.focus();
+  const proceed = fireEvent.keyDown(el, { key });
+  if (key === " ") {
+    const up = fireEvent.keyUp(el, { key });
+    if (proceed && up) fireEvent.click(el);
+  } else if (proceed) {
+    fireEvent.click(el);
+  }
+}
+
+async function mountWithPdf(pages: number): Promise<HTMLElement> {
+  const { container } = render(
+    <Router>
+      <ToolRunner kind={getRunnerKind(SLUG)!} slug={SLUG} />
+    </Router>,
+  );
+  await runnerMounted(container);
+  const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+  expect(input, "the dropzone file input").not.toBeNull();
+  const bytes = await makeStructuredPdf(pages);
+  fireEvent.change(input!, {
+    target: {
+      files: [
+        new File([bytes.slice()], "report.pdf", { type: "application/pdf" }),
+      ],
+    },
+  });
+  await screen.findByRole("button", { name: `Rotate page ${pages} right` });
+  return container;
+}
+
+/** A page's selectable tile: role=button, named "Page N" exactly. */
+function tile(n: number): HTMLElement {
+  return screen.getByRole("button", { name: `Page ${n}` });
+}
+
+/** The rotation badge a tile draws beside its label, or null when upright. */
+function badge(el: HTMLElement): string | null {
+  return (
+    Array.from(el.querySelectorAll("span")).find((s) =>
+      /^\d+\u00b0$/.test(s.textContent ?? ""),
+    )?.textContent ?? null
+  );
+}
+
+describe("rotate-pdf: a page's own rotate buttons work from the keyboard", () => {
+  // Found by the 2026-11-18 after-upload axe sweep on production
+  // (nested-interactive): the per-page Left/Right buttons sat INSIDE the
+  // selectable tile, itself a role=button. The tile cancels Enter and Space
+  // to toggle its selection, so a keyboard user pressing "Rotate page 1
+  // right" deselected page 1 and rotated nothing.
+
+  it("no button sits inside another (role=button tiles hold no button)", async () => {
+    const container = await mountWithPdf(2);
+    const tiles = Array.from(
+      container.querySelectorAll<HTMLElement>('[role="button"]'),
+    );
+    // Health check: the tiles were found, so an empty walk cannot pass.
+    expect(tiles.length).toBeGreaterThanOrEqual(2);
+    const nested = tiles
+      .filter((t) => t.querySelector('button, [role="button"]'))
+      .map((t) => t.getAttribute("aria-label"));
+    expect(nested).toEqual([]);
+  }, 30_000);
+
+  it("Enter on 'Rotate page 1 right' turns page 1 and leaves its selection alone", async () => {
+    await mountWithPdf(2);
+    // Every page starts selected; the press must not change that.
+    expect(tile(1).getAttribute("aria-pressed")).toBe("true");
+    expect(badge(tile(1))).toBeNull();
+
+    pressLikeABrowser(
+      screen.getByRole("button", { name: "Rotate page 1 right" }),
+      "Enter",
+    );
+
+    expect(badge(tile(1))).toBe("90\u00b0");
+    expect(tile(1).getAttribute("aria-pressed")).toBe("true");
+    expect(badge(tile(2))).toBeNull();
+  }, 30_000);
+
+  it("Space on 'Rotate page 2 left' turns page 2 and leaves its selection alone", async () => {
+    await mountWithPdf(2);
+    expect(tile(2).getAttribute("aria-pressed")).toBe("true");
+
+    pressLikeABrowser(
+      screen.getByRole("button", { name: "Rotate page 2 left" }),
+      " ",
+    );
+
+    expect(badge(tile(2))).toBe("270\u00b0");
+    expect(tile(2).getAttribute("aria-pressed")).toBe("true");
+    expect(badge(tile(1))).toBeNull();
+  }, 30_000);
+
+  it("a click still rotates, and the tile itself still selects by click and by Enter", async () => {
+    await mountWithPdf(2);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Rotate page 1 right" }),
+    );
+    expect(badge(tile(1))).toBe("90\u00b0");
+    expect(tile(1).getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(tile(1));
+    expect(tile(1).getAttribute("aria-pressed")).toBe("false");
+    pressLikeABrowser(tile(1), "Enter");
+    expect(tile(1).getAttribute("aria-pressed")).toBe("true");
+    pressLikeABrowser(tile(2), " ");
+    expect(tile(2).getAttribute("aria-pressed")).toBe("false");
+    // Selecting never turned a page.
+    expect(badge(tile(1))).toBe("90\u00b0");
+    expect(badge(tile(2))).toBeNull();
+  }, 30_000);
+
+  it("PageTile's props refuse actions on a selectable tile (a type check, run by tsc)", () => {
+    // A selectable tile IS a button, so anything passed as `actions` would be
+    // a control inside a control. This line must not compile; tsc reports an
+    // unused directive the day it does.
+    // @ts-expect-error -- `selectable` and `actions` are mutually exclusive
+    const nestedTile = <PageTile label="Page 1" selectable actions={<b />} />;
+    // ...while actions on a tile that is not a button stay allowed.
+    const plainTile = <PageTile label="Page 1" actions={<b />} />;
+    expect(nestedTile.props).toHaveProperty("actions");
+    expect(plainTile.props).toHaveProperty("actions");
   });
 });
