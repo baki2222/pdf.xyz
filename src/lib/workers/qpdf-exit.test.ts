@@ -68,9 +68,19 @@ function walk(dir: string): string[] {
 const SPAWNS =
   /(?:from\s+|require\(\s*|import\(\s*)["'](?:node:)?child_process["']/;
 
-/** A module that spawns a process and names qpdf: it can run qpdf and read how it exited. */
+/**
+ * A module that spawns a process and names qpdf IN A STRING (a command, or a
+ * message about a qpdf run): it can run qpdf and read how it exited.
+ *
+ * NARROWED 2026-11-17 from "names qpdf anywhere" (`/\bqpdf\b/i`): OCR PDF's
+ * runner (`ocr-native.ts`) spawns OCRmyPDF and, for a restricted PDF, CALLS
+ * the pdf-security runner, so it named qpdf in comments and a seam name and
+ * was counted as a qpdf runner it is not (CLAUDE.md rule 4: widening the set
+ * is a defect too). Every runner that spawns qpdf itself still says it in a
+ * string; the controls below hold both halves.
+ */
 const isQpdfRunner = (source: string): boolean =>
-  SPAWNS.test(source) && /\bqpdf\b/i.test(source);
+  SPAWNS.test(source) && /["'`]qpdf\b/i.test(source);
 
 /**
  * The shapes the defect has taken, over ANY spelling of the exit value
@@ -202,6 +212,15 @@ describe("qpdf exit statuses — one definition, and the runners found reading i
     expect(
       isQpdfRunner('import { execFile } from "node:child_process"; run("gs");'),
     ).toBe(false);
+    // A spawner that only DELEGATES to a qpdf runner (comments, a seam name,
+    // an imported factory) is not one; the real OCR runner is that shape.
+    expect(
+      isQpdfRunner(
+        'import { execFile } from "node:child_process"; // qpdf decrypts first\nconst qpdf = createNativeQpdfRunner(c);',
+      ),
+    ).toBe(false);
+    expect(runners.map(rel)).not.toContain("src/lib/workers/ocr-native.ts");
+    expect(spawners.map(rel)).toContain("src/lib/workers/ocr-native.ts");
   });
 
   it("every discovered qpdf runner imports the shared statuses and re-types none, except the recorded exceptions", () => {

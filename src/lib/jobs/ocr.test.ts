@@ -461,3 +461,38 @@ describe("buildOcrResultMeta — bounded, honest, schema-stable", () => {
     }
   });
 });
+
+describe("parseOcrOptions — ownerPassword (a restricted PDF, backlog #11)", () => {
+  // Built from code points, never typed: a control character and a
+  // two-byte letter.
+  const LF = String.fromCodePoint(0x0a);
+  const E_ACUTE = String.fromCodePoint(0xe9);
+
+  it("absent: no key at all, so a request without one is unchanged", () => {
+    const parsed = parseOcrOptions({ languages: ["eng"] });
+    expect(parsed.ok && "ownerPassword" in parsed.value).toBe(false);
+  });
+
+  it("present: carried through exactly", () => {
+    const parsed = parseOcrOptions({ ownerPassword: `own ${E_ACUTE}r-1` });
+    expect(parsed.ok && parsed.value.ownerPassword).toBe(`own ${E_ACUTE}r-1`);
+  });
+
+  it("refuses an empty, non-string, control-character or over-long password, never echoing it", () => {
+    const secret = "SECRET-SENTINEL";
+    for (const bad of [
+      "",
+      42,
+      `${secret}${LF}`,
+      `${secret}${E_ACUTE.repeat(60)}`,
+    ]) {
+      const parsed = parseOcrOptions({ ownerPassword: bad });
+      expect(parsed.ok, String(bad)).toBe(false);
+      if (parsed.ok) continue;
+      expect(parsed.error.body.error.details?.[0]?.field).toBe(
+        "options.ownerPassword",
+      );
+      expect(JSON.stringify(parsed.error)).not.toContain(secret);
+    }
+  });
+});
