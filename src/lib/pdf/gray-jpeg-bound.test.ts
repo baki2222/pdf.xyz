@@ -138,6 +138,31 @@ const SIZES: [number, number][] = [
   [W, H],
 ];
 
+/**
+ * The shape × size grid, ONE TEST PER CELL. It was one test over all 54
+ * cells, and timed out at vitest's 5,000 ms on the Linux CI runner inside the
+ * full suite (PR #382, run 44373418087). Measured on Windows (Node 24) for
+ * this split: that single test took 2,633 ms with the file alone, and the
+ * whole file 5,861 ms inside `vitest run --no-file-parallelism`. The heaviest
+ * cell (photo, a full Letter page, three qualities, JPEG + bound each) takes
+ * 472 ms alone and 821 ms inside the full suite; the heaviest test that is
+ * not a cell ("says no on text pages") 304 and 757 ms. CELL_TIMEOUT is 18×
+ * the worst full-suite figure: a runner 3× slower still has 6× headroom. The
+ * grid is the same 54 cells; the health check below bounds its size, so a
+ * cell lost from it fails rather than passing vacuously.
+ */
+const CELL_TIMEOUT = 15_000;
+const CELLS = SHAPES.flatMap(([label, make]) =>
+  SIZES.map(([w, h]) => ({ name: `${label} ${w}×${h}`, make, w, h })),
+);
+
+it("health: the grid is every shape at every size, 9 × 6 cells, no two alike", () => {
+  expect(SHAPES.length).toBe(9);
+  expect(SIZES.length).toBe(6);
+  expect(CELLS.length).toBe(54);
+  expect(new Set(CELLS.map((c) => c.name)).size).toBe(54);
+});
+
 /** Count 0xFF 0x00 pairs between the SOS header and EOI: the stuffed bytes. */
 function stuffedBytes(jpeg: Uint8Array): number {
   let i = 2;
@@ -231,30 +256,35 @@ function rebuiltSize(
 }
 
 describe("quantizeGrayBlock is the encoder's own transform", () => {
-  it("rebuilds encodeGrayJpeg's byte count exactly, on every shape", () => {
-    const sizes: [number, number][] = [
-      [1, 1],
-      [9, 17],
-      [200, 150],
-      [640, 480],
-    ];
-    let checked = 0;
-    for (const [label, make] of SHAPES) {
-      for (const [w, h] of sizes) {
-        for (const q of [0.5, 0.88, 1]) {
-          const plane = make(w, h);
-          const jpeg = encodeGrayJpeg(plane, w, h, q);
-          expect(
-            rebuiltSize(plane, w, h, q) + stuffedBytes(jpeg),
-            `${label} ${w}×${h} q${q}`,
-          ).toBe(jpeg.length);
-          checked++;
+  // One test per shape (it was one test over all nine; see CELL_TIMEOUT).
+  for (const [label, make] of SHAPES) {
+    it(
+      `rebuilds encodeGrayJpeg's byte count exactly: ${label}`,
+      () => {
+        const sizes: [number, number][] = [
+          [1, 1],
+          [9, 17],
+          [200, 150],
+          [640, 480],
+        ];
+        let checked = 0;
+        for (const [w, h] of sizes) {
+          for (const q of [0.5, 0.88, 1]) {
+            const plane = make(w, h);
+            const jpeg = encodeGrayJpeg(plane, w, h, q);
+            expect(
+              rebuiltSize(plane, w, h, q) + stuffedBytes(jpeg),
+              `${label} ${w}×${h} q${q}`,
+            ).toBe(jpeg.length);
+            checked++;
+          }
         }
-      }
-    }
-    // Health check: the loop ran over the whole grid.
-    expect(checked).toBe(SHAPES.length * 4 * 3);
-  });
+        // Health check: the loop ran over the whole grid for this shape.
+        expect(checked).toBe(4 * 3);
+      },
+      CELL_TIMEOUT,
+    );
+  }
 
   it("POSITIVE CONTROL: the rebuild sees a one-step change in the quantizer", () => {
     const plane = textPlane(200, 150, 4);
@@ -266,22 +296,24 @@ describe("quantizeGrayBlock is the encoder's own transform", () => {
 });
 
 describe("grayJpegLowerBound", () => {
-  it("is never above what the encoder writes, on any shape, size or quality", () => {
-    let checked = 0;
-    for (const [label, make] of SHAPES) {
-      for (const [w, h] of SIZES) {
+  for (const { name, make, w, h } of CELLS) {
+    it(
+      `is never above what the encoder writes: ${name}, at every quality`,
+      () => {
         const plane = make(w, h);
+        let checked = 0;
         for (const q of [0.5, 0.88, 1]) {
           const actual = encodeGrayJpeg(plane, w, h, q).length;
           const bound = grayJpegLowerBound(plane, w, h, q);
-          expect(bound, `${label} ${w}×${h} q${q}`).toBeLessThanOrEqual(actual);
+          expect(bound, `${name} q${q}`).toBeLessThanOrEqual(actual);
           expect(bound).toBeGreaterThanOrEqual(grayJpegFloorBytes(w, h));
           checked++;
         }
-      }
-    }
-    expect(checked).toBe(SHAPES.length * SIZES.length * 3);
-  });
+        expect(checked).toBe(3);
+      },
+      CELL_TIMEOUT,
+    );
+  }
 
   it("POSITIVE CONTROL: on text it reaches at least half the real size, far above the floor", () => {
     for (const lines of [6, 15, 50]) {
@@ -302,22 +334,28 @@ describe("grayJpegCanBeat", () => {
     return doc.context.flateStream(plane, {}).contents.length;
   }
 
-  it("says no on text pages of every density, where Flate wins", async () => {
-    for (const lines of [1, 6, 15, 50]) {
-      const plane = textPlane(W, H, lines);
-      const flate = await flateBytes(plane);
-      // Health check: the shape the review named — Flate wins, above the floor.
-      expect(flate).toBeLessThan(encodeGrayJpeg(plane, W, H, 0.88).length);
-      if (lines >= 6) expect(flate).toBeGreaterThan(grayJpegFloorBytes(W, H));
-      expect(grayJpegCanBeat(plane, W, H, 0.88, flate), `${lines} lines`).toBe(
-        false,
-      );
-    }
-  });
+  it(
+    "says no on text pages of every density, where Flate wins",
+    async () => {
+      for (const lines of [1, 6, 15, 50]) {
+        const plane = textPlane(W, H, lines);
+        const flate = await flateBytes(plane);
+        // Health check: the shape the review named — Flate wins, above the floor.
+        expect(flate).toBeLessThan(encodeGrayJpeg(plane, W, H, 0.88).length);
+        if (lines >= 6) expect(flate).toBeGreaterThan(grayJpegFloorBytes(W, H));
+        expect(
+          grayJpegCanBeat(plane, W, H, 0.88, flate),
+          `${lines} lines`,
+        ).toBe(false);
+      }
+    },
+    CELL_TIMEOUT,
+  );
 
-  it("says maybe wherever the JPEG is the smaller one, so it never drops a winner", async () => {
-    for (const [label, make] of SHAPES) {
-      for (const [w, h] of SIZES) {
+  for (const { name, make, w, h } of CELLS) {
+    it(
+      `says maybe wherever the JPEG is the smaller one, so it never drops a winner: ${name}`,
+      async () => {
         const plane = make(w, h);
         const flate = await flateBytes(plane);
         const jpeg = encodeGrayJpeg(plane, w, h, 0.88).length;
@@ -325,9 +363,10 @@ describe("grayJpegCanBeat", () => {
         for (const budget of [jpeg, flate].filter((b) => b >= jpeg))
           expect(
             grayJpegCanBeat(plane, w, h, 0.88, budget),
-            `${label} ${w}×${h} budget ${budget}`,
+            `${name} budget ${budget}`,
           ).toBe(true);
-      }
-    }
-  });
+      },
+      CELL_TIMEOUT,
+    );
+  }
 });
