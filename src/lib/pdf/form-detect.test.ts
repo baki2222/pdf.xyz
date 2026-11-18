@@ -952,6 +952,19 @@ describe("labelled-rule", () => {
       expect(labelled(at(0.4))).toHaveLength(2);
       expect(labelled(at(0.61))).toEqual([["Address", 577]]);
       expect(labelled(at(0.39))).toEqual([["Address", 577]]);
+      // Exactly 0.1 apart (review round 5 fixes, finding 14): 0.6 - 0.5 is
+      // 0.09999999999999998 in floating point, so `>=` for `>` stayed
+      // green above. 0.2 - 0.1 is 0.1 exactly.
+      const exact = (above: number, below: number) =>
+        pg({
+          segs: [
+            hseg(120, 400, 576, { width: above }),
+            hseg(72, 400, 552, { width: below }),
+          ],
+          text: [txt("Address:", 72, 576, { size: 10, width: 44 })],
+        });
+      expect(0.2 - 0.1).toBe(DETECT.CONTINUATION_WEIGHT_EPS);
+      expect(labelled(exact(0.2, 0.1))).toHaveLength(2);
     });
 
     // Review round 5 fixes, finding 13: the own-row guard counts upright
