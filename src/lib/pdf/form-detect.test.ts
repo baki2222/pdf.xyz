@@ -347,6 +347,43 @@ describe("labelled-rule", () => {
     expect(firstRule(at(210))).toBe("unlabelled");
   });
 
+  // Review round 3, finding 4: a caption printed INSIDE an outlined box's
+  // top-left was read as the caption under the box's TOP edge, so the field
+  // went above the box, outside it. A larger outlined box's top edge takes
+  // no caption from under it: what is under it is inside the box.
+  describe("an outlined box's top edge takes no caption from inside the box", () => {
+    const boxed = (more: CardSeg[] = []) =>
+      pg({
+        rects: [rect(72, 672, 468, 28)],
+        segs: more,
+        text: [txt("1 Name", 74, 693, { size: 7, width: 22 })],
+      });
+
+    it("the caption inside the box's top-left labels no edge: nothing above the box", () => {
+      expect(props(boxed())).toEqual([]);
+      expect(run(boxed()).excluded.map((e) => [e.rule, e.box.y])).toEqual([
+        ["unlabelled", 673],
+        ["unlabelled", 701],
+      ]);
+    });
+
+    it("the same caption under a plain line still labels it (the control)", () => {
+      const p = pg({
+        segs: [hseg(72, 540, 700)],
+        text: [txt("1 Name", 74, 693, { size: 7, width: 22 })],
+      });
+      expect(props(p)).toEqual([
+        expect.objectContaining({ label: "1 Name", y: 701 }),
+      ]);
+    });
+
+    it("a plain line joined to the box's top edge is the box's top too", () => {
+      // Merged from the left: the line comes first in the merge, so the
+      // box's mark must carry into it.
+      expect(props(boxed([hseg(40, 72.5, 700)]))).toEqual([]);
+    });
+  });
+
   it("TEXT_H_RULE: clamp(1.4 x label size, 14, 22)", () => {
     const h = (size: number) =>
       props(

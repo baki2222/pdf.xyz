@@ -491,6 +491,11 @@ interface Line {
   x0: number;
   x1: number;
   y: number;
+  /**
+   * The top edge of a larger outlined box (or a line merged with one): text
+   * under it is inside the box, never its caption (see `ruleCandidates`).
+   */
+  boxTop?: boolean;
 }
 
 interface PageLines {
@@ -652,10 +657,11 @@ function readLines(p: CardPage): PageLines {
     } else if (r.filled && w <= DETECT.RULE_MAX_WIDTH && h > w) {
       verticals.push({ x: (r.x0 + r.x1) / 2, y0: r.y0, y1: r.y1 });
     } else if (r.stroked && r.width <= DETECT.RULE_MAX_WIDTH) {
-      // A larger outlined box: its edges are lines like any other.
+      // A larger outlined box: its edges are lines like any other, except
+      // that its top edge takes no caption from inside the box.
       raw.push(
         { x0: r.x0, x1: r.x1, y: r.y0 },
-        { x0: r.x0, x1: r.x1, y: r.y1 },
+        { x0: r.x0, x1: r.x1, y: r.y1, boxTop: true },
       );
       verticals.push(
         { x: r.x0, y0: r.y0, y1: r.y1 },
@@ -676,6 +682,7 @@ function readLines(p: CardPage): PageLines {
     if (hit) {
       hit.x0 = Math.min(hit.x0, l.x0);
       hit.x1 = Math.max(hit.x1, l.x1);
+      if (l.boxTop) hit.boxTop = true;
     } else rules.push({ ...l });
   }
   return { rules, verticals, squares };
@@ -886,7 +893,10 @@ function ruleCandidates(p: CardPage, lines: PageLines): Candidate[] {
       size = inColumn.text.size;
     }
     const leftLabel = pick.state === "found";
-    if (pick.state !== "found") {
+    // A caption printed inside an outlined box's top-left once labelled the
+    // box's TOP edge, placing the field above the box, outside it (review
+    // round 3, finding 4; corpus N35).
+    if (pick.state !== "found" && !r.boxTop) {
       const captions: LabelHit[] = [];
       for (const t of p.text) {
         const top = t.y + DETECT.TEXT_ASCENT_EMS * t.size;

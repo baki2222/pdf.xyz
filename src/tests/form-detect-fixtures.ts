@@ -380,6 +380,19 @@ const N33 = {
 };
 /** N34's 16 pt box, 6 pt right of its label (Helvetica 10). */
 const N34_X = 72 + textWidth(H, "Number of dependants", 10) + 6;
+/**
+ * N35's four separate outlined boxes (72..540, 28 pt tall, 16 pt apart),
+ * each with a 7 pt caption inside its top-left, 7 pt under its top edge.
+ */
+const N35 = {
+  tops: [688, 644, 600, 556],
+  captions: [
+    "1 Name (as shown on your income tax return)",
+    "2 Business name, if different from above",
+    "3 Address (number, street, and apt. or suite no.)",
+    "4 City, state, and ZIP code",
+  ],
+};
 
 function p1(key: FontKey, id: string): DetectCase {
   return {
@@ -1712,6 +1725,34 @@ export const DETECT_CASES: readonly DetectCase[] = [
     expect: "none",
     decidedBy: "overlaps-text",
     at: { page: 1, x: N34_X + 8, y: 624 },
+  },
+  {
+    id: "N35",
+    kind: "negative",
+    note: "four separate outlined boxes, each with its caption printed inside its top-left: no field above any box",
+    // Review round 3, finding 4: each caption was read as the caption under
+    // its box's TOP edge, so every field was placed above its box, outside
+    // it, the first one above the form. Fields INSIDE such boxes are not
+    // proposed yet (a box's bottom edge takes no caption from inside it).
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const [i, top] of N35.tops.entries()) {
+        page.drawRectangle({
+          x: 72,
+          y: top - 28,
+          width: 468,
+          height: 28,
+          borderColor: rgb(0, 0, 0),
+          borderWidth: 0.5,
+        });
+        await text(page, H, N35.captions[i]!, 74, top - 7, 7);
+      }
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "unlabelled",
+    at: { page: 1, x: 300, y: N35.tops[0]! + 5 },
   },
 
   // ---------------------------------------------------------- outcomes
