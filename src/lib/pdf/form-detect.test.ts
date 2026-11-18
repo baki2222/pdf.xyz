@@ -487,6 +487,18 @@ describe("labelled-rule", () => {
         expect(labels(turned)).toEqual([]);
       });
 
+      it("RESIDUAL: a hint sentence between a caption and its box leaves the box unlabelled", () => {
+        // "Dietary requirements" 16 pt over the box, an 8 pt sentence 8.
+        const p = box([
+          txt("Dietary requirements", 72, 380, { size: 10, width: 100 }),
+          txt("Please tell us about any allergies or needs.", 72, 368, {
+            size: 8,
+            width: 160,
+          }),
+        ]);
+        expect(labels(p)).toEqual([]);
+      });
+
       it("a turned interior text is no caption", () => {
         const p = box([
           txt("Received by", 74, 350, { size: 7, width: 40, upright: false }),
