@@ -9,7 +9,7 @@ import {
 } from "@playwright/test";
 import { getAllToolSlugs, tools } from "../src/lib/tools";
 import { GUIDE_META } from "../src/lib/guides/meta.generated";
-import { TOOL_DIRECTORY } from "../src/lib/tools/directory.generated";
+import { processingSplit } from "../src/lib/tools/processing-split";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
 import { fileInput, waitForHydration } from "./helpers";
 import {
@@ -156,7 +156,7 @@ test.describe("accessibility: axe WCAG 2.x A/AA on every landing page", () => {
  * (`FILE_TOOLS`, the same derivation as the phone long-name case), each given
  * the first of its formats a fixture is made for (`takenPayloadFor`). The PDF
  * has 3 pages, so the scroll containers overflow at both widths. Result:
- * those of them whose processing is "client" in the generated directory and
+ * those of them whose processing is "client" (`processingSplit().neverUploads`) and
  * whose run button is live once the file is in; server and AI tools stay
  * post-upload only (no worker runs locally or on CI).
  *
@@ -210,9 +210,13 @@ const AFTER_UPLOAD_COMBOS: Combo[] = [
   },
 ];
 
-const CLIENT_SLUGS = new Set(
-  TOOL_DIRECTORY.filter((t) => t.processing === "client").map((t) => t.slug),
-);
+/**
+ * The tools whose processing is "client", asked of `processingSplit` (the one
+ * place a processing mode is given a meaning; `processing-split.test.ts`
+ * refuses a restated `=== "client"`): no upload path at all, so a run
+ * completes in the browser with no worker.
+ */
+const CLIENT_SLUGS = new Set(processingSplit().neverUploads.map((t) => t.slug));
 /** The client tools that take a file: the candidates for a result pass. */
 const CLIENT_FILE_TOOLS = FILE_TOOLS.filter((t) => CLIENT_SLUGS.has(t.slug));
 
@@ -424,8 +428,6 @@ test.describe("accessibility: axe after a file is loaded, and on client results"
       left.every((t) => t.accept.join() === "URL"),
       left.map((t) => t.slug).join(", "),
     ).toBe(true);
-    // The directory knows every catalogue tool, or the client set is short.
-    expect(TOOL_DIRECTORY.length).toBe(tools.length);
     const candidates = CLIENT_FILE_TOOLS.map((t) => t.slug);
     expect(candidates.length, candidates.join(", ")).toBeGreaterThanOrEqual(10);
     expect(candidates).toContain("pdf-to-markdown");
