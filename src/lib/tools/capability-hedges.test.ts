@@ -657,6 +657,20 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /\bOCR\b[^.]{0,200}\bowner (?:\(permissions\) )?password\b|\bowner (?:\(permissions\) )?password\b[^.]{0,200}\bOCR\b|\bOwner password field\b/i,
     catalogueCopy: true,
   },
+  requestSignatureLabels: {
+    // Added 2026-11-18 with the key. The sentences about a box's label
+    // reaching prepared.pdf: the word "tooltip", or a label and prepared.pdf
+    // in either order within one sentence (`\.(?=\w)` lets "prepared.pdf"
+    // and "README.txt" through a gap that otherwise stops at a full stop).
+    // TRUE: Request Signatures' FAQ answer about field names says each
+    // label is also its box's tooltip, with no condition. Until 2026-11-18
+    // it said "If README.txt lists your labels under each signer,
+    // prepared.pdf carries them too", which the `if … too` shape below was
+    // cut from. Members pinned in "the requestSignatureLabels subject".
+    subject:
+      /\btooltips?\b|\blabels?\b(?:[^.?!]|\.(?=\w)){0,160}\bprepared\.pdf\b|\bprepared\.pdf\b(?:[^.?!]|\.(?=\w)){0,160}\blabels?\b/i,
+    catalogueCopy: true,
+  },
 };
 
 /* ------------------------------------------------------------------ *
@@ -737,6 +751,19 @@ const HEDGES: Record<string, RegExp> = {
   // is contrast, not time: HTML to PDF's "while the styling and pictures in
   // that folder do not" is honest, and so is "While the job runs, the button
   // reads…".
+  // ── added 2026-11-18, from the one Request Signatures shipped
+  // (REQUEST_SIGNATURE_LABEL_HEDGE_SHIPPED): a capability claim made
+  // CONDITIONAL on something the reader must check in the output first — "If
+  // README.txt lists your labels under each signer, prepared.pdf carries them
+  // too". It defers nothing in time, so no shape above saw it, yet it hands
+  // the reader the job of adjudicating a live capability. The if-clause's
+  // subject is an output (a file name, or the package, download, output,
+  // result, README or manifest) and its verb reads that output; the main
+  // clause adds the claim with "too" or "as well". Not a bare sentence-
+  // initial "If": "If you write a message, it goes into README.txt" waits on
+  // the reader's own choice, and is honest (NOT_HEDGES holds those).
+  "if … too":
+    /(?:^|[.?!;:]\s+)If\s+(?:(?:your|the)\s+)?(?:[\w-]+\.(?:txt|json|pdf|zip|docx|pptx|xlsx)|README|manifest|package|download|output|result|ZIP)\b[^.?!,;]{0,30}?\b(?:lists?|shows?|carr(?:y|ies)|contains?|includes?|has|have|names?|mentions?)\b(?:[^.?!]|\.(?=\w)){0,160}?\b(?:too|as\s+well)\b/i,
   "while … refuses":
     /(?:^|[.?!;:]\s+)while\s+(?:[^.?!,;]|\.(?=\w)){1,40}?\b(?:refuses?|rejects?|(?:won['’]t|will\s+not|cannot|can['’]t|does\s+not|doesn['’]t|fails?\s+to)\s+open)\b/i,
 };
@@ -863,6 +890,18 @@ const PPTX_DEFERRALS_SHIPPED: readonly {
 ];
 
 /**
+ * The conditional hedge Request Signatures served from PR #364 (2026-11-17)
+ * to 2026-11-18, VERBATIM as `pageFaq` returned it, inside its FAQ answer
+ * about field names. It conditioned the tooltip on README.txt listing the
+ * labels because an older worker image wrote neither, and no worker could
+ * then report which it was; since `requestSignatureLabels` it can, so the
+ * sentence became a static string adjudicating a live capability. Inverted,
+ * not deleted: still caught by `if … too`, and gone from the catalogue.
+ */
+const REQUEST_SIGNATURE_LABEL_HEDGE_SHIPPED =
+  "If README.txt lists your labels under each signer, prepared.pdf carries them too, as each box's tooltip, which many PDF viewers, Firefox among them, show when you point at the box.";
+
+/**
  * Sentences that ARE deferrals — the positive control for every pattern above.
  *
  * The first entry is the real one. Per house rule 7 a test that pinned a defect
@@ -884,6 +923,12 @@ const HEDGES_IN_THE_WILD: readonly string[] = [
   "Until this is resolved, copy the words out with PDF to Text.",
   "Use PDF to Text until the export works in PowerPoint.",
   "While PowerPoint cannot open the file, copy the words from PDF to Text.",
+  // ── the third shipped defect: a capability made conditional on the output ──
+  REQUEST_SIGNATURE_LABEL_HEDGE_SHIPPED,
+  // ── it, respelled the ways that would walk past its own shape ──
+  "If your README shows the labels, the PDF has them as well.",
+  "If manifest.json includes each label, prepared.pdf names the boxes too.",
+  "Your file keeps them. If the download lists them, prepared.pdf carries the labels too.",
   // ── the same claim, spelled the ways that would walk past a literal search ──
   "Deep compression will be available soon.",
   "Deep image compression is not yet enabled on the worker.",
@@ -932,6 +977,12 @@ const NOT_HEDGES: readonly string[] = [
   // `while … refuses`: while as time with no refusal, and while as contrast.
   "While the job runs, the button reads Uploading your file…, Waiting for the worker…, Extracting tables… and Downloading the result… in turn.",
   "Only the .html travels here, so text written into the markup survives, while the styling and pictures in that folder do not.",
+  // `if … too`: an if-clause that waits on the READER's choice, or on the
+  // input, not on what the output turned out to carry.
+  "If you write a message, it goes into README.txt and manifest.json too.",
+  "If your PDF has a form, its fields are kept too.",
+  "If README.txt is missing, unzip the package again.",
+  "If manifest.json lists a field, README.txt names its owner.",
 ];
 
 describe("catalogue copy may not hedge a worker capability", () => {
@@ -1977,6 +2028,85 @@ describe("the ocrOwnerPassword subject (competitor-audit backlog #11, 2026-11-17
     );
   });
 });
+
+describe("the requestSignatureLabels subject (2026-11-18)", () => {
+  const members = () =>
+    COPY.filter((entry) =>
+      SUBJECTS.requestSignatureLabels!.subject.test(entry.text),
+    ).map((entry) => `${entry.slug} ${entry.where}`);
+
+  it("reaches Request Signatures' FAQ answer about field names (members printed, bounded)", () => {
+    const found = members();
+    expect(found.length, found.join("\n")).toBeGreaterThanOrEqual(1);
+    expect(found.length, found.join("\n")).toBeLessThan(8);
+    const faq = pageFaqAnswer(
+      "request-signatures",
+      /^How do signers fill in their boxes\?$/,
+    );
+    expect(
+      found.some((m) => m === `request-signatures ${faq}`),
+      `${faq}\n${found.join("\n")}`,
+    ).toBe(true);
+  });
+
+  it("the hedge it replaced is caught by its shape, reported by the rule, and gone", () => {
+    const shipped = REQUEST_SIGNATURE_LABEL_HEDGE_SHIPPED;
+    // About the capability...
+    expect(SUBJECTS.requestSignatureLabels!.subject.test(shipped)).toBe(true);
+    // ...caught by the shape cut from it, and by no other (a one-shape catch
+    // is honest here: it is the only shape of its kind)...
+    expect(
+      Object.entries(HEDGES)
+        .filter(([, re]) => re.test(shipped))
+        .map(([name]) => name),
+    ).toEqual(["if … too"]);
+    // ...REPORTED by the function the rule test calls, on the page's own
+    // slug and in the answer it sat in, with the rest of that answer kept...
+    const answer = COPY.find(
+      (entry) =>
+        entry.slug === "request-signatures" &&
+        entry.text.includes("Each label is also the tooltip of its box"),
+    );
+    expect(answer, "the plain sentence is not served").toBeDefined();
+    const planted: CopyEntry = {
+      slug: "request-signatures",
+      where: answer!.where,
+      text: answer!.text.replace(
+        "Each label is also the tooltip of its box in prepared.pdf, which many PDF viewers show when you point at the box.",
+        shipped,
+      ),
+    };
+    // Health: the replacement landed, or the line below tests nothing.
+    expect(planted.text).toContain(shipped);
+    expect(
+      hedgeOffenders([planted], []).filter((line) =>
+        line.includes('hedges "requestSignatureLabels" with "if … too"'),
+      ),
+    ).toHaveLength(1);
+    // ...and the served answer itself is clean.
+    expect(hedgeOffenders([answer!], [])).toEqual([]);
+    // ...and gone from the catalogue.
+    expect(COPY.some((entry) => entry.text.includes(shipped))).toBe(false);
+  });
+
+  it("the operations promise names the tooltip", () => {
+    const promise = ADVERTISED_WORKER_CAPABILITIES.find(
+      (c) => c.key === "requestSignatureLabels",
+    )?.promise;
+    expect(promise, "the operations row lost its promise").toBeDefined();
+    expect(promise).toMatch(/\btooltip\b/);
+  });
+});
+
+/** The `faq[i].answer` location of a page's answer whose QUESTION matches. */
+function pageFaqAnswer(slug: string, question: RegExp): string {
+  const pair = FAQ_PAIRS.find(
+    (p) => p.slug === slug && question.test(p.question),
+  );
+  if (!pair)
+    throw new Error(`${slug} has no FAQ question matching ${question}`);
+  return `${pair.where}.answer`;
+}
 
 /* ------------------------------------------------------------------ *
  *  A translateOcr claim names BOTH states (review finding, 2026-11-09)

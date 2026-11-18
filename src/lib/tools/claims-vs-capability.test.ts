@@ -220,6 +220,11 @@ import { runWorkerHtmlToPdf } from "@/lib/workers/html-render-client";
 import type { FetchLike } from "@/lib/workers/pdf-security-client";
 import { resetUploadedThisSessionForTests } from "@/lib/uploads/session-uploads";
 import { ADVERTISED_WORKER_CAPABILITIES } from "@/lib/workers/observability";
+import {
+  buildHeartbeat,
+  emptyCapabilities,
+  serializeHeartbeat,
+} from "@/lib/workers/heartbeat";
 import { panelDispatchArms, panelFile } from "@/tests/worker-panel-dispatch";
 import {
   ownPanelModules,
@@ -909,6 +914,53 @@ async function labelledJob(): Promise<{
   };
 }
 
+/** The heartbeat capability that says the running worker writes the labels. */
+const REQUEST_SIGNATURE_LABELS_KEY = "requestSignatureLabels";
+
+/**
+ * The capability keys a heartbeat actually carries on the wire, DERIVED from
+ * `emptyCapabilities()` through `serializeHeartbeat` (the record a reader
+ * gets), never typed here.
+ */
+function heartbeatWireKeys(): string[] {
+  const record = JSON.parse(
+    serializeHeartbeat(
+      buildHeartbeat({
+        mode: "loop",
+        capabilities: emptyCapabilities(),
+        at: 0,
+      }),
+    ),
+  ) as { capabilities: Record<string, unknown> };
+  return Object.keys(record.capabilities).sort();
+}
+
+/**
+ * What licenses Request Signatures' sentences about the label tooltip
+ * (2026-11-18). A worker built before PR #364 writes no /TU, so whether the
+ * PDF carries it is a live capability. While the heartbeat can REPORT it
+ * (`requestSignatureLabels` in `wireKeys`), the copy states it plainly and a
+ * conditional ("If README.txt lists…") is a hedge on a reported capability;
+ * while it cannot, an unconditional tooltip claim is unlicensed. Returns one
+ * line per offending sentence.
+ */
+function tooltipCopyOffenders(
+  sentences: readonly string[],
+  wireKeys: readonly string[],
+): string[] {
+  const reportable = wireKeys.includes(REQUEST_SIGNATURE_LABELS_KEY);
+  const conditional = /^\s*(?:If|Only if|When|Once)\b/i;
+  return sentences.flatMap((sentence) => {
+    if (reportable && conditional.test(sentence))
+      return [`hedges a capability the heartbeat reports: "${sentence}"`];
+    if (!reportable && !conditional.test(sentence))
+      return [
+        `claims a tooltip no heartbeat can report (${REQUEST_SIGNATURE_LABELS_KEY} is not on the wire): "${sentence}"`,
+      ];
+    return [];
+  });
+}
+
 const RULES: readonly ClaimRule[] = [
   {
     id: "signature requests are sent, tracked, collected or legally binding",
@@ -1088,6 +1140,12 @@ const RULES: readonly ClaimRule[] = [
     // conditional on README.txt listing the labels, which the same worker
     // writes in the same job) and is pinned in "the replacement copy states
     // what the output actually is" below.
+    //
+    // 2026-11-18: the worker now proves the /TU at start-up and reports
+    // `requestSignatureLabels` on its heartbeat, so the FAQ states the
+    // tooltip plainly (the last `honest` line below); the conditional one
+    // stays in `honest` because it is still true, but the catalogue may no
+    // longer serve it (capability-hedges.test.ts, `if … too`).
     id: "request-signatures says a box's label stays out of the PDF",
     subjects: () => panelMounts().get("RequestSignaturesWorkerPanel") ?? [],
     shapes: {
@@ -1867,29 +1925,68 @@ describe("the replacement copy states what the output actually is", () => {
         if (readmeLists.test(masked)) said.readme.push(sentence);
       }
     expect(seen, "the corpus went blind").toBeGreaterThanOrEqual(15);
-    // Both ways: copy that names the tooltip needs a /TU (and the README
-    // list it is conditioned on), and a /TU nobody is told about is a
-    // feature no reader can find.
+    // Both ways: copy that names the tooltip needs a /TU, and a /TU nobody
+    // is told about is a feature no reader can find. Copy that says
+    // README.txt lists the labels needs the list.
+    //
+    // CHANGED 2026-11-18: this also required the copy to NAME the README
+    // list. It was named only as the condition of the skew hedge below
+    // ("If README.txt lists your labels…"), so when the hedge went the
+    // requirement went with it; the list is still proven (`listed`), and
+    // any sentence that claims it is still held to it.
     expect(
       {
         tooltipWritten: reaches,
         readmeLists: listed,
         copyNamesTooltip: said.tooltip.length > 0,
-        copyNamesReadmeList: said.readme.length > 0,
+        readmeClaimHolds: said.readme.length === 0 || listed,
       },
       `${evidence}; tooltip copy: ${said.tooltip.join(" | ")}`,
     ).toEqual({
       tooltipWritten: true,
       readmeLists: true,
       copyNamesTooltip: true,
-      copyNamesReadmeList: true,
+      readmeClaimHolds: true,
     });
-    // Skew: every sentence naming the tooltip conditions it on the README
-    // list, which an older worker (no /TU, no list) does not write either.
-    for (const sentence of said.tooltip)
-      expect(sentence, "an unconditional tooltip claim").toMatch(
-        /^If README\.txt lists\b/,
-      );
+    // Skew, INVERTED 2026-11-18 (history kept). Until then this read:
+    //
+    //   // Skew: every sentence naming the tooltip conditions it on the README
+    //   // list, which an older worker (no /TU, no list) does not write either.
+    //   for (const sentence of said.tooltip)
+    //     expect(sentence, "an unconditional tooltip claim").toMatch(
+    //       /^If README\.txt lists\b/,
+    //     );
+    //
+    // That pinned a hedge the reader had to resolve by unzipping the package,
+    // because no worker could say whether it wrote the /TU. Since 2026-11-18
+    // the worker proves it at start-up and reports `requestSignatureLabels`
+    // on its heartbeat (`request-signatures/labels-capability.ts`), so the
+    // plain sentence is licensed BY THAT VOCABULARY, and a conditional one
+    // is a static string adjudicating a live capability.
+    expect(
+      tooltipCopyOffenders(said.tooltip, heartbeatWireKeys()),
+      "the tooltip copy and the heartbeat's vocabulary disagree",
+    ).toEqual([]);
+  });
+
+  it("Request Signatures' plain tooltip sentence is licensed only by a heartbeat that can report it (positive control)", () => {
+    const plain =
+      "Each label is also the tooltip of its box in prepared.pdf, which many PDF viewers show when you point at the box.";
+    const hedged =
+      "If README.txt lists your labels under each signer, prepared.pdf carries them too, as each box's tooltip, which many PDF viewers, Firefox among them, show when you point at the box.";
+    const keys = heartbeatWireKeys();
+    // Health: the vocabulary is the heartbeat's, and carries the key.
+    expect(keys.length).toBeGreaterThanOrEqual(26);
+    expect(keys).toContain(REQUEST_SIGNATURE_LABELS_KEY);
+    // A heartbeat that can report it: the plain sentence passes, the hedge
+    // does not.
+    expect(tooltipCopyOffenders([plain], keys)).toEqual([]);
+    expect(tooltipCopyOffenders([hedged], keys)).toHaveLength(1);
+    // The capability ABSENT from the heartbeat: the plain sentence is refused.
+    const without = keys.filter((k) => k !== REQUEST_SIGNATURE_LABELS_KEY);
+    // Health: the removal landed.
+    expect(without).toHaveLength(keys.length - 1);
+    expect(tooltipCopyOffenders([plain], without)).toHaveLength(1);
   });
 
   it("HTML to PDF says paste exactly when its panel has a paste box", async () => {

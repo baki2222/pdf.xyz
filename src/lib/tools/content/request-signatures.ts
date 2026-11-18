@@ -74,9 +74,19 @@ import {
  *    2026-11-17, into the PDF as the field's /TU (UTF-16BE text string, on the
  *    field and its widget, because pdf.js reads only the widget); the field
  *    name is still Signer<N>-<Type>-<k>. Until 2026-11-17 this said "A label
- *    goes to manifest.json only". The FAQ conditions the tooltip on the
+ *    goes to manifest.json only". Since 2026-11-18 the FAQ states the tooltip
+ *    plainly ("Each label is also the tooltip of its box in prepared.pdf, ...")
+ *    because the worker proves the /TU at start-up and reports it on its
+ *    heartbeat as `requestSignatureLabels`
+ *    (src/lib/workers/request-signatures/labels-capability.ts;
+ *    claims-vs-capability.test.ts licenses the plain sentence only while the
+ *    heartbeat can report that key, and capability-hedges.test.ts refuses a
+ *    conditional one). Until 2026-11-18 the answer said instead: "If
+ *    README.txt lists your labels under each signer, prepared.pdf carries
+ *    them too, as each box's tooltip, which many PDF viewers, Firefox among
+ *    them, show when you point at the box." It conditioned the tooltip on the
  *    README list because both tiers restart at once and an older worker
- *    writes neither (claims-vs-capability.test.ts pins both). The message,
+ *    writes neither, and no worker could say which it was. The message,
  *    title and labels have C0 controls turned into spaces by the client's
  *    options builder (requestSignaturesJobOptions), and the panel measures that
  *    exact object against JOB_LIMITS.maxOptionsBytes (8 KB) and blocks Prepare
@@ -203,7 +213,7 @@ const content: ToolContent = {
     },
     {
       q: "How do signers fill in their boxes?",
-      a: `Fields are named after their owner and type, such as Signer1-Signature-1, Signer1-Initials-1, Signer1-Date-1 and Signer1-Text-1, and the names stay that way. A label you give a box, up to ${MAX_FIELD_LABEL_CHARS} characters, is recorded in manifest.json. If README.txt lists your labels under each signer, prepared.pdf carries them too, as each box's tooltip, which many PDF viewers, Firefox among them, show when you point at the box. The date box is blank text, not a date stamp. Fill Forms on pdf.xyz types into them in the browser without uploading, but refuses letters outside the standard PDF fonts' Western European set, and its Flatten after filling option bakes every field into the page, so a signer who ticks it also wipes out the still-empty boxes of every other signer.`,
+      a: `Fields are named after their owner and type, such as Signer1-Signature-1, Signer1-Initials-1, Signer1-Date-1 and Signer1-Text-1, and the names stay that way. A label you give a box, up to ${MAX_FIELD_LABEL_CHARS} characters, is recorded in manifest.json. Each label is also the tooltip of its box in prepared.pdf, which many PDF viewers show when you point at the box. The date box is blank text, not a date stamp. Fill Forms on pdf.xyz types into them in the browser without uploading, but refuses letters outside the standard PDF fonts' Western European set, and its Flatten after filling option bakes every field into the page, so a signer who ticks it also wipes out the still-empty boxes of every other signer.`,
     },
     {
       q: "Can I move the boxes or add more?",
