@@ -3,9 +3,15 @@ import { getAllToolSlugs, tools } from "../src/lib/tools";
 import { categories } from "../src/lib/tools/categories";
 import { getRunnerKind } from "../src/lib/pdf/registry";
 import { toolFamilies } from "../src/lib/tools/families";
-import { fileInput, makePdfBytes, waitForHydration } from "./helpers";
+import { fileInput, waitForHydration } from "./helpers";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
-import { encodePng } from "./client-proof/fixtures";
+import {
+  FILE_TOOLS,
+  loadsFor,
+  longName,
+  payloadFor,
+  planStatus,
+} from "./fixtures/tool-payloads";
 import { panelDispatchArms } from "../src/tests/worker-panel-dispatch";
 import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
 import { CHAT_TOOL_SLUG } from "../src/lib/jobs/chat-with-pdf";
@@ -308,57 +314,6 @@ test("every tool page fits a phone: its facts row never scrolls and the page nev
  */
 const WORKER_SLUGS = panelDispatchArms().flatMap((arm) => arm.slugs);
 
-declare global {
-  interface Window {
-    __releaseStatus?: () => void;
-  }
-}
-
-type StatusStep = "hold-then-fail" | "fail" | "local" | "ready";
-
-/** Answer `/api/worker/status` by plan, in the page (no `page.route`). */
-async function planStatus(
-  page: Page,
-  plan: StatusStep[],
-  readyStatus: object = READY_WORKER_STATUS,
-): Promise<void> {
-  await page.addInitScript(
-    ({ plan, ready }) => {
-      let release = () => {};
-      const held = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      window.__releaseStatus = () => release();
-      let asked = 0;
-      const real = window.fetch.bind(window);
-      window.fetch = async (input, init) => {
-        const url = new URL(
-          typeof input === "string"
-            ? input
-            : input instanceof URL
-              ? input.href
-              : input.url,
-          location.href,
-        );
-        if (url.pathname !== "/api/worker/status") return real(input, init);
-        const step = plan[Math.min(asked++, plan.length - 1)];
-        if (step === "hold-then-fail") {
-          await held;
-          throw new TypeError("Failed to fetch");
-        }
-        if (step === "fail") throw new TypeError("Failed to fetch");
-        if (step === "ready")
-          return new Response(ready, {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          });
-        return real(input, init);
-      };
-    },
-    { plan, ready: JSON.stringify(readyStatus) },
-  );
-}
-
 /**
  * The slot's height as reserved, and the height its content needs with the
  * reserve lifted, both read once the fonts have loaded. Without that wait the
@@ -575,135 +530,11 @@ for (const width of [360, 640, 1024] as const) {
  * made for), a PDF when it does not take PDFs, and a file nothing takes
  * (`.xyz`). Each load must show the name it was given — the load landed —
  * before the page is measured, five times over 0.6s, widest kept.
+ *
+ * The set (`FILE_TOOLS`), the fixtures (`payloadFor`, `loadsFor`) and the
+ * status plan live in `./fixtures/tool-payloads.ts`, shared with the
+ * after-upload sweep in `axe.spec.ts` (moved 2026-11-18, unchanged).
  */
-const LONG_STEM =
-  "Quarterly_Financial_Statement_Consolidated_Final_Approved_Version_2026";
-/** `<stem>.<ext>`, 66 characters, one unbroken word. */
-const longName = (ext: string) =>
-  `${LONG_STEM.slice(0, 65 - ext.length)}.${ext}`;
-
-interface Payload {
-  name: string;
-  mimeType: string;
-  buffer: Buffer;
-  /** Text a page that reads the file into an editor shows instead of its name. */
-  body?: string;
-}
-
-const ZIP_HEAD = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00]);
-
-/**
- * An EPUB's first local entry and nothing after it: a STORED `mimetype` whose
- * value is `application/epub+zip`, which is all the page's sniff
- * (`zipMimetype` in src/lib/intent/sniff.ts) reads. The worker never sees it.
- */
-const EPUB_MIMETYPE = "application/epub+zip";
-const EPUB_HEAD = Buffer.concat([
-  Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00]),
-  Buffer.from([0x00, 0x00, 0x00, 0x00, 0x6f, 0x61, 0xab, 0x2c]),
-  Buffer.from([EPUB_MIMETYPE.length, 0, 0, 0, EPUB_MIMETYPE.length, 0, 0, 0]),
-  Buffer.from([0x08, 0x00, 0x00, 0x00]),
-  Buffer.from(`mimetype${EPUB_MIMETYPE}`, "latin1"),
-]);
-
-/** A fixture for one catalogue format, or null when none is made for it. */
-async function payloadFor(format: string): Promise<Payload | null> {
-  switch (format) {
-    case "PDF":
-      return {
-        name: longName("pdf"),
-        mimeType: "application/pdf",
-        buffer: Buffer.from(await makePdfBytes("long name", 1)),
-      };
-    case "PNG":
-      return {
-        name: longName("png"),
-        mimeType: "image/png",
-        buffer: encodePng(Buffer.alloc(8 * 8 * 3, 0x80), 8, 8),
-      };
-    case "DOCX":
-      return {
-        name: longName("docx"),
-        mimeType:
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        buffer: ZIP_HEAD,
-      };
-    case "XLSX":
-      return {
-        name: longName("xlsx"),
-        mimeType:
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        buffer: ZIP_HEAD,
-      };
-    case "PPTX":
-      return {
-        name: longName("pptx"),
-        mimeType:
-          "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        buffer: ZIP_HEAD,
-      };
-    case "EPUB":
-      return {
-        name: longName("epub"),
-        mimeType: EPUB_MIMETYPE,
-        buffer: EPUB_HEAD,
-      };
-    case "HTML":
-      return {
-        name: longName("html"),
-        mimeType: "text/html",
-        buffer: Buffer.from("<!doctype html><p>A page.</p>"),
-        body: "A page.",
-      };
-    case "MD":
-      return {
-        name: longName("md"),
-        mimeType: "text/markdown",
-        buffer: Buffer.from("# A title\n\nA paragraph.\n"),
-        body: "A paragraph.",
-      };
-    case "TXT":
-      return {
-        name: longName("txt"),
-        mimeType: "text/plain",
-        buffer: Buffer.from("A paragraph of plain text.\n"),
-        body: "A paragraph of plain text.",
-      };
-    default:
-      return null;
-  }
-}
-
-const REFUSED: Payload = {
-  name: longName("xyz"),
-  mimeType: "application/octet-stream",
-  buffer: Buffer.from("not a document"),
-};
-
-const FILE_TOOLS = tools.filter((t) => !t.accept.includes("URL"));
-
-/** What each page is given: its own format, a PDF if it refuses them, `.xyz`. */
-async function loadsFor(
-  tool: (typeof tools)[number],
-): Promise<{ label: string; payload: Payload }[]> {
-  let taken: Payload | null = null;
-  for (const format of tool.accept) {
-    taken = await payloadFor(format);
-    if (taken) break;
-  }
-  if (!taken)
-    throw new Error(
-      `${tool.slug}: no fixture is made for any of its formats (${tool.accept.join(", ")}) — add one to payloadFor`,
-    );
-  const loads = [{ label: `a ${tool.accept[0]} it takes`, payload: taken }];
-  if (!tool.accept.includes("PDF"))
-    loads.push({
-      label: "a PDF it refuses",
-      payload: (await payloadFor("PDF"))!,
-    });
-  loads.push({ label: "a file nothing takes", payload: REFUSED });
-  return loads;
-}
 
 /**
  * The widest the document is over 0.6s, against the phone it is drawn on.
