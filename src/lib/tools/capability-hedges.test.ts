@@ -646,6 +646,17 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /\bcsv\b[^.]{0,160}\b(?:delimiter|separator|character set)s?\b|\b(?:delimiter|separator|character set)s?\b[^.]{0,160}\bcsv\b|\b(?:Delimiter|Character set)\b[^.]{0,40}\bAuto\b|\bDelimiter\b[^.]{0,80}\bCharacter set\b|\bcsv\b[^.]{0,60}\bone column\b/i,
     catalogueCopy: true,
   },
+  ocrOwnerPassword: {
+    // Added 2026-11-17 with the key (competitor-audit backlog #11). The
+    // sentences about OCR and a restricted PDF's owner password, in either
+    // order within one sentence, or the field's own name.
+    // TRUE: OCR PDF's use case says the field appears when our server can
+    // use the password and what to do when it does not, with no hedge.
+    // Members pinned in "the ocrOwnerPassword subject".
+    subject:
+      /\bOCR\b[^.]{0,200}\bowner (?:\(permissions\) )?password\b|\bowner (?:\(permissions\) )?password\b[^.]{0,200}\bOCR\b|\bOwner password field\b/i,
+    catalogueCopy: true,
+  },
 };
 
 /* ------------------------------------------------------------------ *
@@ -1916,6 +1927,54 @@ describe("the csvImportOptions subject (competitor audit #18, 2026-11-17)", () =
     )?.promise;
     expect(promise, "the operations row lost its promise").toBeDefined();
     expect(promise).toMatch(/delimiter and character set the reader chose/);
+  });
+});
+
+describe("the ocrOwnerPassword subject (competitor-audit backlog #11, 2026-11-17)", () => {
+  const members = () =>
+    COPY.filter((entry) =>
+      SUBJECTS.ocrOwnerPassword!.subject.test(entry.text),
+    ).map((entry) => `${entry.slug} ${entry.where}`);
+
+  it("reaches OCR PDF's restricted-PDF use case (members printed, bounded)", () => {
+    const found = members();
+    expect(found.length, found.join("\n")).toBeGreaterThanOrEqual(1);
+    expect(found.length, found.join("\n")).toBeLessThan(12);
+    expect(
+      found.some((m) => m.startsWith("ocr-pdf useCases")),
+      found.join("\n"),
+    ).toBe(true);
+  });
+
+  it("positive control: the refusal it replaced, and a planted deferral, are caught", () => {
+    // A bare denial in either order, the shape a pre-feature page would say.
+    for (const denial of [
+      "OCR can't read a restricted PDF, even with its owner password.",
+      "The owner (permissions) password does not help OCR here.",
+    ])
+      expect(SUBJECTS.ocrOwnerPassword!.subject.test(denial), denial).toBe(
+        true,
+      );
+    const planted: CopyEntry = {
+      slug: "ocr-pdf",
+      where: "useCases[7].body",
+      text: "Running OCR with an owner password is coming soon.",
+    };
+    expect(
+      hedgeOffenders([planted], []).some((line) =>
+        line.includes('hedges "ocrOwnerPassword"'),
+      ),
+    ).toBe(true);
+  });
+
+  it("the operations promise is positive (the panel offers it only while it reads true)", () => {
+    const promise = ADVERTISED_WORKER_CAPABILITIES.find(
+      (c) => c.key === "ocrOwnerPassword",
+    )?.promise;
+    expect(promise, "the operations row lost its promise").toBeDefined();
+    expect(promise).toMatch(
+      /keeps the author's restrictions and owner password \(except that screen readers are always allowed to read it\)/,
+    );
   });
 });
 

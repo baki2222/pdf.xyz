@@ -250,13 +250,18 @@ test.describe("the HTML redline, opened from disk", () => {
       url.pathname.startsWith("/_next/static/chunks/") &&
       url.pathname.endsWith(".js");
     await page.route(isChunk, async (route) => {
-      const response = await route.fetch();
-      const body = await response.body();
-      if (body.includes(COMPARE_REDLINE_CHUNK)) {
-        delayed += 1;
-        await new Promise((r) => setTimeout(r, 2_000));
+      try {
+        const response = await route.fetch();
+        const body = await response.body();
+        if (body.includes(COMPARE_REDLINE_CHUNK)) {
+          delayed += 1;
+          await new Promise((r) => setTimeout(r, 2_000));
+        }
+        await route.fulfill({ response, body });
+      } catch {
+        // The page closed with a chunk in flight ("Response has been
+        // disposed"); only keeps teardown from failing the test again.
       }
-      await route.fulfill({ response, body });
     });
     await compared(page);
     const started = Date.now();

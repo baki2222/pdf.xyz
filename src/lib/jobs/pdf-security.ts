@@ -27,6 +27,7 @@
  */
 
 import { apiError, type ParseResult } from "./responses";
+import { parsePassword } from "./pdf-password";
 import {
   MAX_DISPLAY_FILENAME_LENGTH,
   sanitizeDisplayFilename,
@@ -65,13 +66,12 @@ const FALLBACK_STEM = "document";
 export { PASSWORD_QUEUE_LIFETIME } from "@/lib/privacy/job-queue";
 
 /**
- * Maximum password length, in UTF-8 bytes. This is the PDF 2.0 / AES-256 (R6)
- * hard limit: a password longer than this cannot be represented by the format, so
- * we reject it up front rather than accept a value qpdf would silently truncate
- * (which would let a user set a password they could never reproduce). One byte is
- * the floor — an empty password is not a password.
+ * Maximum password length, in UTF-8 bytes (the PDF 2.0 / AES-256 limit). It
+ * and the password-field rule live in the leaf every password-carrying job
+ * contract shares (`./pdf-password`): OCR PDF's owner password for a
+ * restricted file is parsed by the same function since 2026-11-17.
  */
-export const MAX_PDF_PASSWORD_BYTES = 127;
+export { MAX_PDF_PASSWORD_BYTES } from "./pdf-password";
 
 /**
  * The encryption strengths Protect PDF offers. Both are genuine AES (never the
@@ -182,12 +182,6 @@ function invalid(message: string, field: string): ParseResult<never> {
   };
 }
 
-// A C0 control character (U+0000–U+001F, includes TAB/LF/CR) or DEL (U+007F),
-// written with code points so this module's source never carries a literal
-// control byte. Rejected in passwords: they cannot survive the worker's
-// line-oriented argument transport to qpdf and have no place in a password.
-const CONTROL_CHAR = /[\u0000-\u001F\u007F]/;
-
 /**
  * The non-Latin-1 characters PDFDocEncoding (ISO 32000-1, Annex D) has a code
  * for: the accents in 0x18-0x1F, the typographic symbols in 0x80-0x9E, and the
@@ -228,37 +222,6 @@ export function isPdfDocEncodable(password: string): boolean {
  * labels come from PDF_ENCRYPTION_LEVELS like the FAQ's.
  */
 export const AES128_PASSWORD_CHARSET_MESSAGE = `${describePdfKeyLength(128)} passwords can use only basic Latin and Western European letters, digits and common symbols (letters such as ą, č or ğ are not available). Choose ${describePdfKeyLength(256)} to use this password.`;
-
-/**
- * Validate one password field. Content-free by construction: it reports only
- * which RULE failed (missing, empty, too long, illegal character) and NEVER
- * echoes the password. Returns the string on success. `field` names the offending
- * option so a client sees a precise, safe validation error.
- */
-function parsePassword(
-  value: unknown,
-  field: string,
-  label: string,
-): ParseResult<string> {
-  if (typeof value !== "string") {
-    return invalid(`\`${field}\` is required and must be a string.`, field);
-  }
-  if (value.length === 0) {
-    return invalid(`${label} cannot be empty.`, field);
-  }
-  if (CONTROL_CHAR.test(value)) {
-    return invalid(`${label} cannot contain control characters.`, field);
-  }
-  // Bound by UTF-8 byte length: the AES-256 password limit is defined in bytes,
-  // and a multi-byte character can exceed the character count.
-  if (new TextEncoder().encode(value).length > MAX_PDF_PASSWORD_BYTES) {
-    return invalid(
-      `${label} is too long (max ${MAX_PDF_PASSWORD_BYTES} bytes).`,
-      field,
-    );
-  }
-  return { ok: true, value };
-}
 
 /**
  * Parse the free-form `options` bag of a `protect-pdf` job into typed, validated

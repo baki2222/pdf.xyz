@@ -14,7 +14,10 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { SAVED_SIGNATURES_KEY } from "@/lib/pdf/editor/saved-signatures";
+import {
+  SAVED_SIGNATURES_KEY,
+  saveSignature,
+} from "@/lib/pdf/editor/saved-signatures";
 import { SIGNATURE_INKS } from "@/lib/pdf/editor/signature-ink";
 import { SignaturePanel } from "./signature-panel";
 
@@ -148,5 +151,106 @@ describe("SignaturePanel — ink colour", () => {
     expect(document.activeElement).toBe(radios.at(-1));
     fireEvent.keyDown(radios.at(-1)!, { key: "ArrowDown" });
     expect(checked()).toBe(radios[0]);
+  });
+});
+
+/*
+ * Lane D's axe sweep (2026-11-18, e2e/axe.spec.ts KNOWN_OPEN, now emptied):
+ * in dark mode the style previews drew the name in the chosen ink straight on
+ * the dark panel, black (#0f172a) at 1.21:1. An ink is the colour that lands
+ * on a WHITE page, so every preview drawn in one now sits on paper, a white
+ * chip, in both schemes; and every ink clears 4.5:1 on that paper.
+ */
+const PAPER = "rgb(255, 255, 255)";
+
+function rgbOf(hex: string): string {
+  const n = Number.parseInt(hex.replace(/^#/, ""), 16);
+  return `rgb(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff})`;
+}
+
+/** WCAG 2.x relative luminance of `#rrggbb`. */
+function luminance(hex: string): number {
+  const n = Number.parseInt(hex.replace(/^#/, ""), 16);
+  const [r, g, b] = [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff].map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+}
+
+function contrast(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi! + 0.05) / (lo! + 0.05);
+}
+
+/** Every element whose own inline colour is `hex`, with the background it sits on. */
+function inkedElements(root: HTMLElement, hex: string) {
+  const want = rgbOf(hex);
+  return Array.from(root.querySelectorAll<HTMLElement>("*"))
+    .filter((el) => el.style.color === want)
+    .map((el) => {
+      let at: HTMLElement | null = el;
+      while (at && !at.style.backgroundColor) at = at.parentElement;
+      return { el, background: at?.style.backgroundColor ?? "" };
+    });
+}
+
+describe("SignaturePanel — ink previews sit on paper", () => {
+  it("health: the contrast helper gives black on white about 21:1, and white on white 1:1", () => {
+    expect(contrast("#000000", "#ffffff")).toBeGreaterThan(20.9);
+    expect(contrast("#000000", "#ffffff")).toBeLessThan(21.1);
+    expect(contrast("#0f172a", "#ffffff")).toBeGreaterThan(17);
+    expect(contrast("#ffffff", "#ffffff")).toBe(1);
+  });
+
+  it.each(SIGNATURE_INKS.map((i) => [i.id, i.hex] as const))(
+    "%s (%s) clears 4.5:1 on the paper",
+    (_id, hex) => {
+      expect(contrast(hex, "#ffffff")).toBeGreaterThanOrEqual(4.5);
+    },
+  );
+
+  it.each(SIGNATURE_INKS.map((i) => [i.id, i.label, i.hex] as const))(
+    "%s: every style preview, the name preview and a saved typed signature are drawn on paper",
+    (_id, label, hex) => {
+      saveSignature({
+        kind: "typed",
+        text: "Saved Name",
+        style: "print",
+        color: hex,
+      });
+      const { container } = render(
+        <SignaturePanel onReady={() => {}} onClose={() => {}} />,
+      );
+      const group = screen.getByRole("radiogroup", { name: "Ink colour" });
+      fireEvent.click(within(group).getByRole("radio", { name: label }));
+      fireEvent.change(screen.getByLabelText("Your name"), {
+        target: { value: "Ada Lovelace" },
+      });
+      const inked = inkedElements(container, hex);
+      // Positive control on the corpus: one per style tile, the big name
+      // preview, and the saved thumbnail. A shrunken set passes vacuously.
+      const styles = screen
+        .getByRole("radiogroup", { name: "Style" })
+        .querySelectorAll('[role="radio"]');
+      expect(styles.length).toBeGreaterThan(1);
+      expect(inked.length).toBe(styles.length + 2);
+      expect(
+        container.querySelector("[data-signature-preview]")?.textContent,
+      ).toBe("Ada Lovelace");
+      for (const { el, background } of inked)
+        expect(
+          { text: el.textContent, background },
+          `${el.textContent} in ${hex}`,
+        ).toEqual({ text: el.textContent, background: PAPER });
+    },
+  );
+
+  it("a typed signature saved before inks existed previews in black, on paper", () => {
+    saveSignature({ kind: "typed", text: "Old Name", style: "print" });
+    render(<SignaturePanel onReady={() => {}} onClose={() => {}} />);
+    const thumb = screen.getByText("Old Name");
+    expect(thumb.style.color).toBe(rgbOf(SIGNATURE_INKS[0]!.hex));
+    expect(thumb.style.backgroundColor).toBe(PAPER);
   });
 });

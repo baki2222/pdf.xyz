@@ -182,6 +182,7 @@ function capabilitiesOf(value: unknown): HeartbeatCapabilities {
     translatePageMap: boolOf(src.translatePageMap),
     translatePageRange: boolOf(src.translatePageRange),
     csvImportOptions: boolOf(src.csvImportOptions),
+    ocrOwnerPassword: boolOf(src.ocrOwnerPassword),
   };
 }
 
@@ -249,6 +250,7 @@ export function serializeHeartbeat(hb: WorkerHeartbeat): string {
       translatePageMap: hb.capabilities.translatePageMap,
       translatePageRange: hb.capabilities.translatePageRange,
       csvImportOptions: hb.capabilities.csvImportOptions,
+      ocrOwnerPassword: hb.capabilities.ocrOwnerPassword,
     },
     at: hb.at,
   });

@@ -723,13 +723,18 @@ async function holdGuideDesk(page: Page) {
   const gate = new Promise<void>((resolve) => (release = resolve));
   const held: string[] = [];
   await page.route("**/_next/static/chunks/**", async (route) => {
-    const response = await route.fetch();
-    const body = await response.body();
-    if (body.includes("data-guide-desk") && body.includes("Opening ")) {
-      held.push(new URL(route.request().url()).pathname);
-      await gate;
+    try {
+      const response = await route.fetch();
+      const body = await response.body();
+      if (body.includes("data-guide-desk") && body.includes("Opening ")) {
+        held.push(new URL(route.request().url()).pathname);
+        await gate;
+      }
+      await route.fulfill({ response, body });
+    } catch {
+      // The page closed with a chunk in flight ("Response has been
+      // disposed"); only keeps teardown from failing the test again.
     }
-    await route.fulfill({ response, body });
   });
   return { held, release };
 }

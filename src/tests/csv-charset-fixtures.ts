@@ -2,6 +2,7 @@ import type {
   CsvCharsetCase,
   CsvChoiceCase,
   CsvDefaultCase,
+  CsvFileNameCase,
 } from "@/lib/workers/office-conversion/input-proof";
 import type {
   CsvCharset,
@@ -252,5 +253,55 @@ export const CSV_CHOICE_CASES: readonly CsvChoiceCase[] = [
     wrong: [delimiter("semicolon")],
     reads: (t) => !t.includes(",") && has(ZURICH, "980")(t),
     want: "its accented word in its text, split at the comma",
+  },
+];
+
+/* ------------------------------------------------------------------ *
+ *  The file name in a CSV's header (production, 2026-11-17)
+ * ------------------------------------------------------------------ */
+
+/**
+ * CSVs named with a non-Latin stem, whose printed header must show it, and
+ * the CONTROL named `input.csv`, whose header must show "input". Every upload
+ * was written as `input.<ext>` until 2026-11-17, so a CSV's sheet, and the
+ * header Calc prints from it, said "input". The Bengali word has only
+ * post-base vowel signs (no pre-base sign, no conjunct), so the text an
+ * extractor reads back is in the order it was typed; the image has Noto
+ * Bengali and Noto CJK (`Dockerfile`). Strings from code points.
+ */
+const FILE_NAME_CELLS = () => utf8("Region,Total\nNorth,1200\nSouth,800\n");
+const fromPoints = (...points: number[]) => String.fromCodePoint(...points);
+/** "Report", Russian. */
+const OTCHET = fromPoints(0x41e, 0x442, 0x447, 0x451, 0x442);
+/** "Market", Bengali. */
+const BAZAR = fromPoints(0x9ac, 0x9be, 0x99c, 0x9be, 0x9b0);
+/** "Report", Japanese/Chinese. */
+const HOUKOKU = fromPoints(0x5831, 0x544a);
+
+export const CSV_FILE_NAME_CASES: readonly CsvFileNameCase[] = [
+  {
+    label: "Cyrillic stem",
+    name: `${OTCHET}.csv`,
+    stem: OTCHET,
+    build: FILE_NAME_CELLS,
+  },
+  {
+    label: "Bengali stem",
+    name: `${BAZAR}.csv`,
+    stem: BAZAR,
+    build: FILE_NAME_CELLS,
+  },
+  {
+    label: "CJK stem",
+    name: `${HOUKOKU}.csv`,
+    stem: HOUKOKU,
+    build: FILE_NAME_CELLS,
+  },
+  {
+    label: "control, a file the user named input.csv",
+    name: "input.csv",
+    stem: "input",
+    build: FILE_NAME_CELLS,
+    control: true,
   },
 ];

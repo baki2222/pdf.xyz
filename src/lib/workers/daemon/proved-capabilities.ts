@@ -56,6 +56,7 @@ import { provesTranslateReadingOrder } from "@/lib/workers/translate/reading-ord
 import { provesTranslatePageMap } from "@/lib/workers/translate/page-map-capability";
 import { provesTranslatePageRange } from "@/lib/workers/translate/page-range-capability";
 import { provesCsvImportOptions } from "@/lib/workers/office-conversion/csv-capability";
+import { provesOcrOwnerPassword } from "@/lib/workers/ocr-owner-capability";
 import { provesHtmlZip } from "@/lib/workers/html-render/zip-capability";
 import { provesChatRetrieval } from "@/lib/workers/chat-with-pdf/retrieval-capability";
 import { provesSummarizePages } from "@/lib/workers/summarize/pages-capability";
@@ -187,6 +188,15 @@ export const PROVED_CAPABILITIES = defineProvers({
   // (the real LibreOffice reads the codes in `worker:office-input-proof`).
   csvImportOptions: {
     prove: (env) => provesCsvImportOptions(env),
+    parse: bool,
+  },
+  // Competitor-audit backlog #11: OCR PDF on a restricted PDF with its owner
+  // password. Jobs through the executor's order with the image's own OCR
+  // and qpdf runners; only the OCRmyPDF and qpdf processes are stand-ins,
+  // and qpdf must be on the host (the real qpdf and OCRmyPDF are run by
+  // `worker:ocr-owner-proof` in the image).
+  ocrOwnerPassword: {
+    prove: (env) => provesOcrOwnerPassword(env),
     parse: bool,
   },
 });

@@ -25,7 +25,7 @@ import { runChatWithPdf } from "../chat-with-pdf/engine";
 import { runSummarize } from "../summarize/engine";
 import { pageMarkerClause, runTranslate } from "../translate/engine";
 import { separatorFor } from "../translate/page-markers";
-import { runAiExtract } from "../ai-extract/engine";
+import { extractionJsonSchema, runAiExtract } from "../ai-extract/engine";
 import type { selectPages } from "@/lib/pdf/page-retrieval";
 import { provesAiReadCap } from "../processor/read-cap-proof";
 
@@ -33,10 +33,18 @@ const FIXTURE = fileURLToPath(
   new URL("./__fixtures__/requests-at-0985432a.json", import.meta.url),
 );
 
-type Recorded = Pick<
-  AiCompletionRequest,
-  "system" | "messages" | "cacheSystem" | "maxOutputTokens" | "temperature"
->;
+/**
+ * The WHOLE request, every key. INVERTED 2026-11-17, history kept: this was
+ *   Pick<AiCompletionRequest,
+ *     "system" | "messages" | "cacheSystem" | "maxOutputTokens" | "temperature">
+ * and the recorder copied exactly those five keys — so a sixth key on any
+ * request was invisible to "every recorded request is deep-equal to main's".
+ * Structured output added one (`jsonSchema`) to an AI Extract request and
+ * this file stayed green: a named list cannot see a key it does not name.
+ * The fixture holds only those five keys (main had no others), so recording
+ * everything compares the same bytes and also sees a new key.
+ */
+type Recorded = AiCompletionRequest;
 
 const INPUT = new Uint8Array([1, 2, 3, 4]);
 
@@ -109,17 +117,7 @@ function recorder(): AiProvider & { seen: Recorded[] } {
     model: "gpt-fixture",
     seen,
     async complete(request) {
-      seen.push(
-        JSON.parse(
-          JSON.stringify({
-            system: request.system,
-            messages: request.messages,
-            cacheSystem: request.cacheSystem,
-            maxOutputTokens: request.maxOutputTokens,
-            temperature: request.temperature,
-          }),
-        ) as Recorded,
-      );
+      seen.push(JSON.parse(JSON.stringify(request)) as Recorded);
       return {
         ok: true,
         text: "Answer [p.1].",
@@ -376,6 +374,25 @@ const MOVED_SINCE_FIXTURE: Readonly<Record<string, string>> = {
     "translatePageMap (2026-11), commit B: a multi-page chunk is sent with page markers between its pages and the instruction to keep them",
 };
 
+/**
+ * Cases whose request gained a `jsonSchema` (structured output, 2026-11-17)
+ * and changed in nothing else. Held by "a structured case is main's request
+ * plus its schema": without the key the request is main's byte for byte, and
+ * the schema names exactly the fields the system prompt names.
+ */
+const STRUCTURED_SINCE_FIXTURE: Readonly<Record<string, string>> = {
+  "ai-extract/prefix":
+    "structured output: a schema-mode extraction holds the reply to the requested fields",
+};
+
+/** Fields as the AI Extract system prompt lists them: `- "name" (type)`. */
+function promptFields(system: string): { name: string; type: string }[] {
+  return [...system.matchAll(/^- "(.+)" \((\w+)\)/gm)].map((m) => ({
+    name: m[1]!,
+    type: m[2]!,
+  }));
+}
+
 /** Page numbers the moved cases can carry; far above any case's page count. */
 const MAX_MARKED_PAGE = 999;
 
@@ -461,7 +478,77 @@ describe("AI provider requests are main's bytes wherever retrieval adds no page"
       delete recorded[name];
       delete fixture[name];
     }
+    // A structured case is compared HERE too, without its one new key; the
+    // key itself is held by the test below.
+    for (const name of Object.keys(STRUCTURED_SINCE_FIXTURE)) {
+      recorded[name] = recorded[name]!.map(({ jsonSchema, ...rest }) => {
+        expect(jsonSchema, `${name} carries its schema`).toBeDefined();
+        return rest;
+      });
+    }
     expect(recorded).toEqual(fixture);
+  });
+
+  it("a structured case is main's request plus a schema naming exactly the prompt's fields", async () => {
+    const fixture = loadFixture();
+    const names = Object.keys(STRUCTURED_SINCE_FIXTURE);
+    // Health: the list is not empty, and the corpus of requests that carry a
+    // schema is EXACTLY this list — derived from the recording, not typed.
+    expect(names.length).toBeGreaterThan(0);
+    const recorded = await recordAll();
+    const carrying = Object.keys(recorded).filter((name) =>
+      recorded[name]!.some((r) => r.jsonSchema !== undefined),
+    );
+    expect(carrying.sort()).toEqual([...names].sort());
+    for (const name of names) {
+      for (const [i, request] of recorded[name]!.entries()) {
+        const { jsonSchema, ...rest } = request;
+        expect(rest, `${name} #${i}`).toEqual(fixture[name]![i]);
+        const fields = promptFields(request.system ?? "");
+        // Health: the prompt parser read real fields, or `[] = []` passes.
+        expect(fields.length, `${name}: prompt fields`).toBeGreaterThan(0);
+        expect(jsonSchema, name).toEqual(
+          extractionJsonSchema(
+            fields.map((f) => ({
+              name: f.name,
+              type: f.type as "string",
+            })),
+          ),
+        );
+        const schema = jsonSchema!.schema as {
+          properties: Record<string, unknown>;
+          required: string[];
+        };
+        expect(Object.keys(schema.properties)).toEqual(
+          fields.map((f) => f.name),
+        );
+        expect(schema.required).toEqual(fields.map((f) => f.name));
+      }
+    }
+  });
+
+  it("positive control: the recorder keeps a key it was never told about, and the comparison sees it", async () => {
+    const provider = recorder();
+    await provider.complete({
+      messages: [{ role: "user", content: "x" }],
+      maxOutputTokens: 1,
+      ...({ futureKey: 1 } as object),
+    });
+    expect(provider.seen[0]).toHaveProperty("futureKey", 1);
+    const now = await recordAll();
+    const fixture = loadFixture();
+    const first = now["chat/fit"]![0]!;
+    expect(now["chat/fit"]).toEqual(fixture["chat/fit"]);
+    const widened = {
+      ...now,
+      "chat/fit": [
+        {
+          ...first,
+          jsonSchema: extractionJsonSchema([{ name: "a", type: "string" }]),
+        },
+      ],
+    };
+    expect(widened["chat/fit"]).not.toEqual(fixture["chat/fit"]);
   });
 
   it("a moved case sends main's pages, in main's order, under main's system prompt; only the cut moved", async () => {

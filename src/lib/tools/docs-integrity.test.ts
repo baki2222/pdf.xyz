@@ -80,7 +80,7 @@
  */
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { operatorDocs } from "./copy-surface";
 
 const ROOT = process.cwd();
@@ -235,8 +235,10 @@ interface DocFinding {
   detail: string;
 }
 
-function censusFindings(): { findings: DocFinding[]; checked: number } {
-  const corpus = codeCorpus();
+function censusFindings(corpus: Corpus): {
+  findings: DocFinding[];
+  checked: number;
+} {
   const corpusHas = (word: string) => corpus.tokens.has(word);
 
   const pkg = JSON.parse(
@@ -432,11 +434,23 @@ const findingKey = (f: { doc: string; token: string }) =>
 const BASELINE: { doc: string; token: string }[] = [];
 
 describe("the operator docs name identifiers that exist", () => {
+  // ONE walk of the repo for this whole describe (2026-11-18). Each test used
+  // to walk and read every corpus file again — four walks of about 0.5 s each
+  // on an idle machine — so under the full suite's load one test could near
+  // vitest's 5 s testTimeout. The walk now runs once, in a hook with its own
+  // generous timeout, and every test below reads the same corpus and census.
+  let corpus: Corpus;
+  let census: ReturnType<typeof censusFindings>;
+  beforeAll(() => {
+    corpus = codeCorpus();
+    census = censusFindings(corpus);
+  }, 60_000);
+
   it("reads the docs and actually parses identifiers from them", () => {
     // An input the census cannot read must be loud, never a quiet pass: if a
     // regex change stops matching anything, `checked` collapses before any
     // finding does (the contrast-audit lesson — wrong by not reading).
-    const { checked } = censusFindings();
+    const { checked } = census;
     expect(operatorDocs().length).toBeGreaterThanOrEqual(8);
     expect(checked).toBeGreaterThanOrEqual(40);
   });
@@ -446,7 +460,7 @@ describe("the operator docs name identifiers that exist", () => {
     // shell-script consumer and turned its one finding into a false
     // positive. If these ever fail, every finding is suspect — fix the walk
     // before reading any report.
-    const { files } = codeCorpus();
+    const { files } = corpus;
     expect(files.some((f) => f.endsWith(".sh"))).toBe(true);
     expect(files.some((f) => /\.ya?ml$/.test(f))).toBe(true);
     expect(files.some((f) => f.includes(path.join("docs", "examples")))).toBe(
@@ -456,9 +470,7 @@ describe("the operator docs name identifiers that exist", () => {
 
   it("every named identifier exists, or is in the reported baseline", () => {
     const known = new Set(BASELINE.map(findingKey));
-    const fresh = censusFindings().findings.filter(
-      (f) => !known.has(findingKey(f)),
-    );
+    const fresh = census.findings.filter((f) => !known.has(findingKey(f)));
     expect(
       fresh,
       `these doc references failed their existence check (each message names the ground truth it checked):\n  ${fresh
@@ -468,7 +480,7 @@ describe("the operator docs name identifiers that exist", () => {
   });
 
   it("the baseline only shrinks (stale entries are removed as fixes land)", () => {
-    const current = new Set(censusFindings().findings.map(findingKey));
+    const current = new Set(census.findings.map(findingKey));
     const stale = BASELINE.map(findingKey).filter((k) => !current.has(k));
     expect(
       stale,

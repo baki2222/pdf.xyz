@@ -3,6 +3,10 @@ import { PDFDocument, StandardFonts, degrees } from "pdf-lib";
 import { captureDownload, pdfTextPositions } from "./client-proof/artifacts";
 import { fileInput, waitForHydration } from "./helpers";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
+import {
+  editorViewportSlugs,
+  proveViewportKeyboard,
+} from "./editor-viewport-tools";
 
 /**
  * Edit PDF on a touch phone (390 × 844, 3x): the page fits the screen's
@@ -99,3 +103,27 @@ test("tap to place text on a rotated page, then download it", async ({
   expect(Math.abs(run!.y - want.y)).toBeLessThan(1);
   expect(read!.runs.map((r) => r.str)).toContain("PHONE BASE");
 });
+
+// The page view is a keyboard stop (2026-11-18 after-upload sweep, F1): on
+// production it scrolled but could never take focus, so a keyboard user saw
+// page 1 and nothing after it. The set of tools is derived from the
+// catalogue (editor-viewport-tools.ts), never typed.
+const VIEWPORT_SLUGS = editorViewportSlugs();
+
+test("health: the page-view set is derived and plausible (phone)", () => {
+  expect(VIEWPORT_SLUGS.length).toBeGreaterThanOrEqual(1);
+  expect([...VIEWPORT_SLUGS].sort()).toEqual([
+    "annotate-pdf",
+    "edit-pdf",
+    "sign-pdf",
+  ]);
+});
+
+for (const slug of VIEWPORT_SLUGS) {
+  test(`${slug} (phone): Tab reaches the page view and PageDown scrolls it`, async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await proveViewportKeyboard(page, slug);
+  });
+}

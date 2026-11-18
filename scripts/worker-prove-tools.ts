@@ -103,10 +103,13 @@ import { OFFICE_INPUT_FIXTURES, odsWith } from "@/tests/office-input-fixtures";
 import {
   CSV_CHARSET_CASES,
   CSV_CHOICE_CASES,
+  CSV_FILE_NAME_CASES,
 } from "@/tests/csv-charset-fixtures";
-import type {
-  CsvCharsetCase,
-  CsvChoiceCase,
+import {
+  fileNameHeaderVerdict,
+  fileNameSpecOk,
+  type CsvCharsetCase,
+  type CsvChoiceCase,
 } from "@/lib/workers/office-conversion/input-proof";
 import {
   CSV_CHARSET_OPTION,
@@ -138,6 +141,11 @@ import {
   withStaleOcrLayer,
 } from "@/lib/workers/ocr-redo-proof";
 import { OCR_REFUSAL_MESSAGES } from "@/lib/workers/ocr-engine-errors";
+import {
+  checkOwnerPassword,
+  restrictedLike,
+} from "@/lib/workers/ocr-owner-password";
+import { openHandler } from "@/lib/pdf/security/document";
 
 import {
   PDF_TO_WORD_RTL_REFUSAL,
@@ -747,6 +755,13 @@ function csvChoiceSpecs(label: string): ProofSpec[] {
     },
   });
   return [spec(c.right[0]!, true), spec(c.wrong[0]!, false)];
+}
+
+/** One of the CSV file-name cases the in-image proof converts too. */
+function fileNameCase(label: string) {
+  const found = CSV_FILE_NAME_CASES.find((c) => c.label === label);
+  if (!found) throw new Error(`no ${label} CSV file-name case`);
+  return found;
 }
 
 /** One of the CSV charset cases the in-image proof converts too. */
@@ -1486,6 +1501,78 @@ const SPECS: ProofSpec[] = [
     expect: () => false,
     want: "a final refusal naming the author's restrictions and the owner password",
   },
+  // The same restricted file WITH its owner password (competitor-audit
+  // backlog #11, 2026-11-17), on a worker that proves `ocrOwnerPassword`
+  // (the job route refuses the option otherwise). The download must be
+  // restricted exactly like the upload: read back in Node with the in-house
+  // handler — opens with no password, the typed password is its OWNER
+  // password, the kept grant switches equal the upload's, AES-256 (V5 R6).
+  // The owner password is the fixture's published test value. A wrong
+  // password is the control: refused, nothing processed.
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (restricted, with its owner password)",
+    make: () =>
+      readFileSync("src/tests/fixtures/restricted-pdf/qpdf-r6-aes256.pdf"),
+    name: "restricted.pdf",
+    type: PDF_MIME,
+    options: {
+      languages: ["eng"],
+      outputMode: "searchable-pdf",
+      ownerPassword: "owner-r6-test",
+    },
+    expect: isPdf,
+    verify: async (buf) => {
+      const original = new Uint8Array(
+        readFileSync("src/tests/fixtures/restricted-pdf/qpdf-r6-aes256.pdf"),
+      );
+      const before = await checkOwnerPassword(original, "owner-r6-test");
+      if (before.kind !== "owner")
+        return { ok: false, detail: "the fixture did not verify" };
+      const out = new Uint8Array(buf);
+      const free = await openHandler(out, "").catch(() => null);
+      const kept = await restrictedLike(
+        out,
+        before.grant,
+        "owner-r6-test",
+        before.strength,
+      );
+      const aes256 =
+        free?.params.v === 5 &&
+        free.params.r === 6 &&
+        free.params.stream === "aesv3";
+      return kept && aes256
+        ? {
+            ok: true,
+            detail: `restricted like the upload (/P ${readEncryptPermissions(out)}), owner password kept, no open password, V5 R6 AES-256`,
+          }
+        : {
+            ok: false,
+            detail: `restricted like the upload: ${kept}; V${free?.params.v} R${free?.params.r} ${free?.params.stream}`,
+          };
+    },
+    want: "the searchable PDF, restricted exactly like the upload",
+  },
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (restricted, wrong owner password, refused control)",
+    make: () =>
+      readFileSync("src/tests/fixtures/restricted-pdf/qpdf-r6-aes256.pdf"),
+    name: "restricted.pdf",
+    type: PDF_MIME,
+    options: {
+      languages: ["eng"],
+      outputMode: "searchable-pdf",
+      ownerPassword: "owner-r6-test-not-it",
+    },
+    expectFailure: {
+      code: "unprocessable_entity",
+      retryable: false,
+      message: exactly(OCR_REFUSAL_MESSAGES["wrong-owner-password"]),
+    },
+    expect: () => false,
+    want: "a final refusal of a password that is not the owner's",
+  },
   {
     tool: "ocr-pdf",
     label: "ocr-pdf (open password, refused control)",
@@ -1922,6 +2009,34 @@ const SPECS: ProofSpec[] = [
         detail: text.includes(word)
           ? `"${word}" in its text`
           : `"${word}" is not in its text`,
+      };
+    },
+  },
+  // The file name in a CSV's header (found in production 2026-11-17): every
+  // upload was written as input.<ext>, LibreOffice names a CSV's sheet after
+  // the file it opened, and Calc prints the sheet name at the top of each
+  // page, so every converted CSV said "input" there. Through the deployment,
+  // so the name a user's browser sends is the name that reaches LibreOffice:
+  // the upload route's sanitizer, the percent-encoded object metadata and the
+  // worker's decode, composed. The worker image's own proof
+  // (`worker:office-input-proof`) holds the Bengali and CJK stems and the
+  // "input.csv" control that shows the header is read. A worker image from
+  // before the fix prints "input" here and FAILS.
+  {
+    tool: "excel-to-pdf",
+    label: "excel-to-pdf (csv, its own file name in the header)",
+    make: async () => Buffer.from(fileNameCase("Cyrillic stem").build()),
+    name: fileNameCase("Cyrillic stem").name,
+    type: "text/csv",
+    expect: isPdf,
+    want: "its file name's stem in the header, never input",
+    verify: async (bytes) => {
+      const { stem } = fileNameCase("Cyrillic stem");
+      const text = await pdfPlainText(bytes);
+      const v = fileNameHeaderVerdict(text, stem);
+      return {
+        ok: fileNameSpecOk(text, stem),
+        detail: `stem ${v.shows ? "printed" : "NOT printed"}, "input" ${v.showsInput ? "PRINTED" : "nowhere"}`,
       };
     },
   },

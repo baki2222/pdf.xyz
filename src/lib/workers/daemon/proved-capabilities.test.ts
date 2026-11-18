@@ -491,3 +491,39 @@ describe("the csvImportOptions entry is a proof, not a constant", () => {
     );
   });
 });
+
+describe("the ocrOwnerPassword entry is a proof, not a constant", () => {
+  /**
+   * Competitor-audit backlog #11 (2026-11-17). Every other test here spies
+   * on `prove`, so `ocrOwnerPassword: { prove: () => true }` would pass them
+   * all; this holds the entry to the call, and `ocr-owner-capability.test.ts`
+   * holds the call to the image (it says NO for a processor that drops the
+   * option, a runner that lets a wrong password through, no qpdf on the
+   * host, and a refusing soundness gate).
+   */
+  it("is the call to provesOcrOwnerPassword, imported from ocr-owner-capability", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/lib/workers/daemon/proved-capabilities.ts"),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /^import \{ provesOcrOwnerPassword \} from "@\/lib\/workers\/ocr-owner-capability";$/m,
+    );
+    const entry =
+      /^ {2}ocrOwnerPassword: \{([\s\S]*?)\},?$/m.exec(source)?.[1] ?? "";
+    expect(entry, "no ocrOwnerPassword entry in PROVED_CAPABILITIES").not.toBe(
+      "",
+    );
+    expect(entry).toMatch(
+      /prove: \(env\) => provesOcrOwnerPassword\(env\),\s*parse: bool/,
+    );
+  });
+
+  it("answers what the host's qpdf presence allows, and never throws", async () => {
+    // The default presence probe reads this host's PATH, so the answer is
+    // whatever qpdf's presence is here; the proof itself is held to YES with
+    // qpdf present in `ocr-owner-capability.test.ts`.
+    const answer = await PROVED_CAPABILITIES.ocrOwnerPassword.prove({});
+    expect(typeof answer).toBe("boolean");
+  });
+});

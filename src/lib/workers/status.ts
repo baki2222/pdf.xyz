@@ -174,6 +174,17 @@ export interface WorkerStatus {
    * CSV choice, exactly as before. Optional: absent reads as `false`.
    */
   csvImportOptions?: boolean;
+  /**
+   * Whether OCR PDF may offer the Owner password field for a restricted PDF
+   * (2026-11-17, competitor-audit backlog #11). True only when an OBSERVED
+   * heartbeat proves `ocrOwnerPassword` (`liveWorkerOcrsWithOwnerPassword`,
+   * the predicate `POST /api/jobs` admits an OCR job carrying
+   * `ownerPassword` on): an image built before the feature drops the field
+   * and refuses the file, and the image ships separately from this web
+   * tier. Until it reads true the panel shows no field, exactly as before.
+   * Optional: absent reads as `false`.
+   */
+  ocrOwnerPassword?: boolean;
 }
 
 const NO_COMPRESS: CompressCapability = {
@@ -315,6 +326,11 @@ export function buildWorkerStatus(
    * (`liveWorkerReadsCsvImportOptions`, the predicate the admission gate uses).
    */
   workerCsvImportOptions?: boolean,
+  /**
+   * Whether the observed worker's heartbeat proves `ocrOwnerPassword`
+   * (`liveWorkerOcrsWithOwnerPassword`, the predicate the admission gate uses).
+   */
+  workerOcrOwnerPassword?: boolean,
 ): WorkerStatus {
   const ocr = buildOcrCapability(
     mode,
@@ -352,6 +368,8 @@ export function buildWorkerStatus(
     workerObserved === true && workerTranslatePageRange === true;
   const csvImportOptions =
     workerObserved === true && workerCsvImportOptions === true;
+  const ocrOwnerPassword =
+    workerObserved === true && workerOcrOwnerPassword === true;
 
   if (mode === "local-dev") {
     const engines = DEEP_COMPRESSION_TOOLS.filter((tool) => tools?.[tool]);
@@ -378,6 +396,7 @@ export function buildWorkerStatus(
       summarizePages,
       translatePageRange,
       csvImportOptions,
+      ocrOwnerPassword,
     };
   }
 
@@ -404,6 +423,7 @@ export function buildWorkerStatus(
       summarizePages,
       translatePageRange,
       csvImportOptions,
+      ocrOwnerPassword,
     };
   }
 
@@ -432,5 +452,6 @@ export function buildWorkerStatus(
     summarizePages,
     translatePageRange,
     csvImportOptions,
+    ocrOwnerPassword,
   };
 }

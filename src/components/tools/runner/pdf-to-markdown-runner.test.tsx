@@ -115,3 +115,33 @@ describe("PDF to Markdown's options reach the converter", () => {
     expect(screen.getAllByRole("checkbox")).toHaveLength(1);
   });
 });
+
+/**
+ * The Markdown preview scrolls (max-h-72 overflow-auto), so a keyboard must
+ * be able to reach it, and a screen reader must hear what it is. Until
+ * 2026-11-18 it was a bare <div>: axe scrollable-region-focusable on the
+ * live result, the sibling PDF to Text had been fixed a day earlier.
+ */
+describe("PDF to Markdown's preview", () => {
+  it("is a named region a keyboard can reach", async () => {
+    const markdown = "# Page 1\n\nHello\n\n# Page 2\n\nWorld\n";
+    convert.mockImplementationOnce(async () => ({
+      markdown,
+      pageCount: 2,
+      characterCount: markdown.length,
+      hasMarkdown: true,
+      linkCount: 0,
+      tableCount: 0,
+      removedLineCount: 0,
+    }));
+    renderEditor(2);
+    fireEvent.click(screen.getByRole("button", { name: /Create Markdown/ }));
+    const preview = await screen.findByRole("region", {
+      name: "Markdown preview",
+    });
+    expect(preview).toHaveAttribute("tabindex", "0");
+    expect(preview.className).toMatch(/\boverflow-auto\b/);
+    // Positive control: the region IS the box showing the Markdown.
+    expect(preview.textContent).toBe(markdown);
+  });
+});
