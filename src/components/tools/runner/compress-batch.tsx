@@ -19,11 +19,30 @@ import {
   BATCH_LOSSLESS_LABEL,
   BATCH_MODE_HEADING,
   BATCH_RESTRICTED_NOTE,
+  BATCH_TARGET_INVALID,
+  BATCH_TARGET_NOTE,
+  batchTargetAlreadyFits,
 } from "@/lib/pdf/compress-batch-copy";
+import {
+  DEFAULT_IMAGE_QUALITY,
+  imageQualityNotApplied,
+  type ImageQuality,
+} from "@/lib/pdf/compress-image-quality";
+import {
+  TARGET_SIZE_HINT,
+  alreadyFits,
+  batchTargetBytes,
+  targetOutcome,
+  type TargetChoice,
+} from "@/lib/pdf/compress-target";
 import { capBatchFiles } from "@/lib/batch/limits";
 import { reportToolFailed } from "@/lib/telemetry/tool-outcome";
 import { useWorkerStatus } from "../use-worker-status";
 import { canRunDeepCompression, qualityChipTitle } from "./compress-deep-gate";
+import {
+  ImageQualityControl,
+  TargetSizeControl,
+} from "./compress-deep-options";
 import { readFileBytes } from "@/lib/pdf/browser";
 import { outputName } from "@/lib/pdf/files";
 import { formatBytes } from "@/lib/utils";
@@ -54,6 +73,15 @@ export interface CompressResult {
    * encrypted file), so its signatures were not counted.
    */
   signaturesUnchecked?: boolean;
+  /**
+   * The deep path with a Target size only: what the row says about it. Read
+   * from the bytes the browser received and the job record, as the
+   * single-file panel reads it (`targetOutcome`); or, for a file that
+   * already fit and was sent without the target, the row's plain note.
+   */
+  target?: { met: boolean; text: string };
+  /** The deep path only: the job record does not show the level sent. */
+  imageQualityIgnored?: ImageQuality;
 }
 
 /**
@@ -123,10 +151,21 @@ export async function compressBatchFile(file: File): Promise<CompressResult> {
   };
 }
 
-/** One setting for every file of a deep batch (audit compress-pdf#5). */
+/**
+ * One setting for every file of a deep batch (audit compress-pdf#5), with
+ * the single-file panel's Image quality and Target size (audit backlog #15).
+ */
 export interface BatchDeepOptions {
   targetDpi: number;
   grayscale: boolean;
+  /** Absent ⇒ the preset's own level (Medium), and nothing extra is sent. */
+  imageQuality?: ImageQuality;
+  /**
+   * The size EACH file should fit, in bytes; absent ⇒ no target. A file
+   * that already fits it is sent without it (`alreadyFits`): our server
+   * refuses such a target, and there is nothing to aim for.
+   */
+  targetBytes?: number;
 }
 
 /** Signatures in `bytes`, or `null` when the browser cannot read the file. */
@@ -183,6 +222,11 @@ export async function compressBatchFileDeep(
   signal?: AbortSignal,
 ): Promise<CompressResult> {
   const bytes = await preflightDeep(file);
+  const asked = options.targetBytes;
+  const sentTarget =
+    asked !== undefined && !alreadyFits(asked, bytes.byteLength)
+      ? asked
+      : undefined;
   const res = await runWorkerCompression(
     {
       filename: file.name,
@@ -190,12 +234,43 @@ export async function compressBatchFileDeep(
       profile: "deep",
       targetDpi: options.targetDpi,
       grayscale: options.grayscale,
+      ...(options.imageQuality ? { imageQuality: options.imageQuality } : {}),
+      ...(sentTarget !== undefined ? { targetBytes: sentTarget } : {}),
     },
     signal ? { signal } : {},
   );
   if (!res.ok) throw new Error(res.message);
   const output = res.output;
-  if (!options.grayscale && output.byteLength >= bytes.byteLength) {
+  // A file that did not get smaller comes back as it came in, except on a
+  // Grayscale run, whose gray file is a different document and always ships.
+  const keepOriginal =
+    !options.grayscale && output.byteLength >= bytes.byteLength;
+  const compression = res.job?.results?.compression;
+  // The row's truth about the target, as the single-file panel tells it:
+  // `met` from the bytes received, "not applied" from the job record.
+  const target =
+    sentTarget !== undefined
+      ? targetOutcome({
+          targetBytes: sentTarget,
+          outputBytes: output.byteLength,
+          appliedTargetBytes: compression?.target?.targetBytes ?? null,
+          grayscale: options.grayscale,
+        })
+      : asked !== undefined
+        ? batchTargetAlreadyFits(
+            asked,
+            keepOriginal ? bytes.byteLength : output.byteLength,
+            keepOriginal,
+          )
+        : undefined;
+  const level = options.imageQuality ?? DEFAULT_IMAGE_QUALITY;
+  const notes = {
+    ...(target ? { target } : {}),
+    ...(level !== DEFAULT_IMAGE_QUALITY && compression?.imageQuality !== level
+      ? { imageQualityIgnored: level }
+      : {}),
+  };
+  if (keepOriginal) {
     return {
       outputName: file.name,
       bytes,
@@ -204,6 +279,7 @@ export async function compressBatchFileDeep(
       savedBytes: 0,
       unchanged: true,
       signatureCount: 0,
+      ...notes,
     };
   }
   const signatures = await signaturesIn(bytes);
@@ -216,6 +292,7 @@ export async function compressBatchFileDeep(
     unchanged: false,
     signatureCount: signatures ?? 0,
     ...(signatures === null ? { signaturesUnchecked: true } : {}),
+    ...notes,
   };
 }
 
@@ -239,12 +316,38 @@ function pct(part: number, whole: number): number {
 
 /** A finished row's detail line: what it saved, and what to know about it. */
 function describeRow(r: CompressRow) {
-  const size = !r.unchanged ? (
+  const saved = !r.unchanged ? (
     <span className="text-ok">
       {`−${formatBytes(r.savedBytes)} (${pct(r.savedBytes, r.originalBytes)}%) · ${formatBytes(r.optimizedBytes)}`}
     </span>
   ) : (
     <>Nothing came out smaller — your file, unchanged</>
+  );
+  // The deep run's own notes, in the single-file panel's words: whether the
+  // file is under the Target size, and a level the worker did not apply.
+  const size = (
+    <>
+      {saved}
+      {r.target && (
+        <>
+          {" · "}
+          <span
+            data-target-met={r.target.met}
+            className={r.target.met ? "text-ok" : "text-warn"}
+          >
+            {r.target.text}
+          </span>
+        </>
+      )}
+      {r.imageQualityIgnored && (
+        <>
+          {" · "}
+          <span className="text-warn">
+            {imageQualityNotApplied(r.imageQualityIgnored)}
+          </span>
+        </>
+      )}
+    </>
   );
   if (r.signaturesUnchecked) {
     return (
@@ -313,9 +416,12 @@ export function CompressBatchRunner({
   );
 
   // Where the batch runs: the lossless repack in this browser (the default),
-  // or, opted into, our secure server with one Quality and Grayscale for
-  // every file (audit compress-pdf#5). Offered only when a server can take
-  // the jobs: the single-file panel's own gate.
+  // or, opted into, our secure server with one Quality, Target size,
+  // Grayscale and Image quality for every file (audit compress-pdf#5,
+  // backlog #15). Offered only when a server can take the jobs: the
+  // single-file panel's own gate, which is also the only gate it puts on
+  // Target size and Image quality. A worker image older than either option
+  // ignores it, and its row says so from the job record, as that panel does.
   const shared = useWorkerStatus();
   const deepAvailable =
     shared.phase !== "loading" &&
@@ -324,6 +430,12 @@ export function CompressBatchRunner({
   const [mode, setMode] = useState<"lossless" | "deep">("lossless");
   const [dpi, setDpi] = useState<number>(150);
   const [grayscale, setGrayscale] = useState(false);
+  const [imageQuality, setImageQuality] = useState<ImageQuality>(
+    DEFAULT_IMAGE_QUALITY,
+  );
+  const [target, setTarget] = useState<TargetChoice>("none");
+  const [customKb, setCustomKb] = useState("");
+  const targetBytes = batchTargetBytes(target, customKb);
   const deep = mode === "deep" && deepAvailable;
   const modeName = useId();
 
@@ -333,12 +445,17 @@ export function CompressBatchRunner({
         deep
           ? await compressBatchFileDeep(
               file,
-              { targetDpi: dpi, grayscale },
+              {
+                targetDpi: dpi,
+                grayscale,
+                imageQuality,
+                ...(typeof targetBytes === "number" ? { targetBytes } : {}),
+              },
               signal,
             )
           : await compressBatchFile(file),
       ),
-    [deep, dpi, grayscale],
+    [deep, dpi, grayscale, imageQuality, targetBytes],
   );
 
   // A deep row runs inside `runWorkerCompression`, which reports its own
@@ -434,6 +551,16 @@ export function CompressBatchRunner({
               </ChipButton>
             ))}
           </div>
+          <TargetSizeControl
+            target={target}
+            onTarget={setTarget}
+            customKb={customKb}
+            onCustomKb={setCustomKb}
+            invalid={targetBytes === "invalid"}
+            invalidText={BATCH_TARGET_INVALID}
+            hint={`${TARGET_SIZE_HINT} ${BATCH_TARGET_NOTE}`}
+            placeholderKb={150}
+          />
           <label className="text-muted flex min-h-11 items-start gap-2.5 text-sm">
             <input
               type="checkbox"
@@ -448,6 +575,10 @@ export function CompressBatchRunner({
               </span>
             </span>
           </label>
+          <ImageQualityControl
+            imageQuality={imageQuality}
+            onImageQuality={setImageQuality}
+          />
         </div>
       )}
     </fieldset>
@@ -461,6 +592,9 @@ export function CompressBatchRunner({
       rejected={rejected}
       banner={banner}
       settings={settings}
+      runBlocked={
+        deep && targetBytes === "invalid" ? BATCH_TARGET_INVALID : null
+      }
       countLabel={pdfs}
       runLabel={(n) => `Compress ${pdfs(n)}${deep ? " on our server" : ""}`}
       runningLabel="Compressing…"

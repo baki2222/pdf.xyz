@@ -67,6 +67,30 @@ export function maxTargetKb(originalBytes: number): number {
 }
 
 /**
+ * True when a file of `originalBytes` already fits `targetBytes`, so there is
+ * nothing to aim for: the worker refuses such a target (`invalid_target` in
+ * `engine.ts`). The ONE rule the single-file panel disables a preset by and
+ * the batch leaves the target off a row by (audit backlog #15).
+ */
+export function alreadyFits(
+  targetBytes: number,
+  originalBytes: number,
+): boolean {
+  return originalBytes <= targetBytes;
+}
+
+/** The bytes a choice names, before any file is weighed against it. */
+function choiceBytes(
+  choice: TargetChoice,
+  customKb: string,
+): number | undefined | "invalid" {
+  if (choice === "none") return undefined;
+  if (choice !== "custom") return choice;
+  if (!/^\d{1,7}$/.test(customKb.trim())) return "invalid";
+  return Number(customKb.trim()) * KB;
+}
+
+/**
  * The bytes a choice asks for: `undefined` for no target, `"invalid"` for a
  * value the worker would refuse — under the floor, not below the file's own
  * size, or not a whole number of KB. The run waits on an invalid one.
@@ -76,13 +100,26 @@ export function chosenTargetBytes(
   customKb: string,
   originalBytes: number,
 ): number | undefined | "invalid" {
-  if (choice === "none") return undefined;
-  let bytes: number;
-  if (choice === "custom") {
-    if (!/^\d{1,7}$/.test(customKb.trim())) return "invalid";
-    bytes = Number(customKb.trim()) * KB;
-  } else bytes = choice;
-  return bytes >= MIN_TARGET_BYTES && bytes < originalBytes ? bytes : "invalid";
+  const bytes = choiceBytes(choice, customKb);
+  if (typeof bytes !== "number") return bytes;
+  return bytes >= MIN_TARGET_BYTES && !alreadyFits(bytes, originalBytes)
+    ? bytes
+    : "invalid";
+}
+
+/**
+ * A batch's choice, one for every file: the worker's own bounds, and no
+ * file's size, since each file is weighed on its own row (`alreadyFits`).
+ */
+export function batchTargetBytes(
+  choice: TargetChoice,
+  customKb: string,
+): number | undefined | "invalid" {
+  const bytes = choiceBytes(choice, customKb);
+  if (typeof bytes !== "number") return bytes;
+  return bytes >= MIN_TARGET_BYTES && bytes <= MAX_TARGET_BYTES
+    ? bytes
+    : "invalid";
 }
 
 /** A target as the panel names it: whole MB when it is one, else KB. */

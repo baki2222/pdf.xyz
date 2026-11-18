@@ -13,7 +13,6 @@ import Link from "next/link";
 import {
   AlertTriangle,
   Boxes,
-  ChevronDown,
   FileText,
   Gauge,
   ImageIcon,
@@ -36,19 +35,15 @@ import { DEEP_COMPRESSION_GRAYSCALE_HINT } from "@/lib/pdf/compress-grayscale";
 import { BATCH_DEEP_LABEL } from "@/lib/pdf/compress-batch-copy";
 import {
   DEFAULT_IMAGE_QUALITY,
-  IMAGE_QUALITY_HINT,
-  IMAGE_QUALITY_LABELS,
-  IMAGE_QUALITY_LEVELS,
   imageQualityNotApplied,
   type ImageQuality,
 } from "@/lib/pdf/compress-image-quality";
 import {
   KB,
   MIN_TARGET_BYTES,
-  PRESET_ALREADY_SMALLER_TITLE,
   TARGET_SIZE_HINT,
-  TARGET_SIZE_LABELS,
   TARGET_SIZE_PRESETS,
+  alreadyFits,
   chosenTargetBytes,
   maxTargetKb,
   targetOutcome,
@@ -85,6 +80,10 @@ import {
   warmEnding,
 } from "./runner-kit";
 import { canRunDeepCompression, qualityChipTitle } from "./compress-deep-gate";
+import {
+  ImageQualityControl,
+  TargetSizeControl,
+} from "./compress-deep-options";
 
 // Moved to `./compress-deep-gate` (audit compress-pdf#5) so the batch runner
 // reads the same gate and titles without importing this module back.
@@ -812,7 +811,9 @@ function linkedTarget(
   const none = { target: "none" as const, customKb: "" };
   if (bytes === null) return none;
   if (TARGET_SIZE_PRESETS.some((p) => p.bytes === bytes)) {
-    return bytes < originalBytes ? { target: bytes, customKb: "" } : none;
+    return alreadyFits(bytes, originalBytes)
+      ? none
+      : { target: bytes, customKb: "" };
   }
   const customKb = String(bytes / KB);
   return chosenTargetBytes("custom", customKb, originalBytes) === "invalid"
@@ -1128,13 +1129,6 @@ function DeepRunControls({
     outcome?.ok === true && !showCard,
     `Compression finished. ${noGainTarget ?? "Our server could not shrink this file further without losing quality — the original is already efficient."}`,
   );
-  const customId = useId();
-  const advancedId = useId();
-  // Closed by default, and open when a level other than the default is
-  // chosen, so a choice is never hidden from the person who made it.
-  const [advancedOpen, setAdvancedOpen] = useState(
-    imageQuality !== DEFAULT_IMAGE_QUALITY,
-  );
 
   return (
     <div className="flex flex-col gap-3 pl-6">
@@ -1162,71 +1156,18 @@ function DeepRunControls({
         ))}
       </div>
 
-      <div
-        role="group"
-        aria-label={TARGET_SIZE_LABELS.heading}
-        className="flex flex-wrap items-center gap-2"
-      >
-        <span className="text-muted text-[11px] font-medium tracking-wide uppercase">
-          {TARGET_SIZE_LABELS.heading}
-        </span>
-        <ChipButton
-          onClick={() => onTarget("none")}
-          active={target === "none"}
-          disabled={busy}
-        >
-          {TARGET_SIZE_LABELS.none}
-        </ChipButton>
-        {TARGET_SIZE_PRESETS.map((p) => (
-          <ChipButton
-            key={p.bytes}
-            onClick={() => onTarget(p.bytes)}
-            active={target === p.bytes}
-            // A file already under a preset has nothing to aim for.
-            disabled={busy || p.bytes >= originalBytes}
-            {...(p.bytes >= originalBytes
-              ? { title: PRESET_ALREADY_SMALLER_TITLE }
-              : {})}
-          >
-            {p.label}
-          </ChipButton>
-        ))}
-        <ChipButton
-          onClick={() => onTarget("custom")}
-          active={target === "custom"}
-          disabled={busy}
-        >
-          {TARGET_SIZE_LABELS.custom}
-        </ChipButton>
-        {target === "custom" && (
-          <span className="text-muted inline-flex items-center gap-1.5 text-xs">
-            <input
-              id={customId}
-              type="text"
-              inputMode="numeric"
-              aria-label="Custom target size in KB"
-              placeholder={String(Math.min(150, maxTargetKb(originalBytes)))}
-              value={customKb}
-              readOnly={busy}
-              onChange={(event) => onCustomKb(event.target.value)}
-              className="border-line text-fg focus:border-accent/40 focus:ring-accent/50 bg-canvas rounded-ctl h-11 w-24 border px-3.5 text-sm transition outline-none focus:ring-2"
-            />
-            <label htmlFor={customId}>KB</label>
-          </span>
-        )}
-      </div>
-      {target !== "none" && (
-        <p
-          className={cn(
-            "text-xs leading-relaxed",
-            targetInvalid ? "text-warn" : "text-muted",
-          )}
-        >
-          {targetInvalid
-            ? `Enter a whole number of KB from ${MIN_TARGET_BYTES / KB} to ${maxTargetKb(originalBytes)}.`
-            : TARGET_SIZE_HINT}
-        </p>
-      )}
+      <TargetSizeControl
+        target={target}
+        onTarget={onTarget}
+        customKb={customKb}
+        onCustomKb={onCustomKb}
+        invalid={targetInvalid}
+        invalidText={`Enter a whole number of KB from ${MIN_TARGET_BYTES / KB} to ${maxTargetKb(originalBytes)}.`}
+        hint={TARGET_SIZE_HINT}
+        placeholderKb={Math.min(150, maxTargetKb(originalBytes))}
+        presetOutOfReach={(bytes) => alreadyFits(bytes, originalBytes)}
+        busy={busy}
+      />
 
       <label className="text-muted flex items-start gap-2.5 text-sm">
         <input
@@ -1248,52 +1189,11 @@ function DeepRunControls({
         </span>
       </label>
 
-      {/* Image quality, apart from resolution (audit compress-pdf#4). A
-          button rather than <details>, as the other worker panels do; 44px
-          tall, as every control on the way to Run is on a phone. */}
-      <div className="flex flex-col gap-2">
-        <button
-          type="button"
-          aria-expanded={advancedOpen}
-          aria-controls={advancedId}
-          onClick={() => setAdvancedOpen((open) => !open)}
-          className="text-accent hover:text-fg inline-flex min-h-11 items-center gap-1.5 self-start text-sm font-medium transition"
-        >
-          <ChevronDown
-            className={cn("size-4 transition", advancedOpen && "rotate-180")}
-            aria-hidden
-          />
-          {IMAGE_QUALITY_LABELS.disclosure}
-        </button>
-        <div
-          id={advancedId}
-          hidden={!advancedOpen}
-          className="flex flex-col gap-2"
-        >
-          <div
-            role="group"
-            aria-label={IMAGE_QUALITY_LABELS.heading}
-            className="flex flex-wrap items-center gap-2"
-          >
-            <span className="text-muted text-[11px] font-medium tracking-wide uppercase">
-              {IMAGE_QUALITY_LABELS.heading}
-            </span>
-            {IMAGE_QUALITY_LEVELS.map((level) => (
-              <ChipButton
-                key={level.id}
-                onClick={() => onImageQuality(level.id)}
-                active={imageQuality === level.id}
-                disabled={busy}
-              >
-                {level.label}
-              </ChipButton>
-            ))}
-          </div>
-          <p className="text-muted text-xs leading-relaxed">
-            {IMAGE_QUALITY_HINT}
-          </p>
-        </div>
-      </div>
+      <ImageQualityControl
+        imageQuality={imageQuality}
+        onImageQuality={onImageQuality}
+        busy={busy}
+      />
 
       <WorkerRunButton
         onClick={onRun}
