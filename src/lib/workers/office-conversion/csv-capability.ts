@@ -170,7 +170,10 @@ export async function provesCsvImportOptions(
       if (!args) return null;
       const at = args.findIndex((a) => a.startsWith("--infilter="));
       if (at < 0 || at > args.indexOf("--convert-to")) return null;
-      if (!args.at(-1)?.endsWith("input.csv")) return null;
+      // The file stays last. CHANGED 2026-11-17: this read "input.csv", the
+      // name every upload had; it is now the job's own stem (`./input-name`),
+      // and a probe still asking for "input.csv" reported NO on every image.
+      if (!args.at(-1)?.endsWith(".csv")) return null;
       return args[at]!.slice("--infilter=".length);
     };
 

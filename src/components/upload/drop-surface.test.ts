@@ -46,6 +46,11 @@
  *    a camera, not a place a file is dropped: the page's own sheet (rendered
  *    BEFORE it, so `fileInput()` still finds the sheet) takes drops, picks
  *    and pastes, and both feed the runner's one `addFiles`.
+ *  - `tools/ai-extract-schemas.tsx` (2026-11-17): AI Data Extraction's
+ *    Import JSON, a hidden picker for a saved schema's JSON file. A schema
+ *    is settings, not a document arriving, so it is no drop target; it is
+ *    mounted only after Saved schemas is opened, after the page's sheet,
+ *    so `fileInput()` still finds the sheet first.
  */
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -66,6 +71,8 @@ const EXEMPT: Record<string, string> = {
     "the header's Open files picker when a page has no target: made when asked for, at the end of <body>",
   "src/components/tools/runner/scan-runner.tsx":
     "Scan to PDF's camera button: a capture input that opens a phone's camera, not a drop target; it renders after the page's sheet, and what it takes goes through the same addFiles",
+  "src/components/tools/ai-extract-schemas.tsx":
+    "AI Data Extraction's Import JSON: a hidden picker for a saved schema's JSON file, not a document arriving and not a drop target; it exists only after Saved schemas is opened, after the page's sheet, and what it reads never leaves the browser",
 };
 
 /** Every way a source can make a file input. Selectors (`[type="file"]`) excluded. */

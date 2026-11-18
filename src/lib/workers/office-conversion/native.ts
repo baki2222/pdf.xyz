@@ -19,6 +19,7 @@ import {
 import type { SheetLayout } from "./sheet-layout";
 import type { CsvImportChoice } from "./csv-import";
 import { csvInfilter, resolveCsvImport } from "./csv-filter";
+import { officeInputName, officeOutputName } from "./input-name";
 
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
 
@@ -33,6 +34,8 @@ export type LibreOfficeExec = (
     timeout: number;
     maxBuffer: number;
     windowsHide: boolean;
+    /** LibreOffice's environment ({@link libreOfficeEnv}). */
+    env?: NodeJS.ProcessEnv;
     /** The attempt's abort signal: Node kills the child on abort. */
     signal?: AbortSignal;
   },
@@ -206,11 +209,30 @@ export function probeLibreOfficeFromConfig(
   return null;
 }
 
-function safeInputName(filename: string): string {
-  const ext = filename.includes(".")
-    ? filename.slice(filename.lastIndexOf(".")).replace(/[^a-zA-Z0-9.]/g, "")
-    : ".docx";
-  return `input${ext || ".docx"}`;
+/**
+ * The environment LibreOffice runs with: the worker's own, plus a UTF-8
+ * character type when nothing in it already names one.
+ *
+ * Since 2026-11-17 the upload is written under the user's own file name
+ * (`./input-name`), which may be Bengali, Cyrillic or CJK. LibreOffice
+ * decodes a path it is handed, and the document URL it builds from it,
+ * in the character set of its locale, and the worker image sets no locale
+ * at all (the C locale, whose character set is ASCII). What LibreOffice does
+ * with a UTF-8 name there was NOT measured when this was written; the
+ * image's own proof (`worker:office-input-proof`, "csv file name") converts
+ * Cyrillic, Bengali and CJK names and reads the header back, and is the
+ * check that this setting is needed and enough. `LC_CTYPE=C.UTF-8` changes
+ * only the character type; the C locale's language (LibreOffice reads it as
+ * en-US) is unchanged. An explicit `LC_ALL` is the operator's choice and is
+ * left alone.
+ */
+export function libreOfficeEnv(
+  env: Readonly<Record<string, string | undefined>>,
+): NodeJS.ProcessEnv {
+  const effective = env.LC_ALL || env.LC_CTYPE || env.LANG || "";
+  const out = { ...env } as NodeJS.ProcessEnv;
+  if (!env.LC_ALL && !/utf-?8/i.test(effective)) out.LC_CTYPE = "C.UTF-8";
+  return out;
 }
 
 export function createNativeLibreOfficePdfRunner(
@@ -231,12 +253,11 @@ export function createNativeLibreOfficePdfRunner(
         throw new Error("Input exceeds size limit.");
       throwIfAttemptAborted(run.signal);
       const dir = await fs.mkdtemp(path.join(baseTmp, "pdfxyz-office-"));
-      const inputName = safeInputName(filename);
+      // The user's own stem (`./input-name`): LibreOffice names a CSV's
+      // sheet, and so its printed header, after the file it opens.
+      const inputName = officeInputName(filename);
       const inputPath = path.join(dir, inputName);
-      const outputPath = path.join(
-        dir,
-        `${inputName.replace(/\.[^.]+$/, "")}.pdf`,
-      );
+      const outputPath = path.join(dir, officeOutputName(inputName));
       try {
         await fs.writeFile(inputPath, input);
         throwIfAttemptAborted(run.signal);
@@ -252,6 +273,7 @@ export function createNativeLibreOfficePdfRunner(
             timeout: config.timeoutMs,
             maxBuffer: EXEC_MAX_BUFFER,
             windowsHide: true,
+            env: libreOfficeEnv(process.env),
             ...signalOption(run.signal),
           },
         );

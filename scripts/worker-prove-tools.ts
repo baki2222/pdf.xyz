@@ -103,10 +103,13 @@ import { OFFICE_INPUT_FIXTURES, odsWith } from "@/tests/office-input-fixtures";
 import {
   CSV_CHARSET_CASES,
   CSV_CHOICE_CASES,
+  CSV_FILE_NAME_CASES,
 } from "@/tests/csv-charset-fixtures";
-import type {
-  CsvCharsetCase,
-  CsvChoiceCase,
+import {
+  fileNameHeaderVerdict,
+  fileNameSpecOk,
+  type CsvCharsetCase,
+  type CsvChoiceCase,
 } from "@/lib/workers/office-conversion/input-proof";
 import {
   CSV_CHARSET_OPTION,
@@ -747,6 +750,13 @@ function csvChoiceSpecs(label: string): ProofSpec[] {
     },
   });
   return [spec(c.right[0]!, true), spec(c.wrong[0]!, false)];
+}
+
+/** One of the CSV file-name cases the in-image proof converts too. */
+function fileNameCase(label: string) {
+  const found = CSV_FILE_NAME_CASES.find((c) => c.label === label);
+  if (!found) throw new Error(`no ${label} CSV file-name case`);
+  return found;
 }
 
 /** One of the CSV charset cases the in-image proof converts too. */
@@ -1922,6 +1932,34 @@ const SPECS: ProofSpec[] = [
         detail: text.includes(word)
           ? `"${word}" in its text`
           : `"${word}" is not in its text`,
+      };
+    },
+  },
+  // The file name in a CSV's header (found in production 2026-11-17): every
+  // upload was written as input.<ext>, LibreOffice names a CSV's sheet after
+  // the file it opened, and Calc prints the sheet name at the top of each
+  // page, so every converted CSV said "input" there. Through the deployment,
+  // so the name a user's browser sends is the name that reaches LibreOffice:
+  // the upload route's sanitizer, the percent-encoded object metadata and the
+  // worker's decode, composed. The worker image's own proof
+  // (`worker:office-input-proof`) holds the Bengali and CJK stems and the
+  // "input.csv" control that shows the header is read. A worker image from
+  // before the fix prints "input" here and FAILS.
+  {
+    tool: "excel-to-pdf",
+    label: "excel-to-pdf (csv, its own file name in the header)",
+    make: async () => Buffer.from(fileNameCase("Cyrillic stem").build()),
+    name: fileNameCase("Cyrillic stem").name,
+    type: "text/csv",
+    expect: isPdf,
+    want: "its file name's stem in the header, never input",
+    verify: async (bytes) => {
+      const { stem } = fileNameCase("Cyrillic stem");
+      const text = await pdfPlainText(bytes);
+      const v = fileNameHeaderVerdict(text, stem);
+      return {
+        ok: fileNameSpecOk(text, stem),
+        detail: `stem ${v.shows ? "printed" : "NOT printed"}, "input" ${v.showsInput ? "PRINTED" : "nowhere"}`,
       };
     },
   },
