@@ -1686,6 +1686,7 @@ function ruleCandidates(
 function runCandidates(
   p: CardPage,
   all: Piece[],
+  ix: TextIndex,
 ): { cands: Candidate[]; short: Edges[] } {
   const cands: Candidate[] = [];
   const short: Edges[] = [];
@@ -1726,11 +1727,17 @@ function runCandidates(
       );
       let state: Candidate["labelState"] = label ? "found" : "none";
       if (!label && !prevRun) {
+        // The run's band from the baseline index, not every item on the
+        // page: per run that was quadratic in text items (review round 5
+        // fixes, finding 7, where it was most of a ruled run grid's time).
+        const lo = t.y - DETECT.RUN_BASELINE_EMS * t.size;
         const hits = leftOf(
-          p.text.filter((o) => o !== t),
+          textBand(ix, lo, t.y + DETECT.RUN_BASELINE_EMS * t.size).filter(
+            (o) => o !== t,
+          ),
           pc.x0,
           DETECT.LABEL_LEFT_GAP,
-          t.y - DETECT.RUN_BASELINE_EMS * t.size,
+          lo,
           () => t.y + DETECT.RUN_BASELINE_EMS * t.size,
         );
         const pick = pickLabel(hits);
@@ -2119,8 +2126,11 @@ function cellAround(lines: PageLines, x: number, y: number): Edges | null {
 }
 
 /** Text whose baseline is inside the cell and which reaches across it. */
-function textIn(p: CardPage, c: Edges): CardText[] {
-  return p.text.filter(
+function textIn(ix: TextIndex, c: Edges): CardText[] {
+  // Read from the cell's baseline slice: a scan of every text item per
+  // cell made a ruled grid of runs quadratic in text (review round 5
+  // fixes, finding 7).
+  return textBand(ix, c.y0, c.y1).filter(
     (t) =>
       t.str.trim() !== "" &&
       t.y > c.y0 &&
@@ -2137,8 +2147,8 @@ function textIn(p: CardPage, c: Edges): CardText[] {
  * anything else. Text reaching past the right border needs no check here:
  * it is in the next cell too, which both callers require to be empty.
  */
-function cellLabel(p: CardPage, c: Edges): string | null {
-  const items = textIn(p, c).sort((a, b) => a.x - b.x);
+function cellLabel(ix: TextIndex, c: Edges): string | null {
+  const items = textIn(ix, c).sort((a, b) => a.x - b.x);
   if (items.length === 0) return null;
   const first = items[0]!;
   const one = items.every(
@@ -2164,7 +2174,7 @@ function cellLabel(p: CardPage, c: Edges): string | null {
  * header row, a value column, a third column, or a left cell of two lines
  * or none leaves the whole grid to `table-grid` (corpus N4, N39).
  */
-function tableCells(p: CardPage, lines: PageLines): Candidate[] {
+function tableCells(ix: TextIndex, lines: PageLines): Candidate[] {
   const eps = DETECT.GRID_ROW_EPS;
   const tEps = DETECT.GRID_TOUCH_EPS;
   const long = lines.rules
@@ -2221,10 +2231,10 @@ function tableCells(p: CardPage, lines: PageLines): Candidate[] {
       for (let i = 1; i < part.length; i++) {
         const y0 = part[i - 1]!.y;
         const y1 = part[i]!.y;
-        const label = cellLabel(p, { x0: seed.x0, x1: mid, y0, y1 });
+        const label = cellLabel(ix, { x0: seed.x0, x1: mid, y0, y1 });
         const cell = { x0: mid, x1: seed.x1, y0, y1 };
         const empty =
-          textIn(p, cell).length === 0 &&
+          textIn(ix, cell).length === 0 &&
           !lines.squares.some(
             (s) =>
               overlap(s.x0, s.x1, mid, seed.x1) > 0 && s.y1 > y0 && s.y0 < y1,
@@ -2263,9 +2273,9 @@ function tableCells(p: CardPage, lines: PageLines): Candidate[] {
  * the owner's decision in round 4; corpus P33).
  */
 function cellRunLabels(
-  p: CardPage,
+  ix: TextIndex,
   lines: PageLines,
-  all: readonly Piece[],
+  pix: YIndex<Piece>,
   runs: readonly Candidate[],
 ): void {
   for (const c of runs) {
@@ -2274,7 +2284,9 @@ function cellRunLabels(
     const mid = pc.baseline + DETECT.RUN_BASELINE_EMS * pc.size;
     const cell = cellAround(lines, (pc.x0 + pc.x1) / 2, mid);
     if (!cell) continue;
-    const alone = all.every(
+    // The cell's pieces from the baseline index: `every` over all pieces
+    // for every run was quadratic (review round 5 fixes, finding 7).
+    const alone = ySlice(pix, cell.y0, cell.y1).every(
       (o) =>
         o === pc ||
         !(
@@ -2292,7 +2304,7 @@ function cellRunLabels(
       Math.abs(left.y1 - cell.y1) > DETECT.GRID_TOUCH_EPS
     )
       continue;
-    const label = cellLabel(p, left);
+    const label = cellLabel(ix, left);
     if (!label) continue;
     c.label = label;
     c.labelState = "found";
@@ -2701,13 +2713,14 @@ export function classifyPage(
   );
   const lines = readLines(p);
   const rowTable = rowTables(lines.rules, all);
-  const runs = runCandidates(p, all);
-  cellRunLabels(p, lines, all, runs.cands);
+  const tix = textIndex(p.text);
+  const runs = runCandidates(p, all, tix);
+  cellRunLabels(tix, lines, pix, runs.cands);
   const cands = [
     ...ruleCandidates(p, lines, rowTable),
     ...runs.cands,
     ...squareCandidates(p, lines),
-    ...tableCells(p, lines),
+    ...tableCells(tix, lines),
   ];
   cands.forEach((c, i) => (c.order = i));
   counts.candidates = cands.length + runs.short.length;

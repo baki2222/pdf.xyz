@@ -3631,6 +3631,59 @@ describe("exclusions, each at its boundary", () => {
       expect(runLabel(cell([name]))).toBe("Name");
     });
 
+    // Review round 5 fixes, finding 7: every run in a cell scanned every
+    // piece (is it alone?) and every text item (the left cell's label),
+    // and every run without a label scanned every item for one: quadratic
+    // in text, which nothing caps. Measured on the reviewer's head about
+    // 5 s for this page; after, about 0.65 s (best of two runs).
+    it("a ruled grid of 8,000 runs in cells, with 40,000 more items, is classified in linear time", () => {
+      const pairs = 40;
+      const rows = 200;
+      const segs: CardSeg[] = [];
+      const text: CardText[] = [];
+      const right = 50 + 150 * pairs;
+      for (let i = 0; i <= rows; i++) segs.push(hseg(50, right, 50 + 20 * i));
+      for (let c = 0; c <= pairs; c++) {
+        segs.push(vseg(50 + 150 * c, 50, 50 + 20 * rows));
+        if (c < pairs) segs.push(vseg(90 + 150 * c, 50, 50 + 20 * rows));
+      }
+      for (let r = 0; r < rows; r++)
+        for (let c = 0; c < pairs; c++) {
+          text.push(
+            txt(`R${r}C${c}`, 54 + 150 * c, 56 + 20 * r, {
+              size: 8,
+              width: 10,
+            }),
+          );
+          text.push(
+            txt("____________", 96 + 150 * c, 56 + 20 * r, {
+              size: 8,
+              width: 100,
+            }),
+          );
+        }
+      for (let k = 0; k < 40_000; k++)
+        text.push(
+          txt("x", 60 + (k % 1000) * 3, 4200 + Math.floor(k / 1000) * 4, {
+            size: 2,
+            width: 1,
+          }),
+        );
+      const p = pg({ width: right + 50, height: 4400, segs, text });
+      let best = Infinity;
+      let first: string | null | undefined;
+      for (let k = 0; k < 2; k++) {
+        const t0 = performance.now();
+        const r = run(p);
+        best = Math.min(best, performance.now() - t0);
+        first = r.proposals[0]?.label;
+      }
+      // Health check: the runs took their cells' labels (the page CAP keeps
+      // 60 proposals), so the cell path ran.
+      expect(first).toMatch(/^R\d+C0$/);
+      expect(best).toBeLessThan(1100);
+    });
+
     it("two lines in the left cell, or none: no label", () => {
       expect(
         runLabel(
