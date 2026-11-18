@@ -482,6 +482,12 @@ const P50 = {
   x: (i: number) => 72 + i * 160,
   h: 24,
 };
+/**
+ * P51's compact captioned boxes: P50's row, 20 pt tall, with 7 pt captions
+ * whose ascent is 2 pt under the top. A field fills the box under the
+ * caption's descent.
+ */
+const P51 = { h: 20, size: 7, base: 650 + 20 - 2 - 0.7 * 7 };
 /** P43's empty boxes, each captioned with its baseline 4 pt over the top. */
 const P43 = [
   { caption: "Dietary requirements", y: 340, h: 70 },
@@ -3064,6 +3070,42 @@ export const DETECT_CASES: readonly DetectCase[] = [
       label: s,
       page: 1,
       box: ruleBox(P50.x(i), P50.x(i) + 150, 650, 8),
+    })),
+  },
+  {
+    id: "P51",
+    kind: "positive",
+    note: "P50's row of captioned boxes made compact, as on tax forms: 20 pt tall, 7 pt captions in the top-left: a field in each box under its caption",
+    // Review round 6 fixes, finding 2: no field at all (a regression from
+    // round 5's room rule, which asked 14 pt under a caption where a
+    // field needs 10).
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const [i, s] of P50.captions.entries()) {
+        page.drawRectangle({
+          x: P50.x(i),
+          y: 650,
+          width: 150,
+          height: P51.h,
+          borderColor: rgb(0, 0, 0),
+          borderWidth: 0.75,
+        });
+        await text(page, H, s, P50.x(i) + 2, P51.base, P51.size);
+      }
+      return save(d);
+    },
+    expect: P50.captions.map((s, i) => ({
+      rule: "labelled-rule" as const,
+      type: "text" as const,
+      label: s,
+      page: 1,
+      box: rounded(
+        P50.x(i) + 1,
+        651,
+        P50.x(i) + 149,
+        P51.base - 0.2 * P51.size,
+      ),
     })),
   },
 

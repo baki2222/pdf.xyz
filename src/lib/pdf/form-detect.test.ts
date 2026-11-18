@@ -563,9 +563,20 @@ describe("labelled-rule", () => {
       // Review round 5 fixes, finding 2: a one-line instruction framed in a
       // 30 pt box, written without a full stop, passed as a caption and
       // became a field squeezed under it. A captioned box has room to
-      // write under its caption: from the caption's descent to the box's
-      // bottom, at least a field's height (14 pt for 10 pt text).
-      it("a captioned box has room under its caption: 14 pt counts, 13.9 does not (a framed instruction)", () => {
+      // write under its caption.
+      //
+      // INVERTED in review round 6 fixes (finding 2). This read "a
+      // captioned box has room under its caption: 14 pt counts, 13.9 does
+      // not (a framed instruction)" and pinned framed(33.9) as no field:
+      // the room asked was a field's height for the caption's size
+      // (TEXT_H_RULE, 14 pt), more than the classifier asks of any field
+      // (MIN_FIELD_H, 10), and compact captioned boxes on tax forms (20
+      // to 22 pt tall, a 6 to 8 pt caption in the top-left) lost the field
+      // round 4 gave them. A caption sits in the top of its box and a
+      // framed notice about its middle: the room under the caption (from
+      // its descent to the box's bottom) is at least MIN_FIELD_H and more
+      // than the room over it (from its ascent to the box's top).
+      it("a captioned box has more room under its caption than over it, and at least MIN_FIELD_H (a framed instruction has neither)", () => {
         const framed = (h: number) =>
           pg({
             rects: [rect(72, 690, 468, h)],
@@ -579,16 +590,34 @@ describe("labelled-rule", () => {
               ),
             ],
           });
-        // A5's 30 pt box: 10 pt of room.
+        // A5's 30 pt box: 10 pt of room under the text, 11 over it.
         expect(labels(framed(30))).toEqual([]);
         expect(run(framed(30)).excluded.map((e) => e.rule)).toEqual([
           "unlabelled",
           "unlabelled",
         ]);
-        expect(labels(framed(34))).toEqual([
+        // Over it stays 11 as the box grows: 11 under is not more, 11.1 is.
+        expect(labels(framed(31))).toEqual([]);
+        expect(labels(framed(31.1))).toEqual([
           ["Please use block capitals and black ink throughout", 691],
         ]);
-        expect(labels(framed(33.9))).toEqual([]);
+        expect(labels(framed(33.9))).toEqual([
+          ["Please use block capitals and black ink throughout", 691],
+        ]);
+        // A compact box, its 10 pt caption 1 pt under the top: 10 pt of
+        // room under it counts, 9.9 does not. (The field inside is then
+        // squeezed under the caption, so `no-clearance` is off to see the
+        // caption rule's own boundary; corpus P51 is the real shape.)
+        const compact = (base: number) =>
+          props(
+            pg({
+              rects: [rect(72, 600, 150, 20)],
+              text: [txt("Wages", 74, base, { size: 10, width: 30 })],
+            }),
+            { disable: new Set(["no-clearance"] as const) },
+          ).map((x) => [x.label, x.y]);
+        expect(compact(612)).toEqual([["Wages", 601]]);
+        expect(compact(611.9)).toEqual([]);
       });
 
       it("a bottom edge merged with another line is no box's bottom: it takes no box caption", () => {

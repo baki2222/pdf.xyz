@@ -1475,10 +1475,13 @@ function boxCaption(p: CardPage, r: Line, top: number): LabelHit | null {
     // Room to write under it: a box only as tall as its text is a framed
     // notice, and a stop-less one ("Please use block capitals") was a
     // field squeezed under itself (review round 5 fixes, finding 2;
-    // corpus N48).
-    const room =
-      t.y - DETECT.TEXT_DESCENT_EMS * t.size - r.y >=
-      textHeight(t.size, DETECT.TEXT_H_RULE);
+    // corpus N48). A caption sits in the top of its box and a notice about
+    // its middle, so the room under it is a field's (MIN_FIELD_H) and more
+    // than the room over it: asking a field's height for its size (14 pt)
+    // cost compact tax-form boxes their fields (review round 6 fixes,
+    // finding 2; corpus P51).
+    const under = t.y - DETECT.TEXT_DESCENT_EMS * t.size - r.y;
+    const room = under >= DETECT.MIN_FIELD_H && under > gap;
     if (inSpan(t) && room && gap >= -1 && gap <= DETECT.CAPTION_MAX) cap = t;
   } else if (inside.length === 0) {
     for (const t of p.text) {
