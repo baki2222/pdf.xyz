@@ -2133,6 +2133,15 @@ describe("square-checkbox", () => {
       ]);
     });
 
+    // Review round 4 fixes, finding 19 (mutant G5: the row's first square
+    // read as its last stayed green). It also caught this round's finding
+    // 2 rule taking a word between two grid boxes as the first box's own
+    // label: only a row that reads a side in full is a row of options.
+    it("the row text is left of the row's FIRST square, and a word between two grid boxes is no option label", () => {
+      const p = grid({ extra: [txt("or", 425, 600, { size: 10, width: 10 })] });
+      expect(labels(p).slice(0, 2)).toEqual(["Asthma Yes", "Asthma No"]);
+    });
+
     it("GRID_HEAD_ABOVE: a head 20 pt above the column's top square counts, 20.1 does not", () => {
       expect(labels(grid({ above: 20 }))).toHaveLength(6);
       expect(labels(grid({ above: 20.1 }))).toEqual([]);
@@ -2223,6 +2232,24 @@ describe("square-checkbox", () => {
           ]),
         ),
       ).toEqual(own);
+      // The mirror: each option LEFT of its box, under its heading.
+      const mirror = pg({
+        rects: [0, 1].flatMap((i) =>
+          [140, 368].map((x) => rect(x, 594 - 18 * i, 10, 10)),
+        ),
+        text: [
+          txt("Symptoms", 96, 612, { size: 10, width: 60 }),
+          txt("Medication", 324, 612, { size: 10, width: 60 }),
+          ...[
+            ["Fever", "Insulin"],
+            ["Cough", "Inhaler"],
+          ].flatMap(([a, b], i) => [
+            txt(a!, 96, 596 - 18 * i, { size: 10, width: 40 }),
+            txt(b!, 324, 596 - 18 * i, { size: 10, width: 40 }),
+          ]),
+        ],
+      });
+      expect(labels(mirror)).toEqual(["Fever", "Insulin", "Cough", "Inhaler"]);
     });
 
     it("a grid needs two squares in each row and in each column", () => {

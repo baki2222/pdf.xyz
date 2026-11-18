@@ -1590,10 +1590,12 @@ function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
     const { right, left, r, l, rGap, lGap } = sides.get(sq)!;
     const leftWins = rowLeft.get(sq) ?? lGap < rGap;
     let pick: ReturnType<typeof pickLabel>;
-    // A square with its own upright label on its right is an option, never
-    // a grid cell: two headed option lists side by side once passed for a
-    // grid and took their headings (review round 4 fixes, finding 2; P36).
-    const inGrid = r ? undefined : grid.get(sq);
+    // A square in a row that reads a side in full (every square its own
+    // label) is an option, never a grid cell: two headed option lists side
+    // by side once passed for a grid and took their headings (review round
+    // 4 fixes, finding 2; P36). One word between two grid boxes ("or") is
+    // no such row (finding 19).
+    const inGrid = rowLeft.has(sq) ? undefined : grid.get(sq);
     if (inGrid) pick = { label: inGrid, state: "found" };
     else if (l && leftWins) pick = { label: l.str, state: "found" };
     else if (r) pick = { label: r.str, state: "found" };
