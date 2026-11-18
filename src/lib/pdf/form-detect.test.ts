@@ -3554,6 +3554,16 @@ describe("square-checkbox", () => {
       const rules = run(p("DDMMYYYY")).excluded.map((e) => e.rule);
       expect(rules).toHaveLength(16);
       expect(new Set(rules)).toEqual(new Set(["comb"]));
+      // One repeat is enough: a two-box comb under "D D" (COMB_MIN is 2).
+      // Review round 6 test honesty: mutant R1 (a row needing two repeats)
+      // stayed green.
+      expect(labels(p("DD"))).toEqual([]);
+      expect(run(p("DD")).excluded.map((e) => e.rule)).toEqual([
+        "comb",
+        "comb",
+        "comb",
+        "comb",
+      ]);
       // Control: distinct heads over adjoining boxes are still a grid.
       expect(labels(p("YN"))).toEqual([
         "Date of birth Y",
