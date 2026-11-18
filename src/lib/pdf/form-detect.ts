@@ -141,6 +141,11 @@ export const DETECT = {
    */
   CONTINUATION_BELOW: 28,
   /**
+   * ... drawn at the labelled line's weight, within this (pt): a heavier
+   * section separator under a form's last field is no continuation.
+   */
+  CONTINUATION_WEIGHT_EPS: 0.1,
+  /**
    * A HEADING is no caption: text with text at least HEADING_SMALLER_BY pt
    * smaller starting at its x (within GRID_ROW_EPS) whose baseline is up to
    * HEADING_LEAD_EMS x its size under its own (the body under a heading),
@@ -581,6 +586,11 @@ interface Line {
   x1: number;
   y: number;
   /**
+   * The stroke's weight (a filled bar's height), for `continuationLines`:
+   * merged pieces keep the first piece's. Undefined for a run's baseline.
+   */
+  w?: number;
+  /**
    * The top edge of a larger outlined box (or a line merged with one): text
    * under it is inside the box, never its caption (see `ruleCandidates`).
    */
@@ -727,6 +737,7 @@ function readLines(p: CardPage): PageLines {
         x0: Math.min(s.x0, s.x1),
         x1: Math.max(s.x0, s.x1),
         y: (s.y0 + s.y1) / 2,
+        w: s.width,
       });
     } else if (dx <= DETECT.RULE_MAX_DY && dy > 0) {
       verticals.push({
@@ -742,15 +753,15 @@ function readLines(p: CardPage): PageLines {
     if (isSquare(r)) {
       squares.push(r);
     } else if (r.filled && h <= DETECT.RULE_MAX_WIDTH && w > h) {
-      raw.push({ x0: r.x0, x1: r.x1, y: (r.y0 + r.y1) / 2 });
+      raw.push({ x0: r.x0, x1: r.x1, y: (r.y0 + r.y1) / 2, w: h });
     } else if (r.filled && w <= DETECT.RULE_MAX_WIDTH && h > w) {
       verticals.push({ x: (r.x0 + r.x1) / 2, y0: r.y0, y1: r.y1 });
     } else if (r.stroked && r.width <= DETECT.RULE_MAX_WIDTH) {
       // A larger outlined box: its edges are lines like any other, except
       // that its top edge takes no caption from inside the box.
       raw.push(
-        { x0: r.x0, x1: r.x1, y: r.y0 },
-        { x0: r.x0, x1: r.x1, y: r.y1, boxTop: true },
+        { x0: r.x0, x1: r.x1, y: r.y0, w: r.width },
+        { x0: r.x0, x1: r.x1, y: r.y1, w: r.width, boxTop: true },
       );
       verticals.push(
         { x: r.x0, y0: r.y0, y1: r.y1 },
@@ -1191,6 +1202,11 @@ function continuationLines(p: CardPage, rows: Map<Line, RuleRow>): void {
     // Labelled from its left (which implies a label), or a continuation.
     if (!a.c.leftLabel) return;
     if (Math.abs(above.x1 - r.x1) > eps || r.x0 > above.x0 + eps) return;
+    // Drawn at the labelled line's weight: a heavier or lighter section
+    // separator under a form's last field took its label (review round 4
+    // fixes, finding 6; corpus P39).
+    if (Math.abs((above.w ?? 0) - (r.w ?? 0)) > DETECT.CONTINUATION_WEIGHT_EPS)
+      return;
     const textBetween = p.text.some(
       (t) =>
         t.str.trim() !== "" &&

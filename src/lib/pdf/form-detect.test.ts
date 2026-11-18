@@ -174,6 +174,7 @@ describe("rule tables", () => {
       CAPTION_MAX: 14,
       CAPTION_SPAN: 0.4,
       CONTINUATION_BELOW: 28, // review round 3
+      CONTINUATION_WEIGHT_EPS: 0.1, // review round 4 fixes
       HEADING_LEAD_EMS: 1.6, // review round 3
       HEADING_SMALLER_BY: 0.5, // review round 3
       FOOTNOTE_SPAN: 1 / 3, // review round 4
@@ -676,6 +677,43 @@ describe("labelled-rule", () => {
         ["Notes", 601],
         ["Notes", 577],
       ]);
+    });
+
+    // Review round 4 fixes, finding 6: a section separator under a form's
+    // last field (ending where the field lines end) took that field's
+    // label as a continuation. A continuation is drawn at its line's
+    // weight: a stroke more than 0.1 pt heavier or lighter ends it.
+    it("a separator drawn at another weight is no continuation: 0.1 pt off counts, more does not", () => {
+      const at = (w: number) =>
+        pg({
+          segs: [
+            hseg(120, 400, 576, { width: 0.5 }),
+            hseg(72, 400, 552, { width: w }),
+          ],
+          text: [txt("Address:", 72, 576, { size: 10, width: 44 })],
+        });
+      expect(labelled(at(0.6))).toHaveLength(2);
+      expect(labelled(at(0.4))).toHaveLength(2);
+      expect(labelled(at(0.61))).toEqual([["Address", 577]]);
+      expect(labelled(at(0.39))).toEqual([["Address", 577]]);
+    });
+
+    it("a filled bar's weight is its height", () => {
+      const bar = (h: number) =>
+        pg({
+          segs: [hseg(120, 400, 576)],
+          rects: [
+            rect(72, 552 - h / 2, 328, h, { filled: true, stroked: false }),
+          ],
+          text: [txt("Address:", 72, 576, { size: 10, width: 44 })],
+        });
+      // The line above is stroked 1 pt wide.
+      expect(labelled(bar(1))).toHaveLength(2);
+      expect(labelled(bar(1.2))).toHaveLength(1);
+    });
+
+    it("RESIDUAL: a separator at the field lines' own weight still continues the line above", () => {
+      expect(labelled(block([hseg(72, 400, 554)]))).toHaveLength(2);
     });
   });
 

@@ -429,6 +429,12 @@ const P38 = [
   ["Print name", 72, 260],
   ["Date", 320, 460],
 ] as const;
+/** P39's labelled lines: label, line start, y (lines end at 540). */
+const P39 = [
+  ["Name", 120, 660],
+  ["Phone", 120, 636],
+  ["Employer", 130, 572],
+] as const;
 /** N32's line starts 40 pt right of where "Address:" (12 pt) ends. */
 const N32_X0 = 72 + textWidth(H, "Address:", 12) + 40;
 /**
@@ -2365,6 +2371,33 @@ export const DETECT_CASES: readonly DetectCase[] = [
       page: 1,
       box: ruleBox(x0, x1, 58, 9),
     })),
+  },
+  {
+    id: "P39",
+    kind: "positive",
+    note: '"Name:" and "Phone:" lines, a heavier section separator from the margin to where they end, then "Employer:": no field on the separator',
+    // Review round 4 fixes, finding 6: the separator took "Phone" as a
+    // continuation line. A continuation is drawn at its line's weight.
+    // P32 is the control: its continuation lines still take "Address".
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const [s, x0, y] of P39) {
+        await text(page, H, `${s}:`, 72, y, 10);
+        rule(page, x0, 540, y, 0.5);
+      }
+      rule(page, 72, 540, 614, 0.75);
+      return save(d);
+    },
+    expect: P39.map(([label, x0, y]) => ({
+      rule: "labelled-rule" as const,
+      type: "text" as const,
+      label,
+      page: 1,
+      box: ruleBox(x0, 540, y, 10),
+    })),
+    decidedBy: "unlabelled",
+    at: { page: 1, x: 300, y: 620 },
   },
 
   // ---------------------------------------------------------- outcomes
