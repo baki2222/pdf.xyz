@@ -1946,6 +1946,40 @@ describe("exclusions, each at its boundary", () => {
     expect(firstRule(p)).toBe("table-grid");
   });
 
+  // Review round 3, finding 9, left to the owner: corpus N4 pins a labelled
+  // empty grid as table-grid, so a Word-style "label cell | empty cell"
+  // table proposes nothing (corpus N38), and a run typed alone in its right
+  // cell is proposed with NO label (its label sits across the cell border,
+  // past LABEL_LEFT_GAP). KNOWN MISS, pinned as it is today: if the owner
+  // rules such tables are forms, invert this test (do not delete it).
+  it("KNOWN MISS: a run alone in a table cell is proposed with no label (its label is in the cell to its left)", () => {
+    const p = pg({
+      segs: [
+        ...[600, 576, 552].map((y) => hseg(72, 400, y)),
+        ...[72, 180, 400].map((x) => vseg(x, 552, 600)),
+      ],
+      text: [
+        txt("Name", 76, 584, { size: 10, width: 25 }),
+        txt("Email", 76, 560, { size: 10, width: 25 }),
+        txt("______________________________", 184, 584, {
+          size: 10,
+          width: 160,
+        }),
+        txt("______________________________", 184, 560, {
+          size: 10,
+          width: 160,
+        }),
+      ],
+    });
+    expect(props(p).map((x) => [x.rule, x.label])).toEqual([
+      ["underscore-run", null],
+      ["underscore-run", null],
+    ]);
+    expect(run(p).excluded.map((e) => e.rule)).toEqual(
+      Array(3).fill("table-grid"),
+    );
+  });
+
   // A table ruled with level lines only (invoices, statements) had its top
   // rule proposed as a 481 pt text field labelled with the first column
   // header, taken as a caption (review finding; corpus N24). The vertical

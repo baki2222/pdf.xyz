@@ -1974,6 +1974,31 @@ export const DETECT_CASES: readonly DetectCase[] = [
     decidedBy: "page-band",
     at: { page: 1, x: 300, y: 60 },
   },
+  {
+    id: "N38",
+    kind: "negative",
+    note: 'a Word-style two-column table: "Name", "Address", "Telephone", "Email" in the left cells, the right cells empty',
+    // Review round 3, finding 9, left to the owner: a MISS documented, not
+    // a decision. N4 pins a labelled empty grid as table-grid; if the
+    // owner rules that the right cells of such a table are fields, this
+    // becomes a positive with four fields in them.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      const ys = [600, 576, 552, 528, 504];
+      for (const y of ys) rule(page, 72, 400, y, 0.5);
+      for (const x of [72, 180, 400]) vline(page, x, 504, 600);
+      for (const [i, s] of ["Name", "Address", "Telephone", "Email"].entries())
+        await text(page, H, s, 76, ys[i]! - 16, 10);
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "table-grid",
+    at: { page: 1, x: 300, y: 605 },
+    // Read as strips without the grid (each label at the top of its row),
+    // the top rule takes no label: unlabelled would decide it next.
+    seamAlsoDisable: ["unlabelled"],
+  },
 
   // ---------------------------------------------------------- outcomes
   {
