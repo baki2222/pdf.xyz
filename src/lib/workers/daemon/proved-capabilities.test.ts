@@ -527,3 +527,39 @@ describe("the ocrOwnerPassword entry is a proof, not a constant", () => {
     expect(typeof answer).toBe("boolean");
   });
 });
+
+describe("the requestSignatureLabels entry is a proof, not a constant", () => {
+  /**
+   * 2026-11-18. Every other test here spies on `prove`, so
+   * `requestSignatureLabels: { prove: () => true }` would pass them all; this
+   * holds the entry to the call, and `labels-capability.test.ts` holds the
+   * call to the image (it says NO for a placer that writes no /TU, the wrong
+   * text, no /TU on the widget, a /TU on an unlabelled box, a parser that
+   * drops the label, a refusing soundness gate, a hung run and a throw). The
+   * engine is pure pdf-lib, so the proof runs here exactly as in the image.
+   */
+  it("answers true on this tree's registry", async () => {
+    expect(await PROVED_CAPABILITIES.requestSignatureLabels.prove({})).toBe(
+      true,
+    );
+  });
+
+  it("is the call to provesRequestSignatureLabels, imported from labels-capability", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/lib/workers/daemon/proved-capabilities.ts"),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /^import \{ provesRequestSignatureLabels \} from "@\/lib\/workers\/request-signatures\/labels-capability";$/m,
+    );
+    const entry =
+      /^ {2}requestSignatureLabels: \{([\s\S]*?)\},?$/m.exec(source)?.[1] ?? "";
+    expect(
+      entry,
+      "no requestSignatureLabels entry in PROVED_CAPABILITIES",
+    ).not.toBe("");
+    expect(entry).toMatch(
+      /prove: \(env\) => provesRequestSignatureLabels\(env\),\s*parse: bool/,
+    );
+  });
+});

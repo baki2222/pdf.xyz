@@ -79,5 +79,6 @@ export function emptyCapabilities(): HeartbeatCapabilities {
     translatePageRange: false,
     csvImportOptions: false,
     ocrOwnerPassword: false,
+    requestSignatureLabels: false,
   };
 }

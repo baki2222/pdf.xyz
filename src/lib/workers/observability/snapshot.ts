@@ -438,6 +438,15 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "OCR PDF runs on a PDF its author restricted when the reader types its owner password, and the searchable PDF keeps the author's restrictions and owner password (except that screen readers are always allowed to read it), instead of refusing the file",
     proves: provenByFlag,
   },
+  requestSignatureLabels: {
+    label: "box labels in Request Signatures' prepared PDF",
+    promise:
+      // Added 2026-11-18. The catalogue states the tooltip plainly because
+      // the worker reports this; an image that reads false here writes the
+      // label to manifest.json only, and the FAQ is then wrong for it.
+      "Request Signatures writes each box's label into prepared.pdf as the box's tooltip, instead of only into manifest.json",
+    proves: provenByFlag,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */

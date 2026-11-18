@@ -132,6 +132,7 @@ describe("createHeartbeatPublisher", () => {
         translatePageRange: true,
         csvImportOptions: true,
         ocrOwnerPassword: true,
+        requestSignatureLabels: true,
       },
       deps: { client: fake, now: () => 1_000 },
     });
@@ -187,6 +188,7 @@ describe("createHeartbeatReader / readWorkerHeartbeatLiveness", () => {
             translatePageRange: true,
             csvImportOptions: true,
             ocrOwnerPassword: true,
+            requestSignatureLabels: true,
           },
           at: now,
         }),

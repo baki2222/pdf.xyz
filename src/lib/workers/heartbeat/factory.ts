@@ -520,6 +520,23 @@ export function liveWorkerOcrsWithOwnerPassword(
   return liveness.observed && liveness.capabilities?.ocrOwnerPassword === true;
 }
 
+/**
+ * Does the RUNNING worker write each Request Signatures box's label into
+ * prepared.pdf as the box's tooltip (2026-11-18)? Read by
+ * `GET /api/worker/status` (`requestSignatureLabels`). Only a fresh,
+ * observed heartbeat carrying `requestSignatureLabels: true` (proven at the
+ * daemon's start-up, `request-signatures/labels-capability.ts`) says so; a
+ * stale, absent or unreachable beat, or an image built before PR #364 (no
+ * key, parsed as false), says no.
+ */
+export function liveWorkerWritesRequestSignatureLabels(
+  liveness: HeartbeatLiveness,
+): boolean {
+  return (
+    liveness.observed && liveness.capabilities?.requestSignatureLabels === true
+  );
+}
+
 /** The admission gate's question, read from the broker. See {@link liveWorkerOcrsWithOwnerPassword}. */
 export async function runningWorkerOcrsWithOwnerPassword(
   env: EnvSource = process.env,
