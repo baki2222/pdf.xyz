@@ -2109,6 +2109,12 @@ describe("square-checkbox", () => {
     it("GRID_HEAD_ABOVE: a head 20 pt above the column's top square counts, 20.1 does not", () => {
       expect(labels(grid({ above: 20 }))).toHaveLength(6);
       expect(labels(grid({ above: 20.1 }))).toEqual([]);
+      // KNOWN MISS (review round 4 fixes, finding 9): a head row set with
+      // space under it (D3: heads 22 pt over the top boxes, a 20 pt row
+      // pitch) proposes nothing, failing towards missing, as before round
+      // 3. Reaching by the grid's own pitch would be a new rule with no
+      // second bound yet; pinned for the owner.
+      expect(labels(grid({ above: 22 }))).toEqual([]);
     });
 
     it("every column needs a head of its own: one missing, or one text over both, is no grid", () => {
