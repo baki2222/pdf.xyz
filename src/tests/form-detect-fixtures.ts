@@ -451,6 +451,19 @@ const N43 = {
   ys: [660, 620, 580],
   boxX: 400 + textWidth(H, "Initial here:", 10) + 6,
 };
+/** P41's fee table: column edges, row edges (top first), its text. */
+const P41 = {
+  xs: [72, 280, 370, 460, 540],
+  ys: [556, 536, 516, 496, 476, 456],
+  head: ["Category", "Early bird", "Standard", "Select"],
+  rows: [
+    ["Full delegate", "$450", "$550"],
+    ["Student", "$200", "$260"],
+    ["One day only", "$180", "$220"],
+    ["Conference dinner", "$75", "$75"],
+  ],
+  boxX: 494,
+};
 /** N32's line starts 40 pt right of where "Address:" (12 pt) ends. */
 const N32_X0 = 72 + textWidth(H, "Address:", 12) + 40;
 /**
@@ -2471,6 +2484,35 @@ export const DETECT_CASES: readonly DetectCase[] = [
     expect: "none",
     decidedBy: "signature",
     at: { page: 1, x: N43.boxX + 20, y: N43.ys[0]! - 2 },
+  },
+  {
+    id: "P41",
+    kind: "positive",
+    note: "a ruled fee table (Category | Early bird | Standard | Select) with a box in each row's Select cell: each box named by its row, not by a price",
+    // Review round 4 fixes, finding 23: every box was unlabelled (the row's
+    // name sits in the first cell, far beyond LABEL_LEFT_GAP).
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      const { xs, ys, head, rows } = P41;
+      for (const y of ys) rule(page, xs[0]!, xs[xs.length - 1]!, y, 0.75);
+      for (const x of xs) vline(page, x, ys[ys.length - 1]!, ys[0]!);
+      for (const [i, h] of head.entries())
+        await text(page, H, h, xs[i]! + 3, ys[1]! + 5, 9);
+      for (const [r, row] of rows.entries()) {
+        for (const [i, s] of row.entries())
+          await text(page, H, s, xs[i]! + 3, ys[r + 2]! + 5, 9);
+        square(page, P41.boxX, ys[r + 2]! + 4, 12);
+      }
+      return save(d);
+    },
+    expect: P41.rows.map((row, r) => ({
+      rule: "square-checkbox" as const,
+      type: "checkbox" as const,
+      label: row[0]!,
+      page: 1,
+      box: squareBox(P41.boxX, P41.ys[r + 2]! + 4, 12),
+    })),
   },
 
   // ---------------------------------------------------------- outcomes

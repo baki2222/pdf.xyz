@@ -2469,10 +2469,56 @@ describe("square-checkbox", () => {
     });
 
     it("a grid needs two squares in each row and in each column", () => {
-      // One column of squares under a head ...
-      expect(labels(grid({ xs: [400], heads: ["Tick"] }))).toEqual([]);
-      // ... and one row of squares under heads.
+      // One column of squares under a head is no grid ...
+      // INVERTED in review round 4 fixes (finding 23). This expected []
+      // for one "Tick" column with the row names far left: a ruled fee
+      // table's "Select" column proposed none of its checkboxes. Such a
+      // column (2+ equal squares, each alone on its row, none labelled)
+      // now takes each row's first text, so it is a checklist, not a grid.
+      expect(labels(grid({ xs: [400], heads: ["Tick"] }))).toEqual([
+        "Asthma",
+        "Diabetes",
+        "Epilepsy",
+      ]);
+      // ... nor is one row of squares under heads.
       expect(labels(grid({ rows: ["Asthma"] }))).toEqual([]);
+    });
+
+    describe("a column of unlabelled boxes, one a row, takes each row's first text", () => {
+      it("the row's FIRST text, not a price nearer the box", () => {
+        const p = pg({
+          rects: [0, 1].map((i) => rect(494, 520 - 20 * i, 12, 12)),
+          text: [
+            ...["Full delegate", "Student"].map((s, i) =>
+              txt(s, 75, 525 - 20 * i, { size: 9, width: 60 }),
+            ),
+            ...["$450", "$200"].map((s, i) =>
+              txt(s, 283, 525 - 20 * i, { size: 9, width: 20 }),
+            ),
+          ],
+        });
+        expect(labels(p)).toEqual(["Full delegate", "Student"]);
+      });
+
+      it("each box must be alone on its row: a headless two-column grid stays unlabelled", () => {
+        expect(labels(grid({ heads: [] }))).toEqual([]);
+      });
+
+      it("a column needs two boxes: one far from its row's text stays unlabelled", () => {
+        expect(
+          labels(grid({ xs: [400], heads: [], rows: ["Asthma"] })),
+        ).toEqual([]);
+      });
+
+      it("a column where any box found a label of its own is left as it is", () => {
+        const p = grid({
+          xs: [400],
+          heads: [],
+          extra: [txt("Yes", 414, 600, { size: 9, width: 14 })],
+        });
+        // The first box reads "Yes"; the others stay unlabelled.
+        expect(labels(p)).toEqual(["Yes"]);
+      });
     });
 
     // Review round 4 fixes, finding 7: with COMB_MIN 2, a headed Yes / No

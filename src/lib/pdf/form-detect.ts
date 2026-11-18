@@ -1783,7 +1783,7 @@ function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
     const left = lOk && (!rOk || sum("lGap") < sum("rGap"));
     for (const s of row) rowLeft.set(s, left);
   }
-  return lines.squares.map((sq) => {
+  const out = lines.squares.map((sq) => {
     const { right, left, r, l, rGap, lGap } = sides.get(sq)!;
     const leftWins = rowLeft.get(sq) ?? lGap < rGap;
     let pick: ReturnType<typeof pickLabel>;
@@ -1819,6 +1819,49 @@ function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
       gridCell: inGrid !== undefined,
     };
   });
+  // A CHECKLIST column: 2+ equal squares in a column, each alone on its
+  // row (one answer a row, not a grid) and none of which found a label,
+  // takes for each square its row's first upright text (the leftmost on
+  // its band). A ruled fee table's "Select" column, its names in the first
+  // cell, proposed none of its boxes (review round 4 fixes, finding 23;
+  // corpus P41). Without "alone", a headless Yes / No grid read
+  // "Asthma", "Asthma".
+  const bySquare = new Map(out.map((c) => [c.square, c]));
+  // Rows by bottom alone (any size of square shares a row), within
+  // COMB_EPS of the row's first.
+  const rowCount = new Map<CardRect, number>();
+  const byBottom = [...lines.squares].sort((a, b) => a.y0 - b.y0);
+  for (let i = 0; i < byBottom.length;) {
+    let j = i + 1;
+    while (
+      j < byBottom.length &&
+      byBottom[j]!.y0 - byBottom[i]!.y0 <= DETECT.COMB_EPS
+    )
+      j++;
+    for (let k = i; k < j; k++) rowCount.set(byBottom[k]!, j - i);
+    i = j;
+  }
+  for (const col of squareGroups(lines.squares, (s) => s.x0)) {
+    if (col.length < 2) continue;
+    if (!col.every((s) => bySquare.get(s)!.labelState === "none")) continue;
+    if (!col.every((s) => rowCount.get(s) === 1)) continue;
+    for (const s of col) {
+      const first = leftOf(
+        p.text,
+        s.x0,
+        p.width,
+        s.y0 - DETECT.RUN_BASELINE_EMS * 12,
+        () => s.y1,
+      )
+        .filter((h) => h.text.upright)
+        .pop();
+      if (!first) continue;
+      const c = bySquare.get(s)!;
+      c.label = first.str;
+      c.labelState = "found";
+    }
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ *
