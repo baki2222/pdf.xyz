@@ -767,6 +767,43 @@ describe("labelled-rule", () => {
       expect(props(headed(12, 10, 14, 2.1))[0]?.label).toBe("2. Results");
     });
 
+    // Review round 4 fixes, finding 13: the x alignment was tested to the
+    // right only, and dropping Math.abs stayed green, so smaller text to
+    // the LEFT of a caption (a two-column form's other column) could make
+    // it a heading. The heading here sits at x 301, so text 2.1 pt to its
+    // left falls in a cell the page index reads.
+    it("GRID_ROW_EPS to the left: a body starting 2 pt left of the heading counts, 2.1 does not", () => {
+      const at = (dx: number) =>
+        pg({
+          segs: [hseg(301, 538, 606)],
+          text: [
+            txt("2. Results", 301, 592, { size: 12, width: 60 }),
+            txt("The results start here.", 301 + dx, 578, {
+              size: 10,
+              width: 120,
+            }),
+            txt("And they go on here.", 301 + dx, 565, {
+              size: 10,
+              width: 110,
+            }),
+          ],
+        });
+      expect(props(at(-2))).toEqual([]);
+      expect(props(at(-2.1))[0]?.label).toBe("2. Results");
+    });
+
+    it("a two-column form: smaller text far left of a caption leaves it a caption", () => {
+      const p = pg({
+        segs: [hseg(300, 538, 606)],
+        text: [
+          txt("Full name", 300, 596, { size: 10, width: 45 }),
+          txt("Other column text", 72, 584, { size: 8, width: 70 }),
+          txt("More of that column", 72, 574, { size: 8, width: 70 }),
+        ],
+      });
+      expect(props(p).map((x) => x.label)).toEqual(["Full name"]);
+    });
+
     it("only upright, non-blank text UNDER the caption makes it a heading", () => {
       const captioned = (extra: CardText) =>
         pg({
