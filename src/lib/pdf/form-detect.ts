@@ -280,8 +280,12 @@ export const DETECT = {
    */
   CELL_ROWS_MIN: 2,
   CELL_LABEL_MAX: 40,
-  /** A label naming a signature line. */
-  SIGNATURE_RE: /\b(sign(ature|ed)?|initials)\b/i,
+  /**
+   * A label naming a signature line. "Initial" alone (or "Initial here")
+   * is anchored, so "Initial deposit" stays a field (review round 4 fixes,
+   * finding 25; corpus N43).
+   */
+  SIGNATURE_RE: /\b(sign(ature|ed)?|initials)\b|^\W*initial(\s+here)?\W*$/i,
   /**
    * A letter's complimentary close. A line with no label to its left (only a
    * caption, the signer's printed name, or nothing) that has one of these up

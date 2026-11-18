@@ -223,7 +223,8 @@ describe("rule tables", () => {
       CAPS: { perPage: 60, perRun: 300, pages: 50 },
     });
     expect([SIGNATURE_RE.source, SIGNATURE_RE.flags]).toEqual([
-      String.raw`\b(sign(ature|ed)?|initials)\b`,
+      // The anchored alternative: review round 4 fixes, finding 25.
+      String.raw`\b(sign(ature|ed)?|initials)\b|^\W*initial(\s+here)?\W*$`,
       "i",
     ]);
     expect([SIGNOFF_RE.source, SIGNOFF_RE.flags]).toEqual([
@@ -2720,13 +2721,26 @@ describe("exclusions, each at its boundary", () => {
       "Signature",
       "Initials",
       "Sign here",
+      // Review round 4 fixes, finding 25: the singular, alone or "here",
+      // was a text field (and on a square initials box, a checkbox).
+      "Initial",
+      "Initial here",
+      "INITIAL HERE",
     ])
       expect(
         firstRule(
           pg({ text: [txt(`${label}: ________`, 72, 600, { width: 150 })] }),
         ),
+        label,
       ).toBe("signature");
-    for (const label of ["Design", "Signal", "Assignment"])
+    for (const label of [
+      "Design",
+      "Signal",
+      "Assignment",
+      "Initial deposit",
+      "Initial amount",
+      "Initially",
+    ])
       expect(
         props(
           pg({ text: [txt(`${label}: ________`, 72, 600, { width: 150 })] }),

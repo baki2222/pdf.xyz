@@ -441,6 +441,16 @@ const P40 = {
   heads: ["Y", "N"],
   xs: [400, 413],
 };
+/** N43's statements, their baselines, and where each initials box starts. */
+const N43 = {
+  statements: [
+    "I have read and understood the information sheet.",
+    "I understand that my taking part is voluntary.",
+    "I agree that my anonymised data may be used.",
+  ],
+  ys: [660, 620, 580],
+  boxX: 400 + textWidth(H, "Initial here:", 10) + 6,
+};
 /** N32's line starts 40 pt right of where "Address:" (12 pt) ends. */
 const N32_X0 = 72 + textWidth(H, "Address:", 12) + 40;
 /**
@@ -2431,6 +2441,36 @@ export const DETECT_CASES: readonly DetectCase[] = [
         box: squareBox(P40.xs[k]!, 622 - 18 * i, 12),
       })),
     ),
+  },
+  {
+    id: "N43",
+    kind: "negative",
+    note: 'a consent form: three statements, each with "Initial here:" and a box (two wide, one square) at its right: initials, not fields',
+    // Review round 4 fixes, finding 25: "Initials" was a signature but
+    // "Initial here" and "Initial" were proposed, the square box as a
+    // checkbox named "Initial here".
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const [i, s] of N43.statements.entries()) {
+        const y = N43.ys[i]!;
+        await text(page, H, s, 72, y, 10);
+        await text(page, H, "Initial here:", 400, y, 10);
+        const wide = i < 2;
+        page.drawRectangle({
+          x: N43.boxX,
+          y: y - (wide ? 4 : 3),
+          width: wide ? 40 : 16,
+          height: wide ? 18 : 16,
+          borderColor: rgb(0, 0, 0),
+          borderWidth: 0.75,
+        });
+      }
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "signature",
+    at: { page: 1, x: N43.boxX + 20, y: N43.ys[0]! - 2 },
   },
 
   // ---------------------------------------------------------- outcomes
