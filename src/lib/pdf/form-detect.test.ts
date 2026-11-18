@@ -3447,6 +3447,90 @@ describe("square-checkbox", () => {
       expect(labels(p(false))[0]).toBe("Redness Yes");
     });
 
+    // Review round 6 test honesty: three conditions of the group-head
+    // search had no test, and each mutant stayed green: the NEAREST text
+    // over the head row (G5, the farthest taken instead), every column
+    // having a group (G6, the guard dropped), and an upright group head
+    // (G10, turned text taken).
+    describe("a two-level grid's group heads: the nearest, upright, over every column", () => {
+      const xs = [300, 330, 380, 410];
+      const eyes = [
+        txt("Left eye", 305, 630, { size: 9, width: 34 }),
+        txt("Right eye", 383, 630, { size: 9, width: 38 }),
+      ];
+      const p = (groups: CardText[], more: CardText[] = []) =>
+        pg({
+          rects: [0, 1].flatMap((i) =>
+            xs.map((x) => rect(x, 600 - 20 * i, 12, 12)),
+          ),
+          text: [
+            ...groups,
+            ...more,
+            ...xs.map((x, k) =>
+              txt(k % 2 ? "No" : "Yes", x + 1, 616, { size: 9, width: 12 }),
+            ),
+            txt("Redness", 72, 602, { size: 10, width: 40 }),
+            txt("Itching", 72, 582, { size: 10, width: 36 }),
+          ],
+        });
+
+      it("a section title over both group heads (within 2 x GRID_HEAD_ABOVE) does not displace the nearer group head", () => {
+        const title = txt("Eye examination", 300, 646, {
+          size: 11,
+          width: 130,
+        });
+        expect(labels(p(eyes, [title])).slice(0, 4)).toEqual([
+          "Redness Left eye Yes",
+          "Redness Left eye No",
+          "Redness Right eye Yes",
+          "Redness Right eye No",
+        ]);
+      });
+
+      it("a group head over only some columns names no box: the heads stay as they were", () => {
+        const got = labels(p([eyes[1]!]));
+        expect(got[0]).toBe("Redness Yes");
+        expect(got.filter((l) => /undefined/.test(l ?? ""))).toEqual([]);
+      });
+
+      // Mutant G7 (the distinct check dropped) stayed green too: group
+      // heads that leave two names alike are not read at all.
+      it("group heads that leave two names alike are not read: Left eye over three columns", () => {
+        const wide = [
+          txt("Left eye", 300, 630, { size: 9, width: 95 }),
+          txt("Right eye", 410, 630, { size: 9, width: 12 }),
+        ];
+        expect(labels(p(wide)).slice(0, 4)).toEqual([
+          "Redness Yes",
+          "Redness No",
+          "Redness Yes",
+          "Redness No",
+        ]);
+      });
+
+      // Mutant G4 (`<` for `<=` GRID_ROW_EPS) stayed green: a raised mark
+      // 2 pt over a head is in the head row, never a group head; 2.1 pt
+      // over it is the nearest text over the head row.
+      it("a mark raised GRID_ROW_EPS (2) over a head is in the head row; 2.1 pt over it is a group head", () => {
+        const marked = (dy: number) =>
+          labels(p(eyes, [txt("1", 309, 616 + dy, { size: 5, width: 3 })]))
+            .slice(0, 4)
+            .join(" | ");
+        expect(marked(2)).toBe(
+          "Redness Left eye Yes 1 | Redness Left eye No | Redness Right eye Yes | Redness Right eye No",
+        );
+        expect(marked(2.1)).toBe(
+          "Redness 1 Yes | Redness Left eye No | Redness Right eye Yes | Redness Right eye No",
+        );
+      });
+
+      it("turned group heads are no group heads", () => {
+        expect(labels(p(eyes.map((t) => ({ ...t, upright: false }))))[0]).toBe(
+          "Redness Yes",
+        );
+      });
+    });
+
     // Review round 5 fixes, finding 1: the exemption above made two date
     // combs under one "D D M M Y Y Y Y" head row 16 checkboxes ("Date of
     // birth D", ...). A grid's heads name distinct choices; a comb's heads
