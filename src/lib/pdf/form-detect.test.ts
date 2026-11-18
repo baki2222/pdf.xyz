@@ -940,6 +940,34 @@ describe("labelled-rule", () => {
       });
     });
 
+    // KNOWN MISS (review round 4 fixes, finding 8): a section heading
+    // under a separator rule whose next line is a form's label more than
+    // HEADING_LEAD_EMS under it has no body in reach, so the heading is
+    // read as the separator's caption and the separator is proposed as a
+    // field named after the heading (as before round 3). Widening the
+    // reach would make more hinted captions headings (finding 3's shape),
+    // and the form below is no body. Pinned for the owner.
+    it("KNOWN MISS: a separator over 'Section 2: Employment' with the next label 24 pt down is a field named after the heading (the E1 shape)", () => {
+      const p = pg({
+        segs: [
+          hseg(120, 540, 636),
+          hseg(72, 540, 616, { width: 0.75 }),
+          hseg(130, 540, 572),
+        ],
+        text: [
+          txt("Phone:", 72, 636, { size: 10, width: 32 }),
+          txt("Section 2: Employment", 72, 596, { size: 12, width: 130 }),
+          txt("Employer:", 72, 572, { size: 10, width: 46 }),
+        ],
+      });
+      // Wanted: ["Phone", 637], ["Employer", 573] and nothing at 617.
+      expect(props(p).map((x) => [x.label, x.y])).toEqual([
+        ["Phone", 637],
+        ["Section 2: Employment", 617],
+        ["Employer", 573],
+      ]);
+    });
+
     it("an unlabelled line in the band stays unlabelled (the band takes labelled lines)", () => {
       expect(firstRule(pg({ segs: [hseg(106, 506, 56)] }))).toBe("unlabelled");
     });
