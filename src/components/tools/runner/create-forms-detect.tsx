@@ -38,9 +38,10 @@ import {
  * runner keeps them in their own `found` state, so the engine, the
  * card validation and "Create form" cannot see one until a person presses
  * Add. Add names it then, against the cards and the other suggestions as
- * they are at that moment, and drops what the builder's own validation
- * (`validateFormFields`, handed in as a callback: this chunk never imports
- * create-forms.ts at run time) still refuses.
+ * they are at that moment, and leaves in the list, with its reason, what
+ * the builder's own validation (`validateFormFields`, handed in as a
+ * callback: this chunk never imports create-forms.ts at run time) still
+ * refuses.
  *
  * Every sentence this file can show is in the copy guard's corpus
  * (`create-forms-detect-copy.test.ts` renders {@link summarize} for every
@@ -55,8 +56,22 @@ export const CREATE_FORMS_SIGN_PDF = {
   name: "Sign PDF",
 } as const;
 
-/** A suggestion waiting in the review list; `name` is set once a person edits it. */
-export type Pending = FieldProposal & { name?: string };
+/**
+ * Edit PDF, linked from the same line: a form's author wants an empty
+ * signature field there, which Edit PDF places (this builder has no
+ * signature type); Sign PDF signs the document itself.
+ */
+export const CREATE_FORMS_DETECT_EDIT_PDF = {
+  slug: "edit-pdf",
+  name: "Edit PDF",
+} as const;
+
+/**
+ * A suggestion waiting in the review list; `name` is set once a person edits
+ * it, `refused` once Add could not add it (the builder's own reason). A
+ * refused suggestion stays in the list so it can be fixed and added.
+ */
+export type Pending = FieldProposal & { name?: string; refused?: string };
 
 /**
  * What a field's type is called, as the builder's type switch calls it
@@ -74,8 +89,15 @@ const join = (items: readonly string[]) =>
 /** What Find fields looks for, in the words DETECTION_RULES gives each shape. */
 export const LOOKS_FOR = join(DETECTION_RULES.map((r) => r.plain));
 
-/** The one sentence that says what it does, derived from DETECTION_RULES. */
-export const FIND_FIELDS_SENTENCE = `Find fields looks for ${LOOKS_FOR}, and suggests a field for each one for you to check and add.`;
+/**
+ * The sentence that says what it does, derived from DETECTION_RULES, and the
+ * one that says what it does not do: it can miss a field (S1's Known misses,
+ * and every shape EXCLUSION_RULES passes over), so neither may say "each"
+ * or "every" of what it finds.
+ */
+export const FIND_FIELDS_SENTENCE = `Find fields looks for ${LOOKS_FOR}, and suggests fields from what it sees for you to check and add.`;
+export const FIND_FIELDS_MISSES =
+  "It can miss a field or suggest a wrong one, so check each page and add anything it missed with Add field.";
 
 /**
  * The reader, behind a seam: the builder's jsdom tests hand in a canned
@@ -100,24 +122,29 @@ export function findFields(
  *  The summary, in plain words
  * ------------------------------------------------------------------ */
 
-/** "page 3", "pages 3 and 4", "pages 3 to 7". */
+/** "page 3", "pages 3 and 4", "pages 3 to 7", "pages 2, 5 to 9 and 12". */
 export function pagesWord(pages: readonly number[]): string {
-  const sorted = [...pages].sort((a, b) => a - b);
+  const sorted = [...new Set(pages)].sort((a, b) => a - b);
   if (sorted.length === 1) return `page ${sorted[0]}`;
-  const run = sorted.every((n, i) => i === 0 || n === sorted[i - 1]! + 1);
-  if (run && sorted.length > 2)
-    return `pages ${sorted[0]} to ${sorted[sorted.length - 1]}`;
-  return `pages ${join(sorted.map(String))}`;
+  const parts: string[] = [];
+  for (let i = 0; i < sorted.length;) {
+    let j = i;
+    while (j + 1 < sorted.length && sorted[j + 1] === sorted[j]! + 1) j++;
+    if (j - i >= 2) parts.push(`${sorted[i]} to ${sorted[j]}`);
+    else for (let k = i; k <= j; k++) parts.push(String(sorted[k]));
+    i = j + 1;
+  }
+  return `pages ${join(parts)}`;
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const plural = (n: number, one: string, many: string) =>
   `${n} ${n === 1 ? one : many}`;
 
-/** One line of the summary; `link` names the words to link, if any. */
+/** One line of the summary; `links` names the words to link, in order. */
 export interface SummaryLine {
   text: string;
-  link?: { words: string; href: string };
+  links?: { words: string; href: string }[];
 }
 
 /**
@@ -155,8 +182,8 @@ export function summarize(report: DetectReport): SummaryLine[] {
     lines.push({
       text:
         scans.length === 1
-          ? `${cap(pagesWord(scans))} looks like a scan, so it was not searched.`
-          : `${cap(pagesWord(scans))} look like scans, so they were not searched.`,
+          ? `${cap(pagesWord(scans))} is only a picture, with no text to read, so it was not searched: add its fields by hand.`
+          : `${cap(pagesWord(scans))} are only pictures, with no text to read, so they were not searched: add their fields by hand.`,
     });
   const blank = of("nothing-drawn");
   if (blank.length > 0)
@@ -166,7 +193,7 @@ export function summarize(report: DetectReport): SummaryLine[] {
   const turned = of("turned-content");
   if (turned.length > 0)
     lines.push({
-      text: `${cap(pagesWord(turned))} ${turned.length === 1 ? "is drawn on its side" : "are drawn on their side"}, which Find fields cannot read: add those fields by hand.`,
+      text: `The writing on ${pagesWord(turned)} shows sideways or upside down, which Find fields cannot read: add those fields by hand.`,
     });
   const unread = of("unread");
   if (unread.length > 0)
@@ -190,11 +217,11 @@ export function summarize(report: DetectReport): SummaryLine[] {
   const c = report.counts;
   if (c.signatureLines > 0)
     lines.push({
-      text: `${plural(c.signatureLines, "signature line was", "signature lines were")} skipped: use ${CREATE_FORMS_SIGN_PDF.name} for those.`,
-      link: {
-        words: CREATE_FORMS_SIGN_PDF.name,
-        href: `/tools/${CREATE_FORMS_SIGN_PDF.slug}`,
-      },
+      text: `${plural(c.signatureLines, "line labelled as a signature was", "lines labelled as a signature were")} skipped: ${CREATE_FORMS_DETECT_EDIT_PDF.name} adds a signature field, and ${CREATE_FORMS_SIGN_PDF.name} signs the PDF.`,
+      links: [CREATE_FORMS_DETECT_EDIT_PDF, CREATE_FORMS_SIGN_PDF].map((t) => ({
+        words: t.name,
+        href: `/tools/${t.slug}`,
+      })),
     });
   if (c.alreadyFields > 0)
     lines.push({
@@ -204,16 +231,31 @@ export function summarize(report: DetectReport): SummaryLine[] {
     lines.push({
       text: `${plural(c.rotatedText, "line has", "lines have")} a label that is not upright, so ${c.rotatedText === 1 ? "it was" : "they were"} skipped: add ${c.rotatedText === 1 ? "it" : "those"} by hand.`,
     });
+  // The pages the caps took from, named, so a page the run cap emptied is
+  // never read as one with nothing on it (review round 7).
+  const short = report.pages
+    .filter(
+      (p) =>
+        p.outcome === "capped" ||
+        (p.outcome === "found" && (p.leftOut ?? 0) > 0),
+    )
+    .map((p) => p.page);
   if (c.capped > 0)
     lines.push({
-      text: `${plural(c.capped, "more possible field was", "more possible fields were")} left out, as at most 60 are suggested on a page and 300 in all, so add the rest by hand.`,
+      text: `${plural(c.capped, "more possible field was", "more possible fields were")} left out${
+        short.length > 0 ? ` on ${pagesWord(short)}` : ""
+      }, as at most 60 are suggested on a page and 300 in all: check ${
+        short.length === 1 ? "that page" : "those pages"
+      } and add the rest by hand.`,
     });
   return lines;
 }
 
-/** Said when Add drops suggestions the builder's checks refuse. */
+/** Said when Add could not add some suggestions; each stays, with its reason. */
 export function invalidLine(n: number): string {
-  return `${n} ${n === 1 ? "suggestion" : "suggestions"} did not pass the builder's checks and ${n === 1 ? "was" : "were"} not added.`;
+  return n === 1
+    ? "1 suggestion could not be added as it is: fix it below and press Add again."
+    : `${n} suggestions could not be added as they are: fix them below and press Add again.`;
 }
 
 /* ------------------------------------------------------------------ *
@@ -269,10 +311,13 @@ export function toAdd(
   pending: readonly Pending[],
   keys: ReadonlySet<string>,
   taken: Iterable<string>,
-  validate: (specs: (NewTextField | NewCheckBoxField)[]) => { index: number }[],
+  validate: (
+    specs: (NewTextField | NewCheckBoxField)[],
+  ) => { index: number; message?: string }[],
 ): {
   added: { key: string; spec: NewTextField | NewCheckBoxField }[];
-  dropped: string[];
+  /** Each suggestion refused, with the builder's reason. */
+  dropped: { key: string; reason: string }[];
 } {
   const names = suggestedNames(pending, taken);
   const chosen = pending
@@ -281,9 +326,20 @@ export function toAdd(
   const { kept } = filterValid(chosen, (all) =>
     validate(all.map((c) => c.spec)),
   );
+  const specs = kept.map((c) => c.spec);
   return {
     added: kept,
-    dropped: chosen.filter((c) => !kept.includes(c)).map((c) => c.key),
+    dropped: chosen
+      .filter((c) => !kept.includes(c))
+      .map((c) => {
+        // Its reason beside what WAS added (a name another added row took).
+        const errs = validate([...specs, c.spec]);
+        const own = errs.find((e) => e.index === specs.length) ?? errs[0];
+        return {
+          key: c.key,
+          reason: own?.message ?? "the builder could not add it.",
+        };
+      }),
   };
 }
 
@@ -342,8 +398,26 @@ const takenBy = <D extends DraftLike>(f: Finder<D>, drafts: readonly D[]) => [
   ...drafts.map((d) => d.name),
 ];
 
+/**
+ * The cards that count: none while the starter card is untouched (the first
+ * Add replaces it), else every card. The finder, the names the list shows
+ * and Add all read this one set (review round 7: the finder was handed the
+ * starter, which hid the line under it without a word, and the list named
+ * rows against it while Add did not).
+ */
+export const cardsThatCount = <D extends DraftLike>(f: Finder<D>): D[] =>
+  f.untouched ? [] : f.drafts;
+
+/**
+ * The keys added or dismissed while a run is going: the run was started
+ * with the cards as they were, so its list would bring them back.
+ */
+let duringRun: Set<string> | null = null;
+
 /** A card to focus once it is drawn (Add moves focus to its name). */
 let focusCard: string | null = null;
+/** A refused suggestion's row to focus (its name), once it is redrawn. */
+let focusRow: string | null = null;
 
 /**
  * Cards added from a suggestion are "s1", "s2"...: their own series, so
@@ -356,11 +430,12 @@ let series = 0;
  * Add the suggestions in `keys`: named NOW, against the cards and the other
  * suggestions, filtered by the builder's own validation, and appended as
  * cards with the builder's defaults. The first Add replaces the starter
- * card only while it is untouched. What validation refuses is dropped and
- * said.
+ * card only while it is untouched, and only when something is added. What
+ * validation refuses stays in the list with its reason, is said, and takes
+ * focus.
  */
 export function addKeys<D extends DraftLike>(f: Finder<D>, keys: string[]) {
-  const keep = f.untouched ? [] : f.drafts;
+  const keep = cardsThatCount(f);
   const taken = takenBy(f, keep);
   const { added, dropped } = toAdd(
     f.found.list,
@@ -372,19 +447,38 @@ export function addKeys<D extends DraftLike>(f: Finder<D>, keys: string[]) {
     const { type, name, page, x, y, width, height } = spec;
     return { ...f.make(`s${++series}`), type, name, page, x, y, width, height };
   });
-  f.setDrafts([...keep, ...made]);
+  // The starter card goes only when something takes its place: a refused
+  // Add left the builder with no card at all (review round 7).
+  if (made.length > 0) f.setDrafts([...keep, ...made]);
+  const gone = new Set(added.map((a) => a.key));
+  const why = new Map(dropped.map((d) => [d.key, d.reason]));
+  for (const k of gone) duringRun?.add(k);
   f.setFound((prev) => ({
-    list: prev.list.filter((p) => !keys.includes(p.key)),
+    // What was added leaves the list; what was refused STAYS, with its
+    // reason, to be fixed and added again (it used to vanish).
+    list: prev.list
+      .filter((p) => !gone.has(p.key))
+      .map((p) =>
+        why.has(p.key)
+          ? { ...p, refused: why.get(p.key) }
+          : keys.includes(p.key)
+            ? { ...p, refused: undefined }
+            : p,
+      ),
     note: dropped.length > 0 ? invalidLine(dropped.length) : null,
   }));
   if (made[0]) {
     f.select(made[0].id);
     focusCard = made[0].id;
+  } else if (dropped[0]) {
+    f.select(dropped[0].key);
+    focusRow = dropped[0].key;
   }
 }
 
 /** Drop the suggestions in `keys`. */
 export function dismissKeys<D extends DraftLike>(f: Finder<D>, keys: string[]) {
+  for (const k of keys) duringRun?.add(k);
   f.setFound((prev) => ({
     ...prev,
     list: prev.list.filter((p) => !keys.includes(p.key)),
@@ -417,8 +511,8 @@ export function RunNote({ f }: { f: Finder }) {
   const n = f.found.list.length;
   return n > 0 ? (
     <span className="text-muted text-xs">
-      {n} found field{n === 1 ? " is" : "s are"} not added and will not be in
-      the form.
+      {n} found field{n === 1 ? " is" : "s are"} not in the form until you add{" "}
+      {n === 1 ? "it" : "them"}.
     </span>
   ) : null;
 }
@@ -426,6 +520,29 @@ export function RunNote({ f }: { f: Finder }) {
 /* ------------------------------------------------------------------ *
  *  The panel: progress, summary, review list
  * ------------------------------------------------------------------ */
+
+/** A summary line with its links, each where its words appear. */
+function linked(line: SummaryLine) {
+  const out: React.ReactNode[] = [];
+  let rest = line.text;
+  for (const l of line.links ?? []) {
+    const i = rest.indexOf(l.words);
+    if (i < 0) continue;
+    out.push(
+      rest.slice(0, i),
+      <a
+        key={l.href}
+        href={l.href}
+        className="text-fg font-medium underline underline-offset-2"
+      >
+        {l.words}
+      </a>,
+    );
+    rest = rest.slice(i + l.words.length);
+  }
+  out.push(rest);
+  return out;
+}
 
 type RunState =
   | { status: "running"; done: number; total: number }
@@ -467,31 +584,41 @@ export function FoundFields<D extends DraftLike>({ f }: { f: Finder<D> }) {
     const controller = new AbortController();
     abort.current = controller;
     const at = latest.current;
+    const touched = new Set<string>();
+    duringRun = touched;
+    const done = () => {
+      if (duringRun === touched) duringRun = null;
+    };
     findFields(at.bytes, {
       signal: controller.signal,
-      drafts: at.drafts,
+      drafts: cardsThatCount(at),
       onPage: (done, total) => {
         if (!controller.signal.aborted)
           setRun({ status: "running", done, total });
       },
     }).then(
       (report) => {
+        done();
         if (controller.signal.aborted) return;
         setRun({ status: "done", report });
-        // A second run gives the same list; a name typed on a row stays.
+        // A second run gives the same list; a name typed on a row stays,
+        // and what was added or dismissed while it ran stays gone.
         latest.current.setFound((prev) => ({
           note: null,
           list: report.pages.flatMap((p) =>
             p.outcome === "found"
-              ? p.proposals.map((q) => ({
-                  ...q,
-                  name: prev.list.find((o) => o.key === q.key)?.name,
-                }))
+              ? p.proposals
+                  .filter((q) => !touched.has(q.key))
+                  .map((q) => ({
+                    ...q,
+                    name: prev.list.find((o) => o.key === q.key)?.name,
+                  }))
               : [],
           ),
         }));
       },
       (err: unknown) => {
+        done();
         if (controller.signal.aborted) return;
         setRun({
           status: "failed",
@@ -502,7 +629,10 @@ export function FoundFields<D extends DraftLike>({ f }: { f: Finder<D> }) {
         });
       },
     );
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      done();
+    };
   }, []);
 
   // Add moves focus to the new card's name.
@@ -514,6 +644,16 @@ export function FoundFields<D extends DraftLike>({ f }: { f: Finder<D> }) {
       .querySelector<HTMLInputElement>(`[data-field-card="${id}"] input`)
       ?.focus();
   }, [f.drafts]);
+
+  // An Add that added nothing moves focus to the refused row's name.
+  useEffect(() => {
+    const key = focusRow;
+    if (!key) return;
+    focusRow = null;
+    listRef.current
+      ?.querySelector<HTMLInputElement>(`[data-proposal-row="${key}"] input`)
+      ?.focus();
+  }, [pending]);
 
   // Focus after a Dismiss: the next suggestion's Add, else the summary.
   useEffect(() => {
@@ -537,7 +677,8 @@ export function FoundFields<D extends DraftLike>({ f }: { f: Finder<D> }) {
       ?.scrollIntoView?.({ block: "nearest" });
   }, [f.selected, pending]);
 
-  const names = suggestedNames(pending, takenBy(f, f.drafts));
+  // Named as Add will name them: against the cards that count.
+  const names = suggestedNames(pending, takenBy(f, cardsThatCount(f)));
   // The page the preview shows, as the builder picks it: the selected
   // suggestion's, else the selected card's, else the first card's.
   const page =
@@ -553,7 +694,8 @@ export function FoundFields<D extends DraftLike>({ f }: { f: Finder<D> }) {
       rest[Math.min(Math.max(i, 0), rest.length - 1)]?.key ?? "";
     dismissKeys(f, keys);
   };
-  const rename = (key: string, name: string) =>
+  // An emptied name goes back to the suggested one when the field is left.
+  const rename = (key: string, name: string | undefined) =>
     f.setFound((prev) => ({
       ...prev,
       list: prev.list.map((p) => (p.key === key ? { ...p, name } : p)),
@@ -574,6 +716,7 @@ export function FoundFields<D extends DraftLike>({ f }: { f: Finder<D> }) {
         className="text-muted flex flex-col gap-1 text-xs leading-relaxed outline-none"
       >
         <span>{FIND_FIELDS_SENTENCE}</span>
+        <span>{FIND_FIELDS_MISSES}</span>
         {run.status === "running" ? (
           <span className="inline-flex flex-wrap items-center gap-2">
             {run.total > 0
@@ -596,24 +739,7 @@ export function FoundFields<D extends DraftLike>({ f }: { f: Finder<D> }) {
           <span className="text-err">{run.message}</span>
         ) : (
           summarize(run.report).map((line) => (
-            <span key={line.text}>
-              {line.link ? (
-                <>
-                  {line.text.slice(0, line.text.indexOf(line.link.words))}
-                  <a
-                    href={line.link.href}
-                    className="text-fg font-medium underline underline-offset-2"
-                  >
-                    {line.link.words}
-                  </a>
-                  {line.text.slice(
-                    line.text.indexOf(line.link.words) + line.link.words.length,
-                  )}
-                </>
-              ) : (
-                line.text
-              )}
-            </span>
+            <span key={line.text}>{linked(line)}</span>
           ))
         )}
         {f.found.note && <span>{f.found.note}</span>}
@@ -675,9 +801,21 @@ export function FoundFields<D extends DraftLike>({ f }: { f: Finder<D> }) {
                       type="text"
                       className={INPUT}
                       value={names.get(p.key) ?? ""}
+                      aria-invalid={p.refused ? true : undefined}
+                      aria-describedby={
+                        p.refused ? `refused-${p.key}` : undefined
+                      }
                       onChange={(e) => rename(p.key, e.target.value)}
+                      onBlur={(e) => {
+                        if (!e.target.value.trim()) rename(p.key, undefined);
+                      }}
                     />
                   </label>
+                  {p.refused && (
+                    <span id={`refused-${p.key}`} className="text-err text-xs">
+                      Not added: {p.refused}
+                    </span>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"

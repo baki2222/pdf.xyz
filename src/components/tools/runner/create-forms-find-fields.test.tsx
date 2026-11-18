@@ -37,7 +37,7 @@ import type { FieldProposal } from "@/lib/pdf/form-detect";
 import type { DetectReport } from "@/lib/pdf/form-detect-read";
 import { emptyCounts } from "@/lib/pdf/form-detect";
 import { CreateFormsRunner } from "./create-forms-runner";
-import { KINDS, detectDeps, summarize } from "./create-forms-detect";
+import { KINDS, detectDeps, pagesWord, summarize } from "./create-forms-detect";
 import { FIELD_TYPE_LABELS } from "@/lib/pdf/offered-kinds";
 import { nearestProposal } from "./create-forms-preview";
 import { pageImageDeps } from "./use-page-image";
@@ -205,9 +205,7 @@ describe("Create Forms: Find fields", { timeout: 30_000 }, () => {
     expect(cards(c)).toHaveLength(1);
     expect(screen.queryByText(/extends past/i)).toBeNull();
     expect(createButton()).not.toBeDisabled();
-    screen.getByText(
-      "2 found fields are not added and will not be in the form.",
-    );
+    screen.getByText("2 found fields are not in the form until you add them.");
     // Pending suggestions mark the builder dirty.
     await waitFor(() =>
       expect(unsavedLabels().join(" ")).toMatch(/form fields/),
@@ -219,14 +217,45 @@ describe("Create Forms: Find fields", { timeout: 30_000 }, () => {
     screen.getByText(/1 field added/);
   });
 
-  it("the finder is told which boxes the cards already hold", async () => {
+  // Inverted in review round 7 (2026-11-19). This test required the
+  // UNTOUCHED starter card's box to be handed to the finder, whose
+  // existing-draft rule then dropped the line under it without a word
+  // (only existing-FIELD drops are counted), and the first Add deleted the
+  // starter: that line ended with no field and no mention. The starter is
+  // handed over only once it is touched, as Add keeps it only then.
+  it("the finder is told which boxes the cards hold, and never the untouched starter's", async () => {
     finderReturns([NAME]);
     await openBuilder(await pdf(1));
     await findFields();
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.drafts).toEqual([
+    expect(calls[0]!.drafts).toEqual([]);
+    fireEvent.change(
+      screen.getByLabelText("Field name", {
+        selector: "[data-field-card] input",
+      }),
+      { target: { value: "applicant" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Find fields" }));
+    await waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls[1]!.drafts).toEqual([
       expect.objectContaining({ page: 1, width: 200, height: 24 }),
     ]);
+  });
+
+  it("a labelled line under the untouched starter's box is suggested, and Add puts its field there", async () => {
+    // The starter is field_1 at x 72..272, y 700..724 on page 1 (makeDraft):
+    // this line sits right under it.
+    const UNDER = proposal({ label: "Full name", x: 132, y: 704, width: 300 });
+    finderReturns([UNDER, EMAIL]);
+    const c = await openBuilder(await pdf(1));
+    const starter = cards(c)[0]!;
+    expect(
+      (within(starter).getByLabelText("Y") as HTMLInputElement).value,
+    ).toBe("700");
+    await findFields();
+    expect(rows(c).map(rowName)).toEqual(["full_name", "email"]);
+    fireEvent.click(screen.getByRole("button", { name: /^Add all \(2\)/ }));
+    expect(cardNames(c)).toEqual(["full_name", "email"]);
   });
 
   it("the first Add replaces the untouched starter card, and focuses the new card's name", async () => {
@@ -309,18 +338,127 @@ describe("Create Forms: Find fields", { timeout: 30_000 }, () => {
     expect(cardNames(c)).toEqual(["applicant_name"]);
   });
 
-  it("Add drops what the builder's own validation refuses, and says so", async () => {
+  // Inverted in review round 7: a refused suggestion was deleted from the
+  // list with the rest of the press, so it could not be fixed and added,
+  // and focus fell to <body> from the removed row's button.
+  it("Add keeps what the builder's own validation refuses in the list, with its reason, and says so", async () => {
     const offPage = proposal({ label: "Too far", x: 590, y: 300 });
     finderReturns([NAME, offPage]);
     const c = await openBuilder(await pdf(1));
     await findFields();
     fireEvent.click(screen.getByRole("button", { name: /^Add all \(2\)/ }));
     expect(cardNames(c)).toEqual(["full_name"]);
-    expect(rows(c)).toHaveLength(0);
+    expect(rows(c).map((r) => r.getAttribute("data-proposal-row"))).toEqual([
+      offPage.key,
+    ]);
+    within(rows(c)[0]!).getByText(/^Not added: .+/);
     screen.getByText(
-      "1 suggestion did not pass the builder's checks and was not added.",
+      "1 suggestion could not be added as it is: fix it below and press Add again.",
     );
-    expect(screen.queryByText(/extends past/i)).toBeNull();
+    // No error on a CARD: the suggestion is still not a card.
+    expect(
+      [...c.querySelectorAll("[data-field-card]")].some((el) =>
+        /extends past/i.test(el.textContent ?? ""),
+      ),
+    ).toBe(false);
+  });
+
+  it("a refused Add on the untouched starter keeps the starter, and focus goes to the refused row", async () => {
+    const offPage = proposal({ label: "Too far", x: 590, y: 300 });
+    finderReturns([offPage]);
+    const c = await openBuilder(await pdf(1));
+    await findFields();
+    fireEvent.click(within(rows(c)[0]!).getByRole("button", { name: /^Add/ }));
+    // The starter used to be deleted with nothing in its place.
+    expect(cardNames(c)).toEqual(["field_1"]);
+    expect(rows(c)).toHaveLength(1);
+    expect(document.activeElement).toBe(
+      within(rows(c)[0]!).getByLabelText("Field name"),
+    );
+    // Still untouched: nothing arms the unsaved guard but the suggestion.
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss all" }));
+    expect(unsavedLabels()).toEqual([]);
+  });
+
+  it("a name the builder refuses can be fixed on its row and added", async () => {
+    finderReturns([NAME, EMAIL]);
+    const c = await openBuilder(await pdf(1));
+    fireEvent.change(screen.getByLabelText("Field name"), {
+      target: { value: "email" },
+    });
+    await findFields();
+    expect(rows(c).map(rowName)).toEqual(["full_name", "email_2"]);
+    fireEvent.change(within(rows(c)[0]!).getByLabelText("Field name"), {
+      target: { value: "email" },
+    });
+    fireEvent.click(within(rows(c)[0]!).getByRole("button", { name: /^Add/ }));
+    expect(cardNames(c)).toEqual(["email"]);
+    expect(rows(c).map(rowName)).toEqual(["email", "email_2"]);
+    const input = within(rows(c)[0]!).getByLabelText("Field name");
+    expect(document.activeElement).toBe(input);
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    fireEvent.change(input, { target: { value: "applicant" } });
+    fireEvent.click(within(rows(c)[0]!).getByRole("button", { name: /^Add/ }));
+    expect(cardNames(c)).toEqual(["email", "applicant"]);
+    expect(rows(c).map(rowName)).toEqual(["email_2"]);
+    expect(screen.queryByText(/could not be added/)).toBeNull();
+  });
+
+  it("an emptied name goes back to the suggested one when the field is left", async () => {
+    finderReturns([NAME]);
+    const c = await openBuilder(await pdf(1));
+    await findFields();
+    const input = within(rows(c)[0]!).getByLabelText("Field name");
+    fireEvent.change(input, { target: { value: "" } });
+    expect(rowName(rows(c)[0]!)).toBe("");
+    fireEvent.blur(input);
+    expect(rowName(rows(c)[0]!)).toBe("full_name");
+  });
+
+  it("the names on the rows are the names Add gives while the starter is untouched", async () => {
+    // "1." names as field_1, the starter's own name: the starter is not
+    // kept by the first Add, so the row must not dodge it either.
+    const NUMBERED = proposal({ label: "1.", y: 500 });
+    finderReturns([NUMBERED]);
+    const c = await openBuilder(await pdf(1));
+    await findFields();
+    const shown = rows(c).map(rowName);
+    fireEvent.click(within(rows(c)[0]!).getByRole("button", { name: /^Add/ }));
+    expect(cardNames(c)).toEqual(shown);
+  });
+
+  it("what is added or dismissed while a second run goes does not come back", async () => {
+    finderReturns([NAME, EMAIL, AGREE]);
+    const c = await openBuilder(await pdf(1));
+    await findFields();
+    let release: () => void = () => {};
+    detectDeps.detect = (_b, o) =>
+      new Promise((resolve) => {
+        calls.push({ drafts: o?.drafts });
+        release = () => resolve(reportOf([NAME, EMAIL, AGREE], 1));
+      });
+    fireEvent.click(screen.getByRole("button", { name: "Find fields" }));
+    await screen.findByText(/^Looking at/);
+    fireEvent.click(within(rows(c)[0]!).getByRole("button", { name: /^Add/ }));
+    fireEvent.click(
+      within(rows(c)[0]!).getByRole("button", { name: /^Dismiss/ }),
+    );
+    expect(cardNames(c)).toEqual(["full_name"]);
+    await act(async () => release());
+    await screen.findByText(/^Found 3 possible fields/);
+    expect(rows(c).map((r) => r.getAttribute("data-proposal-row"))).toEqual([
+      AGREE.key,
+    ]);
+  });
+
+  it("the press shows at once, before the chunk has arrived", async () => {
+    finderReturns([NAME]);
+    await openBuilder(await pdf(1));
+    fireEvent.click(screen.getByRole("button", { name: "Find fields" }));
+    // Synchronously: each builder mounts with no chunk, so the line is
+    // there before the import resolves (it used to show nothing at all).
+    screen.getByText("Loading Find fields…");
+    await screen.findByText(/^Found 1 possible field/);
   });
 
   it("Add all on this page adds only the page the preview shows", async () => {
@@ -351,7 +489,9 @@ describe("Create Forms: Find fields", { timeout: 30_000 }, () => {
     fireEvent.click(screen.getByRole("button", { name: "Dismiss all" }));
     expect(rows(c)).toHaveLength(0);
     expect(cardNames(c)).toEqual(before);
-    expect(screen.queryByText(/found fields? (are|is) not added/)).toBeNull();
+    expect(
+      screen.queryByText(/found fields? (are|is) not in the form/),
+    ).toBeNull();
     expect(unsavedLabels()).toEqual([]);
     expect(document.activeElement).toBe(
       screen.getByTestId("find-fields-summary"),
@@ -419,7 +559,7 @@ describe("Create Forms: Find fields' summary says exactly what happened", () => 
       ]),
       [
         "Found 1 possible field on 1 of 2 pages: check each one, as nothing is added until you add it.",
-        "Page 2 looks like a scan, so it was not searched.",
+        "Page 2 is only a picture, with no text to read, so it was not searched: add its fields by hand.",
       ],
     ],
     [
@@ -430,7 +570,7 @@ describe("Create Forms: Find fields' summary says exactly what happened", () => 
       ]),
       [
         "Found nothing to suggest, so add each field the form needs with Add field.",
-        "Pages 1 and 2 look like scans, so they were not searched.",
+        "Pages 1 and 2 are only pictures, with no text to read, so they were not searched: add their fields by hand.",
       ],
     ],
     [
@@ -446,7 +586,7 @@ describe("Create Forms: Find fields' summary says exactly what happened", () => 
       base([{ page: 1, outcome: "turned-content" }]),
       [
         "Found nothing to suggest, so add each field the form needs with Add field.",
-        "Page 1 is drawn on its side, which Find fields cannot read: add those fields by hand.",
+        "The writing on page 1 shows sideways or upside down, which Find fields cannot read: add those fields by hand.",
       ],
     ],
     [
@@ -493,26 +633,58 @@ describe("Create Forms: Find fields' summary says exactly what happened", () => 
       }),
       [
         "Found 1 possible field: check each one, as nothing is added until you add it.",
-        "2 signature lines were skipped: use Sign PDF for those.",
+        "2 lines labelled as a signature were skipped: Edit PDF adds a signature field, and Sign PDF signs the PDF.",
         "1 line already has a field, so it was left alone.",
         "3 lines have a label that is not upright, so they were skipped: add those by hand.",
-        "4 more possible fields were left out, as at most 60 are suggested on a page and 300 in all, so add the rest by hand.",
+        "4 more possible fields were left out, as at most 60 are suggested on a page and 300 in all: check those pages and add the rest by hand.",
+      ],
+    ],
+    [
+      // Review round 7: pages the run cap emptied read as "Nothing was
+      // suggested on pages 40 to 50", and the cap line named no page.
+      "the caps, by page",
+      base(
+        [
+          { page: 1, outcome: "found", proposals: [NAME], leftOut: 2 },
+          { page: 2, outcome: "capped", leftOut: 8 },
+          { page: 3, outcome: "capped", leftOut: 8 },
+          { page: 4, outcome: "capped", leftOut: 8 },
+          { page: 5, outcome: "no-candidates" },
+          { page: 6, outcome: "capped", leftOut: 8 },
+        ],
+        { capped: 34 },
+      ),
+      [
+        "Found 1 possible field on 1 of 6 pages: check each one, as nothing is added until you add it.",
+        "Nothing was suggested on page 5: check it and add any field by hand.",
+        "34 more possible fields were left out on pages 1 to 4 and 6, as at most 60 are suggested on a page and 300 in all: check those pages and add the rest by hand.",
       ],
     ],
   ] as const)("%s", (_, report, want) => {
     expect(text(report as DetectReport)).toEqual(want);
   });
 
-  it("the signature line links to Sign PDF", () => {
+  it("the signature line links to Edit PDF and Sign PDF", () => {
     const [, sig] = summarize(
       base([{ page: 1, outcome: "found", proposals: [NAME] }], {
         signatureLines: 1,
       }),
     );
     expect(sig).toEqual({
-      text: "1 signature line was skipped: use Sign PDF for those.",
-      link: { words: "Sign PDF", href: "/tools/sign-pdf" },
+      text: "1 line labelled as a signature was skipped: Edit PDF adds a signature field, and Sign PDF signs the PDF.",
+      links: [
+        { words: "Edit PDF", href: "/tools/edit-pdf" },
+        { words: "Sign PDF", href: "/tools/sign-pdf" },
+      ],
     });
+  });
+
+  it("pages are named in runs", () => {
+    expect(pagesWord([3])).toBe("page 3");
+    expect(pagesWord([4, 3])).toBe("pages 3 and 4");
+    expect(pagesWord([3, 4, 5, 6, 7])).toBe("pages 3 to 7");
+    expect(pagesWord([12, 2, 5, 6, 7, 8, 9])).toBe("pages 2, 5 to 9 and 12");
+    expect(pagesWord([1, 2, 4, 5])).toBe("pages 1, 2, 4 and 5");
   });
 });
 
@@ -619,6 +791,17 @@ describe(
   },
 );
 
+/**
+ * Every type the finder can propose: a Record over FieldProposal["type"], so
+ * the compiler refuses this file when the union gains or loses a member
+ * (it used to compare KINDS with a typed ["checkbox", "text"], which a
+ * widened union would not have touched).
+ */
+const PROPOSED_TYPES: Record<FieldProposal["type"], true> = {
+  text: true,
+  checkbox: true,
+};
+
 describe("Create Forms: Find fields names a type as the type switch does", () => {
   // The chunk carries its own copy (a second importer of offered-kinds.ts
   // would break that first-load module's concatenation); this holds it.
@@ -627,6 +810,8 @@ describe("Create Forms: Find fields names a type as the type switch does", () =>
       expect(word, type).toBe(
         FIELD_TYPE_LABELS[type as keyof typeof FIELD_TYPE_LABELS],
       );
-    expect(Object.keys(KINDS).sort()).toEqual(["checkbox", "text"]);
+    expect(Object.keys(KINDS).sort()).toEqual(
+      Object.keys(PROPOSED_TYPES).sort(),
+    );
   });
 });

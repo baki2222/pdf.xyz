@@ -557,10 +557,18 @@ function FormBuilder({
       {runId > 0 &&
         (detect ? (
           <detect.FoundFields key={runId} f={finder} />
+        ) : detect === null ? (
+          <ErrorNote message="Find fields didn't load." />
         ) : (
-          detect === null && (
-            <ErrorNote message="Find fields didn't load; use Add field." />
-          )
+          // The chunk is on its way: the press shows at once, in the
+          // preview's own loading markup (gzip finds it twice). Inside S2's
+          // 0.3 KB only so: a role, a reset of the failure note on a retry
+          // and "use Add field" on that note cost 50 B gz between them, and
+          // the panel that replaces this line is the live region (review
+          // round 7, measured on the merged build).
+          <p className="text-muted inline-flex items-center gap-2 text-sm">
+            <Spinner /> Loading Find fields…
+          </p>
         ))}
 
       <RunnerSection
