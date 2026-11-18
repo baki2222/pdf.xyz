@@ -1679,13 +1679,16 @@ function ruleCandidates(
     // neighbour's caption ends within the left gap, up this box's side,
     // and it labelled the box over the box's own caption (review round 6
     // fixes, finding 1; corpus P50). A label in a cell of its own beside
-    // an EMPTY box still labels it.
+    // an EMPTY box still labels it. (The held hits are counted, not
+    // tested for first: `some` before `filter` gave the same answers with
+    // or without its test, a mutant nothing could see; regression verify
+    // after review round 6.)
     const owned =
-      boxTop !== undefined && left.some((h) => heldBy(h.text, r.x0))
-        ? left.filter((h) => !heldBy(h.text, r.x0))
-        : left;
+      boxTop === undefined ? left : left.filter((h) => !heldBy(h.text, r.x0));
     const mine =
-      owned !== left && boxCaption(ix, r, boxTop!) !== null ? owned : left;
+      owned.length < left.length && boxCaption(ix, r, boxTop!) !== null
+        ? owned
+        : left;
     let pick = pickLabel(mine);
     let size = mine.find((h) => h.text.upright)?.text.size;
     // A line in a label column takes its column's label from farther away.
