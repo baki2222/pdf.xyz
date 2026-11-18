@@ -12,7 +12,9 @@
  * per Delimiter and Character set choice (competitor audit #18), each read
  * right with its choice and wrong with the choice a reader would otherwise
  * get. And value-rich CSVs, converted with Auto and with no import options,
- * must print the same values. See
+ * must print the same values. And CSVs named with a Cyrillic, a Bengali and
+ * a CJK stem must print that stem in the page header and never "input",
+ * beside a control named input.csv that must print "input". See
  * `src/lib/workers/office-conversion/input-proof.ts`.
  *
  * Exit codes: 0 = proven; 1 = a check failed; 2 = an engine is not available
@@ -29,6 +31,7 @@ import {
   CSV_CHARSET_CASES,
   CSV_CHOICE_CASES,
   CSV_DEFAULT_CASES,
+  CSV_FILE_NAME_CASES,
 } from "@/tests/csv-charset-fixtures";
 
 async function main(): Promise<number> {
@@ -55,6 +58,7 @@ async function main(): Promise<number> {
     csvChoices: CSV_CHOICE_CASES,
     libreofficeNoOptions,
     csvDefaults: CSV_DEFAULT_CASES,
+    csvFileNames: CSV_FILE_NAME_CASES,
   });
   for (const line of result.lines) console.log(line);
   console.log(result.ok ? "PROVEN" : "FAIL");
