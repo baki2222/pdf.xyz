@@ -3128,6 +3128,54 @@ describe("square-checkbox", () => {
         expect(labels(p)).toEqual(["Full delegate", "Student"]);
       });
 
+      // Review round 6 fixes, finding 5: with an item-code column (Code |
+      // Item | Returned) the boxes were named "A1", "B7": a code holds a
+      // letter. A code names a position too: one word of letters and
+      // digits, with a digit in it, is skipped. A one-character word is
+      // still a label ("Y", or a CJK item), and so is a phrase with a
+      // number in it.
+      it("the row's first lettered text that is no item code: a code column's boxes take their items", () => {
+        const page = (rows: [string, string][]) =>
+          pg({
+            rects: rows.map((_, i) => rect(415, 667 - 18 * i, 9, 9)),
+            text: rows.flatMap(([code, item], i) => [
+              txt(code, 72, 668 - 18 * i, { size: 10, width: 12 }),
+              txt(item, 120, 668 - 18 * i, { size: 10, width: 40 }),
+            ]),
+          });
+        expect(
+          labels(
+            page([
+              ["A1", "Laptop"],
+              ["B7", "Badge"],
+              ["12a", "Headset"],
+            ]),
+          ),
+        ).toEqual(["Laptop", "Badge", "Headset"]);
+        // Not codes: a one-letter word, a phrase with a number in it, and
+        // a one-character CJK word (U+7537, "male").
+        const cjk = String.fromCodePoint(0x7537);
+        expect(
+          labels(
+            page([
+              ["Y", "Laptop"],
+              ["Form 7", "Badge"],
+              [cjk, "Headset"],
+            ]),
+          ),
+        ).toEqual(["Y", "Form 7", cjk]);
+        // A row whose only lettered text is a code keeps the code ("7" is
+        // no label: it holds no letter).
+        expect(
+          labels(
+            page([
+              ["7", "B7"],
+              ["A1", "Laptop"],
+            ]),
+          ),
+        ).toEqual(["B7", "Laptop"]);
+      });
+
       /** Squares at (400, 600) and (400, 570), "Item one" / "Item two" at 72. */
       const items = (extra: Partial<CardPage> = {}) =>
         pg({

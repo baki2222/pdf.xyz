@@ -575,6 +575,8 @@ function pieces(t: CardText, item: number): Piece[] {
 const TRAILING = /[\s:.\-\u2013\u2014]/u;
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
 const LETTER = /\p{L}/u;
+/** An item code ("A1", "12a"): one word of letters and digits, a digit in it. */
+const ITEM_CODE = /^(?=.*\p{N})[\p{L}\p{N}]+$/u;
 
 /**
  * Label text: underscores and trailing colons dropped, spaces collapsed.
@@ -2071,7 +2073,10 @@ function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
   // corpus P41). Without "alone", a headless Yes / No grid read
   // "Asthma", "Asthma". The text must hold a letter: a numbered list's
   // boxes were named "1" to "5" (review round 5 fixes, finding 3;
-  // corpus P46).
+  // corpus P46). And an item code is passed over for its item: a Code |
+  // Item | Returned checklist named its boxes "A1" to "D4" (review round 6
+  // fixes, finding 5; corpus P52). A row whose only lettered text is a
+  // code still takes the code.
   const bySquare = new Map(out.map((c) => [c.square, c]));
   // Rows by bottom alone (any size of square shares a row), within
   // COMB_EPS of the row's first.
@@ -2092,15 +2097,15 @@ function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
     if (!col.every((s) => bySquare.get(s)!.labelState === "none")) continue;
     if (!col.every((s) => rowCount.get(s) === 1)) continue;
     for (const s of col) {
-      const first = leftOf(
+      const lettered = leftOf(
         p.text,
         s.x0,
         p.width,
         s.y0 - DETECT.RUN_BASELINE_EMS * 12,
         () => s.y1,
-      )
-        .filter((h) => h.text.upright && LETTER.test(h.str))
-        .pop();
+      ).filter((h) => h.text.upright && LETTER.test(h.str));
+      const first =
+        lettered.filter((h) => !ITEM_CODE.test(h.str)).pop() ?? lettered.pop();
       if (!first) continue;
       const c = bySquare.get(s)!;
       c.label = first.str;

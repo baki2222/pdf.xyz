@@ -488,6 +488,17 @@ const P50 = {
  * caption's descent.
  */
 const P51 = { h: 20, size: 7, base: 650 + 20 - 2 - 0.7 * 7 };
+/** P52's checklist rows (code, item) and their baselines. */
+const P52 = {
+  rows: [
+    ["A1", "Laptop"],
+    ["A2", "Charger"],
+    ["B7", "Badge"],
+    ["C3", "Headset"],
+    ["D4", "Monitor"],
+  ] as const,
+  y: (i: number) => 668 - 18 * i,
+};
 /** N49's article: its body (set twice, at y 700 and 550) and sidebar lines. */
 const N49 = {
   body: [
@@ -3190,6 +3201,34 @@ export const DETECT_CASES: readonly DetectCase[] = [
         P50.x(i) + 149,
         P51.base - 0.2 * P51.size,
       ),
+    })),
+  },
+  {
+    id: "P52",
+    kind: "positive",
+    note: 'an equipment return checklist with a code column (Code | Item | Returned: "A1 Laptop", "A2 Charger", "B7 Badge", "C3 Headset", "D4 Monitor"): each box named by its item, not its code',
+    // Review round 6 fixes, finding 5: the boxes were named "A1" to "D4",
+    // the row's first text holding a letter.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await text(page, H, "Equipment return checklist", 72, 720, 12);
+      await text(page, H, "Code", 72, 690, 10);
+      await text(page, H, "Item", 120, 690, 10);
+      await text(page, H, "Returned", 400, 690, 10);
+      for (const [i, [code, item]] of P52.rows.entries()) {
+        await text(page, H, code, 72, P52.y(i), 10);
+        await text(page, H, item, 120, P52.y(i), 10);
+        square(page, 415, P52.y(i) - 1, 9);
+      }
+      return save(d);
+    },
+    expect: P52.rows.map(([, item], i) => ({
+      rule: "square-checkbox" as const,
+      type: "checkbox" as const,
+      label: item,
+      page: 1,
+      box: squareBox(415, P52.y(i) - 1, 9),
     })),
   },
 
