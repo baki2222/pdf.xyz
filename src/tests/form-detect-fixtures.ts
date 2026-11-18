@@ -412,6 +412,18 @@ const P36 = [
   { head: "Symptoms", options: ["Fever", "Cough", "Headache"] },
   { head: "Medication", options: ["Insulin", "Inhaler", "Aspirin"] },
 ];
+/** P37's captioned lines (10 pt captions 10 pt under, 7 pt hints 20). */
+const P37 = [
+  {
+    x0: 72,
+    x1: 300,
+    y: 660,
+    label: "Full name",
+    hint: "(as shown on your passport)",
+  },
+  { x0: 320, x1: 540, y: 660, label: "Date of birth", hint: "(DD/MM/YYYY)" },
+  { x0: 72, x1: 300, y: 610, label: "Email address", hint: null },
+];
 /** N32's line starts 40 pt right of where "Address:" (12 pt) ends. */
 const N32_X0 = 72 + textWidth(H, "Address:", 12) + 40;
 /**
@@ -2288,6 +2300,32 @@ export const DETECT_CASES: readonly DetectCase[] = [
         box: squareBox(72 + 228 * k, 594 - 18 * i, 10),
       })),
     ),
+  },
+  {
+    id: "P37",
+    kind: "positive",
+    note: 'captions under lines, two with a 7 pt hint under the caption ("(as shown on your passport)", "(DD/MM/YYYY)"): every line keeps its caption',
+    // Review round 4 fixes, finding 3: a caption with one smaller line
+    // under it was read as a heading, so both hinted lines were dropped as
+    // unlabelled. A heading needs a body of two lines (N36 is the control).
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await text(page, H, "Applicant details", 72, 700, 14);
+      for (const f of P37) {
+        rule(page, f.x0, f.x1, f.y, 0.5);
+        await text(page, H, f.label, f.x0, f.y - 10, 10);
+        if (f.hint) await text(page, H, f.hint, f.x0, f.y - 20, 7);
+      }
+      return save(d);
+    },
+    expect: P37.map((f) => ({
+      rule: "labelled-rule" as const,
+      type: "text" as const,
+      label: f.label,
+      page: 1,
+      box: ruleBox(f.x0, f.x1, f.y, 10),
+    })),
   },
 
   // ---------------------------------------------------------- outcomes

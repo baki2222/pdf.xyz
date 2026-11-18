@@ -658,7 +658,13 @@ describe("labelled-rule", () => {
   // at its x directly under it) is no caption, and a line labelled only by a
   // caption in the outer band of the page is the page's furniture.
   describe("prose is not a form: headings and footers", () => {
-    /** A rule over a `size` heading at 592, `body` text `lead` pt under it. */
+    /**
+     * A rule over a `size` heading at 592, `body` text `lead` pt under it,
+     * and a second body line 1.3 x `body` under the first. Review round 4
+     * fixes, finding 3: a heading needs a BODY of two lines (one smaller
+     * line under a caption is the caption's hint), so this draws two; it
+     * drew one until then.
+     */
     const headed = (size: number, body: number, lead: number, dx = 0) =>
       pg({
         segs: [hseg(72, 538, 606)],
@@ -667,6 +673,10 @@ describe("labelled-rule", () => {
           txt("The results start here.", 72 + dx, 592 - lead, {
             size: body,
             width: 120,
+          }),
+          txt("And they go on here.", 72 + dx, 592 - lead - 1.3 * body, {
+            size: body,
+            width: 110,
           }),
         ],
       });
@@ -710,10 +720,68 @@ describe("labelled-rule", () => {
       expect(label(txt("   ", 72, 584, { size: 7, width: 8 }))).toBe(
         "Full name",
       );
-      // ... and the positive control: upright smaller words under it.
+      // INVERTED in review round 4 fixes (finding 3). This read "the
+      // positive control: upright smaller words under it" and pinned the
+      // label undefined for ONE 7 pt line under "Full name": a caption with
+      // its hint under it ("(as shown on your passport)") lost its line.
+      // One smaller line is a hint; the caption stays.
       expect(label(txt("note", 72, 584, { size: 7, width: 15 }))).toBe(
-        undefined,
+        "Full name",
       );
+      // The positive control now: TWO smaller lines under it, a body.
+      const two = captioned(txt("note", 72, 584, { size: 7, width: 15 }));
+      two.text.push(txt("more", 72, 575, { size: 7, width: 15 }));
+      expect(props(two)[0]?.label).toBe(undefined);
+    });
+
+    describe("a heading's body is two lines: one smaller line under a caption is its hint", () => {
+      /**
+       * "Full name" (10 pt) under a rule, a 5 pt hint 10 pt under it, and a
+       * second line `gap` under the hint, `size` pt, `dx` off the hint's x.
+       */
+      const hinted = (second?: { gap: number; size?: number; dx?: number }) =>
+        pg({
+          segs: [hseg(72, 300, 660)],
+          text: [
+            txt("Full name", 72, 650, { size: 10, width: 45 }),
+            txt("(as shown on your passport)", 72, 640, { size: 5, width: 90 }),
+            ...(second
+              ? [
+                  txt(
+                    "and on your other papers",
+                    72 + (second.dx ?? 0),
+                    640 - second.gap,
+                    {
+                      size: second.size ?? 5,
+                      width: 90,
+                    },
+                  ),
+                ]
+              : []),
+          ],
+        });
+      const label = (p: CardPage) => props(p)[0]?.label;
+
+      it("a caption with one smaller hint under it keeps its line (the A1 shape)", () => {
+        expect(label(hinted())).toBe("Full name");
+      });
+
+      it("HEADING_LEAD_EMS: a second line up to 1.6 x the first's size under it makes a body, not 0.1 pt more", () => {
+        expect(label(hinted({ gap: 8 }))).toBe(undefined);
+        expect(label(hinted({ gap: 8.1 }))).toBe("Full name");
+      });
+
+      it("the second line no larger than the first: equal counts, 0.1 pt larger does not (the next field's caption)", () => {
+        expect(label(hinted({ gap: 6, size: 5 }))).toBe(undefined);
+        expect(label(hinted({ gap: 6, size: 5.1 }))).toBe("Full name");
+      });
+
+      it("GRID_ROW_EPS: the second line starting 2 pt off the first's x counts, 2.1 does not", () => {
+        expect(label(hinted({ gap: 6, dx: 2 }))).toBe(undefined);
+        expect(label(hinted({ gap: 6, dx: -2 }))).toBe(undefined);
+        expect(label(hinted({ gap: 6, dx: 2.1 }))).toBe("Full name");
+        expect(label(hinted({ gap: 6, dx: -2.1 }))).toBe("Full name");
+      });
     });
 
     /** A 400 pt rule at `y` with centred 8 pt footer text 10 pt under it. */

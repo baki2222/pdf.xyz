@@ -143,7 +143,10 @@ export const DETECT = {
   /**
    * A HEADING is no caption: text with text at least HEADING_SMALLER_BY pt
    * smaller starting at its x (within GRID_ROW_EPS) whose baseline is up to
-   * HEADING_LEAD_EMS x its size under its own (the body under a heading).
+   * HEADING_LEAD_EMS x its size under its own (the body under a heading),
+   * that line itself with another no larger than it starting at its x
+   * (within GRID_ROW_EPS) up to HEADING_LEAD_EMS x its size under it: a
+   * body is two lines, one is a caption's hint (review round 4 fixes).
    * Equal sizes are a printed name over its role, which stays a caption.
    */
   HEADING_LEAD_EMS: 1.6,
@@ -959,15 +962,24 @@ function labelColumns(p: CardPage, lines: PageLines): Map<Line, LabelHit> {
  * corpus N36).
  */
 function isHeading(t: CardText, text: readonly CardText[]): boolean {
-  // `t` itself never passes: it is not smaller than itself.
-  return text.some(
-    (u) =>
-      u.upright &&
-      u.str.trim() !== "" &&
-      u.size <= t.size - DETECT.HEADING_SMALLER_BY &&
-      Math.abs(u.x - t.x) <= DETECT.GRID_ROW_EPS &&
-      u.y < t.y &&
-      t.y - u.y <= DETECT.HEADING_LEAD_EMS * t.size,
+  // Upright text no larger than `size` starting at `top`'s x, its baseline
+  // up to HEADING_LEAD_EMS x `top`'s size under `top`'s.
+  const under = (top: CardText, size: number) =>
+    text.filter(
+      (u) =>
+        u.upright &&
+        u.str.trim() !== "" &&
+        u.size <= size &&
+        Math.abs(u.x - top.x) <= DETECT.GRID_ROW_EPS &&
+        u.y < top.y &&
+        top.y - u.y <= DETECT.HEADING_LEAD_EMS * top.size,
+    );
+  // `t` itself never passes: it is not smaller than itself. The body is
+  // TWO lines: one smaller line under a caption is the caption's hint
+  // ("(as shown on your passport)"), and read as a body it cost the line
+  // its caption (review round 4 fixes, finding 3; corpus P37).
+  return under(t, t.size - DETECT.HEADING_SMALLER_BY).some(
+    (u) => under(u, u.size).length > 0,
   );
 }
 
