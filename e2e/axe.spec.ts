@@ -511,6 +511,23 @@ test.describe("accessibility: axe after a file is loaded, and on client results"
     // Every known-open entry names a combo the sweep runs, or it is never
     // compared and its "fixed" check passes over nothing.
     const combos = AFTER_UPLOAD_COMBOS.map((c) => c.name);
+    // The matrix holds a dark scheme and a phone, asked of the OPTIONS, not
+    // the names, so renaming a combo cannot satisfy it (review, 2026-11-18:
+    // deleting the phone combo left every test green).
+    const matrix = JSON.stringify(AFTER_UPLOAD_COMBOS);
+    expect(
+      AFTER_UPLOAD_COMBOS.some((c) => c.options.colorScheme === "dark"),
+      `a dark combo: ${matrix}`,
+    ).toBe(true);
+    expect(
+      AFTER_UPLOAD_COMBOS.some(
+        (c) =>
+          c.options.isMobile === true &&
+          c.options.viewport != null &&
+          c.options.viewport.width < 768,
+      ),
+      `a phone combo: ${matrix}`,
+    ).toBe(true);
     for (const entry of KNOWN_OPEN)
       expect(combos, entry).toContain(knownCombo(entry));
   });
