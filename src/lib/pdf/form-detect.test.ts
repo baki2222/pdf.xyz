@@ -203,6 +203,7 @@ describe("rule tables", () => {
       GRID_COLUMN_GAP: 24, // review
       COMB_MIN: 2, // review round 3 (the brief's was 4)
       COMB_EPS: 1,
+      GRID_HEAD_ABOVE: 20, // review round 3
       SIGNOFF_ABOVE: 80, // review
       IOU_EXISTING: 0.3,
       DUP_DY: 4,
@@ -1151,6 +1152,133 @@ describe("square-checkbox", () => {
       });
     expect(props(at(4))[0]?.label).toBe("R");
     expect(props(at(3.9))[0]?.label).toBe("L");
+  });
+
+  // Review round 3, finding 7: a condition x Yes / No grid, or a rating
+  // grid, proposed nothing (each row's text is far left, each head above),
+  // and with dot leaders only the first column, named after the row alone.
+  // A square in a grid whose every column has its own head is labelled
+  // "<row text> <head>".
+  describe("a checkbox grid with a head over each column", () => {
+    const ROWS = ["Asthma", "Diabetes", "Epilepsy"];
+    /** 10 pt squares at `xs` in rows from y 598 down, heads over the top. */
+    const grid = (
+      o: {
+        rows?: string[];
+        xs?: number[];
+        heads?: (string | null)[];
+        above?: number;
+        leaders?: boolean;
+        extra?: CardText[];
+      } = {},
+    ) => {
+      const rows = o.rows ?? ROWS;
+      const xs = o.xs ?? [400, 452];
+      const heads = o.heads ?? ["Yes", "No"];
+      return pg({
+        rects: rows.flatMap((_, i) =>
+          xs.map((x) => rect(x, 598 - 20 * i, 10, 10)),
+        ),
+        text: [
+          ...rows.map((s, i) =>
+            txt(o.leaders ? `${s} ....` : s, 72, 600 - 20 * i, {
+              size: 10,
+              width: o.leaders ? xs[0]! - 4 - 72 : 50,
+            }),
+          ),
+          ...heads.flatMap((h, k) =>
+            h === null
+              ? []
+              : [
+                  txt(h, xs[k]! - 2, 608 + (o.above ?? 10), {
+                    size: 9,
+                    width: 14,
+                  }),
+                ],
+          ),
+          ...(o.extra ?? []),
+        ],
+      });
+    };
+    const labels = (p: CardPage) => props(p).map((x) => x.label);
+
+    it("each square is labelled by its row and its column's head", () => {
+      expect(labels(grid())).toEqual([
+        "Asthma Yes",
+        "Asthma No",
+        "Diabetes Yes",
+        "Diabetes No",
+        "Epilepsy Yes",
+        "Epilepsy No",
+      ]);
+    });
+
+    it("the head is the nearest text ABOVE the column: not a note under the grid, not a group header over the heads", () => {
+      const extra = [
+        txt("* see notes", 398, 520, { size: 8, width: 50 }),
+        txt("Answer", 396, 626, { size: 9, width: 70 }),
+      ];
+      expect(labels(grid({ extra }))).toEqual(labels(grid()));
+    });
+
+    it("a row whose text is turned is labelled by the head alone", () => {
+      const p = grid();
+      p.text = p.text.map((t) =>
+        ROWS.includes(t.str) ? { ...t, upright: false } : t,
+      );
+      expect(labels(p)).toEqual(["Yes", "No", "Yes", "No", "Yes", "No"]);
+    });
+
+    it("with dot leaders the first column is not named after the row alone", () => {
+      expect(labels(grid({ leaders: true })).slice(0, 2)).toEqual([
+        "Asthma Yes",
+        "Asthma No",
+      ]);
+    });
+
+    it("GRID_HEAD_ABOVE: a head 20 pt above the column's top square counts, 20.1 does not", () => {
+      expect(labels(grid({ above: 20 }))).toHaveLength(6);
+      expect(labels(grid({ above: 20.1 }))).toEqual([]);
+    });
+
+    it("every column needs a head of its own: one missing, or one text over both, is no grid", () => {
+      expect(labels(grid({ heads: ["Yes", null] }))).toEqual([]);
+      expect(
+        labels(
+          grid({
+            heads: [],
+            extra: [txt("Tick one box", 396, 618, { size: 9, width: 70 })],
+          }),
+        ),
+      ).toEqual([]);
+    });
+
+    it("an option list in two columns under an instruction keeps its own labels", () => {
+      const p = pg({
+        rects: [0, 1].flatMap((i) =>
+          [72, 200].map((x) => rect(x, 598 - 20 * i, 10, 10)),
+        ),
+        text: [
+          txt("Interests:", 72, 618, { size: 10, width: 48 }),
+          ...[
+            ["Music", 86, 600],
+            ["Sports", 214, 600],
+            ["Reading", 86, 580],
+            ["Travel", 214, 580],
+          ].map(([s, x, y]) =>
+            txt(s as string, x as number, y as number, { size: 10, width: 30 }),
+          ),
+        ],
+      });
+      expect(labels(p)).toEqual(["Music", "Sports", "Reading", "Travel"]);
+    });
+
+    it("a grid needs two squares in each row and in each column", () => {
+      // One column of squares under a head ...
+      expect(labels(grid({ xs: [400], heads: ["Tick"] }))).toEqual([]);
+      // ... and one row of squares under heads.
+      expect(labels(grid({ rows: ["Asthma"] }))).toEqual([]);
+    });
   });
 
   // Review round 3, finding 3: text inside a checkbox's square lowered its

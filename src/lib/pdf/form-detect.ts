@@ -194,6 +194,11 @@ export const DETECT = {
    */
   COMB_MIN: 2,
   COMB_EPS: 1,
+  /**
+   * A checkbox GRID's column head: upright text over the column's top
+   * square, its baseline up to this far above the square's top.
+   */
+  GRID_HEAD_ABOVE: 20,
   /** A label naming a signature line. */
   SIGNATURE_RE: /\b(sign(ature|ed)?|initials)\b/i,
   /**
@@ -1091,14 +1096,95 @@ function runCandidates(
 }
 
 /**
+ * Squares grouped by `key` (x0 for columns, y0 for rows): each group's keys
+ * lie within {@link DETECT.COMB_EPS} of its first, and its sides within
+ * COMB_EPS of its first's. Sorted, so linear after the sort.
+ */
+function squareGroups(
+  squares: readonly CardRect[],
+  key: (s: CardRect) => number,
+): CardRect[][] {
+  const eps = DETECT.COMB_EPS;
+  const side = (s: CardRect) => s.x1 - s.x0;
+  const split = (xs: CardRect[], k: (s: CardRect) => number) => {
+    const out: CardRect[][] = [];
+    for (const s of [...xs].sort((a, b) => k(a) - k(b))) {
+      const g = out[out.length - 1];
+      if (g && k(s) - k(g[0]!) <= eps) g.push(s);
+      else out.push([s]);
+    }
+    return out;
+  };
+  return split([...squares], key).flatMap((g) => split(g, side));
+}
+
+/**
+ * Labels for the squares of a checkbox GRID (a condition x Yes / No grid, a
+ * 1-to-5 rating grid): a square with another of its size in its column and
+ * in its row, in a row whose every square's column has a head of its own
+ * (a distinct text item over the column's top square, up to
+ * {@link DETECT.GRID_HEAD_ABOVE} pt above it), is labelled "<row text>
+ * <head>", the row text being the nearest upright text left of the row's
+ * first square. Such grids once proposed nothing, or with dot leaders only
+ * the first column, named after the row alone (review round 3, finding 7;
+ * corpus P30, P31). An option list in columns under one instruction is no
+ * grid: its other columns have no head.
+ */
+function gridLabels(
+  p: CardPage,
+  squares: readonly CardRect[],
+): Map<CardRect, string> {
+  const out = new Map<CardRect, string>();
+  const columnOf = new Map<CardRect, CardRect[]>();
+  for (const col of squareGroups(squares, (s) => s.x0))
+    if (col.length >= 2) for (const s of col) columnOf.set(s, col);
+  const headOf = new Map<CardRect[], CardText>();
+  for (const col of new Set(columnOf.values())) {
+    const top = col.reduce((a, b) => (b.y1 > a.y1 ? b : a));
+    let head: CardText | undefined;
+    for (const t of p.text) {
+      if (!t.upright || !cleanLabel(t.str)) continue;
+      if (t.y <= top.y1 || t.y - top.y1 > DETECT.GRID_HEAD_ABOVE) continue;
+      if (overlap(t.x, t.x + Math.max(0, t.width), top.x0, top.x1) <= 0)
+        continue;
+      if (!head || t.y < head.y) head = t;
+    }
+    if (head) headOf.set(col, head);
+  }
+  for (const row of squareGroups(squares, (s) => s.y0)) {
+    if (row.length < 2) continue;
+    const heads = row.map((s) => {
+      const col = columnOf.get(s);
+      return col ? headOf.get(col) : undefined;
+    });
+    if (heads.some((h) => !h) || new Set(heads).size !== heads.length) continue;
+    const first = row.reduce((a, b) => (b.x0 < a.x0 ? b : a));
+    const rowText = leftOf(
+      p.text,
+      first.x0,
+      p.width,
+      first.y0 - DETECT.RUN_BASELINE_EMS * 12,
+      () => first.y1,
+    ).find((h) => h.text.upright);
+    row.forEach((s, k) => {
+      const head = cleanLabel(heads[k]!.str)!;
+      out.set(s, rowText ? `${rowText.str} ${head}` : head);
+    });
+  }
+  return out;
+}
+
+/**
  * A square's label is the nearest upright text on EITHER side, within
  * {@link DETECT.LABEL_LEFT_GAP}; a tie keeps the right. The right side was
  * once searched first and the left only when it found nothing, so in the
  * inline "Yes [] No []" the next answer word beat the box's own label and
  * every Yes box read "No" (review round 3, finding 1; corpus P28, whose
- * second row is the label-right control).
+ * second row is the label-right control). A square in a headed grid takes
+ * its grid label ({@link gridLabels}) instead.
  */
 function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
+  const grid = gridLabels(p, lines.squares);
   return lines.squares.map((sq) => {
     const right: LabelHit[] = [];
     for (const t of p.text) {
@@ -1123,7 +1209,9 @@ function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
     const lGap = l ? sq.x0 - (l.text.x + Math.max(0, l.text.width)) : Infinity;
     const leftWins = lGap < rGap;
     let pick: ReturnType<typeof pickLabel>;
-    if (l && leftWins) pick = { label: l.str, state: "found" };
+    const inGrid = grid.get(sq);
+    if (inGrid) pick = { label: inGrid, state: "found" };
+    else if (l && leftWins) pick = { label: l.str, state: "found" };
     else if (r) pick = { label: r.str, state: "found" };
     else {
       // No upright text on either side: "rotated" if either has some.

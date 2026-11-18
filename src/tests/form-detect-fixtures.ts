@@ -391,6 +391,58 @@ const P29 = {
     "4 City, state, and ZIP code",
   ],
 };
+/**
+ * P30's medical history grid: four conditions down the left, a 10 pt Yes
+ * and No box in each row, "Yes" and "No" (9 pt) centred over the columns.
+ */
+const P30 = {
+  rows: ["Asthma", "Diabetes", "Epilepsy", "Heart condition"],
+  heads: ["Yes", "No"],
+  xs: [400, 452],
+};
+/**
+ * P31's rating grid: three statements with dot leaders up to the first of
+ * five 10 pt boxes 30 pt apart, "1" to "5" (9 pt) centred over them.
+ */
+const P31 = {
+  rows: ["The staff were helpful", "The room was clean", "I would stay again"],
+  heads: ["1", "2", "3", "4", "5"],
+  xs: [350, 380, 410, 440, 470],
+};
+/** A row's text with dot leaders up to `gap` pt before x (Helvetica 10). */
+function leadered(s: string, x: number, gap = 4): string {
+  let out = `${s} `;
+  while (72 + textWidth(H, `${out}.`, 10) <= x - gap) out += ".";
+  return out;
+}
+/** A grid's 10 pt boxes, row text at 72 from y 600 down, heads at 620. */
+async function headedGrid(
+  page: PDFPage,
+  g: { rows: string[]; heads: string[]; xs: number[] },
+  row: (s: string) => string,
+) {
+  for (const [k, h] of g.heads.entries())
+    await text(page, H, h, g.xs[k]! + 5 - textWidth(H, h, 9) / 2, 620, 9);
+  for (const [i, s] of g.rows.entries()) {
+    await text(page, H, row(s), 72, 600 - 20 * i, 10);
+    for (const x of g.xs) square(page, x, 598 - 20 * i, 10);
+  }
+}
+function headedExpect(g: {
+  rows: string[];
+  heads: string[];
+  xs: number[];
+}): Expect[] {
+  return g.rows.flatMap((s, i) =>
+    g.heads.map((h, k) => ({
+      rule: "square-checkbox" as const,
+      type: "checkbox" as const,
+      label: `${s} ${h}`,
+      page: 1,
+      box: squareBox(g.xs[k]!, 598 - 20 * i, 10),
+    })),
+  );
+}
 /** N34's 16 pt box, 6 pt right of its label (Helvetica 10). */
 const N34_X = 72 + textWidth(H, "Number of dependants", 10) + 6;
 /**
@@ -1210,6 +1262,32 @@ export const DETECT_CASES: readonly DetectCase[] = [
     // The top rule takes no caption: nothing is proposed above the form.
     decidedBy: "unlabelled",
     at: { page: 1, x: 300, y: P29.ys[0]! + 5 },
+  },
+  {
+    id: "P30",
+    kind: "positive",
+    note: 'a medical history grid: four conditions down the left, a Yes and a No box in each row under the heads "Yes" and "No"',
+    // Review round 3, finding 7: every box was unlabelled (each row's text
+    // far to the left, each head above), so the grid proposed nothing.
+    build: async () => {
+      const d = await doc();
+      await headedGrid(d.addPage(LETTER), P30, (s) => s);
+      return save(d);
+    },
+    expect: headedExpect(P30),
+  },
+  {
+    id: "P31",
+    kind: "positive",
+    note: 'a rating grid: three statements with dot leaders up to five boxes under the heads "1" to "5"',
+    // Review round 3, finding 7: the leader gave the first box a left label
+    // (the statement alone) and the other four none.
+    build: async () => {
+      const d = await doc();
+      await headedGrid(d.addPage(LETTER), P31, (s) => leadered(s, P31.xs[0]!));
+      return save(d);
+    },
+    expect: headedExpect(P31),
   },
 
   // ---------------------------------------------------------- negatives
