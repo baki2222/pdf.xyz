@@ -118,6 +118,12 @@ const ALLOWED = new Set(
     // around a recording stand-in for soffice. Reached only by the daemon's
     // proved-capability table and tests.
     "src/lib/workers/office-conversion/csv-capability.ts",
+    // OCR PDF's owner-password proof (2026-11-17, competitor-audit backlog
+    // #11): it builds the image's own OCR runner (`ocr-native`) and qpdf
+    // runner (`pdf-security/native`) around recording stand-ins for the two
+    // processes. Reached only by the daemon's proved-capability table and
+    // tests.
+    "src/lib/workers/ocr-owner-capability.ts",
     "src/lib/workers/local-dev.ts",
     "src/lib/workers/daemon/runtime.ts",
     // 2026-11-15: the daemon's proved-capability table (every proof, incl.

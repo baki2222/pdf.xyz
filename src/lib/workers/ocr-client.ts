@@ -193,6 +193,11 @@ async function runWorkerOcrSteps(
         redoOcr: input.options.redoOcr,
         deskew: input.options.deskew,
         rotatePages: input.options.rotatePages,
+        // A restricted PDF's owner password (backlog #11), only when the
+        // panel has one for this file; sealed before the queue stores it.
+        ...(input.options.ownerPassword !== undefined
+          ? { ownerPassword: input.options.ownerPassword }
+          : {}),
       },
     }),
     signal,

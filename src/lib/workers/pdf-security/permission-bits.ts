@@ -76,3 +76,78 @@ export function readEncryptPermissions(bytes: Uint8Array): number | null {
   const dict = dictAt(text, open);
   return dict ? pIn(dict) : null;
 }
+
+/* ------------------------------------------------------------------ *
+ *  The author's grant in the terms qpdf writes it (2026-11-17).
+ * ------------------------------------------------------------------ */
+
+/** qpdf's `--print` levels: /P bit 3 off; bit 3 without 12; both. */
+export type QpdfPrintLevel = "none" | "low" | "full";
+
+/**
+ * What a restricted PDF's author grants without the owner password, as the
+ * seven switches qpdf 11 writes for R3 and later (`--print`,
+ * `--modify-other`, `--extract`, `--annotate`, `--form`, `--accessibility`,
+ * `--assemble`). OCR PDF re-encrypts its searchable copy of a restricted
+ * file with these (competitor-audit backlog #11), and reads them back from
+ * what qpdf wrote.
+ */
+export interface QpdfGrant {
+  /** Bits 3 and 12. */
+  print: QpdfPrintLevel;
+  /** Bit 4: change the document in ways the others do not cover. */
+  modify: boolean;
+  /** Bit 5: copy text and images. */
+  copy: boolean;
+  /** Bit 6: add or change comments (and fill forms). */
+  annotate: boolean;
+  /** Bit 9: fill existing form fields even when bit 6 is off. */
+  fillForms: boolean;
+  /** Bit 10: extract for accessibility (deprecated in PDF 2.0, see below). */
+  accessibility: boolean;
+  /** Bit 11: insert, rotate or delete pages. */
+  assemble: boolean;
+}
+
+/** The grant's switches, in the order the argv writes them. */
+export const QPDF_GRANT_KEYS = [
+  "print",
+  "modify",
+  "copy",
+  "annotate",
+  "fillForms",
+  "accessibility",
+  "assemble",
+] as const satisfies readonly (keyof QpdfGrant)[];
+
+const bitOn = (p: number, n: number): boolean => (p & (1 << (n - 1))) !== 0;
+
+/**
+ * The grant a /P value states, read the way its revision defines the bits
+ * (ISO 32000-1 Table 22). Revision 2 has no bits 9-12: printing there is
+ * full-quality printing, form filling is bit 6's, accessibility extraction
+ * is bit 5's and page assembly is bit 4's — so an R2 file's grant becomes
+ * the R3+ switches that mean the same thing, never a raw copy of bits that
+ * R2 leaves undefined.
+ */
+export function qpdfGrantFromP(p: number, r: number): QpdfGrant {
+  if (r < 3)
+    return {
+      print: bitOn(p, 3) ? "full" : "none",
+      modify: bitOn(p, 4),
+      copy: bitOn(p, 5),
+      annotate: bitOn(p, 6),
+      fillForms: bitOn(p, 6),
+      accessibility: bitOn(p, 5),
+      assemble: bitOn(p, 4),
+    };
+  return {
+    print: !bitOn(p, 3) ? "none" : bitOn(p, 12) ? "full" : "low",
+    modify: bitOn(p, 4),
+    copy: bitOn(p, 5),
+    annotate: bitOn(p, 6),
+    fillForms: bitOn(p, 9),
+    accessibility: bitOn(p, 10),
+    assemble: bitOn(p, 11),
+  };
+}

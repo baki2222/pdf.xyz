@@ -42,6 +42,7 @@ const CAPS: HeartbeatCapabilities = {
   translatePageMap: true,
   translatePageRange: true,
   csvImportOptions: true,
+  ocrOwnerPassword: true,
 };
 
 describe("coarseRelease", () => {
@@ -118,6 +119,7 @@ describe("buildHeartbeat / serialize / parse", () => {
       translatePageMap: false,
       translatePageRange: false,
       csvImportOptions: false,
+      ocrOwnerPassword: false,
     });
     expect(JSON.stringify(hb)).not.toContain("evil.example.com");
     expect(JSON.stringify(hb)).not.toContain("secretEndpoint");
@@ -278,6 +280,7 @@ describe("buildHeartbeat / serialize / parse", () => {
         translatePageMap: false,
         translatePageRange: false,
         csvImportOptions: false,
+        ocrOwnerPassword: false,
       },
       at: 1234,
     });

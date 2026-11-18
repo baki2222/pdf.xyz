@@ -270,8 +270,9 @@ export default function PrivacyPage() {
         </p>
         <p>
           <strong className={strong}>One case worth naming.</strong> If you use
-          the tools that add or remove a PDF password, the password you type is
-          part of the instructions sent to our server. {PASSWORD_QUEUE_LIFETIME}{" "}
+          the tools that add or remove a PDF password, or type a restricted
+          PDF&apos;s owner password into OCR PDF, the password you type is part
+          of the instructions sent to our server. {PASSWORD_QUEUE_LIFETIME}{" "}
           While the job runs, our server hands the password to the encryption
           tool through a temporary file in the job&apos;s own folder, which is
           erased when the job ends. It is never written to a log, an error

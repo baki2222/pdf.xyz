@@ -87,6 +87,7 @@ const SPEC = {
     translatePageMap: true,
     translatePageRange: true,
     csvImportOptions: true,
+    ocrOwnerPassword: true,
     chatRetrieval: true,
     summarizePages: true,
   },

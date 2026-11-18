@@ -17,6 +17,7 @@ import { OCR_START_SENTENCE } from "@/lib/jobs/ocr-start-copy";
 import { BATCH_LIMITS } from "@/lib/batch/limits";
 import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
 import { ocrBatchPageSentence } from "@/lib/batch/ocr-copy";
+import { OWNER_PASSWORD_LABEL } from "@/lib/pdf/owner-password-copy";
 
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27:
@@ -102,6 +103,20 @@ import { ocrBatchPageSentence } from "@/lib/batch/ocr-copy";
  * "Drop one PDF, JPG or PNG"; batch-claims.test.ts holds those sentences,
  * and the patterns that catch them, in both directions. Its words are
  * src/lib/batch/worker-copy.ts and src/lib/batch/ocr-copy.ts.
+ * Restricted PDFs (2026-11-17, competitor-audit backlog #11): the "OCR a PDF
+ * with editing restrictions" use case is true of a worker with and without
+ * `ocrOwnerPassword`. With it, src/components/tools/ocr-worker-panel.tsx
+ * shows the Owner password field (src/components/tools/ocr-owner-password.tsx)
+ * for a PDF the browser's probe finds restricted, and
+ * src/lib/workers/ocr-native.ts checks the password against the file's own
+ * encryption dictionary before qpdf decrypts anything
+ * (src/lib/workers/ocr-owner-password.ts: any other password, and a file
+ * that needs one to open, is refused), then restricts the searchable PDF
+ * again with the same grant and owner password and no open password, read
+ * back before delivery. The text file is written from the decrypted copy,
+ * so "has no restrictions" is said of it. Without the capability the field
+ * is never drawn and the worker refuses the file, naming Unlock PDF
+ * (OCR_REFUSAL_MESSAGES.restricted), which the answer's last sentences say.
  * Every number is interpolated from the constant that owns it.
  */
 
@@ -175,6 +190,10 @@ const content: ToolContent = {
     {
       title: "Turn pages scanned sideways or upside down",
       body: "Sheets fed in the wrong way round come out sideways or upside down, and their words cannot be read until they are turned. Tick “Turn pages upright” and each page of the PDF that has no text yet is checked for which way its lines run and turned the right way up before its words are recognised. The turn is saved as the page's rotation setting, so on its own it keeps the page's picture as it was. A page needs enough text to tell which way is up, so one with only a line of text may be left as it is. Unless “Redo existing OCR” is ticked, a page that already has text is kept exactly as it is, so it is not turned. It can be combined with “Straighten crooked pages” and with “Redo existing OCR”, and a JPG or PNG is not checked this way, though a phone photo is still read the way up your phone shows it.",
+    },
+    {
+      title: "OCR a PDF with editing restrictions",
+      body: `A PDF that opens without a password but carries its author's restrictions needs the owner (permissions) password that set them. When you add such a file, the page shows an ${OWNER_PASSWORD_LABEL} field below it if our server can use the password: type it there and press Recognize text. Our server checks that it is the owner password before it reads the file, and refuses any other password with nothing processed. The searchable PDF keeps the same owner password and the author's restrictions, except that screen readers are always allowed to read its text. It still opens without a password; a text file, if you ask for one, has no restrictions. If the field does not appear, remove the restrictions with Unlock PDF and the owner password first, then run OCR. A PDF that needs a password just to open always goes through Unlock PDF first.`,
     },
   ],
 
