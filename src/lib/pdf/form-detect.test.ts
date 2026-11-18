@@ -1792,6 +1792,18 @@ describe("labelled-rule", () => {
       expect(bylineLabel(titled({ lead: 27.1 }))).toBe("by A. Writer");
     });
 
+    // Review round 6 test honesty: mutant T7 (`u.y > r.y - 3`, a title
+    // whose baseline is under the rule counted as over it) stayed green;
+    // both read no field, but for different reasons.
+    it("a title whose baseline is UNDER the rule is no title over it: the rule crosses it (overlaps-text)", () => {
+      for (const lead of [-0.5, -2.9]) {
+        expect(props(titled({ lead })), `lead ${lead}`).toEqual([]);
+        expect(firstRule(titled({ lead })), `lead ${lead}`).toBe(
+          "overlaps-text",
+        );
+      }
+    });
+
     it("centred on the title within GRID_ROW_EPS (2), not 2.1", () => {
       expect(bylineLabel(titled({ dx: 2 }))).toBe(undefined);
       expect(bylineLabel(titled({ dx: 2.1 }))).toBe("by A. Writer");
