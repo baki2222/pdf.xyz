@@ -2478,6 +2478,50 @@ describe("table-cell: a two-column table of labels and empty cells", () => {
     expect(props(table({ xs: [72, 180, 290, 400] }))).toEqual([]);
   });
 
+  // Review round 6 test honesty, cost finding 1: the split loop asked
+  // whether the outer plumb lines join two rules by filtering and sorting
+  // every vertical on the page for every pair, so a Word-style table (each
+  // cell's border its own piece) cost rows x verticals: 1.4 s at 4,000
+  // rows, against 0.34 s for the rest of the page.
+  it("a 4,000-row label table drawn in Word-style pieces costs what one drawn in whole lines costs", () => {
+    const N = 4000;
+    const page = (pieces: boolean) => {
+      const segs: CardSeg[] = [];
+      const text: CardText[] = [];
+      for (let i = 0; i <= N; i++) segs.push(hseg(50, 450, 40 + 20 * i));
+      for (const x of [50, 200, 450]) {
+        if (!pieces) segs.push(vseg(x, 40, 40 + 20 * N));
+        else
+          for (let i = 0; i < N; i++)
+            segs.push(vseg(x, 40 + 20 * i, 40 + 20 * (i + 1)));
+      }
+      for (let i = 0; i < N; i++)
+        text.push(txt(`Label ${i}`, 54, 46 + 20 * i, { size: 10, width: 40 }));
+      return pg({ height: 40 + 20 * N + 100, segs, text });
+    };
+    const best = (p: CardPage) => {
+      let ms = Infinity;
+      let got: FieldProposal[] = [];
+      for (let k = 0; k < 3; k++) {
+        const t0 = performance.now();
+        got = props(p);
+        ms = Math.min(ms, performance.now() - t0);
+      }
+      return { ms, got };
+    };
+    const whole = best(page(false));
+    const pieces = best(page(true));
+    // Health: both are read as the label table (the page CAP keeps 60).
+    for (const r of [whole, pieces]) {
+      expect(r.got).toHaveLength(60);
+      expect(r.got.slice(0, 2).map((x) => [x.rule, x.label])).toEqual([
+        ["table-cell", "Label 3999"],
+        ["table-cell", "Label 3998"],
+      ]);
+    }
+    expect(pieces.ms).toBeLessThan(3 * whole.ms + 50);
+  }, 60_000);
+
   // Review round 6 test honesty: the column lines are counted inside the
   // stack's height only. Mutant TC15 (every vertical in the x span
   // counted) stayed green; a signature box under the table then cost the
@@ -2618,6 +2662,79 @@ describe("table-cell: a two-column table of labels and empty cells", () => {
       .slice(1)
       .flatMap((y, i) => [72, 180, 400].map((x) => vseg(x, y, ys[i]!)));
     expect(cells(table({ plumbs: pieces }))).toEqual(LABELS);
+  });
+
+  // Review round 6 test honesty, cost finding 1: the plumb-line question
+  // was rewritten to answer many pairs at one x (gathered and sorted once,
+  // a prefix maximum, a binary search). Every edge of the old walk is
+  // pinned here, each one through a table: mutants of the eps at each end,
+  // the running maximum, and the prefix were green on the suite before.
+  describe("plumb lines join two rules within GRID_TOUCH_EPS (1) at every edge", () => {
+    /** The label table, its left border drawn as `left`. */
+    const bordered = (left: CardSeg[], segs: CardSeg[] = []) =>
+      cells(
+        table({
+          plumbs: [...left, vseg(180, 504, 600), vseg(400, 504, 600)],
+          segs,
+        }),
+      );
+
+    it("a border 1 pt off the rules' end joins them; 1.1 pt off does not", () => {
+      expect(bordered([vseg(73, 504, 600)])).toEqual(LABELS);
+      expect(bordered([vseg(73.1, 504, 600)])).toEqual([]);
+    });
+
+    it("a border broken by 1 pt mid-row is one line; by 1.1 pt the table splits there", () => {
+      // The break is in the Telephone row (528 to 552): split, only the
+      // two rows over it are a table.
+      expect(bordered([vseg(72, 504, 539.5), vseg(72, 540.5, 600)])).toEqual(
+        LABELS,
+      );
+      expect(bordered([vseg(72, 504, 539.5), vseg(72, 540.6, 600)])).toEqual([
+        "Name",
+        "Address",
+      ]);
+    });
+
+    it("a border stopping 1 pt short of the top rule reaches it; 1.1 pt short does not", () => {
+      expect(bordered([vseg(72, 504, 599)])).toEqual(LABELS);
+      expect(bordered([vseg(72, 504, 598.9)])).toEqual([
+        "Address",
+        "Telephone",
+        "Email",
+      ]);
+    });
+
+    it("a border drawn in overlapping pieces, one inside another, is one line", () => {
+      expect(
+        bordered([
+          vseg(72, 504, 530),
+          vseg(72, 529.8, 560),
+          vseg(72, 535, 540),
+          vseg(72, 560, 600),
+        ]),
+      ).toEqual(LABELS);
+    });
+
+    it("a whole border with a short tick at its foot is still a whole border", () => {
+      expect(bordered([vseg(72, 504, 600), vseg(72, 505, 506)])).toEqual(
+        LABELS,
+      );
+    });
+
+    // Two rules within 1 pt of each other are joined whatever is drawn
+    // between them: a top rule doubled 0.8 pt over itself makes a fifth,
+    // thin row with no label, and the table is lost. Pinned as it stands
+    // (the rewrite keeps the old walk's answer: a reach starting at the
+    // lower rule already meets the upper), with a border ending under the
+    // pair so that only the starting reach can join them.
+    it("KNOWN MISS: a top rule doubled 0.8 pt over itself loses the table (a thin row with no label)", () => {
+      expect(bordered([vseg(72, 504, 599.5)], [hseg(72, 400, 600.8)])).toEqual(
+        [],
+      );
+      // Control: not doubled, the same border is a table.
+      expect(bordered([vseg(72, 504, 599.5)])).toEqual(LABELS);
+    });
   });
 
   it("two such tables at one margin, apart, are each a form", () => {

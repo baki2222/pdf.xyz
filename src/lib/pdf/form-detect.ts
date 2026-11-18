@@ -2130,16 +2130,45 @@ function plumbCovers(
   y0: number,
   y1: number,
 ): boolean {
+  return plumbCoverage(verticals, x)(y0, y1);
+}
+
+/**
+ * {@link plumbCovers} at one x, for many questions: the plumb lines at x
+ * are gathered and sorted once, and each question walks only the pieces
+ * from its own y0 on. The pieces that start by y0 (within the touch eps)
+ * only raise the reach to the farthest of their ends, a prefix maximum,
+ * found by binary search. The label-table split asked about every pair of
+ * a stack's rules, filtering every vertical on the page each time: a
+ * Word-style table, each cell's border its own piece, cost rows x
+ * verticals (review round 6 test honesty, cost finding 1).
+ */
+function plumbCoverage(
+  verticals: PageLines["verticals"],
+  x: number,
+): (y0: number, y1: number) => boolean {
   const eps = DETECT.GRID_TOUCH_EPS;
   const at = verticals
     .filter((v) => Math.abs(v.x - x) <= eps)
     .sort((a, b) => a.y0 - b.y0);
-  let reach = y0;
-  for (const v of at) {
-    if (v.y0 > reach + eps) break;
-    reach = Math.max(reach, v.y1);
-  }
-  return reach >= y1 - eps;
+  const farthest: number[] = [];
+  for (const v of at)
+    farthest.push(Math.max(farthest[farthest.length - 1] ?? -Infinity, v.y1));
+  return (y0, y1) => {
+    let lo = 0;
+    let hi = at.length;
+    while (lo < hi) {
+      const m = (lo + hi) >> 1;
+      if (at[m]!.y0 <= y0 + eps) lo = m + 1;
+      else hi = m;
+    }
+    let reach = Math.max(y0, lo > 0 ? farthest[lo - 1]! : -Infinity);
+    for (let i = lo; i < at.length; i++) {
+      if (at[i]!.y0 > reach + eps) break;
+      reach = Math.max(reach, at[i]!.y1);
+    }
+    return reach >= y1 - eps;
+  };
 }
 
 /** Whether a level rule at y runs from x0 to x1 (rules are merged). */
@@ -2279,12 +2308,16 @@ function tableCells(ix: TextIndex, lines: PageLines): Candidate[] {
     stack.forEach((r) => seen.add(r));
     // Split where the outer plumb lines do not join two rules.
     const parts: Line[][] = [[stack[0]!]];
+    // Each outer x's plumb lines are gathered once per stack, and only for
+    // a stack of two rules or more: a lone rule asks nothing.
+    let outer: ((y0: number, y1: number) => boolean)[] | undefined;
     for (let i = 1; i < stack.length; i++) {
       const a = stack[i - 1]!;
       const b = stack[i]!;
-      const joined =
-        plumbCovers(lines.verticals, seed.x0, a.y, b.y) &&
-        plumbCovers(lines.verticals, seed.x1, a.y, b.y);
+      outer ??= [seed.x0, seed.x1].map((x) =>
+        plumbCoverage(lines.verticals, x),
+      );
+      const joined = outer[0]!(a.y, b.y) && outer[1]!(a.y, b.y);
       if (joined) parts[parts.length - 1]!.push(b);
       else parts.push([b]);
     }
