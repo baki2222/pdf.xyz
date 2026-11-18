@@ -803,6 +803,27 @@ describe("exclusions, each at its boundary", () => {
       expect(props(letter("Yours sincerely,", 50, 400))).toHaveLength(1);
     });
 
+    // A close also counts over where the line's label would be, up to
+    // LABEL_LEFT_GAP_RULE left of it, but the only side test put the close
+    // far to the right, so that reach could be deleted with everything
+    // green, and a close set left of the line no longer counted (review
+    // finding).
+    it("LABEL_LEFT_GAP_RULE: a close reaching to within 36 pt left of the line counts", () => {
+      // An 80 pt close whose right end is `gap` left of a line from x 130.
+      const leftOf = (gap: number) =>
+        pg({
+          segs: [hseg(130, 330, 470)],
+          text: [
+            txt("Yours sincerely,", 50 - gap, 520, { width: 80, size: 11 }),
+            txt("John Smith", 130, 456, { width: 55, size: 11 }),
+          ],
+        });
+      expect(firstRule(leftOf(35.9))).toBe("signature");
+      expect(props(leftOf(36))).toEqual([
+        expect.objectContaining({ label: "John Smith" }),
+      ]);
+    });
+
     it("a line labelled to its left keeps its own label's verdict", () => {
       const p = pg({
         segs: [hseg(130, 330, 470)],
