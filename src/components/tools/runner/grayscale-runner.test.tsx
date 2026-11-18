@@ -15,6 +15,7 @@ import { PDFDocument, PDFName, PDFRawStream, rgb } from "pdf-lib";
 import { getRunnerKind } from "@/lib/pdf/registry";
 import {
   GRAYSCALE_DPI_PRESETS,
+  grayscalePdf,
   grayscalePresetTradeoff,
   grayscaleTitle,
 } from "@/lib/pdf/grayscale";
@@ -410,6 +411,38 @@ describe("grayscale-pdf: Cancel stops the run", () => {
     return doc.save();
   }
 
+  /**
+   * Review finding (LOW): on an abort the renderer resolves with the pages it
+   * had, and `grayscalePdf` still SAVED them — a 203 ms long task 31 ms after
+   * Cancel on the sweep's F2, measured in Chromium — for a result the runner
+   * then threw away. Asserted at the saver, since nothing on screen shows it.
+   */
+  it("a cancelled run is not saved: grayscalePdf stops with an AbortError and never calls save()", async () => {
+    const source = await longSource();
+    const save = vi.spyOn(PDFDocument.prototype, "save");
+    const controller = new AbortController();
+    const outcome = await grayscalePdf(source, {
+      dpi: 36,
+      signal: controller.signal,
+      onProgress: (done) => {
+        if (done === 3) controller.abort();
+      },
+    }).then(
+      () => "resolved",
+      (error: unknown) => (error as { name?: string }).name,
+    );
+    expect(outcome).toBe("AbortError");
+    expect(save).toHaveBeenCalledTimes(0);
+  }, 30_000);
+
+  it("POSITIVE CONTROL: the same spy sees the save of a run that is not cancelled", async () => {
+    const source = await longSource();
+    const save = vi.spyOn(PDFDocument.prototype, "save");
+    const result = await grayscalePdf(source, { dpi: 36 });
+    expect(result.pageCount).toBe(PAGES);
+    expect(save).toHaveBeenCalledTimes(1);
+  }, 30_000);
+
   it("Cancel while busy stops rendering and returns to the start, with no result and no error", async () => {
     const { container } = render(
       <Router>
@@ -440,9 +473,19 @@ describe("grayscale-pdf: Cancel stops the run", () => {
       },
     );
 
+    // Review finding (LOW, already on main): axe's aria-progressbar-name —
+    // the progress bar under the button had no name to be read out by.
+    expect(screen.getByRole("progressbar", { name: "Progress" })).toBeTruthy();
+
     const cancel = screen.getByRole("button", { name: "Cancel" });
     expect(cancel).toBeEnabled();
+    cancel.focus();
     fireEvent.click(cancel);
+    // Review finding (LOW): Cancel removes itself, and focus fell to <body>,
+    // sending a keyboard or screen-reader user back to the top of the page.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: /convert to grayscale/i }),
+    );
     const atCancel = canvasesMade - before;
     expect(atCancel, "the run finished before Cancel").toBeLessThan(PAGES);
 
