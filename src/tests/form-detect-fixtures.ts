@@ -3006,6 +3006,40 @@ export const DETECT_CASES: readonly DetectCase[] = [
     at: { page: 1, x: 505, y: 645 },
   },
   {
+    id: "N51",
+    kind: "negative",
+    note: "N48's stop-less framed instruction in a 32 pt box, 2 pt taller, the text 2 pt higher: no field",
+    // Regression verify after review round 6: the room rule of round 6's
+    // finding 2 ("more room under the caption than over it") let this
+    // through as a field named after the instruction, which round 5
+    // (78964d41) proposed nothing for. 12 pt under the text, 11 over it.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      page.drawRectangle({
+        x: 72,
+        y: 690,
+        width: 468,
+        height: 32,
+        borderColor: rgb(0, 0, 0),
+        borderWidth: 0.75,
+      });
+      await text(
+        page,
+        H,
+        "Please use block capitals and black ink throughout",
+        80,
+        704,
+        10,
+      );
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "unlabelled",
+    at: { page: 1, x: 300, y: 695 },
+    seamAlsoDisable: ["no-clearance"],
+  },
+  {
     id: "P46",
     kind: "positive",
     note: "a numbered checklist (No. | Item | Packed) with a 9 pt box on each row: each box named after its item, not its number",

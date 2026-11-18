@@ -188,6 +188,7 @@ describe("rule tables", () => {
       TITLE_ABOVE_EMS: 1.5, // review round 4
       QUOTE_MIN_WORDS: 3, // review round 4
       NOTICE_MIN_WORDS: 4, // review round 4 fixes
+      CAPTION_TOP_RATIO: 2, // regression verify after review round 6
       TEXT_H_RUN: { ems: 1.2, min: 12, max: 22 },
       TEXT_H_RULE: { ems: 1.4, min: 14, max: 22 },
       RUN_BOTTOM_EMS: 0.15,
@@ -639,7 +640,20 @@ describe("labelled-rule", () => {
       // framed notice about its middle: the room under the caption (from
       // its descent to the box's bottom) is at least MIN_FIELD_H and more
       // than the room over it (from its ascent to the box's top).
-      it("a captioned box has more room under its caption than over it, and at least MIN_FIELD_H (a framed instruction has neither)", () => {
+      //
+      // INVERTED AGAIN in the regression verify after review round 6. That
+      // read "a captioned box has more room under its caption than over
+      // it, and at least MIN_FIELD_H (a framed instruction has neither)",
+      // and pinned framed(31.1) and framed(33.9) as fields named after the
+      // instruction: "more than the room over it" let a stop-less
+      // instruction framed 1 to 3 pt taller than A5's box through, which
+      // round 5 (78964d41) had proposed nothing for. A field's height for
+      // the caption's size counts on its own again (round 5's rule), and
+      // short of it the room under the caption is MIN_FIELD_H and twice
+      // the room over it (CAPTION_TOP_RATIO): a compact box's caption sits
+      // a point or two under its top, a framed instruction about its
+      // middle.
+      it("a captioned box has a field's height under its caption, or MIN_FIELD_H and CAPTION_TOP_RATIO x the room over it (a framed instruction has neither)", () => {
         const framed = (h: number) =>
           pg({
             rects: [rect(72, 690, 468, h)],
@@ -659,12 +673,13 @@ describe("labelled-rule", () => {
           "unlabelled",
           "unlabelled",
         ]);
-        // Over it stays 11 as the box grows: 11 under is not more, 11.1 is.
+        // Over it stays 11 as the box grows, so twice it is 22: short of a
+        // field's height for 10 pt (14) under it, nothing counts.
         expect(labels(framed(31))).toEqual([]);
-        expect(labels(framed(31.1))).toEqual([
-          ["Please use block capitals and black ink throughout", 691],
-        ]);
-        expect(labels(framed(33.9))).toEqual([
+        expect(labels(framed(31.1))).toEqual([]);
+        expect(labels(framed(33.9))).toEqual([]);
+        // 14 pt under it counts on its own (round 5's boundary).
+        expect(labels(framed(34))).toEqual([
           ["Please use block capitals and black ink throughout", 691],
         ]);
         // A compact box, its 10 pt caption 1 pt under the top: 10 pt of
@@ -681,6 +696,18 @@ describe("labelled-rule", () => {
           ).map((x) => [x.label, x.y]);
         expect(compact(612)).toEqual([["Wages", 601]]);
         expect(compact(611.9)).toEqual([]);
+        // CAPTION_TOP_RATIO: 12 pt under "Wages" (short of 14) counts with
+        // 6 pt over it, not with 6.1.
+        const deep = (h: number) =>
+          props(
+            pg({
+              rects: [rect(72, 600, 150, h)],
+              text: [txt("Wages", 74, 614, { size: 10, width: 30 })],
+            }),
+            { disable: new Set(["no-clearance"] as const) },
+          ).map((x) => [x.label, x.y]);
+        expect(deep(27)).toEqual([["Wages", 601]]);
+        expect(deep(27.1)).toEqual([]);
       });
 
       it("a bottom edge merged with another line is no box's bottom: it takes no box caption", () => {

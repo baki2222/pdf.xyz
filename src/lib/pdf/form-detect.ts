@@ -206,10 +206,15 @@ export const DETECT = {
    * under the box's top; or, in an empty box, the nearest upright text
    * whose descent is 0 to CAPTION_MAX pt over its top, reaching into the
    * same span. A NOTICE is never one: text ending as NOTICE_END_RE, of at
-   * least NOTICE_MIN_WORDS words.
+   * least NOTICE_MIN_WORDS words. Nor is an interior text without room to
+   * write under it: from its descent to the box's bottom there is a
+   * field's height for its size (TEXT_H_RULE), or at least MIN_FIELD_H
+   * that is CAPTION_TOP_RATIO x the room over it (its ascent to the
+   * box's top), the caption set in the top of a compact box.
    */
   NOTICE_END_RE: /[.!?]$/,
   NOTICE_MIN_WORDS: 4,
+  CAPTION_TOP_RATIO: 2,
   /** Field height: clamp(ems x size, min, max). */
   TEXT_H_RUN: { ems: 1.2, min: 12, max: 22 },
   TEXT_H_RULE: { ems: 1.4, min: 14, max: 22 },
@@ -1490,9 +1495,16 @@ function boxCaption(ix: TextIndex, r: Line, top: number): LabelHit | null {
     // its middle, so the room under it is a field's (MIN_FIELD_H) and more
     // than the room over it: asking a field's height for its size (14 pt)
     // cost compact tax-form boxes their fields (review round 6 fixes,
-    // finding 2; corpus P51).
+    // finding 2; corpus P51). A field's height for its size still counts
+    // on its own, and short of it the caption is in the box's top: at
+    // least CAPTION_TOP_RATIO x the room over it under it. "More than"
+    // made a stop-less instruction framed 1 to 3 pt taller than A5's box
+    // a field named after itself, which round 5 had proposed nothing for
+    // (regression verify after review round 6).
     const under = t.y - DETECT.TEXT_DESCENT_EMS * t.size - r.y;
-    const room = under >= DETECT.MIN_FIELD_H && under > gap;
+    const room =
+      under >= textHeight(t.size, DETECT.TEXT_H_RULE) ||
+      (under >= DETECT.MIN_FIELD_H && under >= DETECT.CAPTION_TOP_RATIO * gap);
     if (inSpan(t) && room && gap >= -1 && gap <= DETECT.CAPTION_MAX) cap = t;
   } else if (inside.length === 0) {
     const lo = top + DETECT.TEXT_DESCENT_EMS * ix.minSize;
