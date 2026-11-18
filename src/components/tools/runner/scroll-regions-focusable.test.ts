@@ -90,13 +90,10 @@ type Exemption =
 const R = "components/tools/runner/";
 
 const EXEMPT: Exemption[] = [
-  {
-    file: `${R}editor/wysiwyg-editor.tsx`,
-    match: "[touch-action:pan-x_pan-y] overflow-auto",
-    kind: "other-lane",
-    reason:
-      "the editor's page view ([data-editor-viewport], tabIndex={-1}): sweep finding F1, fixed in lane A (branch fix/editor-viewport-keyboard-scroll, worktree E:/wa11y-editor), which owns this file. Delete this entry when that lands: the check below fails on a stale exemption, so whichever of the two lanes merges second deletes it on the merged head.",
-  },
+  // (2026-11-18) The editor's page view ([data-editor-viewport]) was exempt
+  // here as "other-lane" while PR #374 fixed it; #374 merged first, the
+  // stale-exemption check below then failed on this merged head as designed,
+  // and the entry was deleted.
   {
     file: `${R}page-zoom-dialog.tsx`,
     match: "bg-wash rounded-panel",
