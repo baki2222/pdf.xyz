@@ -21,7 +21,6 @@ import {
   SCAN_PAGE_SIZES,
   scanOutputName,
   scansToPdf,
-  type ScanPageInput,
   type ScanPageSizeId,
   type ScanResult,
 } from "@/lib/pdf/scan-to-pdf";
@@ -89,7 +88,13 @@ export function ScanRunner() {
   const [progress, setProgress] = useState<string | null>(null);
   const idRef = useRef(0);
   const seededRef = useRef(false);
-  const { busy, error, result, run, reset } = useAsyncRun<ScanResult>();
+  // `null`: the run was stopped with Cancel, and there is nothing to show.
+  const { busy, error, result, run, reset } = useAsyncRun<ScanResult | null>();
+  const abortRef = useRef<AbortController | null>(null);
+  // The run whose work has ended (its result may not be drawn yet).
+  const settledRef = useRef<AbortController | null>(null);
+  // Stop a run still going if the runner goes away.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   // Release every thumbnail when the runner goes away.
   const itemsRef = useRef<ScanItem[]>([]);
@@ -184,22 +189,72 @@ export function ScanRunner() {
     reset();
   };
 
-  const onRun = () =>
-    run(async () => {
-      const inputs: ScanPageInput[] = [];
+  // Cancel unmounts with the run; the keyboard that pressed it goes back to
+  // Create PDF, not to the top of the page.
+  const runRowRef = useRef<HTMLDivElement>(null);
+  const refocusRef = useRef(false);
+  useEffect(() => {
+    if (busy || !refocusRef.current) return;
+    refocusRef.current = false;
+    const active = document.activeElement;
+    if (active === null || active === document.body)
+      runRowRef.current
+        ?.querySelector<HTMLButtonElement>("[data-run-trigger]")
+        ?.focus();
+  }, [busy]);
+
+  /**
+   * One page at a time, start to finish: decode the photo, clean it up,
+   * encode it into the PDF, let its pixels go, then the next photo, with a
+   * turn of the event loop between steps, so the page repaints, the
+   * progress line moves and Cancel is heard (`scansToPdf` with `prepare`,
+   * the loop its tests hold). Perf sweep 2026-11-18, P1/P2: all 60 planes
+   * were held, ~260 MB, then encoded in ONE ~20 s task, with no way to stop
+   * it.
+   */
+  const onRun = () => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const { signal } = controller;
+    const photos = items;
+    const say = (line: string) => {
+      if (!signal.aborted) setProgress(line);
+    };
+    void run(async () => {
       try {
-        for (const [index, item] of items.entries()) {
-          setProgress(`Preparing page ${index + 1} of ${items.length}…`);
-          inputs.push(
-            await preparePhotoPage(item.file, item.turns, enhancement),
-          );
-        }
-        setProgress("Saving the PDF…");
-        return await scansToPdf(inputs, pageSize);
+        return await scansToPdf(photos, pageSize, {
+          signal,
+          prepare: (item) =>
+            preparePhotoPage(item.file, item.turns, enhancement),
+          onPrepare: (page, total) =>
+            say(`Preparing page ${page} of ${total}…`),
+          onSave: () => say("Saving the PDF…"),
+        });
+      } catch (err) {
+        if (!signal.aborted) throw err;
+        // Stopped with Cancel: whatever the step in hand did, nothing is
+        // shown, and the stopped run reports no "done" to the masthead or
+        // a hidden tab's title (the reset ends its activity as cancelled).
+        if (abortRef.current === controller) reset();
+        return null;
       } finally {
-        setProgress(null);
+        settledRef.current = controller;
+        if (abortRef.current === controller) setProgress(null);
       }
     });
+  };
+
+  const onCancel = () => {
+    const controller = abortRef.current;
+    refocusRef.current = true;
+    controller?.abort();
+    // The work already ended, and its result is on its way to the screen
+    // (the run waits for the result's ending, then renders): drop it. While
+    // the work is still going, the run stops itself and resets (above), so
+    // Create PDF stays busy until it has really stopped.
+    if (controller && settledRef.current === controller) reset();
+  };
 
   if (handoff.status === "loading") return <HandoffLoading />;
 
@@ -345,7 +400,7 @@ export function ScanRunner() {
       )}
 
       <RunBar>
-        <div className="flex justify-end gap-3">
+        <div ref={runRowRef} className="flex justify-end gap-3">
           {items.length > 0 && (
             // Held while Create PDF runs, like every other input here: the
             // run has already read the photos (useAsyncRun also drops a
@@ -359,6 +414,15 @@ export function ScanRunner() {
               className={buttonVariants({ variant: "secondary", size: "lg" })}
             >
               Clear
+            </button>
+          )}
+          {busy && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className={buttonVariants({ variant: "secondary", size: "lg" })}
+            >
+              Cancel
             </button>
           )}
           <RunButton
