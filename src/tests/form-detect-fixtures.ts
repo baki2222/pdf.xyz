@@ -495,6 +495,44 @@ const P44 = [
   { label: "Received by:", y: 600, w: 200, h: 18 },
   { label: "Reference:", y: 540, w: 200, h: 30 },
 ];
+/** N45's timesheet grid: column edges, row edges (top first), its text. */
+const N45 = {
+  xs: [72, 170, 250, 330, 410, 540],
+  ys: [630, 610, 588, 566, 544, 522, 500, 478, 456],
+  head: ["Day", "Start", "Finish", "Break", "Hours"],
+  days: [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+  ],
+};
+/** P45's tiled customs boxes: x, y, width, height, caption (7 pt). */
+const P45: [number, number, number, number, string][] = [
+  [72, 640, 234, 80, "1 Exporter (name and address)"],
+  [306, 640, 234, 80, "2 Consignee (name and address)"],
+  [72, 600, 156, 40, "3 Country of dispatch"],
+  [228, 600, 156, 40, "4 Country of origin"],
+  [384, 600, 156, 40, "5 Country of destination"],
+  [72, 560, 234, 40, "6 Commodity code"],
+  [306, 560, 117, 40, "7 Gross mass (kg)"],
+  [423, 560, 117, 40, "8 Net mass (kg)"],
+  [72, 500, 468, 60, "9 Description of goods"],
+];
+/** N46's filled data table (a delivery note's items). */
+const N46 = {
+  xs: [72, 140, 420, 540],
+  ys: [670, 650, 630, 610, 590],
+  rows: [
+    ["Qty", "Description", "Item code"],
+    ["4", "Pallet of copier paper A4", "CP-A4-80"],
+    ["12", "Toner cartridge, black", "TN-2410"],
+    ["2", "Archive boxes (pack of 10)", "AB-10"],
+  ],
+};
 /** N32's line starts 40 pt right of where "Address:" (12 pt) ends. */
 const N32_X0 = 72 + textWidth(H, "Address:", 12) + 40;
 /**
@@ -2680,6 +2718,90 @@ export const DETECT_CASES: readonly DetectCase[] = [
       page: 1,
       box: ruleBox(140, 140 + b.w, b.y, 10),
     })),
+  },
+  {
+    id: "N45",
+    kind: "negative",
+    note: "KNOWN MISS: a timesheet's empty ruled grid (Day | Start | Finish | Break | Hours, Monday to Sunday): no fields yet",
+    // Review round 4 fixes, finding 26, recorded as a KNOWN MISS: the
+    // product wants a field per empty body cell ("Monday Start"); that
+    // needs cell detection beyond the two-column label table. Invert this
+    // case (keeping its id) when it lands.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      const { xs, ys, head, days } = N45;
+      for (const y of ys) rule(page, xs[0]!, xs[xs.length - 1]!, y, 0.75);
+      for (const x of xs) vline(page, x, ys[ys.length - 1]!, ys[0]!);
+      for (const [i, h] of head.entries())
+        await text(page, H, h, xs[i]! + 3, ys[1]! + 5, 9);
+      for (const [r, s] of days.entries())
+        await text(page, H, s, xs[0]! + 3, ys[r + 2]! + 5, 9);
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "table-grid",
+    at: { page: 1, x: 300, y: N45.ys[4]! + 2 },
+    // Read without the grid, each rule takes the caption of a row, whose
+    // own text leaves its field no room to type.
+    seamAlsoDisable: ["no-clearance"],
+  },
+  {
+    id: "P45",
+    kind: "positive",
+    note: "KNOWN MISS (partly): tiled numbered customs boxes sharing their edges; only the lowest box, whose bottom edge is its own, gets a field",
+    // Review round 4 fixes, finding 26: shared edges merge into grid lines
+    // (table-grid), so boxes 1 to 8 get nothing; the product wants one
+    // field per box, labelled with its number and caption. Box 9's bottom
+    // edge is no other box's, so its caption labels it (finding 22).
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const [x, y, w, h, s] of P45) {
+        page.drawRectangle({
+          x,
+          y,
+          width: w,
+          height: h,
+          borderColor: rgb(0, 0, 0),
+          borderWidth: 0.75,
+        });
+        await text(page, H, s, x + 3, y + h - 9, 7);
+      }
+      return save(d);
+    },
+    expect: [
+      {
+        rule: "labelled-rule",
+        type: "text",
+        label: "9 Description of goods",
+        page: 1,
+        box: ruleBox(72, 540, 500, 7),
+      },
+    ],
+    decidedBy: "table-grid",
+    at: { page: 1, x: 300, y: 605 },
+  },
+  {
+    id: "N46",
+    kind: "negative",
+    note: "a filled ruled data table (Qty | Description | Item code, three rows of goods): no fields, now or once empty tables are read",
+    // Review round 4 fixes, finding 26: the negative twin of N45 and P45.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      const { xs, ys, rows } = N46;
+      for (const y of ys) rule(page, xs[0]!, xs[xs.length - 1]!, y, 0.75);
+      for (const x of xs) vline(page, x, ys[ys.length - 1]!, ys[0]!);
+      for (const [r, row] of rows.entries())
+        for (const [i, s] of row.entries())
+          await text(page, H, s, xs[i]! + 3, ys[r + 1]! + 5, 9);
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "table-grid",
+    at: { page: 1, x: 300, y: N46.ys[2]! + 2 },
+    seamAlsoDisable: ["no-clearance"],
   },
 
   // ---------------------------------------------------------- outcomes

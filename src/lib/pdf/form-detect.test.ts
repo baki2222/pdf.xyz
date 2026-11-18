@@ -2074,6 +2074,37 @@ describe("table-cell: a two-column table of labels and empty cells", () => {
     expect(grid(p)).toBe(4);
   });
 
+  // KNOWN MISS (review round 4 fixes, finding 26): an empty ruled table
+  // with a header row (a timesheet's Day | Start | Finish, a job
+  // application's employment history) gets no fields: every row is
+  // table-grid. The product wants a field per empty body cell labelled
+  // "<row head> <column head>" ("Monday Start"); that needs cell
+  // detection beyond the two-column label table, not a threshold. Invert
+  // this test when it lands; corpus N45 (the timesheet), P45 (tiled
+  // customs boxes) and N46 (a filled data table that must stay none) are
+  // its targets.
+  it("KNOWN MISS: an empty ruled table under a header row proposes nothing", () => {
+    const xs = [72, 170, 250, 330];
+    const ys = [600, 580, 558, 536];
+    const p = pg({
+      segs: [
+        ...ys.map((y) => hseg(72, 330, y)),
+        ...xs.map((x) => vseg(x, 536, 600)),
+      ],
+      text: [
+        ...["Day", "Start", "Finish"].map((h, i) =>
+          txt(h, xs[i]! + 3, 585, { size: 9, width: 30 }),
+        ),
+        ...["Monday", "Tuesday"].map((d, r) =>
+          txt(d, 75, ys[r + 2]! + 5, { size: 9, width: 40 }),
+        ),
+      ],
+    });
+    // Wanted: Monday Start, Monday Finish, Tuesday Start, Tuesday Finish.
+    expect(props(p)).toEqual([]);
+    expect(grid(p)).toBe(4);
+  });
+
   it("a square, or a rule, inside a right cell keeps it a table", () => {
     expect(props(table({ rects: [rect(300, 580, 10, 10)] }))).toEqual([]);
     expect(props(table({ segs: [hseg(200, 380, 564)] }))).toEqual([]);
