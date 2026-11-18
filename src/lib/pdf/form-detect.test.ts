@@ -1051,6 +1051,24 @@ describe("exclusions, each at its boundary", () => {
     // break stayed green, and an item table above a wider totals gap had
     // its top rule proposed under a column header: the N24 defect again
     // (review finding; corpus N31).
+    // "Even within 2 pt" is measured against the run's FIRST pitch, but
+    // three rules make one comparison only, so comparing with the previous
+    // pitch instead (a pitch drifting 1.5 pt a row) stayed green (review
+    // finding). Pitches 20, 21.5, 23: the fourth rule is 3 pt off the first
+    // pitch, so it is not one of the table's rows.
+    it("GRID_PITCH_EPS is against the run's first pitch: a drift ends the run", () => {
+      const p = rows({
+        ys: [600, 620, 641.5, 664.5],
+        text: [
+          txt("Item", 135, 606, { width: 30, size: 10 }),
+          txt("Price", 205, 606, { width: 30, size: 10 }),
+          txt("Notes", 132, 652, { width: 30, size: 10 }),
+        ],
+      });
+      expect(ruled(p)).toBe(3);
+      expect(props(p).map((f) => f.label)).toEqual(["Notes"]);
+    });
+
     it("after a pitch break the next run starts at the rule before it", () => {
       const p = rows({
         ys: [630, 610, 590, 560],
