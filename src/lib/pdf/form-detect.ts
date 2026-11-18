@@ -870,8 +870,59 @@ function labelColumns(p: CardPage, lines: PageLines): Map<Line, LabelHit> {
   return out;
 }
 
-function ruleCandidates(p: CardPage, lines: PageLines): Candidate[] {
+/** A line's candidate, whether a caption labelled it, and that text's size. */
+interface RuleRow {
+  c: Candidate;
+  captioned: boolean;
+  size: number | undefined;
+}
+
+/**
+ * Strips captioned at their TOP (a W-9's): in a stack from {@link evenRuns}
+ * whose every rule but the lowest is labelled by a caption under it, and
+ * whose lowest has no label at all, each caption labels the rule BELOW it,
+ * the lower edge of the strip it sits in, and the top rule is left without
+ * one. Read as captions under their lines, every field sat one strip too
+ * high and the first above the form (review round 3, finding 5; corpus
+ * P29). A stack whose lowest line is captioned too (P20, P21, P25) is
+ * captions under lines and is left alone, as is any stack with a line
+ * labelled from its left, and any rows-only table (`rowTables`): its rows
+ * repeat their columns, which strips do not, and its captions stay where
+ * the table-grid seam (corpus N24, N31) reads them.
+ */
+function stripCaptions(
+  lines: PageLines,
+  rows: Map<Line, RuleRow>,
+  rowTable: ReadonlySet<Line>,
+): void {
+  // Runs come lowest first, and two runs of one stack share the rule where
+  // the pitch changes: the upper run reads that rule as the lower run left
+  // it (moved, so bare), and the shift carries on up the whole stack.
+  for (const { run } of evenRuns(lines.rules)) {
+    if (run.some((r) => rowTable.has(r))) continue;
+    const stack = run.map((r) => rows.get(r)!);
+    const lowestBare = stack[0]!.c.labelState === "none";
+    const upperCaptioned = stack.slice(1).every((s) => s.captioned);
+    if (!lowestBare || !upperCaptioned) continue;
+    const from = stack.map((s) => ({ label: s.c.label, size: s.size }));
+    stack.forEach((s, k) => {
+      const above = from[k + 1];
+      s.c.label = above?.label ?? null;
+      s.c.labelState = above ? "found" : "none";
+      s.c.box.y1 =
+        s.c.box.y0 +
+        textHeight(above?.size ?? DETECT.DEFAULT_SIZE, DETECT.TEXT_H_RULE);
+    });
+  }
+}
+
+function ruleCandidates(
+  p: CardPage,
+  lines: PageLines,
+  rowTable: ReadonlySet<Line>,
+): Candidate[] {
   const out: Candidate[] = [];
+  const rows = new Map<Line, RuleRow>();
   const column = labelColumns(p, lines);
   for (const r of lines.rules) {
     const len = r.x1 - r.x0;
@@ -893,6 +944,7 @@ function ruleCandidates(p: CardPage, lines: PageLines): Candidate[] {
       size = inColumn.text.size;
     }
     const leftLabel = pick.state === "found";
+    let captioned = false;
     // A caption printed inside an outlined box's top-left once labelled the
     // box's TOP edge, placing the field above the box, outside it (review
     // round 3, finding 4; corpus N35).
@@ -911,11 +963,12 @@ function ruleCandidates(p: CardPage, lines: PageLines): Candidate[] {
       if (cap.state === "found") {
         pick = cap;
         size = captions.find((h) => h.text.upright)?.text.size;
+        captioned = true;
       } else if (pick.state === "none") pick = cap;
     }
     const h = textHeight(size ?? DETECT.DEFAULT_SIZE, DETECT.TEXT_H_RULE);
     const bottom = r.y + DETECT.RULE_BOTTOM_GAP;
-    out.push({
+    const c: Candidate = {
       rule: "labelled-rule",
       type: "text",
       box: {
@@ -931,8 +984,11 @@ function ruleCandidates(p: CardPage, lines: PageLines): Candidate[] {
       leftLabel,
       ownPiece: null,
       order: 0,
-    });
+    };
+    out.push(c);
+    rows.set(r, { c, captioned, size });
   }
+  stripCaptions(lines, rows, rowTable);
   return out;
 }
 
@@ -1163,10 +1219,7 @@ function gridTouches(line: Line, verticals: PageLines["verticals"]): boolean {
  * a labelled stack made the whole stack a table.
  */
 function rowTables(rules: readonly Line[], all: readonly Piece[]): Set<Line> {
-  const eps = DETECT.GRID_ROW_EPS;
   const out = new Set<Line>();
-  const long = rules.filter((r) => r.x1 - r.x0 >= DETECT.RULE_MIN_LEN);
-  const seen = new Set<Line>();
   const words = all.filter((pc) => pc.kind === "text");
   const columns = (lo: Line, hi: Line, x0: number, x1: number) => {
     const inBand = words
@@ -1186,6 +1239,32 @@ function rowTables(rules: readonly Line[], all: readonly Piece[]): Set<Line> {
     }
     return n;
   };
+  for (const { seed, run: runOf } of evenRuns(rules)) {
+    // The columns of each row (between two rules) that holds text.
+    const filled = runOf
+      .slice(1)
+      .map((hi, i) => columns(runOf[i]!, hi, seed.x0, seed.x1))
+      .filter((n) => n > 0);
+    if (filled.length > 0 && filled.every((n) => n >= 2))
+      runOf.forEach((r) => out.add(r));
+  }
+  return out;
+}
+
+/**
+ * Stacks of rules at an even pitch, lowest first: rules of candidate length
+ * whose two ends line up within {@link DETECT.GRID_ROW_EPS} of the stack's
+ * first (its `seed`), split where the pitch breaks by more than
+ * {@link DETECT.GRID_PITCH_EPS} from the run's first pitch (a break starts
+ * the next run at the rule before it), each run
+ * {@link DETECT.GRID_ROWS_MIN} rules or more. Read by `rowTables` and by
+ * `stripCaptions`.
+ */
+function evenRuns(rules: readonly Line[]): { seed: Line; run: Line[] }[] {
+  const eps = DETECT.GRID_ROW_EPS;
+  const long = rules.filter((r) => r.x1 - r.x0 >= DETECT.RULE_MIN_LEN);
+  const seen = new Set<Line>();
+  const runs: { seed: Line; run: Line[] }[] = [];
   for (const seed of long) {
     if (seen.has(seed)) continue;
     const stack = long
@@ -1197,7 +1276,6 @@ function rowTables(rules: readonly Line[], all: readonly Piece[]): Set<Line> {
       )
       .sort((a, b) => a.y - b.y);
     stack.forEach((r) => seen.add(r));
-    // Runs of even pitch; a break starts the next run at the rule before it.
     let from = 0;
     for (let k = 2; k <= stack.length; k++) {
       const even =
@@ -1206,20 +1284,12 @@ function rowTables(rules: readonly Line[], all: readonly Piece[]): Set<Line> {
           stack[k]!.y - stack[k - 1]!.y - (stack[from + 1]!.y - stack[from]!.y),
         ) <= DETECT.GRID_PITCH_EPS;
       if (even) continue;
-      const runOf = stack.slice(from, k);
-      if (runOf.length >= DETECT.GRID_ROWS_MIN) {
-        // The columns of each row (between two rules) that holds text.
-        const filled = runOf
-          .slice(1)
-          .map((hi, i) => columns(runOf[i]!, hi, seed.x0, seed.x1))
-          .filter((n) => n > 0);
-        if (filled.length > 0 && filled.every((n) => n >= 2))
-          runOf.forEach((r) => out.add(r));
-      }
+      const run = stack.slice(from, k);
+      if (run.length >= DETECT.GRID_ROWS_MIN) runs.push({ seed, run });
       from = k - 1;
     }
   }
-  return out;
+  return runs;
 }
 
 /**
@@ -1423,9 +1493,10 @@ export function classifyPage(
 
   const all = p.text.flatMap((t, i) => pieces(t, i));
   const lines = readLines(p);
+  const rowTable = rowTables(lines.rules, all);
   const runs = runCandidates(p, all);
   const cands = [
-    ...ruleCandidates(p, lines),
+    ...ruleCandidates(p, lines, rowTable),
     ...runs.cands,
     ...squareCandidates(p, lines),
   ];
@@ -1450,7 +1521,6 @@ export function classifyPage(
       });
 
   const comb = combSquares(lines.squares);
-  const rowTable = rowTables(lines.rules, all);
   const signOffLines = [
     ...lines.rules.filter((r) => r.x1 - r.x0 >= DETECT.RULE_MIN_LEN),
     ...runs.cands.flatMap((c) => (c.line ? [c.line] : [])),

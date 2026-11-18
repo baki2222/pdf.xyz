@@ -384,6 +384,143 @@ describe("labelled-rule", () => {
     });
   });
 
+  // Review round 3, finding 5: a W-9's strips are captioned at their TOP,
+  // just under the rule above, and each caption labelled that rule above:
+  // every field went one strip too high, the first above the form. In an
+  // even-pitch stack whose rules are all captioned but the lowest, each
+  // caption now labels the rule below it (the strip it sits in).
+  describe("strips captioned at their top: each caption labels the rule below it", () => {
+    const Y = [710, 684, 658, 632, 606];
+    /** Rules at `ys` (72..540 unless `x1` says), 7 pt captions under `captioned`. */
+    const strips = (
+      ys: number[],
+      captioned: number[],
+      o: { x1?: (i: number) => number; left?: [number, string][] } = {},
+    ) =>
+      pg({
+        segs: ys.map((y, i) => hseg(72, o.x1?.(i) ?? 540, y)),
+        text: [
+          ...captioned.map((i) =>
+            txt(`Caption ${i + 1}`, 74, ys[i]! - 7, { size: 7, width: 30 }),
+          ),
+          ...(o.left ?? []).map(([i, s]) =>
+            txt(s, 40, ys[i]!, { size: 10, width: 30 }),
+          ),
+        ],
+      });
+    const labelled = (p: CardPage) =>
+      props(p).map((x) => [x.label, x.y] as const);
+
+    it("all captioned but the lowest: each caption labels the strip's lower rule, the top rule is unlabelled", () => {
+      const p = strips(Y, [0, 1, 2, 3]);
+      expect(labelled(p)).toEqual([
+        ["Caption 1", 685],
+        ["Caption 2", 659],
+        ["Caption 3", 633],
+        ["Caption 4", 607],
+      ]);
+      expect(props(p).every((x) => x.height === 14)).toBe(true);
+      expect(run(p).excluded).toEqual([
+        expect.objectContaining({ rule: "unlabelled" }),
+      ]);
+      expect(run(p).excluded[0]!.box.y).toBe(711);
+    });
+
+    it("the lowest captioned too (captions under their lines): nothing moves", () => {
+      expect(labelled(strips(Y, [0, 1, 2, 3, 4]))).toEqual([
+        ["Caption 1", 711],
+        ["Caption 2", 685],
+        ["Caption 3", 659],
+        ["Caption 4", 633],
+        ["Caption 5", 607],
+      ]);
+    });
+
+    it("GRID_ROWS_MIN: three rules move, two do not", () => {
+      expect(labelled(strips([710, 684, 658], [0, 1]))).toEqual([
+        ["Caption 1", 685],
+        ["Caption 2", 659],
+      ]);
+      expect(labelled(strips([710, 684], [0]))).toEqual([["Caption 1", 711]]);
+    });
+
+    it("a stack whose pitch changes (two runs sharing a rule) moves as one", () => {
+      // 40 pt strips under 26 pt ones, as a W-9's strips vary.
+      expect(labelled(strips([710, 684, 658, 618, 578], [0, 1, 2, 3]))).toEqual(
+        [
+          ["Caption 1", 685],
+          ["Caption 2", 659],
+          ["Caption 3", 619],
+          ["Caption 4", 579],
+        ],
+      );
+    });
+
+    it("GRID_PITCH_EPS: a pitch 2 pt off the first still moves, 3 pt does not", () => {
+      expect(labelled(strips([710, 684, 656], [0, 1]))).toEqual([
+        ["Caption 1", 685],
+        ["Caption 2", 657],
+      ]);
+      expect(labelled(strips([710, 684, 655], [0, 1]))).toEqual([
+        ["Caption 1", 711],
+        ["Caption 2", 685],
+      ]);
+    });
+
+    it("GRID_ROW_EPS: a rule ending 2 pt off still stacks, 3 pt does not", () => {
+      const off = (d: number) => (i: number) => (i === 2 ? 540 + d : 540);
+      expect(labelled(strips([710, 684, 658], [0, 1], { x1: off(2) }))).toEqual(
+        [
+          ["Caption 1", 685],
+          ["Caption 2", 659],
+        ],
+      );
+      expect(labelled(strips([710, 684, 658], [0, 1], { x1: off(3) }))).toEqual(
+        [
+          ["Caption 1", 711],
+          ["Caption 2", 685],
+        ],
+      );
+    });
+
+    it("a rows-only table is no strips: its captions stay (seen with table-grid off)", () => {
+      const rows: [string, string, number][] = [
+        ["Description", "Amount", 686],
+        ["Widget", "10.00", 666],
+        ["Gadget", "12.00", 646],
+      ];
+      const p = pg({
+        segs: [700, 680, 660, 640].map((y) => hseg(72, 540, y)),
+        text: rows.flatMap(([a, b, y]) => [
+          txt(a, 76, y, { size: 10, width: 50 }),
+          txt(b, 300, y, { size: 10, width: 30 }),
+        ]),
+      });
+      expect(firstRule(p)).toBe("table-grid");
+      expect(props(p, { disable: new Set(["table-grid"]) })).toContainEqual(
+        expect.objectContaining({ label: "Description", y: 701 }),
+      );
+    });
+
+    it("a rule labelled from its left is no strip: nothing moves", () => {
+      // An upper rule with its own left label ...
+      expect(
+        labelled(strips([710, 684, 658], [0, 1], { left: [[1, "Name:"]] })),
+      ).toEqual([
+        ["Caption 1", 711],
+        ["Name", 685],
+      ]);
+      // ... and the lowest with one.
+      expect(
+        labelled(strips([710, 684, 658], [0, 1], { left: [[2, "Date:"]] })),
+      ).toEqual([
+        ["Caption 1", 711],
+        ["Caption 2", 685],
+        ["Date", 659],
+      ]);
+    });
+  });
+
   it("TEXT_H_RULE: clamp(1.4 x label size, 14, 22)", () => {
     const h = (size: number) =>
       props(

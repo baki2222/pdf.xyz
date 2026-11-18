@@ -378,6 +378,19 @@ const N33 = {
   age: 72 + textWidth(H, "Age", 10) + 6,
   house: 72 + textWidth(H, "House no.", 10) + 6,
 };
+/**
+ * P29's W-9-style strips: five rules (72..540, an even 26 pt apart), each
+ * strip's 7 pt caption at its top-left, 7 pt under the rule above it.
+ */
+const P29 = {
+  ys: [710, 684, 658, 632, 606],
+  captions: [
+    "1 Name (as shown on your income tax return)",
+    "2 Business name, if different from above",
+    "3 Address (number, street, and apt. or suite no.)",
+    "4 City, state, and ZIP code",
+  ],
+};
 /** N34's 16 pt box, 6 pt right of its label (Helvetica 10). */
 const N34_X = 72 + textWidth(H, "Number of dependants", 10) + 6;
 /**
@@ -1171,6 +1184,32 @@ export const DETECT_CASES: readonly DetectCase[] = [
       page: 1,
       box: squareBox(x, y, 10),
     })),
+  },
+  {
+    id: "P29",
+    kind: "positive",
+    note: "W-9-style strips: five rules at an even pitch, each strip captioned at its top-left under the rule above; the fields sit in the strips",
+    // Review round 3, finding 5: each caption labelled the rule ABOVE it, so
+    // every field sat one strip too high and the first above the form. P20
+    // (its lowest line captioned too) is the control: nothing moves there.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const y of P29.ys) rule(page, 72, 540, y, 0.5);
+      for (const [i, s] of P29.captions.entries())
+        await text(page, H, s, 74, P29.ys[i]! - 7, 7);
+      return save(d);
+    },
+    expect: P29.captions.map((label, i) => ({
+      rule: "labelled-rule" as const,
+      type: "text" as const,
+      label,
+      page: 1,
+      box: ruleBox(72, 540, P29.ys[i + 1]!, 7),
+    })),
+    // The top rule takes no caption: nothing is proposed above the form.
+    decidedBy: "unlabelled",
+    at: { page: 1, x: 300, y: P29.ys[0]! + 5 },
   },
 
   // ---------------------------------------------------------- negatives
