@@ -84,7 +84,9 @@ test("Find fields: dismiss one, add the rest, and the saved widgets sit on the p
 
   /** Press the middle of a suggestion's dotted box. */
   const press = async (key: string) => {
-    const b = (await sheet.locator(`[data-proposed*="${key}"]`).boundingBox())!;
+    const box = sheet.locator(`[data-proposed*="${key}"]`);
+    await box.scrollIntoViewIfNeeded();
+    const b = (await box.boundingBox())!;
     await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
   };
 
