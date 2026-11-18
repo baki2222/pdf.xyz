@@ -870,6 +870,29 @@ describe("labelled-rule", () => {
       );
     });
 
+    // Review round 4 fixes, finding 12: the caption-only band rule was
+    // pinned in the bottom band only; applied below half the page alone,
+    // it stayed green. A header rule over its caption at the top of a
+    // prose page is page furniture too.
+    it("the same in the TOP band: a header rule over its caption is page-band", () => {
+      // BAND_EDGE: the outer 8% of 792 pt is over 728.64.
+      const header = (y: number) =>
+        pg({
+          segs: [hseg(106, 506, y)],
+          text: [
+            txt("Example Ltd - Annual report", 230, y - 10, {
+              size: 8,
+              width: 150,
+            }),
+          ],
+        });
+      expect(props(header(740))).toEqual([]);
+      expect(run(header(740)).excluded.map((e) => e.rule)).toEqual([
+        "page-band",
+      ]);
+      expect(props(header(728))[0]?.label).toBe("Example Ltd - Annual report");
+    });
+
     it("the same line labelled from its LEFT in the band is still a field", () => {
       expect(props(footer(56, true))[0]?.label).toBe("Date");
     });
