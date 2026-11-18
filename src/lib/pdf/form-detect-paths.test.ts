@@ -265,6 +265,28 @@ describe("scanPaths", () => {
     expect(r.segs[0]).toMatchObject({ width: 1, lum: 0 });
   });
 
+  // Regression verify after review round 6: the classifier loses a
+  // continuation stroked at a width that is not finite or is negative,
+  // and that is left alone because the walker never hands it one. This
+  // pins that it does not: such a width is ignored, and the stroke keeps
+  // the width set before it. A width of 0 (a hairline) is kept.
+  it("a line width that is not finite, or is negative, is ignored; 0 is kept", () => {
+    for (const w of [Number.NaN, Infinity, -Infinity, -50, "x"]) {
+      const r = scan([
+        [OPS.setLineWidth, [2]],
+        [OPS.setLineWidth, [w]],
+        path(OPS.stroke, M, 0, 0, L, 10, 0),
+      ]);
+      expect(r.segs[0]!.width, String(w)).toBe(2);
+    }
+    const hair = scan([
+      [OPS.setLineWidth, [2]],
+      [OPS.setLineWidth, [0]],
+      path(OPS.stroke, M, 0, 0, L, 10, 0),
+    ]);
+    expect(hair.segs[0]!.width).toBe(0);
+  });
+
   it("scales line width by the CTM: a uniform scale scales it", () => {
     const r = scan([
       [OPS.transform, [2, 0, 0, 2, 0, 0]],

@@ -251,6 +251,38 @@ describe("turnedUpright: text upright only because the page is turned", () => {
   });
 });
 
+// Regression verify after review round 6: one text item at a coordinate
+// that is not finite costs the classifier proposals far from it (a grid's
+// squares, a continuation). That is left alone because the reader never
+// hands it one; this pins that it does not.
+describe("textItemToCard: the classifier is never handed a text item that is not finite", () => {
+  const item = (t: unknown[], width: unknown = 30) => ({
+    str: "Name:",
+    transform: t,
+    width,
+  });
+  it("a transform with a value that is not a finite number drops the item", () => {
+    for (const bad of [Number.NaN, Infinity, -Infinity, "1"]) {
+      for (let k = 0; k < 6; k++) {
+        const t: unknown[] = [10, 0, 0, 10, 72, 600];
+        t[k] = bad;
+        expect(textItemToCard(item(t), [0, 0]), `${k}=${bad}`).toBeNull();
+      }
+    }
+    // The control: the same item, finite, is read.
+    expect(textItemToCard(item([10, 0, 0, 10, 72, 600]), [0, 0])).toEqual(
+      expect.objectContaining({ x: 72, y: 600, width: 30, size: 10 }),
+    );
+  });
+  it("a width that is not a finite number is 0, and a negative one is 0", () => {
+    for (const w of [Number.NaN, Infinity, -Infinity, -5, null, "30"])
+      expect(
+        textItemToCard(item([10, 0, 0, 10, 72, 600], w), [0, 0])?.width,
+        String(w),
+      ).toBe(0);
+  });
+});
+
 describe("placing a run inside its text item (an independent bound)", () => {
   // pdf-lib's own glyph widths, not the finder's estimate: the run's left
   // edge as the finder places it must be within 1.5 pt of where pdf-lib drew it.
