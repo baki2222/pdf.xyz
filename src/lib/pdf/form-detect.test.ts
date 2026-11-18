@@ -5339,27 +5339,61 @@ describe("exclusions, each at its boundary", () => {
   // later survivor past DUP_DY with `continue` on a list sorted by y, so it
   // was quadratic in labelled squares, and a headed grid labels them all
   // (824 ms at 20,000 on the reviewer's machine). It stops at DUP_DY now.
-  it("a headed grid of 20,000 labelled squares is classified in linear time", () => {
-    const rects: CardRect[] = [];
-    const text: CardText[] = [];
-    for (let r = 0; r < 200; r++) {
+  //
+  // This test first bounded the 20,000-square run at 400 ms, and a CI runner
+  // took 451 ms on the fixed code (PR #382's run 44373418087), under the
+  // full suite's load. Its "after" was 86 ms here and its "before" 824 ms,
+  // so the bound sat 2x from the defect and 5x from a loaded runner: it
+  // measured the machine, not the shape. The property is the SHAPE of the
+  // cost, so it is pinned as a ratio measured on one machine in one run:
+  // 8 times the squares must cost far less than 64 times (quadratic).
+  // Measured, best of 3, Windows: fixed 6.69; with the `break` turned back
+  // into `continue` (the defect), 30.1 and 38.2. The bound, 16, is 2.4x
+  // above the first and 1.9x below the second.
+  it("a headed grid of labelled squares is classified in linear time", () => {
+    const grid = (rows: number) => {
+      const rects: CardRect[] = [];
+      const text: CardText[] = [];
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < 100; c++)
+          rects.push(rect(200 + 12 * c, 20 + 12 * r, 8, 8));
+        text.push(txt(`Row ${r}`, 40, 22 + 12 * r, { size: 6, width: 30 }));
+      }
+      const top = 20 + 12 * (rows - 1) + 8;
       for (let c = 0; c < 100; c++)
-        rects.push(rect(200 + 12 * c, 20 + 12 * r, 8, 8));
-      text.push(txt(`Row ${r}`, 40, 22 + 12 * r, { size: 6, width: 30 }));
-    }
-    const top = 20 + 12 * 199 + 8;
-    for (let c = 0; c < 100; c++)
-      text.push(txt(`H${c}`, 200 + 12 * c, top + 6, { size: 5, width: 7 }));
-    const t0 = performance.now();
-    const res = run(pg({ width: 1500, height: top + 100, rects, text }));
-    const ms = performance.now() - t0;
-    // Health: every square is labelled by the grid (the page cap keeps 60).
+        text.push(txt(`H${c}`, 200 + 12 * c, top + 6, { size: 5, width: 7 }));
+      return pg({ width: 1500, height: top + 100, rects, text });
+    };
+    // Best of 3: a pause during one run (GC, another worker) only ever adds.
+    const bestMs = (p: CardPage) => {
+      let best = Infinity;
+      for (let k = 0; k < 3; k++) {
+        const t0 = performance.now();
+        run(p);
+        best = Math.min(best, performance.now() - t0);
+      }
+      return best;
+    };
+    const small = grid(25);
+    const large = grid(200);
+    run(small); // warm the code paths before either is timed
+    const smallMs = bestMs(small);
+    const largeMs = bestMs(large);
+    // Health: every square is labelled by the grid (the page cap keeps 60),
+    // at both sizes, so both runs took the path the defect lived on.
+    const res = run(large);
     expect(res.counts.candidates).toBe(20_000);
     expect(res.proposals).toHaveLength(60);
     expect(res.counts.capped).toBe(20_000 - 60);
     expect(res.proposals[0]!.label).toBe("Row 199 H0");
-    expect(ms).toBeLessThan(400);
-  });
+    const few = run(small);
+    expect(few.counts.candidates).toBe(2_500);
+    expect(few.proposals[0]!.label).toBe("Row 24 H0");
+    // Health: the small run is long enough to time (a 0 ms run would make
+    // any ratio pass or fail at random).
+    expect(smallMs).toBeGreaterThan(1);
+    expect(largeMs / smallMs).toBeLessThan(16);
+  }, 60_000);
 
   it("a filled square is a bullet", () => {
     const p = pg({
