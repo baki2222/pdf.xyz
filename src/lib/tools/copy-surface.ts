@@ -177,6 +177,14 @@ export function copyFiles(): string[] {
     // share (2026-11-17): its refusals, moved out of pdf-security.ts.
     path.join(ROOT, "src", "lib", "jobs", "pdf-password.ts"),
     path.join(ROOT, "src", "lib", "jobs", "pdf-security.ts"),
+    // AI Data Extraction's saved schemas (2026-11-17, competitor audit
+    // #16): what a refused name, save or schema file says. Walked from its
+    // first file.
+    path.join(ROOT, "src", "lib", "jobs", "ai-extract-schemas.ts"),
+    // AI Data Extraction's option parser (2026-11-17), moved out of
+    // ai-extract.ts so the panel's first load does not carry it: the
+    // refusals a job and a schema file share. Walked from its first day.
+    path.join(ROOT, "src", "lib", "jobs", "ai-extract-options.ts"),
     // The page-selection option's refusals (2026-11-16, Summarize page
     // ranges): what `POST /api/jobs` answers a malformed `pages` list. The
     // panel parses before upload, so a reader meets them only through a

@@ -32,6 +32,9 @@ import { PAGE_TEXT_LIMIT } from "./ai-result-limits";
 
 const SUMMARY =
   "The lease runs for three years.\n\n- Rent is due on the first.\n- Notice is ninety days.";
+/** SUMMARY as the box draws it: formatted, so the `- ` marks are gone. */
+const SHOWN =
+  "The lease runs for three years.Rent is due on the first.Notice is ninety days.";
 
 async function realPackage(summary = SUMMARY): Promise<Uint8Array> {
   const text = "A long lease agreement with plenty of selectable text in it.";
@@ -101,8 +104,33 @@ describe("Summarize PDF result — the summary is on the page", () => {
     render(<SummaryResultBody output={await realPackage()} filename={ZIP} />);
     const region = await screen.findByRole("region", { name: "Summary" });
     // Health check: the region holds THE summary, not merely some text.
-    expect(region.textContent).toBe(SUMMARY);
+    // INVERTED 2026-11-17 (competitor audit #4): this asserted
+    // `textContent === SUMMARY`, the Markdown source, which pinned the defect
+    // (the reader saw the model's `- ` marks). The summary is now drawn
+    // formatted: its paragraph, then its two points as a list.
+    expect(region.textContent).toBe(SHOWN);
+    expect([...region.querySelectorAll("p")].map((p) => p.textContent)).toEqual(
+      ["The lease runs for three years."],
+    );
+    expect(
+      [...region.querySelectorAll("ul > li")].map((li) => li.textContent),
+    ).toEqual(["Rent is due on the first.", "Notice is ninety days."]);
     expect(screen.getByText(/read it below/)).toBeTruthy();
+  });
+
+  it("Copy summary copies the Markdown source, marks and all", async () => {
+    const writeText = vi.fn(async (_text: string) => {});
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    render(<SummaryResultBody output={await realPackage()} filename={ZIP} />);
+    await screen.findByRole("region", { name: "Summary" });
+    fireEvent.click(screen.getByRole("button", { name: "Copy summary" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(writeText.mock.calls[0]![0]).toBe(SUMMARY);
+    // Positive control: the source is not what the box shows.
+    expect(SUMMARY).not.toBe(SHOWN);
   });
 
   it("offers Copy, .txt, .md and the full ZIP, each by a visible name", async () => {
@@ -171,7 +199,7 @@ describe("Summarize PDF result — the summary is on the page", () => {
       <SummaryResultBody output={first} filename={ZIP} />,
     );
     const region = await screen.findByRole("region", { name: "Summary" });
-    expect(region.textContent).toBe(SUMMARY);
+    expect(region.textContent).toBe(SHOWN);
     rerender(<SummaryResultBody output={second} filename={ZIP} />);
     // Synchronously after the new bytes arrive: the old summary is gone.
     expect(screen.queryByText(/three years/)).toBeNull();

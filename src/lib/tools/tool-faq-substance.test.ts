@@ -159,8 +159,8 @@ import {
 import {
   EXTRACTION_FIELD_TYPES,
   MAX_EXTRACTION_FIELDS,
-  parseExtractOptions,
 } from "@/lib/jobs/ai-extract";
+import { parseExtractOptions } from "@/lib/jobs/ai-extract-options";
 import {
   MAX_CONTEXT_EXCHANGES,
   buildChatContext,

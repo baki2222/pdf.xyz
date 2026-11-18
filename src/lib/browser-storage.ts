@@ -24,6 +24,7 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { WORKER_JOB_STORAGE_PREFIX } from "@/lib/workers/job-resume-key";
 import { WORKSPACE_STORAGE_KEY } from "@/lib/workspace/storage";
 import { SAVED_SIGNATURES_KEY } from "@/lib/pdf/editor/saved-signatures";
+import { SAVED_SCHEMAS_KEY } from "@/lib/jobs/ai-extract-schema-key";
 import {
   COMMENT_AUTHOR_KEY,
   COMMENT_AUTHOR_LABEL,
@@ -88,6 +89,14 @@ export const BROWSER_STORAGE: readonly BrowserStore[] = [
       "Signatures you chose to keep with “Save for next time” in Sign PDF, Edit PDF or Annotate PDF: a typed name and its style, or a picture of a signature you drew or picked. It is written only when you tick that box, and it is never uploaded.",
     lasts:
       "Until you delete it in the signature panel or clear this site's data. Only the most recent few are kept.",
+  },
+  {
+    key: SAVED_SCHEMAS_KEY,
+    perTool: false,
+    area: "localStorage",
+    holds:
+      "Field lists you saved with Save schema in AI Data Extraction: each one's name, and its fields' names, types and hints. Never a file or anything extracted from one, and it is never uploaded.",
+    lasts: "Until you delete it under Saved schemas or clear this site's data.",
   },
   {
     key: COMMENT_AUTHOR_KEY,

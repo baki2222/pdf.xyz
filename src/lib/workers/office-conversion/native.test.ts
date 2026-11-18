@@ -118,7 +118,9 @@ describe("native LibreOffice Office converter", () => {
       const args = await argsFor(UTF8_CSV, "towns.csv");
       expect(args).toContain(FILTER);
       expect(args.indexOf(FILTER)).toBeLessThan(args.indexOf("--convert-to"));
-      expect(args.at(-1)).toBe(join("/tmp/pdfxyz-office-1", "input.csv"));
+      // WAS "input.csv" until 2026-11-17: every upload's name, which a CSV's
+      // printed header showed. Now the job's own stem (`./input-name`).
+      expect(args.at(-1)).toBe(join("/tmp/pdfxyz-office-1", "towns.csv"));
     });
 
     it("so is one that starts with a byte-order mark", async () => {
@@ -165,7 +167,9 @@ describe("native LibreOffice Office converter", () => {
         "--infilter=Text - txt - csv (StarCalc):59,34,34,1,,0,false,false";
       expect(args).toContain(chosen);
       expect(args.indexOf(chosen)).toBeLessThan(args.indexOf("--convert-to"));
-      expect(args.at(-1)).toBe(join("/tmp/pdfxyz-office-1", "input.csv"));
+      // WAS "input.csv" until 2026-11-17: every upload's name, which a CSV's
+      // printed header showed. Now the job's own stem (`./input-name`).
+      expect(args.at(-1)).toBe(join("/tmp/pdfxyz-office-1", "towns.csv"));
     });
 
     it("Auto-detect finds a semicolon file's separator on its own", async () => {
@@ -215,8 +219,11 @@ describe("native LibreOffice Office converter", () => {
     });
     const output = await runner.convertToPdf(DOCX, "report.docx");
     expect([...output]).toEqual([...PDF]);
+    // INVERTED 2026-11-17, not deleted: these three read input.docx and
+    // input.pdf, so they pinned the name a CSV's header printed in
+    // production. The upload is now written under the user's own stem.
     expect(fs.writeFile).toHaveBeenCalledWith(
-      join("/tmp/pdfxyz-office-1", "input.docx"),
+      join("/tmp/pdfxyz-office-1", "report.docx"),
       DOCX,
     );
     expect(exec).toHaveBeenCalledWith(
@@ -224,12 +231,12 @@ describe("native LibreOffice Office converter", () => {
       expect.arrayContaining([
         "--outdir",
         "/tmp/pdfxyz-office-1",
-        join("/tmp/pdfxyz-office-1", "input.docx"),
+        join("/tmp/pdfxyz-office-1", "report.docx"),
       ]),
       expect.objectContaining({ timeout: 120_000 }),
     );
     expect(fs.readFile).toHaveBeenCalledWith(
-      join("/tmp/pdfxyz-office-1", "input.pdf"),
+      join("/tmp/pdfxyz-office-1", "report.pdf"),
     );
     expect(fs.rm).toHaveBeenCalledWith("/tmp/pdfxyz-office-1", {
       recursive: true,

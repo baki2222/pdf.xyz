@@ -1,14 +1,40 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   EXTRACTION_FIELD_TYPES,
+  EXTRACTION_MODES,
+  type ExtractionFieldType,
+  type ExtractionMode,
   MAX_EXTRACTION_FIELDS,
   MAX_EXTRACTION_PROMPT_CHARS,
   MAX_FIELD_DESCRIPTION_CHARS,
   MAX_FIELD_NAME_CHARS,
   describeExtractRequest,
   extractionOutputName,
-  parseExtractOptions,
 } from "./ai-extract";
+import { parseExtractOptions } from "./ai-extract-options";
+
+/**
+ * The vocabularies are spelled twice since 2026-11-17: as types beside the
+ * parser (`./ai-extract-options`, where `/privacy`'s options walk reads them)
+ * and as the tables the panel draws (`./ai-extract`, kept out of the parser's
+ * module so the panel's first load does not carry the parser). The tables
+ * `satisfies` the types (no stray word); these hold the other direction, at
+ * compile time (tsc) and at run time.
+ */
+describe("the field-type and mode tables are exactly the types", () => {
+  it("each table lists every member of its type, and nothing else", () => {
+    expectTypeOf<
+      (typeof EXTRACTION_FIELD_TYPES)[number]
+    >().toEqualTypeOf<ExtractionFieldType>();
+    expectTypeOf<
+      (typeof EXTRACTION_MODES)[number]
+    >().toEqualTypeOf<ExtractionMode>();
+    expect(new Set(EXTRACTION_FIELD_TYPES).size).toBe(
+      EXTRACTION_FIELD_TYPES.length,
+    );
+    expect([...EXTRACTION_MODES]).toEqual(["prompt", "schema"]);
+  });
+});
 
 describe("parseExtractOptions — mode", () => {
   it("rejects a non-object options bag", () => {

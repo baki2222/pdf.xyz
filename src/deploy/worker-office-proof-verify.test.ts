@@ -115,6 +115,38 @@ describe("every Office-to-PDF production proof reads what came back", () => {
       );
     expect(blind).toEqual([]);
   });
+
+  // Review 2026-11-18: the file-name spec combined "stem printed" and "never
+  // input" inline, and changing its `ok` to the first half alone left every
+  // test green. Its verdict is now `fileNameSpecOk` (held in
+  // input-proof.test.ts); this holds the spec to returning exactly that.
+  it("each file-name spec's `ok` is the tested verdict, fileNameSpecOk", () => {
+    const fileName = office.filter((p) =>
+      p.get("name")?.getText(file).includes("fileNameCase("),
+    );
+    // Health: the walk finds the spec, so the check below is not vacuous.
+    expect(fileName.length).toBeGreaterThanOrEqual(1);
+    const wrong: string[] = [];
+    for (const p of fileName) {
+      const oks: TS.Expression[] = [];
+      const visit = (n: TS.Node) => {
+        if (ts.isPropertyAssignment(n) && n.name.getText(file) === "ok")
+          oks.push(n.initializer);
+        n.forEachChild(visit);
+      };
+      visit(p.get("verify")!);
+      const label = stringProp(p, "label") ?? "?";
+      if (oks.length !== 1) wrong.push(`${label}: ${oks.length} ok properties`);
+      for (const ok of oks)
+        if (!(
+          ts.isCallExpression(ok) &&
+          ts.isIdentifier(ok.expression) &&
+          ok.expression.text === "fileNameSpecOk"
+        ))
+          wrong.push(`${label}: ok is ${ok.getText(file)}`);
+    }
+    expect(wrong).toEqual([]);
+  });
 });
 
 describe("the spreadsheet verdict", () => {
