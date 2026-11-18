@@ -954,6 +954,19 @@ describe("labelled-rule", () => {
       expect(labelled(at(0.39))).toEqual([["Address", 577]]);
     });
 
+    // Review round 5 fixes, finding 13: the own-row guard counts upright
+    // text only (mutant CO10: any text on the line's row blocked it).
+    it("a turned mark on the continuation's own row does not block it", () => {
+      const p = block(
+        [hseg(72, 400, 552)],
+        [txt("x", 10, 552, { size: 10, width: 5, upright: false })],
+      );
+      expect(labelled(p)).toEqual([
+        ["Address", 577],
+        ["Address", 553],
+      ]);
+    });
+
     it("a filled bar's weight is its height", () => {
       const bar = (h: number) =>
         pg({
