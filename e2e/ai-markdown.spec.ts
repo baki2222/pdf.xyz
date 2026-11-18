@@ -257,12 +257,18 @@ test("Chat with PDF: with the formatted answer's chunk refused, the plain answer
   // as lazy-chunks.test.ts finds it, not by a hashed name).
   const refused: string[] = [];
   await page.route("**/_next/static/chunks/**/*.js", async (route) => {
-    const response = await route.fetch();
-    const body = await response.text();
-    if (body.includes("data-markdown")) {
-      refused.push(route.request().url());
-      await route.abort();
-    } else await route.fulfill({ response, body });
+    try {
+      const response = await route.fetch();
+      const body = await response.text();
+      if (body.includes("data-markdown")) {
+        refused.push(route.request().url());
+        await route.abort();
+      } else await route.fulfill({ response, body });
+    } catch {
+      // The page closed with a chunk in flight ("Response has been
+      // disposed"). A chunk that failed mid-test would fail the test's own
+      // assertions; this only keeps teardown from failing it again.
+    }
   });
   const said = "Rent is due on the first [p.2].";
   await mockChatWorker(page, "When is rent due?", said, [2]);
@@ -271,7 +277,14 @@ test("Chat with PDF: with the formatted answer's chunk refused, the plain answer
     timeout: 20_000,
   });
   // Health check: the chunk was asked for and refused, so nothing formatted.
-  expect(refused.length).toBeGreaterThanOrEqual(1);
+  // Polled, not read once: the plain answer paints BEFORE the formatted
+  // chunk is fetched, and the handler records the refusal only after it has
+  // read the chunk's whole body. Against a local server that read is
+  // instant; against production (2026-11-18, the first prod run) it took
+  // long enough that a single read saw 0 while the answer was on screen.
+  await expect
+    .poll(() => refused.length, { timeout: 15_000 })
+    .toBeGreaterThanOrEqual(1);
   await expect(page.locator("[data-markdown]")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Copy answer" })).toHaveCount(
     0,
