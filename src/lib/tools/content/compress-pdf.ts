@@ -22,6 +22,7 @@ import {
 import {
   BATCH_DEEP_LABEL,
   BATCH_LOSSLESS_LABEL,
+  BATCH_TARGET_NOTE,
 } from "@/lib/pdf/compress-batch-copy";
 import {
   RUNNER_FILE_CEILINGS,
@@ -132,8 +133,10 @@ const content: ToolContent = {
       title: "A folder of invoices or statements",
       // CHANGED 2026-11-08 (audit compress-pdf#5): ended "Deep image
       // compression takes one file at a time." until the batch could run on
-      // our server too.
-      body: `Select several PDFs and each is repacked in turn on your device. Download them one by one, or press “Download all” for a single ZIP. When our secure server is available, choose “${BATCH_DEEP_LABEL}” instead of “${BATCH_LOSSLESS_LABEL}” before you start, and each file is uploaded and compressed in turn with one Quality and Grayscale setting for them all.`,
+      // our server too. CHANGED 2026-11-18 (audit backlog #15): ended "with
+      // one Quality and Grayscale setting for them all." until the batch
+      // took the single-file panel's Target size and Image quality too.
+      body: `Select several PDFs and each is repacked in turn on your device. Download them one by one, or press “Download all” for a single ZIP. When our secure server is available, choose “${BATCH_DEEP_LABEL}” instead of “${BATCH_LOSSLESS_LABEL}” before you start, and each file is uploaded and compressed in turn with the same Quality, “${TARGET_SIZE_LABELS.heading}”, Grayscale and “${IMAGE_QUALITY_LABELS.heading}” for them all. ${BATCH_TARGET_NOTE} Each file's row says whether it came out under the size.`,
     },
   ],
 

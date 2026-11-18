@@ -159,6 +159,32 @@ describe("secret job options are sealed before the queue broker sees them", () =
     }
   });
 
+  it("OCR PDF's owner password (a restricted PDF, backlog #11) is sealed too, and reaches the worker", async () => {
+    // The OCR contract parses it with the same `parsePassword`, so the
+    // derived field set below covers it; this is the composed path for it.
+    const fake = createFakeRedis();
+    const adapter = await getWorkerAdapter(
+      { ...s3Env(), ...redisEnv(), [SEAL_ENV.publicKey]: keys.publicKey },
+      { queue: { client: fake } },
+    );
+    const parsed = parseCreateJobRequest({
+      tool: "ocr-pdf",
+      inputs: ["f_3234567890"],
+      options: { languages: ["eng"], ownerPassword: OWNER_PW },
+    });
+    if (!parsed.ok) throw new Error(JSON.stringify(parsed.error));
+    const created = await adapter.createJob(parsed.value);
+    if (!created.ok) throw new Error(JSON.stringify(created.error));
+    // Health check: something was written.
+    expect(fake.calls.length).toBeGreaterThan(2);
+    expect(wire(fake)).not.toContain(OWNER_PW);
+    expect(wire(fake)).toContain("$sealed");
+    const claimed = await worker(fake, keys.privateKey).claim({
+      leaseMs: 60_000,
+    });
+    expect(claimed.ok && claimed.value?.options.ownerPassword).toBe(OWNER_PW);
+  });
+
   it("a pre-rollout plaintext job still runs on a worker that has the key", async () => {
     const fake = createFakeRedis();
     await submitAll(fake);

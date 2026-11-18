@@ -689,13 +689,18 @@ async function holdEnding(page: Page) {
   const gate = new Promise<void>((resolve) => (release = resolve));
   const held: string[] = [];
   await page.route("**/_next/static/chunks/**", async (route) => {
-    const response = await route.fetch();
-    const body = await response.body();
-    if (body.includes(RESULT_ENDING_CHUNK)) {
-      held.push(new URL(route.request().url()).pathname);
-      await gate;
+    try {
+      const response = await route.fetch();
+      const body = await response.body();
+      if (body.includes(RESULT_ENDING_CHUNK)) {
+        held.push(new URL(route.request().url()).pathname);
+        await gate;
+      }
+      await route.fulfill({ response, body });
+    } catch {
+      // The page closed with a chunk in flight ("Response has been
+      // disposed"); only keeps teardown from failing the test again.
     }
-    await route.fulfill({ response, body });
   });
   return { held, release };
 }
@@ -1192,13 +1197,18 @@ const ENDING_SET = supportedToolSlugs
 async function lateEnding(page: Page) {
   const late: string[] = [];
   await page.route("**/_next/static/chunks/**", async (route) => {
-    const response = await route.fetch();
-    const body = await response.body();
-    if (body.includes(RESULT_ENDING_CHUNK)) {
-      late.push(new URL(route.request().url()).pathname);
-      await new Promise((resolve) => setTimeout(resolve, ENDING_LATE_MS));
+    try {
+      const response = await route.fetch();
+      const body = await response.body();
+      if (body.includes(RESULT_ENDING_CHUNK)) {
+        late.push(new URL(route.request().url()).pathname);
+        await new Promise((resolve) => setTimeout(resolve, ENDING_LATE_MS));
+      }
+      await route.fulfill({ response, body });
+    } catch {
+      // The page closed with a chunk in flight ("Response has been
+      // disposed"); only keeps teardown from failing the test again.
     }
-    await route.fulfill({ response, body });
   });
   return late;
 }

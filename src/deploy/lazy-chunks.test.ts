@@ -40,6 +40,7 @@ import { REQUEST_FIELD_EDITOR_CHUNK } from "@/components/tools/request-field-edi
 import { CREATE_FORMS_PREVIEW_CHUNK } from "@/components/tools/runner/create-forms-preview";
 import { RESULT_ENDING_CHUNK } from "@/components/intent/result-ending-chunk";
 import { AI_RESULT_CHUNK } from "@/components/tools/ai-result-chunk";
+import { AI_EXTRACT_SCHEMAS_CHUNK } from "@/components/tools/ai-extract-schemas-chunk";
 import { DROP_ENGINE_MARK } from "@/lib/intent/drop-engine";
 import { tools } from "@/lib/tools";
 import { SEARCH_ENGINE_CHUNK } from "@/lib/tools/search-tools";
@@ -351,6 +352,15 @@ const OUR_LAZY: LazyLibrary[] = [
     what: "the AI result views",
     marker: AI_RESULT_CHUNK,
     why: "AI Data Extraction and Summarize PDF fetch it as they read the result, Chat with PDF as a question is asked, PDF to Text beside its extraction; a visit that never gets a result never downloads it",
+    allowedAtLoad: {},
+  },
+  // AI Data Extraction's saved schemas (competitor audit #16, 2026-11-17):
+  // save, load, delete, export and import of a field list. Fetched when
+  // Saved schemas is opened or pointed at.
+  {
+    what: "AI Data Extraction's saved schemas",
+    marker: AI_EXTRACT_SCHEMAS_CHUNK,
+    why: "the panel fetches it when Saved schemas is opened or pointed at; a visit that never opens it never downloads it",
     allowedAtLoad: {},
   },
   {

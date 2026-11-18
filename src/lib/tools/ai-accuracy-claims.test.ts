@@ -63,6 +63,8 @@ const MUST_SURVIVE: readonly string[] = [
   "Repair rewrites the PDF through qpdf's parser/writer on an isolated secure worker, recovering readable structure when possible. It never fabricates pages or content: if qpdf cannot produce a valid PDF, the job fails honestly.",
   "The AI provider did not return valid JSON, so no honest extraction could be produced. No data was fabricated. Retrying may succeed.",
   "The model was instructed not to use outside knowledge.",
+  // Shipped 2026-11-17 by the strict-JSON arm (engine STRICT_REPLY_UNUSABLE).
+  "The AI model's reply did not match the requested fields, even though it was asked for that exact format, so no extraction could be produced. No data was fabricated. The same request is unlikely to do better, so it was not retried.",
 ];
 
 const hits = (text: string) => PATTERNS.filter((p) => p.test(text));

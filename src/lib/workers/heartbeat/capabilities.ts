@@ -78,5 +78,6 @@ export function emptyCapabilities(): HeartbeatCapabilities {
     translatePageMap: false,
     translatePageRange: false,
     csvImportOptions: false,
+    ocrOwnerPassword: false,
   };
 }

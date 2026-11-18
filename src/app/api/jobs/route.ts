@@ -24,6 +24,7 @@ import {
   runningWorkerSummarizesPages,
   runningWorkerTranslatesPageRanges,
   runningWorkerReadsCsvImportOptions,
+  runningWorkerOcrsWithOwnerPassword,
   runningWorkerTranslatesScans,
 } from "@/lib/workers/heartbeat";
 import { SUMMARIZE_PAGES_NOT_RUNNING_MESSAGE } from "@/lib/jobs/summarize-pages";
@@ -32,6 +33,10 @@ import {
   CSV_IMPORT_NOT_RUNNING_MESSAGE,
   carriesCsvImportOptions,
 } from "@/lib/workers/office-conversion/csv-import";
+import {
+  OCR_OWNER_PASSWORD_NOT_RUNNING_MESSAGE,
+  carriesOcrOwnerPassword,
+} from "@/lib/jobs/ocr-owner-password";
 import { translateAsksForOcr } from "@/lib/jobs/translate-pdf";
 import {
   HTML_ZIP_ENTRY_OPTION,
@@ -220,6 +225,22 @@ export async function POST(request: Request): Promise<Response> {
     !(await runningWorkerReadsCsvImportOptions())
   )
     return respond(apiError("not_implemented", CSV_IMPORT_NOT_RUNNING_MESSAGE));
+
+  // AN OCR JOB CARRYING A RESTRICTED PDF'S OWNER PASSWORD IS ADMITTED ONLY
+  // WHEN THE RUNNING WORKER USES IT AND KEEPS THE AUTHOR'S RESTRICTIONS
+  // (competitor-audit backlog #11) -- the same predicate the page's offer
+  // uses (`liveWorkerOcrsWithOwnerPassword`). An image built before the
+  // feature parses options leniently: it drops the password and refuses the
+  // file as restricted after the upload. Refused here, before the password
+  // is queued at all (OCR is never charged).
+  if (
+    parsed.value.tool === "ocr-pdf" &&
+    carriesOcrOwnerPassword(parsed.value.options) &&
+    !(await runningWorkerOcrsWithOwnerPassword())
+  )
+    return respond(
+      apiError("not_implemented", OCR_OWNER_PASSWORD_NOT_RUNNING_MESSAGE),
+    );
 
   /**
    * What this job is charged, and what it may then deliver.

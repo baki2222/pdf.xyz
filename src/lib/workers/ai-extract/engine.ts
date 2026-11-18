@@ -21,6 +21,11 @@ import {
 } from "../ai/truncation";
 import type { ExtractOptions, ExtractionField } from "@/lib/jobs/ai-extract";
 import type { AiProvider, AiCompletionResult } from "../ai/provider";
+import {
+  restoreOptionalNulls,
+  structuredSchemaProblem,
+  type AiJsonSchema,
+} from "../ai/structured-output";
 import { clampOutputTokens } from "../ai/output-budget";
 import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
 import type { AiUsageMeta } from "@/lib/jobs/ai-results";
@@ -199,7 +204,75 @@ export type AiExtractRun =
  * in `src/lib/jobs/ai-spend-ceiling.test.ts` runs this engine with a raised override.
  */
 export const DEFAULT_MAX_OUTPUT_TOKENS = 4000;
+
+/**
+ * The failure for a reply produced under the schema that is still not a
+ * usable object. Not retryable: the same constrained request decodes the
+ * same way, so a retry would pay again for the same reply.
+ */
+export const STRICT_REPLY_UNUSABLE =
+  "The AI model's reply did not match the requested fields, even though it was asked for that exact format, so no extraction could be produced. No data was fabricated. The same request is unlikely to do better, so it was not retried.";
 const DEFAULT_MAX_INPUT_CHARS = AI_INPUT_LIMITS.maxInputCharacters;
+
+/** The JSON Schema value type each extraction field type asks for. */
+const FIELD_JSON_TYPE: Readonly<
+  Record<ExtractionField["type"], Record<string, unknown>>
+> = {
+  string: { type: ["string", "null"] },
+  number: { type: ["number", "null"] },
+  boolean: { type: ["boolean", "null"] },
+  // A date stays TEXT: a format constraint would force "March 2026" into a
+  // full ISO day the document never gave, which is exactly an invented value.
+  date: { type: ["string", "null"] },
+  // "a list of primitive values" (the job contract), each item possibly null.
+  array: {
+    type: ["array", "null"],
+    items: { type: ["string", "number", "boolean", "null"] },
+  },
+};
+
+/**
+ * The schema-mode request as a JSON Schema for structured output: one
+ * property per requested field, under its name verbatim, every one REQUIRED
+ * and NULLABLE — a null is how the prompt already tells the model to report
+ * a value that is not in the text, so the constrained reply means exactly
+ * what the prompt-only reply meant. The object is closed, so no key the
+ * request did not name can come back.
+ */
+export function extractionJsonSchema(
+  fields: readonly ExtractionField[],
+): AiJsonSchema {
+  const properties: Record<string, unknown> = {};
+  for (const field of fields) {
+    properties[field.name] = {
+      ...FIELD_JSON_TYPE[field.type],
+      ...(field.description ? { description: field.description } : {}),
+    };
+  }
+  return {
+    name: "extraction",
+    schema: {
+      type: "object",
+      properties,
+      required: fields.map((f) => f.name),
+      additionalProperties: false,
+    },
+  };
+}
+
+/**
+ * The schema to constrain the reply with, or `undefined` for the prompt-only
+ * path: prompt mode (there is no shape to hold the reply to), and a schema the
+ * structured-output subset cannot carry (too many fields for the providers'
+ * limits, today more than 16 — each nullable field is one union).
+ */
+export function extractionSchemaFor(
+  options: ExtractOptions,
+): AiJsonSchema | undefined {
+  if (options.mode !== "schema" || !options.schema?.length) return undefined;
+  const schema = extractionJsonSchema(options.schema);
+  return structuredSchemaProblem(schema) === null ? schema : undefined;
+}
 
 /** Human-readable one-line description of a field, for the system prompt. */
 function describeField(field: ExtractionField): string {
@@ -428,6 +501,12 @@ export async function runAiExtract(
     deps.limits?.maxOutputTokens,
   );
 
+  // Schema mode holds the reply to the requested fields when the schema fits
+  // the structured-output subset. The PROMPT is unchanged either way, so a
+  // model that refuses the parameter (the adapter retries without it) is
+  // asked exactly what it was asked before.
+  const jsonSchema = extractionSchemaFor(options);
+
   const completion = await provider.complete({
     system: buildSystemPrompt(options, window),
     messages: [
@@ -439,6 +518,7 @@ export async function runAiExtract(
     maxOutputTokens,
     // Deterministic extraction: no creative sampling.
     temperature: 0,
+    ...(jsonSchema ? { jsonSchema } : {}),
   });
 
   if (!completion.ok)
@@ -461,7 +541,30 @@ export async function runAiExtract(
     window,
   };
 
-  const data = parseModelJson(completion.text);
+  // A reply produced UNDER the schema that still fails below is not a fluke
+  // a retry might clear: the same constrained request decodes the same way,
+  // and every retry is paid. Only the prompt-only path keeps the retry.
+  const constrained =
+    jsonSchema !== undefined && completion.jsonSchemaApplied === true;
+
+  const parsed = parseModelJson(completion.text);
+  // The adapters send the STRICT form, where a field the schema left optional
+  // comes back as null; this takes those nulls back out. Every extraction
+  // field is required, so for this schema it changes nothing — a null here is
+  // the model's answer and stays.
+  const data =
+    parsed !== null && constrained
+      ? (restoreOptionalNulls(parsed, jsonSchema.schema) as typeof parsed)
+      : parsed;
+  if (data === null && constrained) {
+    return {
+      ok: false,
+      kind: "failed",
+      retryable: false,
+      message: STRICT_REPLY_UNUSABLE,
+      ...spent,
+    };
+  }
   if (data === null) {
     return {
       ok: false,
@@ -475,6 +578,15 @@ export async function runAiExtract(
 
   // A schema asks for NAMED fields. A list has no names to match them against,
   // so there is no honest way to say which requested field any item is.
+  if (options.mode === "schema" && Array.isArray(data) && constrained) {
+    return {
+      ok: false,
+      kind: "failed",
+      retryable: false,
+      message: STRICT_REPLY_UNUSABLE,
+      ...spent,
+    };
+  }
   if (options.mode === "schema" && Array.isArray(data)) {
     return {
       ok: false,
@@ -521,6 +633,7 @@ export async function runAiExtract(
           missingKeys: reconciled.missingKeys,
           renamedKeys: reconciled.renamedKeys,
           extraKeys: reconciled.extraKeys,
+          replyFormat: constrained ? "json-schema" : "prompt",
         }
       : { keys: extractedKeys },
     // What a null means is said in BOTH modes — a prompt-mode reply has
@@ -545,6 +658,8 @@ export async function runAiExtract(
       kind: "failed",
       retryable: false,
       message: "The extraction package exceeds the worker size limit.",
+      // The call was paid before the package was too big (CLAUDE.md rule 3).
+      ...spent,
     };
   }
 
@@ -631,6 +746,13 @@ interface ExtractionManifest {
     renamedKeys?: Record<string, string>;
     /** Schema mode: keys the model returned that no requested field matches. */
     extraKeys?: string[];
+    /**
+     * Schema mode: how the reply was asked for. "json-schema" — the provider
+     * held the reply to the requested fields (structured output); "prompt" —
+     * the fields were only asked for in words (prompt mode never has a
+     * schema to hold a reply to, so it omits this).
+     */
+    replyFormat?: "json-schema" | "prompt";
   };
   notice: string;
 }
