@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { getToolContent } from "@/lib/tools/content";
@@ -13,10 +13,16 @@ import { getToolBySlug, tools } from "@/lib/tools";
  *
  *  - the tool's content, its catalogue row, its FAQ entries and facts;
  *  - every guide whose `tools` lists the slug;
- *  - the source text of every `create-forms*` runner module (the runner's
- *    help is JSX), the Find fields chunk included;
- *  - every OTHER tool's FAQ or fact sentence that names Find fields (a
- *    cross-link, such as Fill Forms' "find no fields" answer).
+ *  - the source text of every runner module the create-forms runner loads
+ *    at run time (its static and `import()` edges, never `import type`)
+ *    that no OTHER tool's runner loads: the shared kits are not this
+ *    tool's words, a helper only this builder loads is (review round 7:
+ *    the set was a filename pattern, so `find-fields-hint.tsx` was unseen);
+ *  - every OTHER tool's content, FAQ or fact sentence that names Find
+ *    fields (a cross-link, such as Fill Forms' "find no fields" answer);
+ *  - every other source file under src/ that names Find fields, for the
+ *    sentences that name it (a file nothing imports yet, a guide that does
+ *    not list the slug).
  *
  * A guard can add what only it can render (the Find fields summary is built
  * at run time); the discovered part is shared so the two guards cannot drift
@@ -49,11 +55,150 @@ export const RUNNER_DIR = path.join(
   "src/components/tools/runner",
 );
 
-/** The runner modules the corpus reads: every create-forms*.ts(x) but tests. */
-export const runnerFiles = () =>
-  readdirSync(RUNNER_DIR).filter(
-    (f) => /^create-forms.*\.tsx?$/.test(f) && !/\.test\./.test(f),
+/** The runner's entry: the module that defines `CreateFormsRunner`. */
+export const RUNNER_ENTRY = "create-forms-runner.tsx";
+
+const SRC = path.join(process.cwd(), "src");
+
+/**
+ * The runner-directory modules `file` loads at RUN time: static imports
+ * and re-exports that are not type-only, and `import("...")` calls. A type
+ * import is erased, so it is not an edge (house rule 4).
+ */
+export function runtimeImports(file: string, source: string): string[] {
+  const sf = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
   );
+  const specs: string[] = [];
+  const visit = (n: ts.Node) => {
+    if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
+      const c = n.importClause;
+      const typeOnly =
+        c?.isTypeOnly ||
+        (c &&
+          !c.name &&
+          c.namedBindings &&
+          ts.isNamedImports(c.namedBindings) &&
+          c.namedBindings.elements.length > 0 &&
+          c.namedBindings.elements.every((e) => e.isTypeOnly));
+      if (!typeOnly) specs.push(n.moduleSpecifier.text);
+    } else if (
+      ts.isExportDeclaration(n) &&
+      !n.isTypeOnly &&
+      n.moduleSpecifier &&
+      ts.isStringLiteral(n.moduleSpecifier)
+    ) {
+      specs.push(n.moduleSpecifier.text);
+    } else if (
+      ts.isCallExpression(n) &&
+      n.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      n.arguments[0] &&
+      ts.isStringLiteral(n.arguments[0])
+    ) {
+      specs.push(n.arguments[0].text);
+    }
+    n.forEachChild(visit);
+  };
+  visit(sf);
+  const out: string[] = [];
+  for (const s of specs) {
+    const base = s.startsWith("./")
+      ? s.slice(2)
+      : s.startsWith("@/components/tools/runner/")
+        ? s.slice("@/components/tools/runner/".length)
+        : null;
+    if (!base || base.includes("/")) continue;
+    const hit = [`${base}.tsx`, `${base}.ts`].find((f) =>
+      readdirSync(RUNNER_DIR).includes(f),
+    );
+    if (hit) out.push(hit);
+  }
+  return out;
+}
+
+const IMPORTS = new Map<string, string[]>();
+const importsOf = (f: string): string[] => {
+  let out = IMPORTS.get(f);
+  if (!out) {
+    out = runtimeImports(f, readFileSync(path.join(RUNNER_DIR, f), "utf8"));
+    IMPORTS.set(f, out);
+  }
+  return out;
+};
+
+/** Every runner-directory module `entry` reaches at run time, itself included. */
+export function reachable(entry: string): Set<string> {
+  const seen = new Set<string>([entry]);
+  const queue = [entry];
+  while (queue.length > 0) {
+    const f = queue.shift()!;
+    for (const g of importsOf(f))
+      if (!seen.has(g)) {
+        seen.add(g);
+        queue.push(g);
+      }
+  }
+  return seen;
+}
+
+/**
+ * The runner modules the corpus reads: what the create-forms runner loads
+ * at run time, less what any other runner entry (`*-runner.tsx`) also
+ * reaches (the shared kits). An entry that reaches this runner itself (the
+ * dispatcher, tool-runner.tsx) is not another tool's runner and is skipped.
+ */
+let RUNNER_FILES: string[] | null = null;
+export const runnerFiles = (): string[] => (RUNNER_FILES ??= findRunnerFiles());
+function findRunnerFiles(): string[] {
+  const mine = reachable(RUNNER_ENTRY);
+  const shared = new Set<string>();
+  for (const other of readdirSync(RUNNER_DIR).filter(
+    (f) => /-runner\.tsx$/.test(f) && f !== RUNNER_ENTRY,
+  )) {
+    const theirs = reachable(other);
+    if (theirs.has(RUNNER_ENTRY)) continue;
+    for (const f of theirs) shared.add(f);
+  }
+  return [...mine].filter((f) => !shared.has(f)).sort();
+}
+
+/** Every non-test .ts/.tsx under src/, as paths relative to src/. */
+function sourceFiles(dir = SRC, out: string[] = []): string[] {
+  for (const name of readdirSync(dir)) {
+    const full = path.join(dir, name);
+    if (statSync(full).isDirectory()) sourceFiles(full, out);
+    else if (/\.tsx?$/.test(name) && !/\.(test|spec)\./.test(name))
+      out.push(path.relative(SRC, full).split(path.sep).join("/"));
+  }
+  return out;
+}
+
+/** The product's name for the feature: what a cross-mention must name. */
+export const NAMES_IT = /\bFind fields\b/;
+
+/**
+ * Every source file outside the runner set that names Find fields, with
+ * the sentences in it that do (as written, or as shown).
+ */
+let NAMING_FILES: string[] | null = null;
+export const namingFiles = (): string[] => (NAMING_FILES ??= findNamingFiles());
+function findNamingFiles(): string[] {
+  const runner = new Set(
+    runnerFiles().map((f) => `components/tools/runner/${f}`),
+  );
+  return sourceFiles().filter(
+    (f) =>
+      !runner.has(f) &&
+      f !== "tests/create-forms-copy-corpus.ts" &&
+      // Every tool's content is read as SERVED, above.
+      !f.startsWith("lib/tools/content/") &&
+      NAMES_IT.test(readFileSync(path.join(SRC, f), "utf8")),
+  );
+}
 
 /**
  * The text a runner module can SHOW: its string literals, template literals
@@ -125,12 +270,13 @@ export function createFormsCorpus(
   add("faq", strings([toolFaq(tool), modeFaq(tool), toolFacts(SLUG)]));
   for (const other of tools.filter((t) => t.slug !== SLUG)) {
     const said = strings([
+      getToolContent(other.slug),
       toolFaq(other),
       modeFaq(other),
       toolFacts(other.slug),
     ])
       .flatMap(sentences)
-      .filter((s) => /\bFind fields\b/.test(s));
+      .filter((s) => NAMES_IT.test(s));
     add(`faq ${other.slug}`, said);
   }
   for (const guide of guides.filter((g) => g.tools.includes(SLUG)))
@@ -138,6 +284,15 @@ export function createFormsCorpus(
   for (const file of runnerFiles()) {
     const text = readFileSync(path.join(RUNNER_DIR, file), "utf8");
     add(file, o.source === "shown" ? shownText(file, text) : [text]);
+  }
+  for (const file of namingFiles()) {
+    const text = readFileSync(path.join(SRC, file), "utf8");
+    // What it can SHOW, whatever the mode: a docblock elsewhere that
+    // explains what may not be claimed is not a claim.
+    const said = shownText(file, text)
+      .flatMap(sentences)
+      .filter((s) => NAMES_IT.test(s));
+    add(`names ${file}`, said);
   }
   return out;
 }

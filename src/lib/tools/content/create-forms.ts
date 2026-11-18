@@ -68,14 +68,19 @@ import { DETECTION_RULES } from "@/lib/pdf/form-detect";
  * ("Found fields"), drawn dotted on the preview: a card exists only once a
  * person presses Add (or Add all on this page / Add all; Enter on the dotted
  * box), named then from its label against the cards and the PDF's fields,
- * and dropped if validateFormFields refuses it. The first Add replaces the
- * starter card only if it was never touched. Signature lines are never
- * suggested (counted, with a link to Sign PDF); a page that looks like a
- * scan is not searched (bound to the reader's behaviour on the image-only
- * case, O1, by the copy guard); pages past 50, and suggestions past 60 a
- * page or 300 a run, are counted and said. It misses fields (S1's known
- * misses: tables beyond two columns, combs, radio groups, anything drawn on
- * its side), so no sentence here may say it finds every field.
+ * and kept in the list with the builder's reason if validateFormFields
+ * refuses it. The first Add replaces the starter card only if it was never
+ * touched (and only by something added). Lines LABELLED as a signature are
+ * not suggested (SIGNATURE_RE; "Signatory:" or "Firma:" are not read as
+ * one, so this never says "signature lines are never suggested"; counted,
+ * with links to Edit PDF and Sign PDF); a page that is ONLY a picture (no
+ * text layer) is not searched, and a scan with an OCR text layer IS (both
+ * bound to the reader by the copy guard: cases O1 and O9); a page whose
+ * writing shows sideways is said; pages past 50, and suggestions past 60 a
+ * page or 300 a run, are counted and said by page. It misses fields (S1's
+ * known misses: tables beyond two columns, combs, radio groups, labels too
+ * far from their line), so no sentence here may say it finds every field,
+ * or one for each shape.
  */
 const tool = getToolBySlug("create-forms");
 const maxMb = tool ? toolFileCeilingMb(tool) : null;
@@ -107,11 +112,15 @@ const LOOKS_FOR = ((items: string[]) =>
   `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`)(
   DETECTION_RULES.map((r) => r.plain),
 );
-const FIND_FIELDS = `Find fields looks for ${LOOKS_FOR}, and suggests a field for each one for you to check and add.`;
+const FIND_FIELDS = `Find fields looks for ${LOOKS_FOR}, and suggests fields from what it sees for you to check and add.`;
 
 const SIGN_PDF = getToolBySlug("sign-pdf");
 if (!SIGN_PDF)
   throw new Error("create-forms content links Sign PDF, which is gone");
+
+/** What is not searched, said one way everywhere (bound to O1 and O9). */
+const PICTURE_PAGES =
+  "A page that is only a picture, such as a scan with no text in it, is not searched";
 
 const content: ToolContent = {
   slug: "create-forms",
@@ -119,11 +128,11 @@ const content: ToolContent = {
   seoTitle: "Create Fillable PDF Forms — Built in Your Browser",
 
   metaDescription:
-    "Add text boxes, checkboxes, dropdowns, radio groups and lists to a PDF, or review fields suggested from its lines. Real AcroForm fields, built in your browser.",
+    "Add text boxes, checkboxes, dropdowns, radio groups and lists to a PDF, or check and add suggested ones. Real AcroForm fields, built in your browser.",
 
   intro: [
     "Create Fillable Forms turns a flat PDF, such as a printed-style application or checklist, into one people can type into. You describe each field in a card: its type, a unique name, the page it sits on, and its box in whole PDF points measured from the page's bottom-left corner. Each card shows the width and height of the page it points at, and the Page box only accepts pages the document has. A preview of the page shows every field's box where its numbers put it: click the page to move a field's bottom-left corner there, drag a box, or nudge it with the arrow keys, and its X and Y change to match. Width and height are typed on the card.",
-    `Or let the builder suggest fields for you to check: press “Find fields”. ${FIND_FIELDS} Each suggestion is listed with its label and page and drawn dotted on the preview, and nothing is added until you add it. It can miss a field or suggest a wrong one, so check the page as well. A scanned page, a picture of a form, is not searched.`,
+    `Or let the builder suggest fields for you to check: press “Find fields”. ${FIND_FIELDS} Each suggestion is listed with its label and page and drawn dotted on the preview, and nothing is added until you add it. It can miss a field or suggest a wrong one, so check the page as well. ${PICTURE_PAGES}.`,
     "The output is a classic AcroForm, the form type PDF readers with form support can fill. Text fields can carry pre-filled text, a character limit and multiple lines; checkboxes can start ticked; dropdowns can accept free typing, and lists can accept several selections; dropdowns, lists and radio groups take their choices one per line. Existing pages and AcroForm fields are kept, and new names are checked against the old ones first. Fill Forms here can fill the result and flatten it once it is filled; Flatten PDF does that step on its own, baking the values into the page so they stop being editable.",
     `Your browser does the whole build: the PDF is read from your device, the fields are written into it in memory, and the result is saved to your device without a copy of it, or of what you type into the cards, going to pdf.xyz. PDFs up to ${maxMb} MB are accepted.${betaSentence} This builder has no ${SIGNATURE_FIELD.toLowerCase()} type: ${EDIT_PDF.name} adds one with the field tools in its ${EDITOR_FORMS_GROUP} group, also in your browser. There is no font, border or colour styling and no XFA output; if the source carries an XFA layer, for instance a hybrid AcroForm-and-XFA form, the saved copy drops that layer and keeps only its AcroForm fields. A password-protected PDF is refused until you unlock it.`,
   ],
@@ -131,7 +140,7 @@ const content: ToolContent = {
   useCases: [
     {
       title: "A registration sheet people complete on screen",
-      body: "Press “Find fields” for a text field suggested over each labelled blank line, check and add the right ones, cap the phone field's length, and send one PDF people fill in without printing.",
+      body: "Press “Find fields” to have text fields suggested over labelled blank lines, check and add the right ones, add any it missed by hand, cap the phone field's length, and send one PDF people fill in without printing.",
     },
     {
       title: "An inspection or onboarding checklist",
@@ -154,7 +163,7 @@ const content: ToolContent = {
     },
     {
       title: "Review each suggestion",
-      body: "Press “Find fields” to have fields suggested from the PDF's printed lines and boxes, for you to review. Each one is listed with its label and page and drawn dotted on the preview: add the ones that are right, rename any first if you like, and dismiss the rest. Nothing is added until you add it.",
+      body: "Press “Find fields” to have fields suggested for you to review. Each one is listed with its label and page and drawn dotted on the preview: add the ones that are right, rename any first if you like, and dismiss the rest. Nothing is added until you add it.",
     },
     {
       title: "Set up each field",
@@ -185,11 +194,11 @@ const content: ToolContent = {
     },
     {
       q: "Can it find the fields for me?",
-      a: `It can suggest them, for you to check. ${FIND_FIELDS} Each suggestion is listed with its label and page and drawn dotted on the page preview; nothing is added until you add it, and you can rename it first or dismiss it. It runs in your browser, only when you press the button, and it can miss a field or suggest a wrong one, so check the page as well. Signature lines are never suggested: the summary counts them, and ${SIGN_PDF.name} adds a signature.`,
+      a: `It can suggest them, for you to check. ${FIND_FIELDS} Each suggestion is listed with its label and page and drawn dotted on the page preview; nothing is added until you add it, and you can rename it first or dismiss it. It runs in your browser, only when you press the button, and it can miss a field or suggest a wrong one, so check the page as well. Lines labelled as a signature are not suggested, so add an empty ${SIGNATURE_FIELD.toLowerCase()} there with ${EDIT_PDF.name}, or sign the PDF yourself with ${SIGN_PDF.name}; the summary counts those lines.`,
     },
     {
       q: "Why did it find nothing?",
-      a: "Find fields reads only what the PDF itself draws as text, lines and boxes, so add by hand any field it cannot see. A scanned page, a picture of a form, is not searched, and the summary names each page that looks like one. A page drawn on its side, a page that could not be read, and blanks that are not lines, underscores or small boxes give it nothing to suggest either, so add those fields with Add field.",
+      a: `Find fields reads only what the PDF itself draws, so add by hand any field it cannot see. It passes over a line with no label beside it, the cells of a table it reads as a grid, a row of boxes for one letter each, a line labelled as a signature and a line that already has a field, so add those with Add field. ${PICTURE_PAGES}, and neither is a page whose writing shows sideways or upside down, or one that could not be read: the summary names each such page so you can add its fields by hand.`,
     },
     {
       q: "Why was a default value or a dropdown or list option refused for its characters?",

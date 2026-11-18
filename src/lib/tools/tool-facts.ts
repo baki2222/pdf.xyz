@@ -1592,7 +1592,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: `Why does ${tool.name} find no fields in my PDF?`,
-          answer: `Because the PDF has no fillable form. A scanned form, or one with only printed lines and boxes, has nothing to fill: add fields with ${toolName("create-forms")} first (its Find fields suggests them from the printed lines and boxes, for you to check and add), or place text with ${toolName("edit-pdf")}. A form built only in XFA, an older dynamic format, is not read either.`,
+          answer: `Because the PDF has no fillable form. A scanned form, or one with only printed lines and boxes, has nothing to fill. Add fields with ${toolName("create-forms")} first (its Find fields suggests some for you to check and add), or place text with ${toolName("edit-pdf")}. A form built only in XFA, an older dynamic format, is not read either.`,
         },
       ];
     case "create-forms":
