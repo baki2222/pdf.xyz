@@ -709,7 +709,12 @@ function renderReadme(manifest: SummaryManifest): string {
   lines.push(
     "  summary.md    The AI summary (markdown) with a provenance header.",
   );
-  lines.push("  summary.txt   The AI summary as plain text.");
+  // Not "as plain text": set against summary.md's line, that read as "no
+  // Markdown here", and summary.txt is the model's text exactly as written
+  // (the panel shows it and renders its Markdown). readme-truth.test.ts.
+  lines.push(
+    "  summary.txt   The AI summary as the model wrote it, without the header (any Markdown marks, such as ** or -, are kept).",
+  );
   lines.push(
     "  manifest.json A structured record of the request (provider, model, options, source stats).",
   );
