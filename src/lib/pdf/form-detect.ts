@@ -1481,18 +1481,30 @@ function gridLabels(
   const columnOf = new Map<CardRect, CardRect[]>();
   for (const col of squareGroups(squares, (s) => s.x0))
     if (col.length >= 2) for (const s of col) columnOf.set(s, col);
-  const headOf = new Map<CardRect[], CardText>();
+  // A column's head: the nearest upright text over its top square, with
+  // every other item on that baseline (within GRID_ROW_EPS) over the
+  // square joined left to right: a head drawn as two items ("Not" "sure")
+  // was named after the one first in the content stream (review round 4
+  // fixes, finding 16). Its leftmost item stands for it in the distinct-
+  // heads check, so one text across two columns is still no grid.
+  const headOf = new Map<CardRect[], { item: CardText; str: string }>();
   for (const col of new Set(columnOf.values())) {
     const top = col.reduce((a, b) => (b.y1 > a.y1 ? b : a));
-    let head: CardText | undefined;
+    const over: CardText[] = [];
     for (const t of p.text) {
       if (!t.upright || !cleanLabel(t.str)) continue;
       if (t.y <= top.y1 || t.y - top.y1 > DETECT.GRID_HEAD_ABOVE) continue;
       if (overlap(t.x, t.x + Math.max(0, t.width), top.x0, top.x1) <= 0)
         continue;
-      if (!head || t.y < head.y) head = t;
+      over.push(t);
     }
-    if (head) headOf.set(col, head);
+    if (over.length === 0) continue;
+    const base = Math.min(...over.map((t) => t.y));
+    const words = over
+      .filter((t) => t.y - base <= DETECT.GRID_ROW_EPS)
+      .sort((a, b) => a.x - b.x);
+    const str = cleanLabel(words.map((t) => t.str).join(" "));
+    if (str) headOf.set(col, { item: words[0]!, str });
   }
   for (const row of squareGroups(squares, (s) => s.y0)) {
     if (row.length < 2) continue;
@@ -1500,7 +1512,11 @@ function gridLabels(
       const col = columnOf.get(s);
       return col ? headOf.get(col) : undefined;
     });
-    if (heads.some((h) => !h) || new Set(heads).size !== heads.length) continue;
+    if (
+      heads.some((h) => !h) ||
+      new Set(heads.map((h) => h!.item)).size !== heads.length
+    )
+      continue;
     const first = row.reduce((a, b) => (b.x0 < a.x0 ? b : a));
     const rowText = leftOf(
       p.text,
@@ -1510,7 +1526,7 @@ function gridLabels(
       () => first.y1,
     ).find((h) => h.text.upright);
     row.forEach((s, k) => {
-      const head = cleanLabel(heads[k]!.str)!;
+      const head = heads[k]!.str;
       out.set(s, rowText ? `${rowText.str} ${head}` : head);
     });
   }

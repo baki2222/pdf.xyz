@@ -2281,6 +2281,40 @@ describe("square-checkbox", () => {
       expect(labels(grid({ above: 22 }))).toEqual([]);
     });
 
+    // Review round 4 fixes, finding 16: a head drawn as two text items (a
+    // kerned or TJ-split "Not sure") named its column after ONE word, the
+    // one first in the content stream. Every item on the head's baseline
+    // over the column is joined, left to right.
+    it("a head of two text items is read whole, whatever their stream order", () => {
+      const not = txt("Not", 446, 618, { size: 9, width: 12 });
+      const sure = txt("sure", 455, 618, { size: 9, width: 16 });
+      const yes = txt("Yes", 398, 618, { size: 9, width: 14 });
+      const p = (heads: CardText[]) =>
+        pg({
+          rects: [0, 1].flatMap((i) =>
+            [400, 452].map((x) => rect(x, 598 - 20 * i, 10, 10)),
+          ),
+          text: [
+            txt("Asthma", 72, 600, { size: 10, width: 50 }),
+            txt("Diabetes", 72, 580, { size: 10, width: 50 }),
+            ...heads,
+          ],
+        });
+      const want = [
+        "Asthma Yes",
+        "Asthma Not sure",
+        "Diabetes Yes",
+        "Diabetes Not sure",
+      ];
+      expect(labels(p([yes, not, sure]))).toEqual(want);
+      expect(labels(p([yes, sure, not]))).toEqual(want);
+      // GRID_ROW_EPS: a second item 2 pt off the head's baseline joins it,
+      // 2.1 pt off does not (the nearer one is the head alone).
+      const off = (dy: number) => ({ ...sure, y: 618 + dy });
+      expect(labels(p([yes, not, off(2)]))[1]).toBe("Asthma Not sure");
+      expect(labels(p([yes, not, off(2.1)]))[1]).toBe("Asthma Not");
+    });
+
     it("every column needs a head of its own: one missing, or one text over both, is no grid", () => {
       expect(labels(grid({ heads: ["Yes", null] }))).toEqual([]);
       expect(
