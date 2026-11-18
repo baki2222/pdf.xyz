@@ -8,14 +8,16 @@ import type { Rect, Seg } from "./form-detect-paths";
  * passed over.
  *
  * LIMITS, in plain words. It looks at three shapes only: a run of
- * underscores typed in the text, a straight line with a label beside or
- * under it, and a small empty square. It reads only text that is upright in
- * the page's content and lines and boxes drawn in the PDF itself, so it finds
- * nothing on a scanned page (a picture of a form). It PROPOSES and never
- * writes: nothing here adds a field, and every proposal is meant to be
- * checked by a person. It leans towards missing a field rather than proposing
- * a wrong one, because a missed field costs one click on Add field and a
- * wrong one costs a review.
+ * underscores typed in the text, a straight line with a label near it
+ * (beside it, under it, at the top of the strip it closes, or on the
+ * labelled line it continues), and a small empty square (labelled beside
+ * it, or by its row and the head of its column). It reads only text that is
+ * upright in the page's content and lines and boxes drawn in the PDF
+ * itself, so it finds nothing on a scanned page (a picture of a form). It
+ * PROPOSES and never writes: nothing here adds a field, and every proposal
+ * is meant to be checked by a person. It leans towards missing a field
+ * rather than proposing a wrong one, because a missed field costs one click
+ * on Add field and a wrong one costs a review.
  *
  * Every shape it passes over is recorded in `excluded` with the FIRST rule
  * that decided it, in the order `classifyPage` documents. Which shapes each
