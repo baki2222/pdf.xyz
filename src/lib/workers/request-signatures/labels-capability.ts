@@ -36,6 +36,7 @@
  */
 import JSZip from "jszip";
 import {
+  PDFArray,
   PDFDict,
   PDFDocument,
   PDFHexString,
@@ -50,6 +51,7 @@ import { runThroughExecutorOrder } from "../capability-chain";
 import { createProcessorRegistry } from "../processor";
 import { resolveWorkerSoundness, type SoundnessGate } from "../soundness";
 import { REQUEST_SIGNATURES_TOOL, type SignatureRequestDeps } from "./engine";
+import { labelsProbePdf } from "./labels-probe-input";
 import { signatureRequestDeps } from "./native";
 
 /** How the probe builds its registry: the daemon's own, unless a test swaps it. */
@@ -100,12 +102,6 @@ function probeOptions(): Record<string, unknown> {
   };
 }
 
-async function probePdf(): Promise<Uint8Array> {
-  const doc = await PDFDocument.create();
-  doc.addPage([612, 792]);
-  return await doc.save();
-}
-
 /** The /TU of a dict, decoded, or null when it has none (or not a text string). */
 function tooltipOf(dict: PDFDict): string | null {
   const tu = dict.lookup(PDFName.of("TU"));
@@ -114,12 +110,65 @@ function tooltipOf(dict: PDFDict): string | null {
     : null;
 }
 
-/** The /TU on a field's own dict and on each of its widgets, field first. */
+/** A dict's /T, decoded, or null. */
+function partialNameOf(dict: PDFDict): string | null {
+  const t = dict.lookup(PDFName.of("T"));
+  return t instanceof PDFHexString || t instanceof PDFString
+    ? t.decodeText()
+    : null;
+}
+
+/** The dicts in a dict's array entry, skipping anything that is not a dict. */
+function dictsIn(dict: PDFDict, key: string): PDFDict[] {
+  const array = dict.lookup(PDFName.of(key));
+  if (!(array instanceof PDFArray)) return [];
+  const out: PDFDict[] = [];
+  for (let i = 0; i < array.size(); i += 1) {
+    const entry = array.lookup(i);
+    if (entry instanceof PDFDict) out.push(entry);
+  }
+  return out;
+}
+
+/**
+ * The /TU on a field's own dict and on each of its widgets, field first,
+ * found by walking the catalogue's /AcroForm /Fields tree by raw dictionary
+ * lookups: not pdf-lib's form API, which the placer wrote through. A kid
+ * with a /T is a child field; one without is a widget; a field with no
+ * widget kids is its own widget (merged), as the PDF spec reads it. Bounded
+ * in depth, so a cyclic tree cannot hang the proof.
+ */
 function tooltipsOf(doc: PDFDocument, name: string): (string | null)[] {
-  const field = doc.getForm().getField(name).acroField;
-  const widgets = field.getWidgets();
+  const acroForm = doc.catalog.lookup(PDFName.of("AcroForm"));
+  if (!(acroForm instanceof PDFDict)) throw new Error("no /AcroForm");
+  const find = (
+    dicts: PDFDict[],
+    prefix: string,
+    depth: number,
+  ): PDFDict | null => {
+    if (depth > 16) return null;
+    for (const dict of dicts) {
+      const partial = partialNameOf(dict);
+      if (partial === null) continue;
+      const full = prefix ? `${prefix}.${partial}` : partial;
+      if (full === name) return dict;
+      const kids = dictsIn(dict, "Kids").filter((k) => partialNameOf(k));
+      const found = find(kids, full, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  };
+  const field = find(dictsIn(acroForm, "Fields"), "", 0);
+  if (!field) throw new Error(`${name} is not in /AcroForm /Fields`);
+  const kids = dictsIn(field, "Kids").filter((k) => partialNameOf(k) === null);
+  const widgets =
+    kids.length > 0
+      ? kids
+      : field.lookup(PDFName.of("Subtype")) === PDFName.of("Widget")
+        ? [field]
+        : [];
   if (widgets.length < 1) throw new Error(`${name} has no widget`);
-  return [tooltipOf(field.dict), ...widgets.map((w) => tooltipOf(w.dict))];
+  return [tooltipOf(field), ...widgets.map((w) => tooltipOf(w))];
 }
 
 /** What the independent reader found in a real package's prepared.pdf. */
@@ -141,7 +190,7 @@ async function runAndRead(
   const outcome = await runThroughExecutorOrder({
     tool: REQUEST_SIGNATURES_TOOL,
     input: {
-      bytes: await probePdf(),
+      bytes: await labelsProbePdf(),
       filename: "probe.pdf",
       contentType: "application/pdf",
     },
