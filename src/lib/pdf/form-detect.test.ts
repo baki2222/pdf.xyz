@@ -1023,6 +1023,25 @@ describe("exclusions, each at its boundary", () => {
       expect(ruled(rows({ ys: [600, 580, 557.9] }))).toBe(0);
     });
 
+    // After a pitch break the next run starts at the rule BEFORE the break,
+    // but every test had three evenly pitched rules, so starting it at the
+    // break stayed green, and an item table above a wider totals gap had
+    // its top rule proposed under a column header: the N24 defect again
+    // (review finding; corpus N31).
+    it("after a pitch break the next run starts at the rule before it", () => {
+      const p = rows({
+        ys: [630, 610, 590, 560],
+        text: [
+          txt("Item", 135, 616, { width: 20, size: 10 }),
+          txt("Price", 300, 616, { width: 25, size: 10 }),
+          txt("Widget", 135, 596, { width: 30, size: 10 }),
+          txt("10.00", 300, 596, { width: 25, size: 10 }),
+        ],
+      });
+      expect(ruled(p)).toBe(3);
+      expect(props(p)).toEqual([]);
+    });
+
     it("GRID_COLUMN_GAP: text 24 pt apart is two columns, 23.9 pt is one", () => {
       expect(ruled(rows({ text: header(24) }))).toBe(3);
       expect(ruled(rows({ text: header(23.9) }))).toBe(0);

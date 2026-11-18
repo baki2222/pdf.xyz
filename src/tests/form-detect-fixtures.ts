@@ -1517,6 +1517,26 @@ export const DETECT_CASES: readonly DetectCase[] = [
     expect: "none",
   },
   {
+    id: "N31",
+    kind: "negative",
+    note: "an item table ruled in rows only, a header and one item row, above a wider gap to a totals rule",
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      for (const y of [630, 610, 590, 560]) rule(page, 130, 450, y, 0.5);
+      await text(page, H, "Item", 135, 616, 10);
+      await text(page, H, "Price", 300, 616, 10);
+      await text(page, H, "Widget", 135, 596, 10);
+      await text(page, H, "10.00", 300, 596, 10);
+      return save(d);
+    },
+    expect: "none",
+    // The even run is the three rules above the gap; the top one, read as
+    // a field, would be captioned "Item".
+    decidedBy: "table-grid",
+    at: { page: 1, x: 300, y: 633 },
+  },
+  {
     id: "N30",
     kind: "negative",
     note: "the same transparency-group form drawing its line 20 pt above its moved /BBox: clipped away",
