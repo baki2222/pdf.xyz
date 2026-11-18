@@ -383,3 +383,83 @@ describe("grayscale-pdf: the 300 DPI preset reaches the page images", () => {
     expect(await widths(out)).toEqual([300, 300]);
   }, 30_000);
 });
+
+/**
+ * Perf sweep 2026-11-18, P4: a 1,000-page run took about 80 s, and there was
+ * no way to stop it. The runner already made an AbortController and passed
+ * its signal through `grayscalePdf` to `capturePdfPages`; nothing on screen
+ * reached it. Asserted at the RENDERER, by counting the canvases pdf.js is
+ * handed, not at the button: a Cancel that only reset the screen would pass
+ * every check on the screen while the pages went on rendering behind it.
+ */
+describe("grayscale-pdf: Cancel stops the run", () => {
+  const PAGES = 40;
+
+  async function longSource(): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < PAGES; i++) {
+      const page = doc.addPage([612, 792]);
+      page.drawRectangle({
+        x: 72,
+        y: 72 + (i % 10) * 40,
+        width: 300,
+        height: 24,
+        color: rgb(0.2, 0.4, 0.8),
+      });
+    }
+    return doc.save();
+  }
+
+  it("Cancel while busy stops rendering and returns to the start, with no result and no error", async () => {
+    const { container } = render(
+      <Router>
+        <ToolRunner kind={getRunnerKind(SLUG)!} slug={SLUG} />
+      </Router>,
+    );
+    await runnerMounted(container);
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: {
+        files: [
+          new File([(await longSource()).slice()], "long.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    const run = await screen.findByRole("button", {
+      name: /convert to grayscale/i,
+    });
+    await waitFor(() => expect(run).toBeEnabled());
+    const before = canvasesMade;
+    fireEvent.click(run);
+    // Rendering is under way: two pages drawn, most still to come.
+    await waitFor(
+      () => expect(canvasesMade - before).toBeGreaterThanOrEqual(2),
+      {
+        timeout: 20_000,
+      },
+    );
+
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(cancel).toBeEnabled();
+    fireEvent.click(cancel);
+    const atCancel = canvasesMade - before;
+    expect(atCancel, "the run finished before Cancel").toBeLessThan(PAGES);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /convert to grayscale/i }),
+      ).toBeEnabled(),
+    );
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    // Long enough for several more pages, had the renderer not been told.
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    // At most the page already being drawn when Cancel was pressed.
+    expect(canvasesMade - before).toBeLessThanOrEqual(atCancel + 1);
+    expect(
+      screen.queryByRole("heading", { name: /grayscale pdf ready/i }),
+    ).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(downloads).toHaveLength(0);
+  }, 40_000);
+});
