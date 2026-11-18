@@ -445,6 +445,27 @@ describe("scanPaths", () => {
       ]);
     });
 
+    // Only level lines were trimmed in a test, so the clipper's y-edge
+    // terms could have their signs swapped with everything green, and a
+    // plumb line crossing the clip's edge was dropped instead of trimmed,
+    // taking the table-grid evidence it carries with it (review finding).
+    it("trims a plumb line that crosses the clip's bottom or top edge", () => {
+      const trim = (y0: number, y1: number) =>
+        scan([
+          ...clipTo(0, 590, 612, 202),
+          [OPS.setLineWidth, [0]],
+          path(OPS.stroke, M, 130, y0, L, 130, y1),
+        ]).segs.map((s) =>
+          [s.y0, s.y1].map((v) => Math.round(v * 1000) / 1000),
+        );
+      // Across the bottom edge (y 590), drawn either way ...
+      expect(trim(500, 700)).toEqual([[590, 700]]);
+      expect(trim(700, 500)).toEqual([[700, 590]]);
+      // ... and across the top edge (y 792).
+      expect(trim(600, 900)).toEqual([[600, 792]]);
+      expect(trim(900, 600)).toEqual([[792, 600]]);
+    });
+
     it("a clip set with a paint op applies after it, not to it", () => {
       const r = scan([
         [OPS.clip, []],
