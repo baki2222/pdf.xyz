@@ -316,6 +316,17 @@ async function save(d: PDFDocument): Promise<Uint8Array> {
   return d.save({ useObjectStreams: false });
 }
 
+/** Three lines of body text across the page at `size`, from 72 at 600. */
+async function proseBody(page: PDFPage, size: number) {
+  const lines = [
+    "Body text runs across the whole width of the text column, line after line,",
+    "as an annual report or a letter would set it, in one size from margin to",
+    "margin, so that the size most of the page is set in is easy to read off.",
+  ];
+  for (const [i, s] of lines.entries())
+    await text(page, H, s, 72, 600 - 1.3 * size * i, size);
+}
+
 /** "Name: ____________" at (x, y). */
 async function nameRun(
   page: PDFPage,
@@ -2056,6 +2067,118 @@ export const DETECT_CASES: readonly DetectCase[] = [
       page: 1,
       box: runBox("sans", 190, N38_YS[i]! - 16, 10, "", UNDERSCORES),
     })),
+  },
+  {
+    id: "N40",
+    kind: "negative",
+    note: "a footnote separator: a short rule at the left margin over an 8 pt note opening with its marker, under 11 pt body text",
+    // Review round 3, finding 6 (a KNOWN MISS until round 4).
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await proseBody(page, 11);
+      rule(page, 72, 180, 140, 0.5);
+      await text(
+        page,
+        H,
+        "1 Figures are unaudited and may change.",
+        72,
+        130,
+        8,
+      );
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "unlabelled",
+    at: { page: 1, x: 100, y: 146 },
+  },
+  {
+    id: "P34",
+    kind: "positive",
+    note: "N40's control: the same short margin line over 8 pt text with no footnote marker is a field",
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await proseBody(page, 11);
+      rule(page, 72, 180, 140, 0.5);
+      await text(page, H, "Date of signing", 72, 130, 8);
+      return save(d);
+    },
+    expect: [
+      {
+        rule: "labelled-rule",
+        type: "text",
+        label: "Date of signing",
+        page: 1,
+        box: ruleBox(72, 180, 140, 8),
+      },
+    ],
+  },
+  {
+    id: "N41",
+    kind: "negative",
+    note: "a short rule centred under an 18 pt title, over its 10 pt byline",
+    // Review round 3, finding 6 (a KNOWN MISS until round 4).
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      const title = "A Report on Things";
+      const byline = "by A. Writer";
+      await text(
+        page,
+        H,
+        title,
+        306 - textWidth("sans", title, 18) / 2,
+        712,
+        18,
+      );
+      rule(page, 270, 342, 690, 0.5);
+      await text(
+        page,
+        H,
+        byline,
+        306 - textWidth("sans", byline, 10) / 2,
+        678,
+        10,
+      );
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "unlabelled",
+    at: { page: 1, x: 306, y: 696 },
+  },
+  {
+    id: "N42",
+    kind: "negative",
+    note: "a pull quote: one 11 pt sentence between two equal rules, the 10 pt article running on wider under them",
+    // Review round 3, finding 6 (a KNOWN MISS until round 4).
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await text(
+        page,
+        H,
+        "An article set in ten point type runs on above the quote.",
+        72,
+        570,
+        10,
+      );
+      rule(page, 150, 462, 540, 0.5);
+      rule(page, 150, 462, 500, 0.5);
+      await text(page, H, "Quality is never an accident.", 150, 525, 11);
+      await text(
+        page,
+        H,
+        "The article goes on under the quote, as wide as before.",
+        72,
+        485,
+        10,
+      );
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "unlabelled",
+    at: { page: 1, x: 300, y: 546 },
   },
 
   // ---------------------------------------------------------- outcomes

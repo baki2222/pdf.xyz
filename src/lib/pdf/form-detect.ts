@@ -75,6 +75,9 @@ export type ExclusionRuleId = (typeof EXCLUSION_RULES)[number]["id"];
  * Every threshold, defined once. Each has a boundary test (at the value, and
  * just outside it) in form-detect.test.ts.
  */
+/** Characters by code point, so this source stays ASCII. */
+const cp = (...points: number[]) => String.fromCodePoint(...points);
+
 export const DETECT = {
   /** A run is at least this many underscores (ASCII or full-width). */
   UNDERSCORE_MIN: 4,
@@ -145,6 +148,47 @@ export const DETECT = {
    */
   HEADING_LEAD_EMS: 1.6,
   HEADING_SMALLER_BY: 0.5,
+  /**
+   * PROSE RULES (review round 4), read against the page's BODY size: the
+   * size most of its upright characters are set in. "Smaller than the
+   * body" is by at least HEADING_SMALLER_BY.
+   *
+   * A FOOTNOTE SEPARATOR: a rule starting at the left text margin (the
+   * leftmost upright text, within GRID_ROW_EPS) and no longer than
+   * FOOTNOTE_SPAN of the text column (leftmost to rightmost upright text),
+   * over text smaller than the body that opens with a footnote marker
+   * (FOOTNOTE_RE): that text is no caption.
+   */
+  FOOTNOTE_SPAN: 1 / 3,
+  FOOTNOTE_RE: new RegExp(
+    String.raw`^\s*(?:\d{1,3}(?!\d)|[*` +
+      // dagger, double dagger, superscript 1 2 3 0, superscript 4 to 9
+      cp(0x2020, 0x2021, 0xb9, 0xb2, 0xb3, 0x2070, 0x2074) +
+      "-" +
+      cp(0x2079) +
+      "])",
+    "u",
+  ),
+  /**
+   * A TITLE RULE: a rule no longer than the upright text line over it
+   * (within GRID_ROW_EPS) and centred on it (within GRID_ROW_EPS), that
+   * line's baseline up to TITLE_ABOVE_EMS x its size over the rule and its
+   * size at least TITLE_LARGER x the caption's: the caption is a byline.
+   */
+  TITLE_LARGER: 1.5,
+  TITLE_ABOVE_EMS: 1.5,
+  /**
+   * A PULL QUOTE: exactly two rules of candidate length whose ends line up
+   * (within GRID_ROW_EPS), the text between them upright, not smaller than
+   * the body, and one sentence (ending as QUOTE_END_RE, of at least
+   * QUOTE_MIN_WORDS words), with body text running GRID_COLUMN_GAP past
+   * either end of the rules just under the lower one (in its caption
+   * window) or just over the upper one (within CAPTION_MAX): the upper
+   * rule takes no caption, and the lower none from that running text.
+   */
+  QUOTE_MIN_WORDS: 3,
+  // A closing right single or double quotation mark may follow the stop.
+  QUOTE_END_RE: new RegExp(`[.!?]["'${cp(0x2019, 0x201d)})]?$`, "u"),
   /** Field height: clamp(ems x size, min, max). */
   TEXT_H_RUN: { ems: 1.2, min: 12, max: 22 },
   TEXT_H_RULE: { ems: 1.4, min: 14, max: 22 },
@@ -927,6 +971,133 @@ function isHeading(t: CardText, text: readonly CardText[]): boolean {
   );
 }
 
+/** What the prose rules read of the page ({@link DETECT.FOOTNOTE_SPAN}). */
+interface Prose {
+  /** The size most upright characters are set in. */
+  body: number;
+  /** The text column: leftmost and rightmost upright text. */
+  left: number;
+  right: number;
+}
+
+function proseOf(p: CardPage): Prose | null {
+  const up = p.text.filter((t) => t.upright && t.str.trim() !== "");
+  if (up.length === 0) return null;
+  const chars = new Map<number, number>();
+  for (const t of up) {
+    const k = Math.round(t.size * 10) / 10;
+    chars.set(k, (chars.get(k) ?? 0) + Array.from(t.str.trim()).length);
+  }
+  // A tie goes to the size met first: a page with two sizes of exactly
+  // equal weight has no body size to speak of.
+  let body = 0;
+  let most = -1;
+  for (const [k, n] of chars) if (n > most) [body, most] = [k, n];
+  return {
+    body,
+    left: Math.min(...up.map((t) => t.x)),
+    right: Math.max(...up.map((t) => t.x + Math.max(0, t.width))),
+  };
+}
+
+/** Text smaller than the body by the heading step. */
+const smallerThanBody = (t: CardText, prose: Prose) =>
+  t.size <= prose.body - DETECT.HEADING_SMALLER_BY;
+
+/**
+ * Whether `t`, under line `r`, is the note under a footnote separator
+ * ({@link DETECT.FOOTNOTE_SPAN}): a footnote's separator was a field
+ * labelled with the footnote (review round 3, finding 6; corpus N40).
+ */
+function isFootnote(r: Line, t: CardText, prose: Prose | null): boolean {
+  return (
+    prose !== null &&
+    DETECT.FOOTNOTE_RE.test(t.str) &&
+    smallerThanBody(t, prose) &&
+    Math.abs(r.x0 - prose.left) <= DETECT.GRID_ROW_EPS &&
+    r.x1 - r.x0 <= DETECT.FOOTNOTE_SPAN * (prose.right - prose.left) + 1e-6
+  );
+}
+
+/**
+ * Whether line `r` is a title rule for caption `t` ({@link
+ * DETECT.TITLE_LARGER}): the byline under a title's rule was its caption
+ * (review round 3, finding 6; corpus N41).
+ */
+function underTitle(r: Line, t: CardText, text: readonly CardText[]): boolean {
+  const eps = DETECT.GRID_ROW_EPS;
+  const mid = (r.x0 + r.x1) / 2;
+  return text.some(
+    (u) =>
+      u.upright &&
+      u.str.trim() !== "" &&
+      u.size >= DETECT.TITLE_LARGER * t.size &&
+      u.y > r.y &&
+      u.y - r.y <= DETECT.TITLE_ABOVE_EMS * u.size &&
+      Math.abs(u.x + Math.max(0, u.width) / 2 - mid) <= eps &&
+      r.x1 - r.x0 <= Math.max(0, u.width) + eps,
+  );
+}
+
+/**
+ * The rules of PULL QUOTES ({@link DETECT.QUOTE_MIN_WORDS}), each with the
+ * captions it may not take: the upper rule none at all, the lower none
+ * that runs past the rules (the article going on). A pull quote's two
+ * rules were fields labelled with the quote and the article (review round
+ * 3, finding 6; corpus N42).
+ */
+function pullQuotes(
+  p: CardPage,
+  lines: PageLines,
+  prose: Prose | null,
+): Map<Line, (t: CardText) => boolean> {
+  const out = new Map<Line, (t: CardText) => boolean>();
+  if (!prose) return out;
+  const eps = DETECT.GRID_ROW_EPS;
+  const long = lines.rules.filter((r) => r.x1 - r.x0 >= DETECT.RULE_MIN_LEN);
+  const bodyText = (t: CardText) =>
+    t.upright && t.str.trim() !== "" && !smallerThanBody(t, prose);
+  for (const lo of long) {
+    const pair = long.filter(
+      (r) => Math.abs(r.x0 - lo.x0) <= eps && Math.abs(r.x1 - lo.x1) <= eps,
+    );
+    if (pair.length !== 2) continue;
+    // Each pair is met twice; met from its upper rule, nothing is between.
+    const hi = pair.find((r) => r !== lo)!;
+    const between = p.text
+      .filter(
+        (t) =>
+          t.str.trim() !== "" &&
+          t.y > lo.y &&
+          t.y < hi.y &&
+          overlap(t.x, t.x + Math.max(0, t.width), lo.x0, lo.x1) > 0,
+      )
+      .sort((a, b) => b.y - a.y || a.x - b.x);
+    if (!between.every(bodyText)) continue;
+    // Nothing between joins to "", which is no sentence.
+    const sentence = between.map((t) => t.str.trim()).join(" ");
+    if (!DETECT.QUOTE_END_RE.test(sentence)) continue;
+    if (sentence.split(/\s+/).length < DETECT.QUOTE_MIN_WORDS) continue;
+    const runsOn = (t: CardText) =>
+      bodyText(t) &&
+      (t.x <= lo.x0 - DETECT.GRID_COLUMN_GAP ||
+        t.x + Math.max(0, t.width) >= lo.x1 + DETECT.GRID_COLUMN_GAP);
+    const near = p.text.some((t) => {
+      if (!runsOn(t)) return false;
+      const under = lo.y - (t.y + DETECT.TEXT_ASCENT_EMS * t.size);
+      const over = t.y - hi.y;
+      return (
+        (under >= DETECT.CAPTION_MIN && under <= DETECT.CAPTION_MAX) ||
+        (over > 0 && over <= DETECT.CAPTION_MAX)
+      );
+    });
+    if (!near) continue;
+    out.set(hi, () => true);
+    out.set(lo, runsOn);
+  }
+  return out;
+}
+
 /** A line's candidate, whether a caption labelled it, and that text's size. */
 interface RuleRow {
   c: Candidate;
@@ -1035,6 +1206,8 @@ function ruleCandidates(
   const out: Candidate[] = [];
   const rows = new Map<Line, RuleRow>();
   const column = labelColumns(p, lines);
+  const prose = proseOf(p);
+  const quotes = pullQuotes(p, lines, prose);
   for (const r of lines.rules) {
     const len = r.x1 - r.x0;
     if (len < DETECT.RULE_MIN_LEN) continue;
@@ -1068,7 +1241,13 @@ function ruleCandidates(
         const span = r.x0 + DETECT.CAPTION_SPAN * len;
         if (overlap(t.x, t.x + Math.max(0, t.width), r.x0, span) <= 0) continue;
         const str = cleanLabel(t.str);
-        if (str && !isHeading(t, p.text)) captions.push({ text: t, str });
+        // Prose under a rule is no caption: a heading's body text, a
+        // footnote, a byline under a title's rule, a pull quote's text.
+        if (!str || isHeading(t, p.text)) continue;
+        if (isFootnote(r, t, prose)) continue;
+        if (underTitle(r, t, p.text)) continue;
+        if (quotes.get(r)?.(t)) continue;
+        captions.push({ text: t, str });
       }
       const cap = pickLabel(captions);
       if (cap.state === "found") {

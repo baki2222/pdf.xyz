@@ -147,7 +147,8 @@ describe("rule tables", () => {
   // perRun 300 -> 150 and BAND_EDGE 0.08 -> 0.16). Values marked "review"
   // were added by the review round, not by the brief.
   it("every DETECT value is the brief's (a literal table, not a read-back)", () => {
-    const { SIGNATURE_RE, SIGNOFF_RE, ...numbers } = DETECT;
+    const { SIGNATURE_RE, SIGNOFF_RE, FOOTNOTE_RE, QUOTE_END_RE, ...numbers } =
+      DETECT;
     expect(numbers).toStrictEqual({
       UNDERSCORE_MIN: 4,
       UNDERSCORE_EMS: {
@@ -175,6 +176,10 @@ describe("rule tables", () => {
       CONTINUATION_BELOW: 28, // review round 3
       HEADING_LEAD_EMS: 1.6, // review round 3
       HEADING_SMALLER_BY: 0.5, // review round 3
+      FOOTNOTE_SPAN: 1 / 3, // review round 4
+      TITLE_LARGER: 1.5, // review round 4
+      TITLE_ABOVE_EMS: 1.5, // review round 4
+      QUOTE_MIN_WORDS: 3, // review round 4
       TEXT_H_RUN: { ems: 1.2, min: 12, max: 22 },
       TEXT_H_RULE: { ems: 1.4, min: 14, max: 22 },
       RUN_BOTTOM_EMS: 0.15,
@@ -223,6 +228,18 @@ describe("rule tables", () => {
     expect([SIGNOFF_RE.source, SIGNOFF_RE.flags]).toEqual([
       String.raw`^\W*(?:(?:yours|very|kind|kindest|best|warm|warmest|with|signed|for|and)\s+)*(sincerely|regards|faithfully|truly|cordially|respectfully|on\s+behalf\s+of)\b`,
       "i",
+    ]);
+    // Built from code points, as the module builds them (ASCII source).
+    const cp = (...points: number[]) => String.fromCodePoint(...points);
+    expect([FOOTNOTE_RE.source, FOOTNOTE_RE.flags]).toEqual([
+      String.raw`^\s*(?:\d{1,3}(?!\d)|[*` +
+        cp(0x2020, 0x2021, 0xb9, 0xb2, 0xb3, 0x2070, 0x2074, 0x2d, 0x2079) +
+        "])",
+      "u",
+    ]);
+    expect([QUOTE_END_RE.source, QUOTE_END_RE.flags]).toEqual([
+      `[.!?]["'${cp(0x2019, 0x201d)})]?$`,
+      "u",
     ]);
   });
 });
@@ -728,11 +745,50 @@ describe("labelled-rule", () => {
       expect(firstRule(pg({ segs: [hseg(106, 506, 56)] }))).toBe("unlabelled");
     });
 
-    // KNOWN MISSES (review round 3, finding 6): no signal tells these from a
-    // captioned line yet, so each is still proposed. Each test pins what
-    // happens today; when a signal is found, invert it (do not delete it).
-    it("KNOWN MISS: a footnote separator over the footnote is still proposed", () => {
-      const p = pg({
+    // KNOWN MISSES (review round 3, finding 6): no signal told these from a
+    // captioned line, so each was still proposed and pinned as it was.
+    // Review round 4 found a signal for the footnote and the title rule;
+    // those two are INVERTED below, their history kept.
+
+    /** Two 11 pt body lines across 72..540, the text column. */
+    const body = [
+      txt("Body text runs the whole width of the text column here.", 72, 600, {
+        size: 11,
+        width: 468,
+      }),
+      txt("And a second line of it, just as wide as the first one.", 72, 586, {
+        size: 11,
+        width: 468,
+      }),
+    ];
+    /** A rule from x0 to x1 at 140 with an 8 pt note 10 pt under it. */
+    const footnote = (
+      o: { x0?: number; x1?: number; s?: string; size?: number } = {},
+    ) =>
+      pg({
+        segs: [hseg(o.x0 ?? 72, o.x1 ?? 216, 140)],
+        text: [
+          ...body,
+          txt(o.s ?? "1 Figures are unaudited and may change.", 72, 130, {
+            size: o.size ?? 8,
+            width: 140,
+          }),
+        ],
+      });
+    const noteLabel = (p: CardPage) => props(p)[0]?.label;
+
+    // INVERTED in review round 4. This test read "KNOWN MISS: a footnote
+    // separator over the footnote is still proposed" and pinned the label
+    // "1 Figures are unaudited and may change" on a page holding only the
+    // rule and the note. A short rule at the left margin whose text under
+    // it is smaller than the body and opens with a footnote marker is a
+    // footnote separator: the note is no caption.
+    it("a footnote separator over the footnote is no field", () => {
+      expect(props(footnote())).toEqual([]);
+      expect(firstRule(footnote())).toBe("unlabelled");
+      // Residual, kept as it was: with no body text on the page there is no
+      // body size for the note to be smaller than.
+      const bare = pg({
         segs: [hseg(72, 216, 140)],
         text: [
           txt("1 Figures are unaudited and may change.", 72, 130, {
@@ -741,37 +797,235 @@ describe("labelled-rule", () => {
           }),
         ],
       });
-      expect(props(p).map((x) => x.label)).toEqual([
-        "1 Figures are unaudited and may change",
-      ]);
+      expect(noteLabel(bare)).toBe("1 Figures are unaudited and may change");
     });
 
-    it("KNOWN MISS: a short rule between a title and its byline is still proposed", () => {
-      const p = pg({
-        segs: [hseg(270, 342, 690)],
+    it("footnote markers: a digit, *, a dagger, a double dagger, a superscript digit", () => {
+      for (const cp of [0x2a, 0x2020, 0x2021, 0xb9, 0xb2, 0xb3, 0x2074]) {
+        const s = `${String.fromCodePoint(cp)} Figures are unaudited.`;
+        expect(noteLabel(footnote({ s })), `U+${cp.toString(16)}`).toBe(
+          undefined,
+        );
+      }
+      expect(noteLabel(footnote({ s: "12 Figures are unaudited." }))).toBe(
+        undefined,
+      );
+    });
+
+    it("positive control: a short margin line captioned in small text with NO marker is a field", () => {
+      expect(noteLabel(footnote({ s: "Date of signing" }))).toBe(
+        "Date of signing",
+      );
+      // A number that is not a marker: four digits run on (a year).
+      expect(noteLabel(footnote({ s: "2024 accounts" }))).toBe("2024 accounts");
+    });
+
+    it("FOOTNOTE_SPAN: a rule up to a third of the text column (468 / 3 = 156), not 0.1 pt more", () => {
+      expect(noteLabel(footnote({ x1: 72 + 156 }))).toBe(undefined);
+      expect(noteLabel(footnote({ x1: 72 + 156.1 }))).toBe(
+        "1 Figures are unaudited and may change",
+      );
+    });
+
+    it("the rule starts at the left text margin (within GRID_ROW_EPS 2), not indented", () => {
+      expect(noteLabel(footnote({ x0: 74, x1: 218 }))).toBe(undefined);
+      expect(noteLabel(footnote({ x0: 74.1, x1: 218 }))).toBe(
+        "1 Figures are unaudited and may change",
+      );
+    });
+
+    it("the note is smaller than the body by HEADING_SMALLER_BY (0.5): 10.5 under 11 pt body text, not 10.6", () => {
+      expect(noteLabel(footnote({ size: 10.5 }))).toBe(undefined);
+      expect(noteLabel(footnote({ size: 10.6 }))).toBe(
+        "1 Figures are unaudited and may change",
+      );
+    });
+
+    /** A 72 pt rule at 690 under a `size` title centred on 306 + dx. */
+    const titled = (
+      o: { size?: number; dx?: number; len?: number; lead?: number } = {},
+    ) => {
+      const len = o.len ?? 72;
+      const mid = 306 + (o.dx ?? 0);
+      return pg({
+        segs: [hseg(mid - len / 2, mid + len / 2, 690)],
         text: [
-          txt("A Report on Things", 230, 712, { size: 18, width: 152 }),
+          txt("A Report on Things", 230, 690 + (o.lead ?? 22), {
+            size: o.size ?? 18,
+            width: 152,
+          }),
           txt("by A. Writer", 280, 678, { size: 10, width: 52 }),
         ],
       });
-      expect(props(p).map((x) => x.label)).toEqual(["by A. Writer"]);
+    };
+    const bylineLabel = (p: CardPage) => props(p)[0]?.label;
+
+    // INVERTED in review round 4. This test read "KNOWN MISS: a short rule
+    // between a title and its byline is still proposed" and pinned the
+    // label "by A. Writer". A rule no longer than the larger text line
+    // directly over it, centred on that line, is decoration: the byline
+    // under it is no caption.
+    it("a short rule between a title and its byline is no field", () => {
+      expect(props(titled())).toEqual([]);
+      expect(firstRule(titled())).toBe("unlabelled");
     });
 
-    it("KNOWN MISS: a pull quote's two rules are still proposed", () => {
-      const p = pg({
-        segs: [hseg(150, 462, 540), hseg(150, 462, 500)],
+    it("TITLE_LARGER: a title 1.5 x the caption's size (15 over 10), not 14.9", () => {
+      expect(bylineLabel(titled({ size: 15 }))).toBe(undefined);
+      expect(bylineLabel(titled({ size: 14.9 }))).toBe("by A. Writer");
+    });
+
+    it("TITLE_ABOVE_EMS: the title's baseline up to 1.5 x its size over the rule (27 pt at 18), not 27.1", () => {
+      expect(bylineLabel(titled({ lead: 27 }))).toBe(undefined);
+      expect(bylineLabel(titled({ lead: 27.1 }))).toBe("by A. Writer");
+    });
+
+    it("centred on the title within GRID_ROW_EPS (2), not 2.1", () => {
+      expect(bylineLabel(titled({ dx: 2 }))).toBe(undefined);
+      expect(bylineLabel(titled({ dx: 2.1 }))).toBe("by A. Writer");
+    });
+
+    it("positive control: a field line wider than the title over it is still a field", () => {
+      // No longer than the title (152) within 2 pt; a form's name line runs on.
+      expect(bylineLabel(titled({ len: 154 }))).toBe(undefined);
+      expect(bylineLabel(titled({ len: 154.2 }))).toBe("by A. Writer");
+    });
+
+    it("a title UNDER the rule, or a turned one, is no title", () => {
+      const p = titled();
+      p.text[0] = { ...p.text[0]!, y: 660 };
+      expect(bylineLabel(p)).toBe("by A. Writer");
+      const q = titled();
+      q.text[0] = { ...q.text[0]!, upright: false };
+      expect(bylineLabel(q)).toBe("by A. Writer");
+      const blank = titled();
+      blank.text[0] = { ...blank.text[0]!, str: "   " };
+      expect(bylineLabel(blank)).toBe("by A. Writer");
+    });
+
+    /** Two equal rules at 540 and 500 round `quote`, body text under them. */
+    const pulled = (
+      o: {
+        quote?: string;
+        size?: number;
+        x?: number;
+        width?: number;
+        third?: boolean;
+      } = {},
+    ) =>
+      pg({
+        segs: [
+          hseg(150, 462, 540),
+          hseg(150, 462, 500),
+          ...(o.third ? [hseg(150, 462, 580)] : []),
+        ],
         text: [
-          txt("Quality is never an accident.", 150, 525, {
-            size: 11,
+          txt(o.quote ?? "Quality is never an accident.", 150, 525, {
+            size: o.size ?? 11,
             width: 150,
           }),
-          txt("The article goes on under the quote.", 72, 485, {
+          txt("The article goes on under the quote.", o.x ?? 72, 485, {
             size: 10,
-            width: 200,
+            width: o.width ?? 200,
           }),
         ],
       });
-      expect(props(p).map((x) => x.label)).toEqual([
+    const labels = (p: CardPage) => props(p).map((x) => x.label);
+
+    // INVERTED in review round 4. This test read "KNOWN MISS: a pull
+    // quote's two rules are still proposed" and pinned both labels, "Quality
+    // is never an accident" and "The article goes on under the quote". Two
+    // equal rules round one sentence at body size or larger, with body text
+    // running on past them, are a pull quote: neither takes a caption.
+    it("a pull quote's two rules are no fields", () => {
+      expect(props(pulled())).toEqual([]);
+      expect(run(pulled()).excluded.map((e) => e.rule)).toEqual([
+        "unlabelled",
+        "unlabelled",
+      ]);
+    });
+
+    it("QUOTE_MIN_WORDS / QUOTE_END_RE: a sentence of 3 words or more, ended by . ! or ?", () => {
+      expect(props(pulled({ quote: "Quality never fails." }))).toEqual([]);
+      expect(props(pulled({ quote: "Never again!" }))).toHaveLength(2);
+      expect(props(pulled({ quote: "Is it worth it?" }))).toEqual([]);
+      const curly = `${String.fromCodePoint(0x201c)}Quality is never an accident.${String.fromCodePoint(0x201d)}`;
+      expect(props(pulled({ quote: curly }))).toEqual([]);
+    });
+
+    it("positive control: a caption with no closing stop between two lines is a field", () => {
+      expect(labels(pulled({ quote: "Name of your employer" }))).toEqual([
+        "Name of your employer",
+        "The article goes on under the quote",
+      ]);
+    });
+
+    it("the quote at body size or larger: 9.5 pt under 10 pt body text is a caption", () => {
+      expect(props(pulled({ size: 9.6 }))).toEqual([]);
+      expect(props(pulled({ size: 9.5 }))).toHaveLength(2);
+    });
+
+    it("the body text runs past the rules by GRID_COLUMN_GAP (24), or it is a caption", () => {
+      expect(props(pulled({ x: 126 }))).toEqual([]);
+      expect(labels(pulled({ x: 126.1 }))).toEqual([
+        "Quality is never an accident",
+        "The article goes on under the quote",
+      ]);
+    });
+
+    it("body text running on just OVER the upper rule counts too; the lower rule keeps a caption inside its span", () => {
+      const over = (y: number) => {
+        const p = pulled({ x: 150 });
+        p.text.push(
+          txt("The article runs on above the quote as well.", 72, y, {
+            size: 10,
+            width: 220,
+          }),
+        );
+        return p;
+      };
+      // 14 pt over (CAPTION_MAX): the quote's rule takes no caption.
+      expect(labels(over(554))).toEqual([
+        "The article goes on under the quote",
+      ]);
+      expect(labels(over(554.1))).toEqual([
+        "Quality is never an accident",
+        "The article goes on under the quote",
+      ]);
+    });
+
+    it("a third equal rule (over the pair) makes it a stack of lines, not a quote", () => {
+      expect(labels(pulled({ third: true }))).toEqual([
+        "Quality is never an accident",
+        "The article goes on under the quote",
+      ]);
+    });
+
+    it("running on past the RIGHT end counts too: by 24 pt, not 23.9", () => {
+      // 150 + 336 = 486 = 462 + 24.
+      expect(props(pulled({ x: 150, width: 336 }))).toEqual([]);
+      expect(labels(pulled({ x: 150, width: 335.9 }))).toEqual([
+        "Quality is never an accident",
+        "The article goes on under the quote",
+      ]);
+    });
+
+    it("running text under the lower rule counts only in its caption window (top up to CAPTION_MAX 14 under it)", () => {
+      const deep = (y: number) => {
+        const p = pulled({ x: 150 });
+        p.text.push(
+          txt("The article runs on below as well.", 72, y, {
+            size: 10,
+            width: 220,
+          }),
+        );
+        return p;
+      };
+      // Top 479 + 7 = 486, 14 under 500: the quote's rule takes no caption.
+      expect(labels(deep(479))).toEqual([
+        "The article goes on under the quote",
+      ]);
+      expect(labels(deep(478.9))).toEqual([
         "Quality is never an accident",
         "The article goes on under the quote",
       ]);

@@ -100,6 +100,19 @@ describe("corpus health (FATAL when it fails)", () => {
     expect(444 - 440).toBeLessThan(430 - end("Yes", 394));
   });
 
+  // N40 is the footnote case, and P34 its control, only while the 108 pt
+  // rule is at most a third of the text column (pdf-lib's widths).
+  it("N40's geometry: the rule is at most a third of the text column", () => {
+    const widest = Math.max(
+      ...[
+        "Body text runs across the whole width of the text column, line after line,",
+        "as an annual report or a letter would set it, in one size from margin to",
+        "margin, so that the size most of the page is set in is easy to read off.",
+      ].map((s) => textWidth("sans", s, 11)),
+    );
+    expect(180 - 72).toBeLessThanOrEqual(widest / 3);
+  });
+
   it("case ids are unique and every case ran", () => {
     expect(new Set(DETECT_CASES.map((c) => c.id)).size).toBe(
       DETECT_CASES.length,
