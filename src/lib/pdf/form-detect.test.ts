@@ -809,6 +809,72 @@ describe("labelled-rule", () => {
       expect(props(footer(56, true))[0]?.label).toBe("Date");
     });
 
+    // Review round 4 fixes, finding 4: the caption-only band rule dropped a
+    // dense form's last row (or a first row under 0.5 in margins). A band
+    // line with a ROW-MATE, another labelled line on its row (within
+    // GRID_ROW_EPS) beside it, is a form's row, not furniture.
+    describe("a row of captioned lines in the band is a form's row", () => {
+      /** "Print name" and "Date" lines at y 58, 9 pt captions 10 under. */
+      const signRow = (
+        o: {
+          dy?: number;
+          date?: boolean;
+          x0?: number;
+          leftOnly?: boolean;
+        } = {},
+      ) =>
+        pg({
+          segs: [
+            hseg(72, 260, 58),
+            ...(o.date === false
+              ? []
+              : [hseg(o.x0 ?? 320, 460, 58 + (o.dy ?? 0))]),
+          ],
+          text: [
+            txt("Print name", 72, 48, { size: 9, width: 44 }),
+            ...(o.date === false || o.leftOnly
+              ? []
+              : [
+                  txt("Date", o.x0 ?? 320, 48 + (o.dy ?? 0), {
+                    size: 9,
+                    width: 18,
+                  }),
+                ]),
+          ],
+        });
+      const labels = (p: CardPage) => props(p).map((x) => x.label);
+
+      it("two captioned lines side by side at y 58 are both fields", () => {
+        expect(labels(signRow())).toEqual(["Print name", "Date"]);
+      });
+
+      it("GRID_ROW_EPS: a mate 2 pt off the row counts, 2.1 pt does not", () => {
+        expect(labels(signRow({ dy: 2 }))).toEqual(["Date", "Print name"]);
+        expect(firstRule(signRow({ dy: 2.1 }))).toBe("page-band");
+        expect(labels(signRow({ dy: 2.1 }))).toEqual([]);
+      });
+
+      it("the mate must be labelled itself: an unlabelled line beside it is no mate", () => {
+        expect(labels(signRow({ leftOnly: true }))).toEqual([]);
+      });
+
+      it("the mate must lie beside it, not along it: two captioned pieces of one row that overlap are no mates", () => {
+        // A footer rule over a second short captioned rule inside its span.
+        const p = pg({
+          segs: [hseg(106, 506, 56), hseg(300, 400, 57)],
+          text: [
+            txt("Example Ltd", 108, 46, { size: 8, width: 44 }),
+            txt("Page 1", 302, 47, { size: 8, width: 24 }),
+          ],
+        });
+        expect(labels(p)).toEqual([]);
+      });
+
+      it("RESIDUAL: a lone captioned line in the band is still page-band (B3: one 'Date' line at y 58)", () => {
+        expect(firstRule(signRow({ date: false }))).toBe("page-band");
+      });
+    });
+
     it("an unlabelled line in the band stays unlabelled (the band takes labelled lines)", () => {
       expect(firstRule(pg({ segs: [hseg(106, 506, 56)] }))).toBe("unlabelled");
     });

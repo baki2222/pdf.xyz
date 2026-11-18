@@ -424,6 +424,11 @@ const P37 = [
   { x0: 320, x1: 540, y: 660, label: "Date of birth", hint: "(DD/MM/YYYY)" },
   { x0: 72, x1: 300, y: 610, label: "Email address", hint: null },
 ];
+/** P38's bottom-band row: caption, line start, line end (y 58). */
+const P38 = [
+  ["Print name", 72, 260],
+  ["Date", 320, 460],
+] as const;
 /** N32's line starts 40 pt right of where "Address:" (12 pt) ends. */
 const N32_X0 = 72 + textWidth(H, "Address:", 12) + 40;
 /**
@@ -2325,6 +2330,40 @@ export const DETECT_CASES: readonly DetectCase[] = [
       label: f.label,
       page: 1,
       box: ruleBox(f.x0, f.x1, f.y, 10),
+    })),
+  },
+  {
+    id: "P38",
+    kind: "positive",
+    note: 'a declaration\'s last row in the bottom band: "Print name" and "Date" lines side by side at y 58, each captioned under it',
+    // Review round 4 fixes, finding 4: in the outer 8% of the page a line
+    // labelled only by a caption was dropped as a footer rule, so a dense
+    // form lost its last row. A line with a labelled row-mate beside it is
+    // a form's row. N37 (one footer rule, alone) is the control.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await text(page, H, "Declaration", 72, 140, 12);
+      await text(
+        page,
+        H,
+        "I confirm that the information I have given is correct.",
+        72,
+        120,
+        10,
+      );
+      for (const [s, x0, x1] of P38) {
+        rule(page, x0, x1, 58, 0.5);
+        await text(page, H, s, x0, 48, 9);
+      }
+      return save(d);
+    },
+    expect: P38.map(([label, x0, x1]) => ({
+      rule: "labelled-rule" as const,
+      type: "text" as const,
+      label,
+      page: 1,
+      box: ruleBox(x0, x1, 58, 9),
     })),
   },
 

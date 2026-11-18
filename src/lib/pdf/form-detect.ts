@@ -229,7 +229,11 @@ export const DETECT = {
   UNDERLINE_SPAN: 0.5,
   /** Divider: at least 85% of the page width, with no label to its left. */
   DIVIDER_SPAN: 0.85,
-  /** Band: the outer 8% of the page, and wider than 70% or repeated. */
+  /**
+   * Band: the outer 8% of the page, and wider than 70% or repeated, or
+   * labelled only by a caption with no labelled row-mate beside it (within
+   * GRID_ROW_EPS of its row, not overlapping it).
+   */
   BAND_EDGE: 0.08,
   BAND_SPAN: 0.7,
   BAND_REPEAT_EPS: 2,
@@ -2217,6 +2221,30 @@ export function classifyPage(
     (c) => c.square && c.labelState === "found",
   );
 
+  // Labelled lines by row (cells GRID_ROW_EPS tall), for the band rule's
+  // row-mates: looked up, not scanned, so a band of lines stays linear.
+  const rowEps = DETECT.GRID_ROW_EPS;
+  const labelledRows = new Map<number, Line[]>();
+  for (const c of cands) {
+    if (!c.line || c.labelState !== "found") continue;
+    const k = Math.floor(c.line.y / rowEps);
+    const list = labelledRows.get(k);
+    if (list) list.push(c.line);
+    else labelledRows.set(k, [c.line]);
+  }
+  const rowMate = (line: Line) => {
+    const k = Math.floor(line.y / rowEps);
+    for (const dk of [-1, 0, 1])
+      for (const o of labelledRows.get(k + dk) ?? [])
+        if (
+          o !== line &&
+          Math.abs(o.y - line.y) <= rowEps &&
+          overlap(o.x0, o.x1, line.x0, line.x1) <= 0
+        )
+          return true;
+    return false;
+  };
+
   type Survivor = { c: Candidate; box: Edges };
   const survivors: Survivor[] = [];
   for (const c of cands) {
@@ -2263,7 +2291,11 @@ export function classifyPage(
       // A line labelled only by the text under it, in the band: a header or
       // footer rule, which a one-page document repeats nowhere (review
       // round 3, finding 6; corpus N37). A run's label is always a left one.
-      const captionOnly = !c.leftLabel && c.labelState === "found";
+      // A line with a labelled ROW-MATE beside it is a form's row: a dense
+      // form's last row was dropped as a footer (review round 4 fixes,
+      // finding 4; corpus P38). A lone captioned line in the band still is.
+      const captionOnly =
+        !c.leftLabel && c.labelState === "found" && !rowMate(c.line);
       if (
         len > DETECT.BAND_SPAN * p.width ||
         captionOnly ||
