@@ -1793,6 +1793,56 @@ export const DETECT_CASES: readonly DetectCase[] = [
     decidedBy: "unlabelled",
     at: { page: 1, x: 300, y: N35.tops[0]! + 5 },
   },
+  {
+    id: "N36",
+    kind: "negative",
+    note: 'a report page: a column rule over the heading "2. Results" (12 pt) and the body text (10 pt) under it',
+    // Review round 3, finding 6: the heading was read as the rule's caption.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      rule(page, 72, 538, 606, 0.5);
+      await text(page, H, "2. Results", 72, 592, 12);
+      await text(
+        page,
+        H,
+        "The results section starts under its heading here.",
+        72,
+        578,
+        10,
+      );
+      await text(
+        page,
+        H,
+        "More body text follows on the next line of it.",
+        72,
+        566,
+        10,
+      );
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "unlabelled",
+    at: { page: 1, x: 300, y: 610 },
+  },
+  {
+    id: "N37",
+    kind: "negative",
+    note: "a one-page document's footer: a 400 pt rule in the bottom band with the footer text centred under it",
+    // Review round 3, finding 6: not wide enough for the band rule, and on
+    // one page it repeats nowhere, so the footer text labelled a field.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      rule(page, 106, 506, 56, 0.5);
+      const s = "Example Ltd - Annual report - Page 1 of 1";
+      await text(page, H, s, 306 - textWidth(H, s, 8) / 2, 46, 8);
+      return save(d);
+    },
+    expect: "none",
+    decidedBy: "page-band",
+    at: { page: 1, x: 300, y: 60 },
+  },
 
   // ---------------------------------------------------------- outcomes
   {

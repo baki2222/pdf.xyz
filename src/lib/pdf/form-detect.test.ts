@@ -170,6 +170,8 @@ describe("rule tables", () => {
       CAPTION_MIN: 1,
       CAPTION_MAX: 14,
       CAPTION_SPAN: 0.4,
+      HEADING_LEAD_EMS: 1.6, // review round 3
+      HEADING_SMALLER_BY: 0.5, // review round 3
       TEXT_H_RUN: { ems: 1.2, min: 12, max: 22 },
       TEXT_H_RULE: { ems: 1.4, min: 14, max: 22 },
       RUN_BOTTOM_EMS: 0.15,
@@ -517,6 +519,149 @@ describe("labelled-rule", () => {
         ["Caption 1", 711],
         ["Caption 2", 685],
         ["Date", 659],
+      ]);
+    });
+  });
+
+  // Review round 3, finding 6: any rule with text under it took that text as
+  // its caption, so plain prose got fields: a heading under a border-top
+  // rule, a one-page footer rule. A heading (text with SMALLER text starting
+  // at its x directly under it) is no caption, and a line labelled only by a
+  // caption in the outer band of the page is the page's furniture.
+  describe("prose is not a form: headings and footers", () => {
+    /** A rule over a `size` heading at 592, `body` text `lead` pt under it. */
+    const headed = (size: number, body: number, lead: number, dx = 0) =>
+      pg({
+        segs: [hseg(72, 538, 606)],
+        text: [
+          txt("2. Results", 72, 592, { size, width: 60 }),
+          txt("The results start here.", 72 + dx, 592 - lead, {
+            size: body,
+            width: 120,
+          }),
+        ],
+      });
+
+    it("a heading under a rule, body text under the heading: no caption", () => {
+      expect(props(headed(12, 10, 14))).toEqual([]);
+      expect(firstRule(headed(12, 10, 14))).toBe("unlabelled");
+    });
+
+    it("HEADING_LEAD_EMS: the body's baseline up to 1.6 x the heading's size under it, not 0.1 pt more", () => {
+      expect(props(headed(10, 9, 16))).toEqual([]);
+      expect(props(headed(10, 9, 16.1))[0]?.label).toBe("2. Results");
+    });
+
+    it("HEADING_SMALLER_BY: the body at least 0.5 pt smaller, not 0.4 (a printed name over its role stays a caption)", () => {
+      expect(props(headed(12, 11.5, 14))).toEqual([]);
+      expect(props(headed(12, 11.6, 14))[0]?.label).toBe("2. Results");
+      expect(props(headed(12, 12, 14))[0]?.label).toBe("2. Results");
+    });
+
+    it("GRID_ROW_EPS: the body starting 2 pt off the heading's x still counts, 2.1 does not", () => {
+      expect(props(headed(12, 10, 14, 2))).toEqual([]);
+      expect(props(headed(12, 10, 14, 2.1))[0]?.label).toBe("2. Results");
+    });
+
+    it("only upright, non-blank text UNDER the caption makes it a heading", () => {
+      const captioned = (extra: CardText) =>
+        pg({
+          segs: [hseg(72, 538, 606)],
+          text: [txt("Full name", 72, 596, { size: 10, width: 45 }), extra],
+        });
+      const label = (extra: CardText) => props(captioned(extra))[0]?.label;
+      // Smaller text ABOVE it (a hint over the line, clear of the field) ...
+      expect(label(txt("(required)", 72, 640, { size: 7, width: 30 }))).toBe(
+        "Full name",
+      );
+      // ... smaller text under it that is turned, or blank ...
+      expect(
+        label(txt("note", 72, 584, { size: 7, width: 15, upright: false })),
+      ).toBe("Full name");
+      expect(label(txt("   ", 72, 584, { size: 7, width: 8 }))).toBe(
+        "Full name",
+      );
+      // ... and the positive control: upright smaller words under it.
+      expect(label(txt("note", 72, 584, { size: 7, width: 15 }))).toBe(
+        undefined,
+      );
+    });
+
+    /** A 400 pt rule at `y` with centred 8 pt footer text 10 pt under it. */
+    const footer = (y: number, left = false) =>
+      pg({
+        segs: [hseg(106, 506, y)],
+        text: [
+          txt("Example Ltd - Annual report - Page 1 of 1", 230, y - 10, {
+            size: 8,
+            width: 150,
+          }),
+          ...(left ? [txt("Date:", 76, y, { size: 10, width: 26 })] : []),
+        ],
+      });
+
+    it("a one-page footer rule labelled only by the text under it, in the bottom band: page-band", () => {
+      // BAND_EDGE: the outer 8% of 792 pt is under 63.36.
+      expect(firstRule(footer(63))).toBe("page-band");
+      expect(props(footer(64))[0]?.label).toBe(
+        "Example Ltd - Annual report - Page 1 of 1",
+      );
+    });
+
+    it("the same line labelled from its LEFT in the band is still a field", () => {
+      expect(props(footer(56, true))[0]?.label).toBe("Date");
+    });
+
+    it("an unlabelled line in the band stays unlabelled (the band takes labelled lines)", () => {
+      expect(firstRule(pg({ segs: [hseg(106, 506, 56)] }))).toBe("unlabelled");
+    });
+
+    // KNOWN MISSES (review round 3, finding 6): no signal tells these from a
+    // captioned line yet, so each is still proposed. Each test pins what
+    // happens today; when a signal is found, invert it (do not delete it).
+    it("KNOWN MISS: a footnote separator over the footnote is still proposed", () => {
+      const p = pg({
+        segs: [hseg(72, 216, 140)],
+        text: [
+          txt("1 Figures are unaudited and may change.", 72, 130, {
+            size: 8,
+            width: 140,
+          }),
+        ],
+      });
+      expect(props(p).map((x) => x.label)).toEqual([
+        "1 Figures are unaudited and may change",
+      ]);
+    });
+
+    it("KNOWN MISS: a short rule between a title and its byline is still proposed", () => {
+      const p = pg({
+        segs: [hseg(270, 342, 690)],
+        text: [
+          txt("A Report on Things", 230, 712, { size: 18, width: 152 }),
+          txt("by A. Writer", 280, 678, { size: 10, width: 52 }),
+        ],
+      });
+      expect(props(p).map((x) => x.label)).toEqual(["by A. Writer"]);
+    });
+
+    it("KNOWN MISS: a pull quote's two rules are still proposed", () => {
+      const p = pg({
+        segs: [hseg(150, 462, 540), hseg(150, 462, 500)],
+        text: [
+          txt("Quality is never an accident.", 150, 525, {
+            size: 11,
+            width: 150,
+          }),
+          txt("The article goes on under the quote.", 72, 485, {
+            size: 10,
+            width: 200,
+          }),
+        ],
+      });
+      expect(props(p).map((x) => x.label)).toEqual([
+        "Quality is never an accident",
+        "The article goes on under the quote",
       ]);
     });
   });

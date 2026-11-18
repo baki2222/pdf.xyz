@@ -122,6 +122,14 @@ export const DETECT = {
   CAPTION_MIN: 1,
   CAPTION_MAX: 14,
   CAPTION_SPAN: 0.4,
+  /**
+   * A HEADING is no caption: text with text at least HEADING_SMALLER_BY pt
+   * smaller starting at its x (within GRID_ROW_EPS) whose baseline is up to
+   * HEADING_LEAD_EMS x its size under its own (the body under a heading).
+   * Equal sizes are a printed name over its role, which stays a caption.
+   */
+  HEADING_LEAD_EMS: 1.6,
+  HEADING_SMALLER_BY: 0.5,
   /** Field height: clamp(ems x size, min, max). */
   TEXT_H_RUN: { ems: 1.2, min: 12, max: 22 },
   TEXT_H_RULE: { ems: 1.4, min: 14, max: 22 },
@@ -870,6 +878,25 @@ function labelColumns(p: CardPage, lines: PageLines): Map<Line, LabelHit> {
   return out;
 }
 
+/**
+ * Whether `t` is a heading ({@link DETECT.HEADING_LEAD_EMS}): smaller text
+ * starts at its x directly under it. A heading under a border-top rule was
+ * that rule's caption, a field on plain prose (review round 3, finding 6;
+ * corpus N36).
+ */
+function isHeading(t: CardText, text: readonly CardText[]): boolean {
+  // `t` itself never passes: it is not smaller than itself.
+  return text.some(
+    (u) =>
+      u.upright &&
+      u.str.trim() !== "" &&
+      u.size <= t.size - DETECT.HEADING_SMALLER_BY &&
+      Math.abs(u.x - t.x) <= DETECT.GRID_ROW_EPS &&
+      u.y < t.y &&
+      t.y - u.y <= DETECT.HEADING_LEAD_EMS * t.size,
+  );
+}
+
 /** A line's candidate, whether a caption labelled it, and that text's size. */
 interface RuleRow {
   c: Candidate;
@@ -957,7 +984,7 @@ function ruleCandidates(
         const span = r.x0 + DETECT.CAPTION_SPAN * len;
         if (overlap(t.x, t.x + Math.max(0, t.width), r.x0, span) <= 0) continue;
         const str = cleanLabel(t.str);
-        if (str) captions.push({ text: t, str });
+        if (str && !isHeading(t, p.text)) captions.push({ text: t, str });
       }
       const cap = pickLabel(captions);
       if (cap.state === "found") {
@@ -1572,8 +1599,13 @@ export function classifyPage(
     }
     if (c.line && on("page-band") && inBand(c.line.y, p.height)) {
       const len = c.line.x1 - c.line.x0;
+      // A line labelled only by the text under it, in the band: a header or
+      // footer rule, which a one-page document repeats nowhere (review
+      // round 3, finding 6; corpus N37). A run's label is always a left one.
+      const captionOnly = !c.leftLabel && c.labelState === "found";
       if (
         len > DETECT.BAND_SPAN * p.width ||
+        captionOnly ||
         repeatedOn(c.line, o.repeatsAcrossPages) >= DETECT.BAND_REPEAT_PAGES
       ) {
         exclude("page-band", c.box);
