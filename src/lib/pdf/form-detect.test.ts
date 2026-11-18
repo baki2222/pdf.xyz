@@ -2478,6 +2478,31 @@ describe("table-cell: a two-column table of labels and empty cells", () => {
     expect(props(table({ xs: [72, 180, 290, 400] }))).toEqual([]);
   });
 
+  // Review round 6 test honesty: the column lines are counted inside the
+  // stack's height only. Mutant TC15 (every vertical in the x span
+  // counted) stayed green; a signature box under the table then cost the
+  // table every field.
+  it("an unrelated box BELOW the table, its sides inside the table's x span, leaves the table alone", () => {
+    expect(cells(table({ rects: [rect(250, 300, 120, 40)] }))).toEqual(LABELS);
+  });
+
+  // Review round 6 test honesty: mutant TC12 (`> 0` for `> 0.5` in
+  // textIn) stayed green.
+  it("a left label reaching 0.5 pt into the right cell is not in it; 0.6 pt is", () => {
+    // "Name" starts at 76; the column line is at 180.
+    const reach = (width: number) =>
+      table({
+        left: LABELS.map((s, i) =>
+          txt(s, 76, 584 - 24 * i, {
+            size: 10,
+            width: i === 0 ? width : 5 * s.length,
+          }),
+        ),
+      });
+    expect(cells(reach(104.5))).toEqual(LABELS);
+    expect(cells(reach(104.6))).toEqual([]);
+  });
+
   it("a left cell holding two lines, or nothing, keeps it a table", () => {
     const two = table({
       // "Address" sits at 560; a second line under it in the same cell.
