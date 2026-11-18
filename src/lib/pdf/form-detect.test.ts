@@ -2335,6 +2335,29 @@ describe("labelled-rule: a label column (labels flush left, lines at one tab sto
     expect(labelAt(leader, 3)).toBe("City");
   });
 
+  // Text between a label and its line is read up to the band of the page's
+  // largest size, then held to its OWN band (0.6 em over the line): with
+  // that test deleted, a small note over its own band but under the
+  // largest one cut the row out of the column (review round 6 test
+  // honesty, closing mutant sweep: round 3's mutant M22, green since the
+  // scan became a slice).
+  it("a 5 pt note over its own band (0.6 em) in a label's gap is not between: the row keeps its column label", () => {
+    const note = (dy: number) =>
+      column(A1, TAB, {
+        text: [txt("note", 120, rowY(1) + dy, { size: 5, width: 10 })],
+      });
+    // On its band (3 pt over the line at 5 pt) it is the line's own label.
+    expect(labelAt(note(3), 1)).toBe("note");
+    // Over it, up to the 12 pt labels' band (7.2 pt), it is nothing.
+    expect(labelAt(note(3.1), 1)).toBe("Email");
+    expect(labelAt(note(5), 1)).toBe("Email");
+    expect(labelAt(note(7.2), 1)).toBe("Email");
+    // And under the band's bottom (2 pt under the line) it is nothing too;
+    // on the bottom it is the line's label again.
+    expect(labelAt(note(-2), 1)).toBe("note");
+    expect(labelAt(note(-2.1), 1)).toBe("Email");
+  });
+
   it("stays unlabelled: a rule, or a plumb line, between a label and its line", () => {
     const level = column(A1, TAB, { segs: [hseg(110, 140, rowY(1))] });
     expect(labelAt(level, 1)).toBeUndefined();
@@ -2420,6 +2443,62 @@ describe("labelled-rule: a label column (labels flush left, lines at one tab sto
     // Measured before: 2 s at 5,000 lines; after: about 0.35 s at 20,000.
     expect(ms).toBeLessThan(800);
   });
+
+  // The text between a label and its line is read from the label band's
+  // bottom up, stopping at the first baseline over the band of the page's
+  // largest size. With `continue` for that `break` every row read every
+  // text item over it, and the column above stayed under its 800 ms
+  // bound (review round 6 test honesty, closing mutant sweep: round 4's
+  // f18-text-between-scan). Measured best of 2: the column with the text
+  // 65 ms, each alone 20 and 43; with `continue`, 382 ms.
+  it("5,000 column rows and 50,000 text items over them cost what each costs alone", () => {
+    const N = 5000;
+    const K = 50_000;
+    const top = 40 + 30 * N + 100;
+    const page = (rows: boolean, words: boolean) => {
+      const segs: CardSeg[] = [];
+      const text: CardText[] = [];
+      if (rows)
+        for (let k = 0; k < N; k++) {
+          const y = 40 + 30 * k;
+          segs.push(hseg(160, 450, y));
+          text.push(
+            txt(k % 2 ? "City:" : "Date of birth:", 72, y, {
+              size: 10,
+              width: k % 2 ? 24 : 70,
+            }),
+          );
+        }
+      if (words)
+        for (let k = 0; k < K; k++)
+          text.push(
+            txt("x", 20 + (k % 100) * 5.8, top + 4 * Math.floor(k / 100), {
+              size: 2,
+              width: 1,
+            }),
+          );
+      return pg({ height: top + 4 * (K / 100) + 100, segs, text });
+    };
+    const best = (p: CardPage) => {
+      let ms = Infinity;
+      let candidates = 0;
+      for (let k = 0; k < 2; k++) {
+        const t0 = performance.now();
+        candidates = run(p).counts.candidates;
+        ms = Math.min(ms, performance.now() - t0);
+      }
+      return { ms, candidates };
+    };
+    const both = best(page(true, true));
+    const rows = best(page(true, false));
+    const words = best(page(false, true));
+    // Health: every line is a candidate, with the text or not; the text
+    // alone has none.
+    expect(both.candidates).toBe(N);
+    expect(rows.candidates).toBe(N);
+    expect(words.candidates).toBe(0);
+    expect(both.ms).toBeLessThan(2 * (rows.ms + words.ms) + 50);
+  }, 60_000);
 
   // Review round 4 fixes, finding 19: derived boundaries of the column
   // rule that no test sat exactly on; each mutant named stayed green.
@@ -4707,6 +4786,24 @@ describe("exclusions, each at its boundary", () => {
 
     it("GRID_ROWS_MIN: three rules are a table, two are not", () => {
       expect(ruled(rows({ ys: [600, 580] }))).toBe(0);
+    });
+
+    // A row is the space strictly between two rules. The words are read
+    // from a baseline slice that includes both rules, and the strict tests
+    // after it could be deleted with everything green (review round 6
+    // test honesty, closing mutant sweep: round 3's two mutants of these
+    // bounds). A header set exactly ON a rule is in neither row beside it.
+    it("a header whose baseline is ON a rule is in no row: 0.1 pt over or under it, it is", () => {
+      const at = (y: number) =>
+        rows({
+          text: [
+            txt("Item", 135, y, { width: 30, size: 10 }),
+            txt("Price", 205, y, { width: 30, size: 10 }),
+          ],
+        });
+      expect(ruled(at(580))).toBe(0);
+      expect(ruled(at(580.1))).toBe(3);
+      expect(ruled(at(579.9))).toBe(3);
     });
 
     it("GRID_ROW_EPS: ends 2 pt apart line up, 2.1 pt apart do not", () => {

@@ -1103,14 +1103,15 @@ function labelColumns(
     const across = (x0: number, x1: number) => overlap(x0, x1, right, r.x0) > 0;
     let textBetween = false;
     const textTop = r.y + DETECT.LABEL_ABOVE_RULE_EMS * maxSize;
+    // From the first baseline at the band's bottom (so none under it: the
+    // list holds finite baselines only, sorted), each held to its own
+    // band's top. A test of the bottom here repeated `from`, and deleting
+    // it stayed green (review round 6 test honesty, closing mutant sweep:
+    // round 3's M21).
     for (let i = from(texts, (t) => t.y, band.lo); i < texts.length; i++) {
       const t = texts[i]!;
       if (t.y > textTop) break;
-      if (
-        t.y >= band.lo &&
-        t.y <= band.hi(t) &&
-        across(t.x, t.x + Math.max(0, t.width))
-      ) {
+      if (t.y <= band.hi(t) && across(t.x, t.x + Math.max(0, t.width))) {
         textBetween = true;
         break;
       }
