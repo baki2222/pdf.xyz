@@ -244,9 +244,10 @@ export async function provesRequestSignatureLabels(
 ): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timedOut = new Promise<null>((resolve) => {
+    // Ref'd on purpose (review 2026-11-18): an unref'd bound let a process
+    // with nothing else alive exit mid-proof, with no verdict at all. The
+    // `finally` below clears it, so it never outlives the race.
     timer = setTimeout(() => resolve(null), timeoutMs);
-    // Never keep a process alive for the bound alone.
-    (timer as { unref?: () => void }).unref?.();
   });
   try {
     const read = await Promise.race([

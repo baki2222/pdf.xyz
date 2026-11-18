@@ -11,6 +11,8 @@
  * that never finishes, and a placer that throws. Each NO is a swapped piece
  * around the real one, so the probe's own reading is what is tested.
  */
+import { execFileSync } from "node:child_process";
+import path from "node:path";
 import { PDFHexString, PDFName, type PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { createProcessorRegistry } from "../processor";
@@ -233,4 +235,33 @@ describe("provesRequestSignatureLabels", () => {
     ).resolves.toBe(false);
     expect(Date.now() - started).toBeLessThan(5_000);
   });
+
+  // Review 2026-11-18: the bound was unref()'d. Inside vitest something else
+  // always holds the loop open, so the test above passed; in a process where
+  // nothing does (the daemon awaiting its proofs), a run that hung on a pure
+  // promise let the process EXIT mid-proof with no verdict at all. So the
+  // bound is proved in a fresh process with nothing else alive.
+  it("says NO at the bound in a process where nothing else keeps it alive", () => {
+    const root = process.cwd();
+    const out = execFileSync(
+      process.execPath,
+      [
+        path.join(root, "node_modules", "tsx", "dist", "cli.mjs"),
+        path.join(root, "src", "tests", "labels-probe-hang.ts"),
+        "300",
+      ],
+      { cwd: root, encoding: "utf8", maxBuffer: 1024 * 1024 },
+    );
+    const lines = out
+      .trim()
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    // Health: the harness printed its two lines, so the process ran to the end.
+    expect(lines, out).toHaveLength(2);
+    const got = JSON.parse(lines[0]!) as { verdict: unknown; ms: number };
+    expect(got.verdict, out).toBe(false);
+    expect(got.ms, out).toBeGreaterThanOrEqual(250);
+    expect(JSON.parse(lines[1]!), out).toEqual({ after: true });
+  }, 60_000);
 });
