@@ -1730,6 +1730,73 @@ describe("square-checkbox", () => {
     expect(props(at(3.9))[0]?.label).toBe("L");
   });
 
+  // Review round 4 (A-regressions, finding 1): the nearer side was decided
+  // per square, so wherever the gap between two options was smaller than a
+  // box's gap to its own label, a box took its neighbour's label. A ROW of
+  // squares now reads one side for all of them when only that side gives
+  // every square a label of its own (both: the side nearer in sum).
+  describe("a row of squares reads its labels from one side", () => {
+    const labels = (p: CardPage) => props(p).map((x) => x.label);
+    it("'Do you smoke? [] Yes [] No' with 4 pt between Yes and the next box reads Yes, No", () => {
+      const p = pg({
+        rects: [rect(150, 598, 10, 10), rect(186.2, 598, 10, 10)],
+        text: [
+          txt("Do you smoke?", 72, 600, { size: 10, width: 66 }),
+          txt("Yes", 165, 600, { size: 10, width: 17.2 }),
+          txt("No", 201.2, 600, { size: 10, width: 12.8 }),
+        ],
+      });
+      expect(labels(p)).toEqual(["Yes", "No"]);
+    });
+    it("a two-column label-right list whose long left label ends 4 pt before column 2's box", () => {
+      const p = pg({
+        rects: [rect(72, 598, 10, 10), rect(182, 598, 10, 10)],
+        text: [
+          txt("High blood pressure", 88, 600, { size: 10, width: 90 }),
+          txt("Heart disease", 198, 600, { size: 10, width: 60 }),
+        ],
+      });
+      expect(labels(p)).toEqual(["High blood pressure", "Heart disease"]);
+    });
+    it("'Male [] Female []' with equal gaps reads Male, Female (the left side is the only complete one)", () => {
+      const p = pg({
+        rects: [rect(98, 558, 10, 10), rect(150, 558, 10, 10)],
+        text: [
+          txt("Male", 72, 560, { size: 10, width: 22 }),
+          txt("Female", 112, 560, { size: 10, width: 34 }),
+        ],
+      });
+      expect(labels(p)).toEqual(["Male", "Female"]);
+    });
+    it("both sides complete: the side nearer in sum wins, a tie keeps the right", () => {
+      // "A [] B [] C": every box has a label on both sides. B sits 2 pt
+      // from each box, so the sums are a + 2 (left) and 2 + 4 (right).
+      const p = (a: number) =>
+        pg({
+          rects: [rect(100, 500, 10, 10), rect(124, 500, 10, 10)],
+          text: [
+            txt("A", 100 - a - 10, 502, { size: 10, width: 10 }),
+            txt("B", 112, 502, { size: 10, width: 10 }),
+            txt("C", 138, 502, { size: 10, width: 10 }),
+          ],
+        });
+      expect(labels(p(3.9))).toEqual(["A", "B"]);
+      expect(labels(p(4))).toEqual(["B", "C"]);
+    });
+    it("one text nearest to two boxes is no complete side: each box falls back to its nearer label", () => {
+      // "Colour:" ends 4 pt before box 1 and 20 pt before box 2; "Red"
+      // starts 10 pt after box 2 (26 pt after box 1, out of its reach).
+      const p = pg({
+        rects: [rect(100, 500, 10, 10), rect(116, 500, 10, 10)],
+        text: [
+          txt("Colour:", 61, 502, { size: 10, width: 35 }),
+          txt("Red", 136, 502, { size: 10, width: 17 }),
+        ],
+      });
+      expect(labels(p)).toEqual(["Colour", "Red"]);
+    });
+  });
+
   // Review round 3, finding 7: a condition x Yes / No grid, or a rating
   // grid, proposed nothing (each row's text is far left, each head above),
   // and with dot leaders only the first column, named after the row alone.

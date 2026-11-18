@@ -1439,12 +1439,22 @@ function gridLabels(
  * once searched first and the left only when it found nothing, so in the
  * inline "Yes [] No []" the next answer word beat the box's own label and
  * every Yes box read "No" (review round 3, finding 1; corpus P28, whose
- * second row is the label-right control). A square in a headed grid takes
+ * second row is the label-right control). A ROW of squares reads one side
+ * for all of them (see below; corpus P35). A square in a headed grid takes
  * its grid label ({@link gridLabels}) instead.
  */
 function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
   const grid = gridLabels(p, lines.squares);
-  return lines.squares.map((sq) => {
+  type Sides = {
+    right: LabelHit[];
+    left: LabelHit[];
+    r: LabelHit | undefined;
+    l: LabelHit | undefined;
+    rGap: number;
+    lGap: number;
+  };
+  const sides = new Map<CardRect, Sides>();
+  for (const sq of lines.squares) {
     const right: LabelHit[] = [];
     for (const t of p.text) {
       const gap = t.x - sq.x1;
@@ -1464,9 +1474,37 @@ function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
     );
     const r = right.find((h) => h.text.upright);
     const l = left.find((h) => h.text.upright);
-    const rGap = r ? r.text.x - sq.x1 : Infinity;
-    const lGap = l ? sq.x0 - (l.text.x + Math.max(0, l.text.width)) : Infinity;
-    const leftWins = lGap < rGap;
+    sides.set(sq, {
+      right,
+      left,
+      r,
+      l,
+      rGap: r ? r.text.x - sq.x1 : Infinity,
+      lGap: l ? sq.x0 - (l.text.x + Math.max(0, l.text.width)) : Infinity,
+    });
+  }
+  // A ROW reads one side when only that side gives every square a label of
+  // its own (distinct items); when both do, the side nearer in sum, a tie
+  // keeping the right. Decided per square, a box whose neighbour's option
+  // sat nearer than its own label took the neighbour's (review round 4
+  // fixes, finding 1; corpus P35).
+  const rowLeft = new Map<CardRect, boolean>();
+  for (const row of squareGroups(lines.squares, (s) => s.y0)) {
+    if (row.length < 2) continue;
+    const ss = row.map((s) => sides.get(s)!);
+    const complete = (k: "l" | "r") =>
+      ss.every((s) => s[k]) &&
+      new Set(ss.map((s) => s[k]!.text)).size === ss.length;
+    const lOk = complete("l");
+    const rOk = complete("r");
+    if (!lOk && !rOk) continue;
+    const sum = (k: "lGap" | "rGap") => ss.reduce((a, s) => a + s[k], 0);
+    const left = lOk && (!rOk || sum("lGap") < sum("rGap"));
+    for (const s of row) rowLeft.set(s, left);
+  }
+  return lines.squares.map((sq) => {
+    const { right, left, r, l, rGap, lGap } = sides.get(sq)!;
+    const leftWins = rowLeft.get(sq) ?? lGap < rGap;
     let pick: ReturnType<typeof pickLabel>;
     const inGrid = grid.get(sq);
     if (inGrid) pick = { label: inGrid, state: "found" };

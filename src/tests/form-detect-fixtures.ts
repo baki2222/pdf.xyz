@@ -386,6 +386,27 @@ const P28 = {
     ["No", 444],
   ] as const,
 };
+/**
+ * P35's rows (Helvetica 10). Smoke: each box 5 pt left of its label, the
+ * second box 4 pt after "Yes". History: column 2's box 4 pt after the end
+ * of "High blood pressure", its own label 6 pt right of it. Male / Female:
+ * each label 4 pt left of its box, "Female" starting 1 pt after the first.
+ */
+const P35_SMOKE = 72 + textWidth(H, "Do you smoke?", 10) + 12;
+const P35_MALE = 72 + textWidth(H, "Male", 10) + 4;
+const P35 = {
+  smoke: [
+    ["Yes", P35_SMOKE],
+    ["No", P35_SMOKE + 15 + textWidth(H, "Yes", 10) + 4],
+  ] as const,
+  history: [
+    ["Asthma", "Diabetes"],
+    ["High blood pressure", "Heart disease"],
+  ] as const,
+  col2: 72 + 16 + textWidth(H, "High blood pressure", 10) + 4,
+  male: P35_MALE,
+  female: P35_MALE + 11 + textWidth(H, "Female", 10) + 4,
+};
 /** N32's line starts 40 pt right of where "Address:" (12 pt) ends. */
 const N32_X0 = 72 + textWidth(H, "Address:", 12) + 40;
 /**
@@ -2179,6 +2200,59 @@ export const DETECT_CASES: readonly DetectCase[] = [
     expect: "none",
     decidedBy: "unlabelled",
     at: { page: 1, x: 300, y: 546 },
+  },
+  {
+    id: "P35",
+    kind: "positive",
+    note: 'rows of boxes whose options sit closer to the next box than to their own: "Do you smoke? [box] Yes [box] No", a two-column label-right list, "Male [box] Female [box]"',
+    // Review round 4 fixes, finding 1: the nearer side was decided per
+    // square, so each of these rows gave one box its neighbour's label
+    // (Yes, Yes; High blood pressure twice; Female, Female). P28 is the
+    // control: both its rows read the same way still.
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      await text(page, H, "Do you smoke?", 72, 600, 10);
+      for (const [s, x] of P35.smoke) {
+        square(page, x, 598, 10);
+        await text(page, H, s, x + 15, 600, 10);
+      }
+      await text(
+        page,
+        H,
+        "Medical history (tick any that apply):",
+        72,
+        580,
+        10,
+      );
+      for (const [k, [a, b]] of P35.history.entries()) {
+        const y = 558 - 18 * k;
+        square(page, 72, y, 10);
+        await text(page, H, a, 88, y + 2, 10);
+        square(page, P35.col2, y, 10);
+        await text(page, H, b, P35.col2 + 16, y + 2, 10);
+      }
+      await text(page, H, "Male", 72, 500, 10);
+      square(page, P35.male, 498, 10);
+      await text(page, H, "Female", P35.male + 11, 500, 10);
+      square(page, P35.female, 498, 10);
+      return save(d);
+    },
+    expect: [
+      ...P35.smoke.map(([label, x]) => [label, x, 598] as const),
+      ...P35.history.flatMap(([a, b], k) => [
+        [a, 72, 558 - 18 * k] as const,
+        [b, P35.col2, 558 - 18 * k] as const,
+      ]),
+      ["Male", P35.male, 498] as const,
+      ["Female", P35.female, 498] as const,
+    ].map(([label, x, y]) => ({
+      rule: "square-checkbox" as const,
+      type: "checkbox" as const,
+      label,
+      page: 1,
+      box: squareBox(x, y, 10),
+    })),
   },
 
   // ---------------------------------------------------------- outcomes
