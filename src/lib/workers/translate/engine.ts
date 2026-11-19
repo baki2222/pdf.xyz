@@ -1329,6 +1329,13 @@ function renderReadme(manifest: TranslationManifest): string {
  * That default made the bytes a function of the packaging clock in 2-second
  * DOS steps: two packages of one job differed across a tick, which failed
  * main in CI run 43845278036 (`package-date.test.ts` holds it).
+ *
+ * The date is written as JSZip writes every date: DOS fields filled from
+ * the UTC getters (jszip 3.10.1 `ZipFileWorker`). JSZip reads them back as
+ * UTC; Info-ZIP `unzip` and Windows Explorer read DOS time as LOCAL time,
+ * so a reader east or west of UTC sees the entries offset from the README's
+ * "Generated: …Z" by their zone. Not new: `new Date()` was written the same
+ * way.
  */
 async function buildPackage(
   translation: string,

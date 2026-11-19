@@ -9,8 +9,8 @@
  * differed whenever their builds fell on opposite sides of a 2 s tick, and
  * `engine.reading-order.test.ts`, which compares two packages by sha256,
  * failed on main — more often the slower the runner, never on purpose. For a
- * reader the same defect is a "Generated:" line in README.txt that the
- * archive's own entry dates contradict.
+ * reader the same defect is an archive whose bytes change with nothing in
+ * the job changing.
  *
  * THE FIX: every entry is dated with the manifest's `createdAt`, the moment
  * the README already names.
@@ -75,7 +75,11 @@ describe("the translation ZIP does not carry the packaging clock", () => {
     expect(sha(b), "the package moved with the clock").toBe(sha(a));
   });
 
-  it("dates every entry with the manifest's createdAt, as a reader's unzip shows it", async () => {
+  // As JSZip reads the date back, which is UTC. Info-ZIP `unzip` and Windows
+  // Explorer read the same DOS fields as LOCAL time, so they show createdAt
+  // offset by the reader's zone (the old `new Date()` stamping did too); see
+  // `buildPackage`'s docblock.
+  it("dates every entry with the manifest's createdAt, as JSZip reads it back (UTC)", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const zip = await JSZip.loadAsync(await packageAt("2030-01-01T00:00:00Z"));
     const entries = Object.values(zip.files);
