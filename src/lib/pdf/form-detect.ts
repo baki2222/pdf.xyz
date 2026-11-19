@@ -349,15 +349,14 @@ export const DETECT_TEXT_SHAPES = {
    * A DOT LEADER is at least this many dots: full stops, each optionally
    * one space apart (". . . ."), or ellipses (each counts as
    * LEADER_ELLIPSIS_DOTS). It is a blank only after a label on its line,
-   * and never when it leads to something at the line's end (a page number,
-   * a price, text, a box, starting within LEADER_ENTRY_GAP of the last
-   * dot): that is a table of contents or a price list (`toc-leader`).
-   * Text further along the line is another column, not an entry. A short
-   * one is `short-run`, as a run is.
+   * and never when it leads to something further along its line, at any
+   * distance (a page number, a price, text, a box): that is a table of
+   * contents or a price list (`toc-leader`). Only the next blank's label
+   * is not an entry (see `leaderCandidates`). A short one is `short-run`,
+   * as a run is.
    */
   LEADER_MIN_DOTS: 8,
   LEADER_ELLIPSIS_DOTS: 3,
-  LEADER_ENTRY_GAP: 24,
   /**
    * A BOX SYMBOL (U+2610 or U+25A1) is drawn as a square standing on the
    * baseline, centred in its advance. Its side is taken as the smaller of
@@ -580,6 +579,10 @@ interface Piece {
 }
 
 const BOX_SET = new Set([...EMPTY_BOXES, ...TICKED_BOXES]);
+/** Text after a box that makes it a legend's key ("[] = not applicable"). */
+const LEGEND = /^\s*[=\u2261]/u;
+/** A line number or a list marker in a margin: "12", "a)", "3.", "iv.". */
+const MARGIN_MARK = /^(?:\p{N}{1,4}|[\p{L}\p{N}]{1,4}[.)])$/u;
 const isBox = (ch: string) => BOX_SET.has(ch);
 const ELLIPSIS = cp(0x2026);
 // Dots, each optionally one space from the next; counted below.
@@ -1995,24 +1998,68 @@ function piecesByItem(all: readonly Piece[]): Map<number, Piece[]> {
  * left on their baseline. A row with nothing before it is `unlabelled`.
  *
  * What follows the dots decides whether they are a blank at all. Text
- * after them in their item, or the nearest upright item or drawn square
- * starting within {@link DETECT_TEXT_SHAPES.LEADER_ENTRY_GAP} to their
- * right on their baseline, is what they LEAD TO ("Chapter 3 ........ 47",
- * "Coffee ........ $3.00", "Helpful ...... []"), and they are `toc-leader`,
- * unless that text is itself followed by dots or a run: then it is the
- * next blank's label ("Name ........ Date ........", two blanks).
+ * after them in their item, or the nearest upright item or drawn square to
+ * their right on their baseline, AT ANY DISTANCE, is what they LEAD TO
+ * ("Chapter 3 ........ 47", "Coffee ........ $3.00", a page number
+ * right-aligned at the margin, "Helpful ...... []"), and they are
+ * `toc-leader`, unless that text is the next blank's label: followed by
+ * dots or a run in its own item, or by an item that starts with dots or a
+ * run, a drawn square or a drawn line within {@link DETECT.LABEL_LEFT_GAP}
+ * of its end ("Name ........ Date ........", two blanks); or is itself
+ * fields with labels, box symbols and words ("Date ........  [] Yes [] No"). Review round 1
+ * of slice S3 (finding 1): a reach of 24 pt let every line of a table of
+ * contents whose page numbers sat further off through as a blank.
  */
 function leaderCandidates(
   p: CardPage,
   byItem: ReadonlyMap<number, Piece[]>,
   ix: TextIndex,
   squares: YIndex<CardRect>,
+  rules: YIndex<Line>,
 ): { cands: Candidate[]; short: Edges[] } {
   const cands: Candidate[] = [];
   const short: Edges[] = [];
   const itemOf = new Map(p.text.map((t, i) => [t, i]));
-  const hasLeader = (t: CardText) =>
-    (byItem.get(itemOf.get(t)!) ?? []).some((q) => q.tag === "leader");
+  const piecesOf = (t: CardText) => byItem.get(itemOf.get(t)!) ?? [];
+  const blank = (q: Piece) => q.kind === "run" || q.tag === "leader";
+  /** An item holding a box symbol and words: fields with labels ("[] Yes"). */
+  const labelledBox = (t: CardText) => {
+    const own = piecesOf(t);
+    return (
+      own.some((q) => q.tag === "box") &&
+      own.some((q) => q.kind === "text" && q.tag === undefined)
+    );
+  };
+  /**
+   * Something a label is followed by, starting within LABEL_LEFT_GAP after
+   * `end` on the band [lo, hi]: an upright item that starts with dots or a
+   * run, a drawn square, or a drawn line under the band.
+   */
+  const blankAfter = (
+    band: readonly CardText[],
+    self: CardText,
+    end: number,
+    lo: number,
+    hi: number,
+    size: number,
+  ) => {
+    const near = (x: number) =>
+      x >= end - 1 && x - end <= DETECT.LABEL_LEFT_GAP;
+    for (const o of band) {
+      if (o === self || !o.upright || !near(o.x)) continue;
+      const first = piecesOf(o)[0];
+      if (first && blank(first)) return true;
+    }
+    for (const sq of ySlice(squares, lo - DETECT.SQUARE_MAX, hi))
+      if (near(sq.x0) && sq.y1 >= lo) return true;
+    for (const r of ySlice(
+      rules,
+      lo - DETECT.LABEL_ABOVE_RULE_EMS * size,
+      hi + DETECT.LABEL_BELOW_RULE,
+    ))
+      if (near(r.x0)) return true;
+    return false;
+  };
   p.text.forEach((t, item) => {
     if (!t.upright) return;
     const mine = byItem.get(item) ?? [];
@@ -2035,51 +2082,73 @@ function leaderCandidates(
       }
       const lo = t.y - DETECT.RUN_BASELINE_EMS * t.size;
       const hi = t.y + DETECT.RUN_BASELINE_EMS * t.size;
+      const band = textBand(ix, lo, hi);
       // The label: back to the previous run or row of dots in the item.
-      const prev = mine
-        .slice(0, k)
-        .reverse()
-        .find((q) => q.kind === "run" || q.tag === "leader");
+      const prev = mine.slice(0, k).reverse().find(blank);
       let label = cleanLabel(chars.slice(prev ? prev.to : 0, pc.from).join(""));
       let state: Candidate["labelState"] = label ? "found" : "none";
       if (!label && !prev) {
+        // An item to the left holding dots or a run is labelled by its
+        // words after the last of them ("Name ........ Date" read as one
+        // item by pdf.js): the dots are never part of a label.
         const pick = pickLabel(
           leftOf(
-            textBand(ix, lo, hi).filter((o) => o !== t),
+            band.filter((o) => o !== t),
             pc.x0,
             DETECT.LABEL_LEFT_GAP,
             lo,
             () => hi,
-          ),
+          ).flatMap((h) => {
+            const own = piecesOf(h.text);
+            const last = [...own].reverse().find(blank);
+            if (!last) return [h];
+            const str = cleanLabel(
+              Array.from(h.text.str).slice(last.to).join(""),
+            );
+            return str ? [{ ...h, str }] : [];
+          }),
         );
         label = pick.label;
         state = pick.state;
       }
       // What the dots lead to.
-      const next = mine
-        .slice(k + 1)
-        .find((q) => q.kind === "run" || q.tag === "leader");
+      const next = mine.slice(k + 1).find(blank);
       const after = chars
         .slice(pc.to, next ? next.from : chars.length)
         .join("");
       let leadsTo: boolean;
-      if (after.trim()) leadsTo = next === undefined;
+      if (after.trim())
+        // Words after the dots in their item: an entry, unless dots or a
+        // run follow them, in the item or just after it.
+        leadsTo =
+          next === undefined &&
+          !blankAfter(band, t, t.x + Math.max(0, t.width), lo, hi, t.size);
       else if (next) leadsTo = false;
       else {
-        const reach = pc.x1 + DETECT_TEXT_SHAPES.LEADER_ENTRY_GAP;
-        let nearest: { x: number; leader: boolean } | null = null;
-        for (const o of textBand(ix, lo, hi)) {
-          if (o === t || !o.upright || o.x < pc.x1 - 1 || o.x > reach) continue;
-          if (!nearest || o.x < nearest.x)
-            nearest = { x: o.x, leader: hasLeader(o) };
+        let nearest: CardText | null = null;
+        for (const o of band) {
+          if (o === t || !o.upright || o.x < pc.x1 - 1) continue;
+          if (!nearest || o.x < nearest.x) nearest = o;
         }
         // Squares standing across the baseline band, by their bottoms.
+        let square = false;
         for (const sq of ySlice(squares, lo - DETECT.SQUARE_MAX, hi)) {
-          if (sq.x0 < pc.x1 - 1 || sq.x0 > reach || sq.y1 < lo) continue;
-          if (!nearest || sq.x0 < nearest.x)
-            nearest = { x: sq.x0, leader: false };
+          if (sq.x0 < pc.x1 - 1 || sq.y1 < lo) continue;
+          if (!nearest || sq.x0 < nearest.x) square = true;
         }
-        leadsTo = nearest !== null && !nearest.leader;
+        leadsTo =
+          square ||
+          (nearest !== null &&
+            !piecesOf(nearest).some(blank) &&
+            !labelledBox(nearest) &&
+            !blankAfter(
+              band,
+              nearest,
+              nearest.x + Math.max(0, nearest.width),
+              lo,
+              hi,
+              t.size,
+            ));
       }
       cands.push({
         rule: "dot-leader",
@@ -2116,7 +2185,22 @@ function leaderCandidates(
  *
  * Passed over: a box already ticked or crossed (`ticked-box`); boxes typed
  * next to each other, one character each (`comb`); and a BULLETED LIST
- * drawn with them (`bullet`, see {@link DETECT_TEXT_SHAPES}).
+ * drawn with them (`bullet`, see {@link DETECT_TEXT_SHAPES}). A box's
+ * sentence is every word of its line after it (its item, then the items
+ * chained on within LABEL_LEFT_GAP, a bold "Note:" and its sentence
+ * together) and of the lines wrapped under it, down to the next box of its
+ * column. It opens its line when no text ends within LABEL_LEFT_GAP to its
+ * left, other than a line number or a list marker ("12", "a)", "3."):
+ * text further off is another column. A column with BULLET_COLUMN_MIN
+ * such boxes is a list, and so is every box in it before a sentence, a
+ * margin note beside it or not. Review round 1 of slice S3 (finding 2):
+ * each of wrapped sentences, a second column, a numbered margin and a bold
+ * lead-in let a list through, one checkbox per bullet.
+ *
+ * Not boxes for a field at all: text after the box that starts with "="
+ * (a legend, "[] = not applicable") is no label, and a symbol whose square
+ * is larger than {@link DETECT.SQUARE_MAX} is decoration, as a drawn
+ * square that size is.
  */
 function boxCandidates(
   p: CardPage,
@@ -2130,10 +2214,17 @@ function boxCandidates(
     left: Side;
     right: Side;
     opensLine: boolean;
+    /** Words of the box's line after it; then of the lines wrapped under. */
     words: number;
+    /** Where the words after it start (null: none), and its line ends. */
+    textStart: number | null;
+    lineEnd: number;
   };
   const found: Found[] = [];
   const stop = (q: Piece) => q.kind === "run" || q.tag !== undefined;
+  const itemOf = new Map(p.text.map((t, i) => [t, i]));
+  const piecesOf = (t: CardText) => byItem.get(itemOf.get(t)!) ?? [];
+  const wordsIn = (s: string) => (s.match(WORD) ?? []).length;
   p.text.forEach((t, item) => {
     if (!t.upright) return;
     const mine = byItem.get(item) ?? [];
@@ -2157,13 +2248,18 @@ function boxCandidates(
         left = pickLabel(
           leftOf(band, pc.x0, DETECT.LABEL_LEFT_GAP, lo, () => hi),
         );
-      let right: Side = { label: cleanLabel(after), state: "none" };
+      const legend = LEGEND.test(after);
+      let right: Side = {
+        label: legend ? null : cleanLabel(after),
+        state: "none",
+      };
       if (right.label) right.state = "found";
       else if (!next && !after.trim()) {
         const hits: LabelHit[] = [];
         for (const o of band) {
           const gap = o.x - pc.x1;
           if (gap < -1 || gap > DETECT.LABEL_LEFT_GAP) continue;
+          if (LEGEND.test(o.str)) continue;
           const str = cleanLabel(o.str);
           if (str) hits.push({ text: o, str });
         }
@@ -2171,15 +2267,47 @@ function boxCandidates(
         right = pickLabel(hits);
       }
       // Opens its line: nothing before it in its item, and no upright text
-      // ending to its left on its baseline.
+      // (but a line number or a list marker) ending within LABEL_LEFT_GAP
+      // to its left on its baseline.
       const opensLine =
         !before.trim() &&
         !prev &&
-        !band.some((o) => o.x + Math.max(0, o.width) <= pc.x0 + 1);
+        !band.some((o) => {
+          const end = o.x + Math.max(0, o.width);
+          return (
+            end <= pc.x0 + 1 &&
+            pc.x0 - end <= DETECT.LABEL_LEFT_GAP &&
+            !MARGIN_MARK.test(o.str.trim())
+          );
+        });
+      // The words of its line after it, and where they start and end.
+      const nextText = mine
+        .slice(k + 1)
+        .find((q) => q.kind === "text" && q.tag === undefined);
+      let words = wordsIn(after);
+      let textStart: number | null =
+        nextText && (!next || nextText.from < next.from) ? nextText.x0 : null;
+      let lineEnd = next ? next.x0 : t.x + Math.max(0, t.width);
+      if (!next) {
+        // Chained on: each item starting within LABEL_LEFT_GAP of the last's
+        // end, up to one holding a box, dots or a run. Once per item (only
+        // its last box has no next stop).
+        const on = band
+          .filter((o) => o.x >= lineEnd - 1)
+          .sort((a, b) => a.x - b.x);
+        for (const o of on) {
+          if (o.x - lineEnd > DETECT.LABEL_LEFT_GAP) break;
+          if (piecesOf(o).some(stop)) break;
+          if (textStart === null) textStart = o.x;
+          words += wordsIn(o.str);
+          lineEnd = Math.max(lineEnd, o.x + Math.max(0, o.width));
+        }
+      }
       const side = Math.min(
         pc.x1 - pc.x0,
         DETECT_TEXT_SHAPES.BOX_SIDE_EMS * t.size,
       );
+      if (side > DETECT.SQUARE_MAX) return;
       const inner = side - 2 * DETECT.SQUARE_INSET;
       const x0 = (pc.x0 + pc.x1) / 2 - inner / 2;
       const y0 = t.y + DETECT.SQUARE_INSET;
@@ -2207,8 +2335,9 @@ function boxCandidates(
         left,
         right,
         opensLine,
-        words:
-          right.state === "found" ? (right.label!.match(WORD) ?? []).length : 0,
+        words,
+        textStart,
+        lineEnd,
       });
     });
   });
@@ -2245,23 +2374,39 @@ function boxCandidates(
     }
     i = j;
   }
-  // A bulleted list: BULLET_COLUMN_MIN boxes opening their lines in one
-  // column (within GRID_ROW_EPS of the column's first), each before a
-  // sentence of BULLET_MIN_WORDS words.
-  const bullets = found
-    .filter(
-      (f) => f.opensLine && f.words >= DETECT_TEXT_SHAPES.BULLET_MIN_WORDS,
-    )
-    .sort((a, b) => a.c.box.x0 - b.c.box.x0);
-  for (let i = 0; i < bullets.length;) {
+  // A bulleted list. Columns: boxes whose x0 is within GRID_ROW_EPS of the
+  // column's first. Each box's sentence takes the words of the lines
+  // wrapped under it (items starting between the box and one em past where
+  // its words start, up to its line's end), down to the next box of its
+  // column, or one line pitch for the last.
+  const cols = [...found].sort((a, b) => a.c.box.x0 - b.c.box.x0);
+  const eps = DETECT.GRID_ROW_EPS;
+  for (let i = 0; i < cols.length;) {
     let j = i + 1;
-    while (
-      j < bullets.length &&
-      bullets[j]!.c.box.x0 - bullets[i]!.c.box.x0 <= DETECT.GRID_ROW_EPS
+    while (j < cols.length && cols[j]!.c.box.x0 - cols[i]!.c.box.x0 <= eps) j++;
+    const col = cols.slice(i, j).sort((a, b) => b.t.y - a.t.y);
+    col.forEach((f, k) => {
+      if (f.textStart === null) return;
+      const below = col[k + 1];
+      const above = col[k - 1];
+      const floor = below
+        ? below.t.y
+        : f.t.y - (above ? above.t.y - f.t.y : 2 * f.t.size);
+      for (const o of textBand(ix, floor + eps, f.t.y - eps)) {
+        if (!o.upright) continue;
+        if (o.x < f.c.box.x0 - 1 || o.x > f.textStart + f.t.size) continue;
+        if (o.x > f.lineEnd) continue;
+        if (piecesOf(o).some(stop)) continue;
+        f.words += wordsIn(o.str);
+      }
+    });
+    const sentence = (f: Found) =>
+      f.words >= DETECT_TEXT_SHAPES.BULLET_MIN_WORDS;
+    if (
+      col.filter((f) => f.opensLine && sentence(f)).length >=
+      DETECT_TEXT_SHAPES.BULLET_COLUMN_MIN
     )
-      j++;
-    if (j - i >= DETECT_TEXT_SHAPES.BULLET_COLUMN_MIN)
-      for (let k = i; k < j; k++) bullets[k]!.c.glyph!.bullet = true;
+      for (const f of col) if (sentence(f)) f.c.glyph!.bullet = true;
     i = j;
   }
   return found.map((f) => f.c);
@@ -3305,6 +3450,11 @@ export function classifyPage(
       lines.squares,
       (s) => s.y0,
       (s) => s.y1 - s.y0,
+    ),
+    yIndex(
+      lines.rules,
+      (r) => r.y,
+      () => 0,
     ),
   );
   const cands = [

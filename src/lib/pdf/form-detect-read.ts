@@ -196,7 +196,11 @@ export function textItemToCard(
   if (upright) {
     const advances =
       glyphs && typeof item.fontName === "string"
-        ? itemAdvances(item.str, width, d!, glyphs.get(item.fontName))
+        ? itemAdvances(item.str, width, d!, glyphs.get(item.fontName), {
+            charSpacingEms: glyphs.charSpacing.get(item.fontName) ?? 0,
+            // pdf.js scales the font size by Tz along x only.
+            hScale: a! / d!,
+          })
         : undefined;
     return {
       str: item.str,

@@ -257,6 +257,49 @@ const boxAt = (
   box: glyphBox(x, adv, y, size),
 });
 
+/**
+ * Where P53-P55 print their rows of dots (the first dot's left edge to the
+ * last's advance end, on the baseline), from pdf-lib's per-character
+ * widths of what each case draws: never from the reader, so the composed
+ * chain test in form-detect-precision.test.ts can see a wrong advance
+ * (review round 1 of slice S3, finding 10: its truth was once the reader's
+ * own glyph advances, which a wrong advance moved with it).
+ */
+export const PRINTED_DOTS: Record<
+  "P53" | "P54" | "P55",
+  { x0: number; x1: number; y: number }[]
+> = (() => {
+  // Each character's own width: drawText applies no kerning.
+  const at = (font: PDFFont, s: string) =>
+    Array.from(s).reduce((sum, ch) => sum + w(font, ch, 12), 0);
+  const row = (
+    font: PDFFont,
+    x: number,
+    before: string,
+    s: string,
+    y: number,
+  ) => ({
+    x0: x + at(font, before),
+    x1: x + at(font, s),
+    y,
+  });
+  const first = `Name ${dots(16)}`;
+  return {
+    P53: [
+      row(metrics.sans, 72, "Name ", P53.name, 700),
+      row(metrics.sans, P53.emailX, "", P53.emailDots, 670),
+    ],
+    P54: [
+      row(metrics.sans, 72, "Name ", first, 700),
+      row(metrics.sans, 72, `${first} Date `, P54, 700),
+    ],
+    P55: [
+      row(metrics.serif, 72, "Address ", P55.address, 700),
+      row(metrics.serif, 72, "Phone ", P55.phone, 670),
+    ],
+  };
+})();
+
 export const PRECISION_CASES: readonly DetectCase[] = [
   {
     id: "P53",

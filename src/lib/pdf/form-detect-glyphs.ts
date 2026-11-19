@@ -22,17 +22,36 @@
  * different advances in one font (two encodings, a Type 3 font redefining
  * it) is dropped, so it can never be placed by the wrong one.
  *
+ * CHARACTER SPACING AND HORIZONTAL SCALING (review round 1 of slice S3,
+ * finding 5). pdf.js's item width includes both, and the split once gave
+ * the whole difference to the spaces, so Tc = 1 put a run 11 pt late and
+ * Tz = 120 16 pt. Horizontal scaling is in the item's transform (its x
+ * scale over its y scale; pdf.js multiplies the font size by it), and
+ * `setCharSpacing` is in the operator list: the table keeps, per font, the
+ * Tc it was shown with (following `save` / `restore`), so each advance
+ * becomes (glyph + Tc) x scale, as a reader draws it.
+ *
  * Pure: `OPS` is a parameter, as in `./form-detect-paths`.
  */
 
-/** The operator codes this reads; pdf.js's `OPS` has both. */
+/** The operator codes this reads; pdf.js's `OPS` has them all. */
 export interface GlyphOps {
   setFont?: number;
   showText?: number;
+  /** Tc, and the graphics-state stack that saves and restores it. */
+  setCharSpacing?: number;
+  save?: number;
+  restore?: number;
 }
 
-/** Per font (pdf.js's loaded name): each character's advance, glyph units. */
-export type GlyphTable = Map<string, Map<string, number>>;
+/**
+ * Per font (pdf.js's loaded name): each character's advance, glyph units;
+ * and `charSpacing`, per font, the character spacing (Tc) it was shown
+ * with, in ems of its size, or null when it was shown with more than one.
+ */
+export type GlyphTable = Map<string, Map<string, number>> & {
+  charSpacing: Map<string, number | null>;
+};
 
 /**
  * Tolerances for {@link itemAdvances}. Held literally by
@@ -46,17 +65,24 @@ export const ADVANCES = {
    */
   UNITS_PER_EM: 1000,
   /**
-   * The item's width differs from its glyphs' by more than this many ems:
-   * the difference is space between words (word spacing, or the gap pdf.js
-   * writes as one space between two pieces of text it joined, wider or
-   * narrower than the font's space), so it goes to the spaces. Measured on
-   * corpus P53: "Email:" and its dots drawn 6 pt apart are one item whose
-   * space is 2.7 pt (0.22 em) wider than Helvetica's, and scaling every
-   * character instead put the dots 2 pt early. Under it the difference is
-   * shared by every character: pdf.js measures an item holding a space up
-   * to 0.05 em wider than its glyphs with no gap at all (Helvetica
-   * "Name: ____", 2026-11-19), and giving that to the space moved the run
-   * 0.6 pt off where it is drawn.
+   * The item's width differs from its glyphs' (after Tc and Tz) by more
+   * than this many ems: the difference is space between words (word
+   * spacing, TJ kerning, or the gap pdf.js writes as one space between two
+   * pieces of text it joined), so it goes to the spaces. Measured on corpus
+   * P53: "Email:" and its dots drawn 6 pt apart are one item whose space is
+   * 2.7 pt (0.22 em) wider than Helvetica's, and scaling every character
+   * instead put the dots 2 pt early. Under it the difference is shared by
+   * every character.
+   *
+   * WHAT IT DECIDES, MEASURED (review round 1 of slice S3, finding 6; the
+   * docblock once said pdf.js measures plain items up to 0.05 em wider
+   * than their glyphs, which is false: 28 plain items on Helvetica, Times,
+   * Courier and Noto Sans differ by 0.0000 em, 2026-11-19). So on plain
+   * text it decides nothing, and above it, the joined gap and TJ kerning
+   * of the MEASURED spacing sheets are placed within 1 pt only because the
+   * difference goes to the spaces. Below it is a difference of under 1.2 pt
+   * at 12 pt, which either way moves a run by less than that: the value is
+   * held by its unit test and the literal table, not by a measurement.
    */
   SPACE_EXTRA_MIN_EMS: 0.1,
   /**
@@ -78,22 +104,49 @@ export function glyphTable(
   argsArray: ArrayLike<unknown>,
   OPS: GlyphOps,
 ): GlyphTable {
-  const table: GlyphTable = new Map();
+  const table: GlyphTable = Object.assign(
+    new Map<string, Map<string, number>>(),
+    { charSpacing: new Map<string, number | null>() },
+  );
   const conflicted = new Map<string, Set<string>>();
   if (OPS.setFont === undefined || OPS.showText === undefined) return table;
-  let font: string | null = null;
+  type State = { font: string | null; size: number; tc: number };
+  let st: State = { font: null, size: 0, tc: 0 };
+  const stack: State[] = [];
   for (let i = 0; i < fnArray.length; i++) {
     const fn = fnArray[i];
-    if (fn === OPS.setFont) {
-      const args = argsArray[i] as unknown[] | null | undefined;
-      font =
-        Array.isArray(args) && typeof args[0] === "string" ? args[0] : null;
+    const args = argsArray[i] as unknown[] | null | undefined;
+    if (fn === OPS.save) {
+      stack.push({ ...st });
       continue;
     }
-    if (fn !== OPS.showText || font === null) continue;
-    const args = argsArray[i] as unknown[] | null | undefined;
+    if (fn === OPS.restore) {
+      st = stack.pop() ?? st;
+      continue;
+    }
+    if (fn === OPS.setCharSpacing) {
+      const tc = Array.isArray(args) ? args[0] : undefined;
+      st.tc = typeof tc === "number" && isFinite(tc) ? tc : 0;
+      continue;
+    }
+    if (fn === OPS.setFont) {
+      st.font =
+        Array.isArray(args) && typeof args[0] === "string" ? args[0] : null;
+      const size = Array.isArray(args) ? args[1] : undefined;
+      st.size = typeof size === "number" && isFinite(size) ? size : 0;
+      continue;
+    }
+    if (fn !== OPS.showText || st.font === null) continue;
+    const font = st.font;
     const glyphs = Array.isArray(args) ? args[0] : null;
     if (!Array.isArray(glyphs)) continue;
+    // Tc in ems of the font size; unknown (null) once two differ, or when
+    // there is no size to measure it by.
+    const tcEms = st.size !== 0 ? st.tc / Math.abs(st.size) : null;
+    const had = table.charSpacing.get(font);
+    if (had === undefined) table.charSpacing.set(font, tcEms);
+    else if (had !== null && (tcEms === null || Math.abs(had - tcEms) > 1e-9))
+      table.charSpacing.set(font, null);
     let widths = table.get(font);
     if (!widths) table.set(font, (widths = new Map()));
     let bad = conflicted.get(font);
@@ -126,7 +179,9 @@ const SPACE = /\s/;
  * table, other than a space pdf.js wrote for a gap, which takes its share
  * of the gap).
  *
- * The glyphs' own advances (units x size / 1000) are used as they are, and
+ * Each glyph's advance is (units x size / 1000 + Tc) x the horizontal
+ * scale (`spacing`: Tc in ems of the size, and the scale, both 0 / 1 when
+ * not given), and
  * whatever the item is wider (or narrower) by goes to its spaces, shared
  * equally, when there are spaces, the difference is over
  * {@link ADVANCES.SPACE_EXTRA_MIN_EMS}, the glyphs make up at least
@@ -139,8 +194,12 @@ export function itemAdvances(
   width: number,
   size: number,
   widths: ReadonlyMap<string, number> | undefined,
+  spacing: { charSpacingEms?: number; hScale?: number } = {},
 ): number[] | undefined {
   if (!widths || !(width > 0) || !(size > 0)) return undefined;
+  const tc = spacing.charSpacingEms ?? 0;
+  const hs = spacing.hScale ?? 1;
+  if (!isFinite(tc) || !(hs > 0) || !isFinite(hs)) return undefined;
   const chars = Array.from(str);
   if (chars.length === 0) return undefined;
   const own: (number | null)[] = [];
@@ -152,7 +211,7 @@ export function itemAdvances(
     if (w === undefined) {
       if (!space) return undefined;
       own.push(null);
-    } else own.push((w * size) / ADVANCES.UNITS_PER_EM);
+    } else own.push((w / ADVANCES.UNITS_PER_EM + tc) * size * hs);
   }
   const glyphs = own.reduce<number>((s, a) => s + (a ?? 0), 0);
   if (!(glyphs > 0)) return undefined;
