@@ -1452,6 +1452,11 @@ describe("Compare PDF's redline is a chunk of its own", () => {
  * chunk either way; the page's first load is unchanged (every first-load
  * chunk the same size raw, ids and hashes aside). Was 20.6; now that
  * measurement plus 5%.
+ *
+ * Review round 1 of S3 (2026-11-19, same method): 23,274 B gz (22.73 KB),
+ * +760 B for the whole-line leader rule, the list reading and Tc / Tz;
+ * inside the bound, which is unchanged. The raise from 20.6 is still the
+ * owner's to approve.
  */
 const FIND_FIELDS_FETCH_GZ_KB = 23.1;
 /*
