@@ -78,15 +78,19 @@ describe("corpus health (FATAL when it fails)", () => {
       "P1c",
       ...range("P", 2, 52),
       ...range("N", 1, 51),
+      // Slice S3 (2026-11-19): rows of dots and box symbols, from
+      // src/tests/form-detect-precision-fixtures.ts.
+      ...range("P", 53, 59),
+      ...range("N", 52, 57),
       // O8 and O9 added in review round 7 (2026-11-19): a page the reader
       // sees sideways, and a scan with an OCR text layer.
       ...range("O", 1, 9),
     ];
-    expect(expected).toHaveLength(114);
+    expect(expected).toHaveLength(127);
     expect([...DETECT_CASES.map((c) => c.id)].sort()).toEqual(expected.sort());
     for (const [k, n] of [
-      ["positive", 57],
-      ["negative", 48],
+      ["positive", 64],
+      ["negative", 54],
       ["outcome", 9],
     ] as const)
       expect(kind(k).length, k).toBe(n);

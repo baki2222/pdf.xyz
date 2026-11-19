@@ -7,13 +7,17 @@ import type { Rect, Seg } from "./form-detect-paths";
  * propose where a fillable field might go, and say why each other shape was
  * passed over.
  *
- * LIMITS, in plain words. It looks at four shapes only: a run of
+ * LIMITS, in plain words. It looks at six shapes only: a run of
  * underscores typed in the text (labelled beside it, or, alone in a ruled
  * cell, by the cell to its left), a straight line with a label near it
  * (beside it, under it, at the top of the strip it closes, or on the
  * labelled line it continues), a small empty square (labelled beside it,
- * or by its row and the head of its column), and the empty right cells of
- * a two-column table whose left cells each hold one label line. It reads
+ * or by its row and the head of its column), the empty right cells of
+ * a two-column table whose left cells each hold one label line, a row of
+ * dots typed after a label that leads to nothing on its line, and an empty
+ * box symbol (U+2610, U+25A1) typed beside its label. Box glyphs of symbol
+ * fonts that pdf.js does not read as those code points (ZapfDingbats'
+ * squares read as the letters "n" to "r") are not seen. It reads
  * only text that is
  * upright in the page's content and lines and boxes drawn in the PDF
  * itself, so it finds nothing on a scanned page (a picture of a form). It
@@ -45,6 +49,8 @@ export const DETECTION_RULES = [
   { id: "labelled-rule", plain: "blank lines next to a label" },
   { id: "square-checkbox", plain: "small empty boxes" },
   { id: "table-cell", plain: "empty cells beside a label in a table" },
+  { id: "dot-leader", plain: "dotted lines after a label" },
+  { id: "box-glyph", plain: "box symbols in the text" },
 ] as const;
 
 /** Why a shape was passed over, in the order they are decided (mostly). */
@@ -66,6 +72,8 @@ export const EXCLUSION_RULES = [
   { id: "unlabelled" },
   { id: "short-run" },
   { id: "rotated-label" },
+  { id: "toc-leader" },
+  { id: "ticked-box" },
 ] as const;
 
 export type DetectionRuleId = (typeof DETECTION_RULES)[number]["id"];
@@ -330,6 +338,50 @@ export const DETECT = {
   CAPS: { perPage: 60, perRun: 300, pages: 50 },
 } as const;
 
+/**
+ * The thresholds of the two shapes typed in the text itself (slice S3):
+ * rows of dots and box symbols. Kept apart from {@link DETECT} so its
+ * literal table stays the brief's; this one has its own literal table, and
+ * each value a boundary test, in form-detect-precision.test.ts.
+ */
+export const DETECT_TEXT_SHAPES = {
+  /**
+   * A DOT LEADER is at least this many dots: full stops, each optionally
+   * one space apart (". . . ."), or ellipses (each counts as
+   * LEADER_ELLIPSIS_DOTS). It is a blank only after a label on its line,
+   * and never when it leads to something at the line's end (a page number,
+   * a price, text, a box, starting within LEADER_ENTRY_GAP of the last
+   * dot): that is a table of contents or a price list (`toc-leader`).
+   * Text further along the line is another column, not an entry. A short
+   * one is `short-run`, as a run is.
+   */
+  LEADER_MIN_DOTS: 8,
+  LEADER_ELLIPSIS_DOTS: 3,
+  LEADER_ENTRY_GAP: 24,
+  /**
+   * A BOX SYMBOL (U+2610 or U+25A1) is drawn as a square standing on the
+   * baseline, centred in its advance. Its side is taken as the smaller of
+   * the advance and BOX_SIDE_EMS x the size: inside the drawn square on
+   * every face measured (form-detect-precision.test.ts), so the field sits
+   * on the box a reader sees, not on the character's whole em.
+   */
+  BOX_SIDE_EMS: 0.75,
+  /**
+   * A BULLETED LIST drawn with box symbols is not a checklist: at least
+   * BULLET_COLUMN_MIN boxes that each open their line, in one column
+   * (within DETECT.GRID_ROW_EPS), each followed by a sentence of at least
+   * BULLET_MIN_WORDS words (`bullet`). Short items ("Passport") are a
+   * checklist and are proposed.
+   */
+  BULLET_MIN_WORDS: 8,
+  BULLET_COLUMN_MIN: 3,
+} as const;
+
+/** Box symbols, empty: a ballot box and a white square. */
+export const EMPTY_BOXES: readonly string[] = [cp(0x2610), cp(0x25a1)];
+/** Box symbols already answered: with a tick, with a cross (`ticked-box`). */
+export const TICKED_BOXES: readonly string[] = [cp(0x2611), cp(0x2612)];
+
 /** A box in points: lower-left corner and size. */
 export interface Box {
   x: number;
@@ -360,6 +412,12 @@ export interface CardText {
   upright: boolean;
   /** pdf.js's font family, when known: places a run inside its item. */
   family?: "serif" | "sans-serif" | "monospace";
+  /**
+   * Each code point's advance in points, summing to `width`, read from the
+   * glyphs the page draws (./form-detect-glyphs), when every one is known.
+   * Places a run, a row of dots or a box symbol where it is drawn.
+   */
+  advances?: readonly number[];
 }
 
 export interface CardPage {
@@ -460,6 +518,15 @@ const isSpace = (ch: string) => /\s/.test(ch);
  */
 export function charSpans(t: CardText): [number, number][] {
   const chars = Array.from(t.str);
+  if (t.advances && t.advances.length === chars.length) {
+    const spans: [number, number][] = [];
+    let x = t.x;
+    for (const a of t.advances) {
+      spans.push([x, x + a]);
+      x += a;
+    }
+    return spans;
+  }
   const ems = DETECT.UNDERSCORE_EMS;
   const mono = t.family === "monospace";
   const known = t.family !== undefined;
@@ -500,6 +567,8 @@ export function charSpans(t: CardText): [number, number][] {
 
 interface Piece {
   kind: "text" | "run";
+  /** A text piece that is a row of dots, or one box symbol. */
+  tag?: "leader" | "box";
   x0: number;
   x1: number;
   baseline: number;
@@ -510,7 +579,45 @@ interface Piece {
   to: number;
 }
 
-/** An item split into underscore runs and the words around them. */
+const BOX_SET = new Set([...EMPTY_BOXES, ...TICKED_BOXES]);
+const isBox = (ch: string) => BOX_SET.has(ch);
+const ELLIPSIS = cp(0x2026);
+// Dots, each optionally one space from the next; counted below.
+const LEADER_RUN = new RegExp(`[.${ELLIPSIS}](?: ?[.${ELLIPSIS}])+`, "g");
+const leaderDots = (s: string) =>
+  Array.from(s).reduce(
+    (n, ch) =>
+      n +
+      (ch === "."
+        ? 1
+        : ch === ELLIPSIS
+          ? DETECT_TEXT_SHAPES.LEADER_ELLIPSIS_DOTS
+          : 0),
+    0,
+  );
+
+/** Code-point ranges [from, to) of each match of `re` in `chars`. */
+function ranges(
+  chars: readonly string[],
+  re: RegExp,
+  keep: (m: string) => boolean = () => true,
+): [number, number][] {
+  const out: [number, number][] = [];
+  const joined = chars.join("");
+  for (const m of joined.matchAll(re)) {
+    if (!keep(m[0])) continue;
+    const from = Array.from(joined.slice(0, m.index)).length;
+    out.push([from, from + Array.from(m[0]).length]);
+  }
+  return out;
+}
+
+/**
+ * An item split into underscore runs, rows of dots, box symbols and the
+ * words around them. A row of dots and a box symbol are text pieces (they
+ * block another shape's field like any text) tagged so their own rules
+ * can find them.
+ */
 function pieces(t: CardText, item: number): Piece[] {
   const chars = Array.from(t.str);
   if (!t.upright) {
@@ -531,29 +638,47 @@ function pieces(t: CardText, item: number): Piece[] {
   }
   const spans = charSpans(t);
   const out: Piece[] = [];
-  const runs: [number, number][] = [];
-  const joined = chars.join("");
-  // Code-point offsets of each underscore run.
-  for (const m of joined.matchAll(UNDERSCORE_RUN)) {
-    const from = Array.from(joined.slice(0, m.index)).length;
-    runs.push([from, from + Array.from(m[0]).length]);
-  }
-  const inRun = (i: number) => runs.some(([a, b]) => i >= a && i < b);
+  // Code-point offsets of each special range, by where it starts.
+  const special = new Map<
+    number,
+    { to: number; kind: Piece["kind"]; tag?: Piece["tag"] }
+  >();
+  for (const [a, b] of ranges(chars, UNDERSCORE_RUN))
+    special.set(a, { to: b, kind: "run" });
+  for (const [a, b] of ranges(
+    chars,
+    LEADER_RUN,
+    (m) => leaderDots(m) >= DETECT_TEXT_SHAPES.LEADER_MIN_DOTS,
+  ))
+    special.set(a, { to: b, kind: "text", tag: "leader" });
+  chars.forEach((ch, i) => {
+    if (isBox(ch)) special.set(i, { to: i + 1, kind: "text", tag: "box" });
+  });
+  const inSpecial = new Array<boolean>(chars.length).fill(false);
+  for (const [a, r] of special)
+    for (let k = a; k < r.to; k++) inSpecial[k] = true;
+  const piece = (
+    from: number,
+    to: number,
+    kind: Piece["kind"],
+    tag?: Piece["tag"],
+  ): Piece => ({
+    kind,
+    ...(tag ? { tag } : {}),
+    x0: spans[from]![0],
+    x1: spans[to - 1]![1],
+    baseline: t.y,
+    size: t.size,
+    item,
+    from,
+    to,
+  });
   let i = 0;
   while (i < chars.length) {
-    const run = runs.find(([a]) => a === i);
-    if (run) {
-      out.push({
-        kind: "run",
-        x0: spans[run[0]]![0],
-        x1: spans[run[1] - 1]![1],
-        baseline: t.y,
-        size: t.size,
-        item,
-        from: run[0],
-        to: run[1],
-      });
-      i = run[1];
+    const r = special.get(i);
+    if (r) {
+      out.push(piece(i, r.to, r.kind, r.tag));
+      i = r.to;
       continue;
     }
     if (isSpace(chars[i]!)) {
@@ -561,17 +686,8 @@ function pieces(t: CardText, item: number): Piece[] {
       continue;
     }
     let j = i;
-    while (j < chars.length && !isSpace(chars[j]!) && !inRun(j)) j++;
-    out.push({
-      kind: "text",
-      x0: spans[i]![0],
-      x1: spans[j - 1]![1],
-      baseline: t.y,
-      size: t.size,
-      item,
-      from: i,
-      to: j,
-    });
+    while (j < chars.length && !isSpace(chars[j]!) && !inSpecial[j]) j++;
+    out.push(piece(i, j, "text"));
     i = j;
   }
   return out;
@@ -580,6 +696,7 @@ function pieces(t: CardText, item: number): Piece[] {
 const TRAILING = /[\s:.\-\u2013\u2014]/u;
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
 const LETTER = /\p{L}/u;
+const WORD = /[\p{L}\p{N}]+/gu;
 /** An item code ("A1", "12a"): one word of letters and digits, a digit in it. */
 const ITEM_CODE = /^(?=.*\p{N})[\p{L}\p{N}]+$/u;
 
@@ -900,6 +1017,13 @@ interface Candidate {
   order: number;
   /** A square labelled by its checkbox grid ({@link gridLabels}): no comb. */
   gridCell?: boolean;
+  /**
+   * A row of dots that leads to something at its line's end (a page
+   * number, a price, text, a box): `toc-leader`.
+   */
+  leadsTo?: boolean;
+  /** A box symbol: answered, one of a row of character boxes, a bullet. */
+  glyph?: { ticked: boolean; comb: boolean; bullet: boolean };
 }
 
 const clamp = (v: number, lo: number, hi: number) =>
@@ -1850,6 +1974,297 @@ function runCandidates(
     });
   });
   return { cands, short };
+}
+
+/** Each item's pieces, in order, in one pass over the page's pieces. */
+function piecesByItem(all: readonly Piece[]): Map<number, Piece[]> {
+  const byItem = new Map<number, Piece[]>();
+  for (const pc of all) {
+    const list = byItem.get(pc.item);
+    if (list) list.push(pc);
+    else byItem.set(pc.item, [pc]);
+  }
+  return byItem;
+}
+
+/**
+ * Rows of dots typed after a label ("Name ............"): a text field over
+ * the dots, as for a run of underscores. The label is the text before the
+ * dots in the same item (back to the previous run or row of dots), else the
+ * nearest upright item ending within {@link DETECT.LABEL_LEFT_GAP} to their
+ * left on their baseline. A row with nothing before it is `unlabelled`.
+ *
+ * What follows the dots decides whether they are a blank at all. Text
+ * after them in their item, or the nearest upright item or drawn square
+ * starting within {@link DETECT_TEXT_SHAPES.LEADER_ENTRY_GAP} to their
+ * right on their baseline, is what they LEAD TO ("Chapter 3 ........ 47",
+ * "Coffee ........ $3.00", "Helpful ...... []"), and they are `toc-leader`,
+ * unless that text is itself followed by dots or a run: then it is the
+ * next blank's label ("Name ........ Date ........", two blanks).
+ */
+function leaderCandidates(
+  p: CardPage,
+  byItem: ReadonlyMap<number, Piece[]>,
+  ix: TextIndex,
+  squares: YIndex<CardRect>,
+): { cands: Candidate[]; short: Edges[] } {
+  const cands: Candidate[] = [];
+  const short: Edges[] = [];
+  const itemOf = new Map(p.text.map((t, i) => [t, i]));
+  const hasLeader = (t: CardText) =>
+    (byItem.get(itemOf.get(t)!) ?? []).some((q) => q.tag === "leader");
+  p.text.forEach((t, item) => {
+    if (!t.upright) return;
+    const mine = byItem.get(item) ?? [];
+    if (!mine.some((q) => q.tag === "leader")) return;
+    const chars = Array.from(t.str);
+    mine.forEach((pc, k) => {
+      if (pc.tag !== "leader") return;
+      const x0 = pc.x0 + DETECT.FIELD_INSET;
+      const x1 = pc.x1 - DETECT.FIELD_INSET;
+      const bottom = t.y - DETECT.RUN_BOTTOM_EMS * t.size;
+      const box = {
+        x0,
+        x1,
+        y0: bottom,
+        y1: bottom + textHeight(t.size, DETECT.TEXT_H_RUN),
+      };
+      if (x1 - x0 < DETECT.MIN_FIELD_W) {
+        short.push(box);
+        return;
+      }
+      const lo = t.y - DETECT.RUN_BASELINE_EMS * t.size;
+      const hi = t.y + DETECT.RUN_BASELINE_EMS * t.size;
+      // The label: back to the previous run or row of dots in the item.
+      const prev = mine
+        .slice(0, k)
+        .reverse()
+        .find((q) => q.kind === "run" || q.tag === "leader");
+      let label = cleanLabel(chars.slice(prev ? prev.to : 0, pc.from).join(""));
+      let state: Candidate["labelState"] = label ? "found" : "none";
+      if (!label && !prev) {
+        const pick = pickLabel(
+          leftOf(
+            textBand(ix, lo, hi).filter((o) => o !== t),
+            pc.x0,
+            DETECT.LABEL_LEFT_GAP,
+            lo,
+            () => hi,
+          ),
+        );
+        label = pick.label;
+        state = pick.state;
+      }
+      // What the dots lead to.
+      const next = mine
+        .slice(k + 1)
+        .find((q) => q.kind === "run" || q.tag === "leader");
+      const after = chars
+        .slice(pc.to, next ? next.from : chars.length)
+        .join("");
+      let leadsTo: boolean;
+      if (after.trim()) leadsTo = next === undefined;
+      else if (next) leadsTo = false;
+      else {
+        const reach = pc.x1 + DETECT_TEXT_SHAPES.LEADER_ENTRY_GAP;
+        let nearest: { x: number; leader: boolean } | null = null;
+        for (const o of textBand(ix, lo, hi)) {
+          if (o === t || !o.upright || o.x < pc.x1 - 1 || o.x > reach) continue;
+          if (!nearest || o.x < nearest.x)
+            nearest = { x: o.x, leader: hasLeader(o) };
+        }
+        // Squares standing across the baseline band, by their bottoms.
+        for (const sq of ySlice(squares, lo - DETECT.SQUARE_MAX, hi)) {
+          if (sq.x0 < pc.x1 - 1 || sq.x0 > reach || sq.y1 < lo) continue;
+          if (!nearest || sq.x0 < nearest.x)
+            nearest = { x: sq.x0, leader: false };
+        }
+        leadsTo = nearest !== null && !nearest.leader;
+      }
+      cands.push({
+        rule: "dot-leader",
+        type: "text",
+        box,
+        line: { x0: pc.x0, x1: pc.x1, y: t.y },
+        square: null,
+        label,
+        labelState: state,
+        leftLabel: state === "found",
+        ownPiece: pc,
+        order: 0,
+        leadsTo,
+      });
+    });
+  });
+  return { cands, short };
+}
+
+/**
+ * Box symbols typed in the text ("[] Yes", "Male [] Female []"): a
+ * checkbox over the square a reader sees, which stands on the baseline,
+ * centred in the symbol's advance, its side the smaller of the advance and
+ * {@link DETECT_TEXT_SHAPES.BOX_SIDE_EMS} x the size, inset as a drawn
+ * square's is.
+ *
+ * Its label is the text beside it, in its item (up to the next box, row of
+ * dots or run) or the nearest upright item within
+ * {@link DETECT.LABEL_LEFT_GAP} on its baseline. The boxes of one line read
+ * one side together: the LEFT when every box has its own text to its left
+ * and the last box none to its right ("Yes [] No []"), else the right
+ * ("[] Yes [] No", "Sex: [] Male [] Female"), a box with nothing on the
+ * side read taking the other.
+ *
+ * Passed over: a box already ticked or crossed (`ticked-box`); boxes typed
+ * next to each other, one character each (`comb`); and a BULLETED LIST
+ * drawn with them (`bullet`, see {@link DETECT_TEXT_SHAPES}).
+ */
+function boxCandidates(
+  p: CardPage,
+  byItem: ReadonlyMap<number, Piece[]>,
+  ix: TextIndex,
+): Candidate[] {
+  type Side = { label: string | null; state: Candidate["labelState"] };
+  type Found = {
+    c: Candidate;
+    t: CardText;
+    left: Side;
+    right: Side;
+    opensLine: boolean;
+    words: number;
+  };
+  const found: Found[] = [];
+  const stop = (q: Piece) => q.kind === "run" || q.tag !== undefined;
+  p.text.forEach((t, item) => {
+    if (!t.upright) return;
+    const mine = byItem.get(item) ?? [];
+    if (!mine.some((q) => q.tag === "box")) return;
+    const chars = Array.from(t.str);
+    const lo = t.y - DETECT.RUN_BASELINE_EMS * t.size;
+    const hi = t.y + DETECT.RUN_BASELINE_EMS * t.size;
+    const band = textBand(ix, lo, hi).filter((o) => o !== t && o.upright);
+    mine.forEach((pc, k) => {
+      if (pc.tag !== "box") return;
+      const ch = chars[pc.from]!;
+      const prev = mine.slice(0, k).reverse().find(stop);
+      const next = mine.slice(k + 1).find(stop);
+      const before = chars.slice(prev ? prev.to : 0, pc.from).join("");
+      const after = chars
+        .slice(pc.to, next ? next.from : chars.length)
+        .join("");
+      let left: Side = { label: cleanLabel(before), state: "none" };
+      if (left.label) left.state = "found";
+      else if (!prev && !before.trim())
+        left = pickLabel(
+          leftOf(band, pc.x0, DETECT.LABEL_LEFT_GAP, lo, () => hi),
+        );
+      let right: Side = { label: cleanLabel(after), state: "none" };
+      if (right.label) right.state = "found";
+      else if (!next && !after.trim()) {
+        const hits: LabelHit[] = [];
+        for (const o of band) {
+          const gap = o.x - pc.x1;
+          if (gap < -1 || gap > DETECT.LABEL_LEFT_GAP) continue;
+          const str = cleanLabel(o.str);
+          if (str) hits.push({ text: o, str });
+        }
+        hits.sort((a, b) => a.text.x - b.text.x);
+        right = pickLabel(hits);
+      }
+      // Opens its line: nothing before it in its item, and no upright text
+      // ending to its left on its baseline.
+      const opensLine =
+        !before.trim() &&
+        !prev &&
+        !band.some((o) => o.x + Math.max(0, o.width) <= pc.x0 + 1);
+      const side = Math.min(
+        pc.x1 - pc.x0,
+        DETECT_TEXT_SHAPES.BOX_SIDE_EMS * t.size,
+      );
+      const inner = side - 2 * DETECT.SQUARE_INSET;
+      const x0 = (pc.x0 + pc.x1) / 2 - inner / 2;
+      const y0 = t.y + DETECT.SQUARE_INSET;
+      const isBoxAt = (i: number) =>
+        i >= 0 && i < chars.length && isBox(chars[i]!);
+      found.push({
+        c: {
+          rule: "box-glyph",
+          type: "checkbox",
+          box: { x0, y0, x1: x0 + inner, y1: y0 + inner },
+          line: null,
+          square: null,
+          label: null,
+          labelState: "none",
+          leftLabel: false,
+          ownPiece: pc,
+          order: 0,
+          glyph: {
+            ticked: TICKED_BOXES.includes(ch),
+            comb: isBoxAt(pc.from - 1) || isBoxAt(pc.to),
+            bullet: false,
+          },
+        },
+        t,
+        left,
+        right,
+        opensLine,
+        words:
+          right.state === "found" ? (right.label!.match(WORD) ?? []).length : 0,
+      });
+    });
+  });
+  // One side per line: boxes whose baselines are within GRID_ROW_EPS of
+  // the line's first.
+  const byLine = [...found].sort(
+    (a, b) => a.t.y - b.t.y || a.c.box.x0 - b.c.box.x0,
+  );
+  for (let i = 0; i < byLine.length;) {
+    let j = i + 1;
+    while (
+      j < byLine.length &&
+      byLine[j]!.t.y - byLine[i]!.t.y <= DETECT.GRID_ROW_EPS
+    )
+      j++;
+    const row = byLine.slice(i, j).sort((a, b) => a.c.box.x0 - b.c.box.x0);
+    const lefts = row.map((f) => f.left.label);
+    const readLeft =
+      row.every((f) => f.left.state === "found") &&
+      new Set(lefts).size === lefts.length &&
+      row[row.length - 1]!.right.state !== "found";
+    for (const f of row) {
+      const [a, b] = readLeft ? [f.left, f.right] : [f.right, f.left];
+      const pick =
+        a.state === "found"
+          ? a
+          : b.state === "found"
+            ? b
+            : a.state === "rotated"
+              ? a
+              : b;
+      f.c.label = pick.label;
+      f.c.labelState = pick.state;
+    }
+    i = j;
+  }
+  // A bulleted list: BULLET_COLUMN_MIN boxes opening their lines in one
+  // column (within GRID_ROW_EPS of the column's first), each before a
+  // sentence of BULLET_MIN_WORDS words.
+  const bullets = found
+    .filter(
+      (f) => f.opensLine && f.words >= DETECT_TEXT_SHAPES.BULLET_MIN_WORDS,
+    )
+    .sort((a, b) => a.c.box.x0 - b.c.box.x0);
+  for (let i = 0; i < bullets.length;) {
+    let j = i + 1;
+    while (
+      j < bullets.length &&
+      bullets[j]!.c.box.x0 - bullets[i]!.c.box.x0 <= DETECT.GRID_ROW_EPS
+    )
+      j++;
+    if (j - i >= DETECT_TEXT_SHAPES.BULLET_COLUMN_MIN)
+      for (let k = i; k < j; k++) bullets[k]!.c.glyph!.bullet = true;
+    i = j;
+  }
+  return found.map((f) => f.c);
 }
 
 /**
@@ -2841,8 +3256,9 @@ function roundEdges(e: Edges): Edges {
  *  1. the shape itself (`short-run`)
  *  2. the label search
  *  3. `signature`
- *  4. `underline`, `full-width-divider`, `page-band`, `table-grid`, `comb`,
- *     `bullet`, then `unlabelled` / `rotated-label`
+ *  4. `toc-leader` (rows of dots), `ticked-box`, `comb` and `bullet` (box
+ *     symbols), then `underline`, `full-width-divider`, `page-band`,
+ *     `table-grid`, `comb`, `bullet`, then `unlabelled` / `rotated-label`
  *  5. `overlaps-text`
  *  6. `existing-field`, `existing-draft`
  *  7. `duplicate`
@@ -2878,21 +3294,40 @@ export function classifyPage(
   const tix = textIndex(p.text);
   const runs = runCandidates(p, all, tix);
   cellRunLabels(tix, lines, pix, runs.cands);
+  // The shapes typed in the text (slice S3), after the others, so the
+  // others keep their order (`duplicate` keeps the first).
+  const byItem = piecesByItem(all);
+  const leaders = leaderCandidates(
+    p,
+    byItem,
+    tix,
+    yIndex(
+      lines.squares,
+      (s) => s.y0,
+      (s) => s.y1 - s.y0,
+    ),
+  );
   const cands = [
     ...ruleCandidates(p, lines, rowTable),
     ...runs.cands,
     ...squareCandidates(p, lines),
     ...tableCells(tix, lines),
+    ...leaders.cands,
+    ...boxCandidates(p, byItem, tix),
   ];
   cands.forEach((c, i) => (c.order = i));
-  counts.candidates = cands.length + runs.short.length;
+  counts.candidates = cands.length + runs.short.length + leaders.short.length;
 
-  // 1. The shape: runs too short to hold a field.
-  for (const box of runs.short)
+  // 1. The shape: runs and rows of dots too short to hold a field.
+  const shorts = [
+    ...runs.short.map((box) => ({ box, rule: "underscore-run" as const })),
+    ...leaders.short.map((box) => ({ box, rule: "dot-leader" as const })),
+  ];
+  for (const { box, rule } of shorts)
     if (on("short-run")) exclude("short-run", box);
     else
       cands.push({
-        rule: "underscore-run",
+        rule,
         type: "text",
         box,
         line: { x0: box.x0, x1: box.x1, y: box.y0 },
@@ -2949,7 +3384,26 @@ export function classifyPage(
       exclude("signature", c.box);
       continue;
     }
-    // 4. Shapes that are not fields.
+    // 4. Shapes that are not fields: dots that lead to an entry, a box
+    // already answered, character boxes, a bulleted list.
+    if (c.leadsTo && on("toc-leader")) {
+      exclude("toc-leader", c.box);
+      continue;
+    }
+    if (c.glyph) {
+      if (c.glyph.ticked && on("ticked-box")) {
+        exclude("ticked-box", c.box);
+        continue;
+      }
+      if (c.glyph.comb && on("comb")) {
+        exclude("comb", c.box);
+        continue;
+      }
+      if (c.glyph.bullet && on("bullet")) {
+        exclude("bullet", c.box);
+        continue;
+      }
+    }
     if (c.line && c.rule === "labelled-rule") {
       const line = c.line;
       const len = line.x1 - line.x0;

@@ -135,9 +135,10 @@ describe("rule tables", () => {
     const ids = [...DETECTION_RULES, ...EXCLUSION_RULES].map((r) => r.id);
     expect(new Set(ids).size).toBe(ids.length);
     // 3 until review round 4 added table-cell (the owner's decision on the
-    // Word-style two-column table, round 3's finding 9).
-    expect(DETECTION_RULES).toHaveLength(4);
-    expect(EXCLUSION_RULES).toHaveLength(17);
+    // Word-style two-column table, round 3's finding 9); 4 and 17 until
+    // slice S3 added dot-leader, box-glyph, toc-leader and ticked-box.
+    expect(DETECTION_RULES).toHaveLength(6);
+    expect(EXCLUSION_RULES).toHaveLength(19);
   });
 
   // The independent second bound on every threshold (CLAUDE.md, guards
