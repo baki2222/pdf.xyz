@@ -14,6 +14,10 @@
 import { describe, expect, it } from "vitest";
 import { getToolBySlug } from "@/lib/tools";
 import { CREATE_FORMS_EDIT_PDF } from "./create-forms-runner";
+import {
+  CREATE_FORMS_DETECT_EDIT_PDF,
+  CREATE_FORMS_SIGN_PDF,
+} from "./create-forms-detect";
 import { EDIT_RUNNER_LINKED_TOOLS } from "./edit-runner";
 import { PAGE_SELECT_TOOLS } from "./page-select-runner";
 
@@ -23,6 +27,10 @@ const pinned: [string, string][] = [
   ),
   ...Object.entries(EDIT_RUNNER_LINKED_TOOLS),
   [CREATE_FORMS_EDIT_PDF.slug, CREATE_FORMS_EDIT_PDF.name],
+  // Find fields' skipped-signature-lines line (S2, 2026-11-18).
+  [CREATE_FORMS_SIGN_PDF.slug, CREATE_FORMS_SIGN_PDF.name],
+  // ...and its Edit PDF link (review round 7).
+  [CREATE_FORMS_DETECT_EDIT_PDF.slug, CREATE_FORMS_DETECT_EDIT_PDF.name],
 ];
 
 /** Each pinned name that is not the catalogue's, with what the catalogue says. */
@@ -35,7 +43,7 @@ const stale = (rows: readonly [string, string][]) =>
 
 describe("the names runners print are the catalogue's", () => {
   it("health check: every pinned row is read", () => {
-    expect(pinned.length).toBe(4);
+    expect(pinned.length).toBe(6);
   });
 
   it("every pinned name equals the catalogue's", () => {

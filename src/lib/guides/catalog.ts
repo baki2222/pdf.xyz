@@ -1834,6 +1834,7 @@ export const guides: Guide[] = [
       "Open the Create Fillable Forms tool and pick the PDF you want to make fillable — it stays on your device.",
       "Choose the field type you need: text, checkbox, dropdown, radio, or list — the five field types the builder supports.",
       "Place the field by position on the page, right where the answer belongs — a text field over a blank answer line, a checkbox beside each item.",
+      "Or press Find fields to have fields suggested, then check each suggestion and add the ones that are right — nothing is added until you add it.",
       "Repeat for every answer the form collects, mixing field types as the document calls for: radio groups where exactly one choice applies, dropdowns and lists where the answers are known in advance.",
       "Run the tool in your browser to build the fields into the PDF as a real AcroForm.",
       "Save the finished fillable PDF to your device — it is ready to send out and reuse.",
@@ -1861,7 +1862,7 @@ export const guides: Guide[] = [
         body: [
           "The tool accepts a PDF and produces a PDF — specifically a reusable, fillable AcroForm document. The tool is in beta — the five field types above are the supported set. Because the fields are genuine form fields rather than flat marks on the page, one saved copy can be distributed and completed over and over, with each person entering their own answers.",
           `Each PDF can be up to ${ceilingMb("create-forms")} MB. When it is time to complete the form, the Fill Forms tool handles the other half of the job: it fills a PDF's existing AcroForm fields — text, checkboxes, radio buttons, dropdowns, and lists — right in the browser. And when a form needs a signature to finish it, the Sign PDF tool adds one.`,
-          `Each field is placed by the numbers on its card, which you can type or set on a preview of the page: click where the field's bottom-left corner belongs, drag its box, or nudge it with the arrow keys. To add an empty signature field for someone to sign later, use ${nameOf("edit-pdf")}: the tools in its ${EDITOR_FORMS_GROUP} group drag out text fields, checkboxes, dropdowns, radio groups and signature fields, saved as real form fields, also in your browser.`,
+          `Each field is placed by the numbers on its card, which you can type or set on a preview of the page: click where the field's bottom-left corner belongs, drag its box, or nudge it with the arrow keys; a suggestion from Find fields only fills them in, once you check it and add it. Find fields can miss a field or suggest a wrong one, and it does not search a page that is only a picture, such as a scan with no text in it, so check the page as well before you add the rest by hand. To add an empty signature field for someone to sign later, use ${nameOf("edit-pdf")}: the tools in its ${EDITOR_FORMS_GROUP} group drag out text fields, checkboxes, dropdowns, radio groups and signature fields, saved as real form fields, also in your browser.`,
         ],
       },
     ],
@@ -1891,7 +1892,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-17",
+    updated: "2026-11-18",
   },
   {
     slug: "how-to-fill-out-a-pdf-form",

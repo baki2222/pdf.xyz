@@ -11,7 +11,9 @@ import {
   rectangle,
   rgb,
   setLineWidth,
+  setTextRenderingMode,
   stroke,
+  TextRenderingMode,
   type PDFFont,
   type PDFPage,
 } from "pdf-lib";
@@ -181,6 +183,31 @@ export function turned90(b: Box, crop: Box): Box {
     height: b.width,
   };
 }
+
+/** The inverse of {@link turned90}: a card-frame box back in content space. */
+export function unturned90(b: Box, crop: Box): Box {
+  return {
+    x: crop.x + crop.width - (b.y + b.height),
+    y: b.x + crop.y,
+    width: b.height,
+    height: b.width,
+  };
+}
+
+/**
+ * The `cm` that counter-turns a /Rotate 90 page whose visible box is `crop`,
+ * so what is drawn after it at (x, y) shows upright at card (x, y): a
+ * landscape page made the common way.
+ */
+function counterTurn90(page: PDFPage, crop: Box) {
+  page.pushOperators(
+    pushGraphicsState(),
+    concatTransformationMatrix(0, 1, -1, 0, crop.x + crop.width, crop.y),
+  );
+}
+
+/** Where P10 draws on its turned page 2, in its own (= card) frame. */
+export const P10_LOCAL = { nameY: 380 };
 
 /* ------------------------------------------------------------------ *
  *  Drawing
@@ -795,6 +822,20 @@ function captionedExpect(captions: string[]): Expect[] {
 }
 
 const P10_CROP: Box = { x: 36, y: 48, width: 540, height: 696 };
+/** O7's labels and where they sit, in its own (= card) frame: [label, x, y]. */
+const O7_LINES: [string, number, number][] = [
+  "Name",
+  "Address",
+  "City",
+  "Phone",
+].flatMap((s, i) =>
+  [72, 420].map((x) => [s, x, 500 - 40 * i] as [string, number, number]),
+);
+/** O9's invisible labelled runs: [label, baseline]. */
+const O9_LINES: [string, number][] = [
+  ["Name", 600],
+  ["Date of birth", 560],
+];
 const N19_CROP = { x: 0, y: 0, width: 400, height: 792 };
 const N10 = { x: 100, y: 300, w: 400, h: 120 };
 const PRENOM = `Pr${String.fromCodePoint(0xe9)}nom`;
@@ -1065,7 +1106,12 @@ export const DETECT_CASES: readonly DetectCase[] = [
   {
     id: "P10",
     kind: "positive",
-    note: "P1a on page 1; P1a and P7 on a /Rotate 90 page 2 with an inset crop",
+    // Until review round 7 (2026-11-19) page 2 was drawn upright in
+    // CONTENT space, so the reader saw it sideways, and this case required
+    // it to be searched: its fields' typed text then ran across the printed
+    // line. Page 2 is now a landscape page made the common way (counter-
+    // turned, upright on screen); the sideways page is O8.
+    note: "P1a on page 1; P1a and P7 on a /Rotate 90 page 2 with an inset crop, drawn counter-turned so it shows upright",
     build: async () => {
       const d = await doc();
       const f = H;
@@ -1078,8 +1124,10 @@ export const DETECT_CASES: readonly DetectCase[] = [
         P10_CROP.height,
       );
       second.setRotation(degrees(90));
-      await nameRun(second, f, 72, 700);
+      counterTurn90(second, P10_CROP);
+      await nameRun(second, f, 72, P10_LOCAL.nameY);
       await optionSquares(second, f);
+      second.pushOperators(popGraphicsState());
       return save(d);
     },
     expect: [
@@ -1095,9 +1143,9 @@ export const DETECT_CASES: readonly DetectCase[] = [
         type: "text",
         label: "Name",
         page: 2,
-        box: turned90(runBox(H, 72, 700, 12, "Name: ", UNDERSCORES), P10_CROP),
+        box: runBox(H, 72, P10_LOCAL.nameY, 12, "Name: ", UNDERSCORES),
       },
-      ...optionExpect(2, (b) => turned90(b, P10_CROP)),
+      ...optionExpect(2),
     ],
   },
   {
@@ -3371,7 +3419,7 @@ export const DETECT_CASES: readonly DetectCase[] = [
   {
     id: "O7",
     kind: "outcome",
-    note: "a landscape form made the common way: a portrait page, /Rotate 90, the content counter-turned with `cm` (upright on screen, turned in the content)",
+    note: "a landscape form made the common way: a portrait page, /Rotate 90, the content counter-turned with `cm` (upright on screen, turned in the content): searched",
     build: async () => {
       const d = await doc();
       const page = d.addPage(LETTER);
@@ -3380,17 +3428,80 @@ export const DETECT_CASES: readonly DetectCase[] = [
         pushGraphicsState(),
         concatTransformationMatrix(0, 1, -1, 0, 612, 0),
       );
-      for (const [i, s] of ["Name:", "Address:", "City:", "Phone:"].entries())
-        for (const x of [72, 420]) {
-          await text(page, H, s, x, 500 - 40 * i, 11);
-          rule(page, x + 60, x + 300, 500 - 40 * i, 0.5);
-        }
+      for (const [s, x, y] of O7_LINES) {
+        await text(page, H, `${s}:`, x, y, 11);
+        rule(page, x + 60, x + 300, y, 0.5);
+      }
       page.pushOperators(popGraphicsState());
       return save(d);
     },
+    // Inverted in review round 7 (2026-11-19). This case required
+    // "turned-content", and the summary then told the person "Page 1 is
+    // drawn on its side" about a page their preview showed upright: the
+    // reader classified content space. It classifies what the reader sees
+    // now, where these labels are upright beside plumb lines.
+    expect: O7_LINES.map(([label, x, y]) => ({
+      rule: "labelled-rule" as const,
+      type: "text" as const,
+      label,
+      page: 1,
+      box: ruleBox(x + 60, x + 300, y, 11),
+    })),
+    outcome: "found",
+  },
+  {
+    id: "O8",
+    kind: "outcome",
+    note: "a /Rotate 90 page drawn upright in CONTENT space, so the reader sees its labels sideways (P10's page 2 until review round 7)",
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      page.setCropBox(P10_CROP.x, P10_CROP.y, P10_CROP.width, P10_CROP.height);
+      page.setRotation(degrees(90));
+      await nameRun(page, H, 72, 700);
+      await optionSquares(page, H);
+      return save(d);
+    },
+    // Never "found": a field there takes its typed text upright on screen,
+    // across a line the reader sees running up the page. Never
+    // "no-candidates" either: that reads as "this page has no fields".
     expect: "none",
-    // Never "no-candidates": that reads as "this page has no fields".
     outcome: "turned-content",
+  },
+  {
+    id: "O9",
+    kind: "outcome",
+    note: "a scan with a text layer, as OCR writes one: O1's full-page picture with invisible labels and underscores over it",
+    build: async () => {
+      const d = await doc();
+      const page = d.addPage(LETTER);
+      const img = await embedRasterImage(d, PNG_1PX, "png");
+      await drawRasterImage(page, img, {
+        x: 0,
+        y: 0,
+        width: LETTER[0],
+        height: LETTER[1],
+      });
+      page.pushOperators(
+        pushGraphicsState(),
+        setTextRenderingMode(TextRenderingMode.Invisible),
+      );
+      for (const [label, y] of O9_LINES)
+        await text(page, H, `${label}: ${UNDERSCORES}`, 72, y);
+      page.pushOperators(popGraphicsState());
+      return save(d);
+    },
+    // Searched: "a scanned page is not searched" was false of exactly this
+    // page (review round 7); the copy guard binds its sentence to O1 AND
+    // here.
+    expect: O9_LINES.map(([label, y]) => ({
+      rule: "underscore-run" as const,
+      type: "text" as const,
+      label,
+      page: 1,
+      box: runBox(H, 72, y, 12, `${label}: `, UNDERSCORES),
+    })),
+    outcome: "found",
   },
 ];
 

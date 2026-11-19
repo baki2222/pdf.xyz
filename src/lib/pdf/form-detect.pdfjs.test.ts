@@ -13,20 +13,24 @@ import {
   damagedBytes,
   legacyPdfjs,
   matches,
+  P10_LOCAL,
   runBox,
   runCase,
   ruleBox,
   squareBox,
   textWidth,
   unexplained,
+  unturned90,
   type DetectCase,
   type Expect,
 } from "@/tests/form-detect-fixtures";
 import {
+  cardMatrix,
   detectFormFields,
   textItemToCard,
   toCard,
-  turnedUpright,
+  turnedOnScreen,
+  type ViewportLike,
 } from "./form-detect-read";
 import { contentBoxToRect } from "./redact-find";
 import { viewerFrame } from "./page-frame";
@@ -80,6 +84,39 @@ describe("what the reader counts", () => {
     const run = await runCase(byId("O5"));
     expect(run.report.pages).toHaveLength(55);
     expect(run.report.counts.pagesNotSearched).toBe(5);
+  }, 60_000);
+
+  // Review round 7: pages the run cap emptied read as "no-candidates", so
+  // the summary said "Nothing was suggested on pages 40 to 50" of pages
+  // just like the ones before them, and the cap line named no page.
+  it("CAPS.perRun: a page the run cap emptied is 'capped', never 'no-candidates', and each page says how many it lost", async () => {
+    const d = await PDFDocument.create();
+    const f = await d.embedFont(StandardFonts.Helvetica);
+    for (let n = 0; n < 8; n++) {
+      const page = d.addPage([612, 792]);
+      for (let k = 0; k < 51; k++)
+        page.drawText(`Field: ____________`, {
+          x: 72,
+          y: 70 + 13 * k,
+          size: 10,
+          font: f,
+        });
+    }
+    const report = await detectFormFields(await d.save(), {
+      loadReader: legacyPdfjs,
+    });
+    expect(
+      report.pages.map((p) => [
+        p.outcome,
+        "leftOut" in p ? (p.leftOut ?? 0) : 0,
+      ]),
+    ).toEqual([
+      ...Array.from({ length: 5 }, () => ["found", 0]),
+      ["found", 6],
+      ["capped", 51],
+      ["capped", 51],
+    ]);
+    expect(report.counts.capped).toBe(108);
   }, 60_000);
 
   it("CAPS.perRun: 300 proposals a run, the rest counted", async () => {
@@ -214,40 +251,80 @@ describe("O2's bytes really are damaged (precondition)", () => {
 // content counter-turned with `cm`) read as "no-candidates", which says "no
 // fields here": its lines are plumb and its labels not upright in content
 // space, so nothing was a candidate, and nothing counted the miss (review
-// finding; corpus O7).
-describe("turnedUpright: text upright only because the page is turned", () => {
+// finding; corpus O7). The fix then counted it as "turned-content", which
+// told the person "drawn on its side" about a page they saw upright, while
+// a page they DID see sideways (P10's old page 2) was searched and given
+// fields whose typed text crossed the printed line (review round 7,
+// 2026-11-19). The reader now classifies the page as the reader sees it;
+// `turnedUpright` (content turned BY the page's turn) became
+// `turnedOnScreen` (content upright in the file, turned on screen).
+describe("turnedOnScreen: upright in the file, turned for the reader", () => {
   const item = (t: number[]) => ({ str: "Name:", transform: t, width: 30 });
-  it("baseline at the page's turn, counter-clockwise in content space", () => {
-    expect(turnedUpright(item([0, 11, -11, 0, 112, 72]), 90)).toBe(true);
-    expect(turnedUpright(item([-11, 0, 0, -11, 500, 700]), 180)).toBe(true);
-    expect(turnedUpright(item([0, -11, 11, 0, 500, 700]), 270)).toBe(true);
-    expect(turnedUpright(item([0, 11, -11, 0, 112, 72]), -270)).toBe(true);
+  /** The card matrix of a 612 x 792 page at `rotate`, from pdf.js's own viewport maths. */
+  const at = (rotate: number): ViewportLike => {
+    const r = ((rotate % 360) + 360) % 360;
+    const [W, H] = r % 180 === 0 ? [612, 792] : [792, 612];
+    // Content (x, y) to viewport (y down), as PageViewport does it.
+    const conv = (x: number, y: number): number[] =>
+      r === 0
+        ? [x, 792 - y]
+        : r === 90
+          ? [y, x]
+          : r === 180
+            ? [612 - x, y]
+            : [792 - y, 612 - x];
+    return { width: W, height: H, convertToViewportPoint: conv };
+  };
+  it("upright content on a turned page is turned on screen", () => {
+    for (const r of [90, 180, 270])
+      expect(
+        turnedOnScreen(item([11, 0, 0, 11, 72, 600]), cardMatrix(at(r))),
+        `${r}`,
+      ).toBe(true);
   });
-  it("not when the page is not turned, or the text is turned another way", () => {
-    expect(turnedUpright(item([0, 11, -11, 0, 112, 72]), 0)).toBe(false);
-    expect(turnedUpright(item([11, 0, 0, 11, 72, 600]), 90)).toBe(false);
-    expect(turnedUpright(item([0, -11, 11, 0, 500, 700]), 90)).toBe(false);
-    // Mirrored (up points the wrong way) and vertical writing.
-    expect(turnedUpright(item([0, 11, 11, 0, 112, 72]), 90)).toBe(false);
+  it("not on an unturned page, nor content counter-turned to show upright, nor content never upright", () => {
     expect(
-      turnedUpright({ ...item([0, 11, -11, 0, 112, 72]), dir: "ttb" }, 90),
+      turnedOnScreen(item([11, 0, 0, 11, 72, 600]), cardMatrix(at(0))),
     ).toBe(false);
     expect(
-      turnedUpright({ str: " ", transform: [0, 11, -11, 0, 0, 0] }, 90),
+      turnedOnScreen(item([0, 11, -11, 0, 112, 72]), cardMatrix(at(90))),
+    ).toBe(false);
+    expect(
+      turnedOnScreen(item([-11, 0, 0, -11, 500, 700]), cardMatrix(at(180))),
+    ).toBe(false);
+    expect(
+      turnedOnScreen(item([0, -11, 11, 0, 500, 700]), cardMatrix(at(270))),
+    ).toBe(false);
+    // Turned in the file on an unturned page: rotated-label's business.
+    expect(
+      turnedOnScreen(item([0, 11, -11, 0, 112, 72]), cardMatrix(at(0))),
+    ).toBe(false);
+    expect(
+      turnedOnScreen(
+        { str: " ", transform: [11, 0, 0, 11, 0, 0] },
+        cardMatrix(at(90)),
+      ),
     ).toBe(false);
   });
-  it("O7 reads as turned-content, and the same form drawn upright is found", async () => {
-    const turned = await runCase(byId("O7"));
-    expect(turned.report.pages.map((p) => p.outcome)).toEqual([
+  it("O7 (upright on screen) is found; O8 (sideways on screen) is turned-content", async () => {
+    const upright = await runCase(byId("O7"));
+    expect(upright.report.pages.map((p) => p.outcome)).toEqual(["found"]);
+    expect(upright.proposals).toHaveLength(8);
+    const sideways = await runCase(byId("O8"));
+    expect(sideways.report.pages.map((p) => p.outcome)).toEqual([
       "turned-content",
     ]);
-    // Positive control: P10's turned page (content upright in content
-    // space on a /Rotate 90 page) is searched as usual.
-    const upright = await runCase(byId("P10"));
-    expect(upright.report.pages.map((p) => p.outcome)).toEqual([
-      "found",
-      "found",
-    ]);
+    expect(sideways.proposals).toEqual([]);
+    // P10's turned page, counter-turned to show upright, is searched.
+    const p10 = await runCase(byId("P10"));
+    expect(p10.report.pages.map((p) => p.outcome)).toEqual(["found", "found"]);
+  });
+  it("every proposal on a turned page runs along its line AS SHOWN (wider than tall)", async () => {
+    for (const id of ["O7", "P10"]) {
+      const run = await runCase(byId(id));
+      for (const p of run.proposals.filter((q) => q.type === "text"))
+        expect(p.width, `${id} ${p.label}`).toBeGreaterThan(p.height);
+    }
   });
 });
 
@@ -333,10 +410,13 @@ describe("placing a run inside its text item (an independent bound)", () => {
 describe("frame cross-check: toCard against redact-find's content-to-page mapping", () => {
   // Both readers are imported here only. P10 page 2 is turned and cropped;
   // P11's CropBox is larger than its MediaBox.
+  // P10's page 2 is drawn counter-turned: what it draws at card (x, y) is
+  // at unturned90 of that in content space.
+  const P10_CROP = { x: 36, y: 48, width: 540, height: 696 };
   const P10_CONTENT = [
-    runBox("sans", 72, 700, 12, "Name: ", "____________"),
+    runBox("sans", 72, P10_LOCAL.nameY, 12, "Name: ", "____________"),
     ...[500, 480, 460, 440].map((y) => squareBox(72, y, 12)),
-  ];
+  ].map((b) => unturned90(b, P10_CROP));
   const cases = [
     { id: "P10", page: 2, boxes: P10_CONTENT },
     { id: "P11", page: 1, boxes: [ruleBox(130, 330, 600, 12)] },
@@ -445,7 +525,13 @@ async function readWidgets(bytes: Uint8Array): Promise<Widget[]> {
   }
 }
 
-/** What each case drew, in content space: lines (y, x0, x1) and squares. */
+/**
+ * What each case drew, AS THE READER SEES IT (the card frame): lines (y, x0,
+ * x1) and squares. Content space until review round 7, which certified a
+ * page the reader saw sideways because its widgets sat on the lines in the
+ * file; P10's page 2 is now drawn counter-turned, so its card frame is the
+ * frame it was drawn in.
+ */
 const RUN_SPAN = (y: number) => {
   const x0 = 72 + textWidth("sans", "Name: ", 12);
   return {
@@ -469,7 +555,7 @@ const DRAWN: Record<
   P10: {
     lines: [
       { ...RUN_SPAN(700), page: 1 },
-      { ...RUN_SPAN(700), page: 2 },
+      { ...RUN_SPAN(P10_LOCAL.nameY), page: 2 },
     ],
     squares: SQUARES.map((q) => ({ ...q, page: 2 })),
   },
@@ -509,8 +595,21 @@ describe("composed chain: detect -> name -> validate -> createFormFields -> pdf.
         expect(Math.abs(w.card.y - spec.y)).toBeLessThanOrEqual(1);
         expect(Math.abs(w.card.width - spec.width)).toBeLessThanOrEqual(1);
         expect(Math.abs(w.card.height - spec.height)).toBeLessThanOrEqual(1);
-        const [x0, y0, x1, y1] = w.rect;
+        // Judged where the reader sees it, not where the file keeps it.
+        const [x0, y0, x1, y1] = [
+          w.card.x,
+          w.card.y,
+          w.card.x + w.card.width,
+          w.card.y + w.card.height,
+        ];
         if (spec.type === "text") {
+          // A text field's typed text is upright on screen (/MK /R is the
+          // page's turn), so it runs along a line only if it is wider than
+          // tall as shown.
+          expect(
+            w.card.width,
+            `${spec.name} runs along its line`,
+          ).toBeGreaterThan(w.card.height);
           const line = drawn.lines.find(
             (l) => l.page === w.page && Math.abs(Math.min(y0, y1) - l.y) <= 3,
           );

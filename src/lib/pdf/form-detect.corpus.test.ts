@@ -63,7 +63,7 @@ describe("corpus health (FATAL when it fails)", () => {
     expect(
       kind("outcome").length,
       "corpus implausibly small",
-    ).toBeGreaterThanOrEqual(7);
+    ).toBeGreaterThanOrEqual(9);
   });
 
   // The case ids, literally (review round 5 fixes, finding 9): a dropped,
@@ -78,14 +78,16 @@ describe("corpus health (FATAL when it fails)", () => {
       "P1c",
       ...range("P", 2, 52),
       ...range("N", 1, 51),
-      ...range("O", 1, 7),
+      // O8 and O9 added in review round 7 (2026-11-19): a page the reader
+      // sees sideways, and a scan with an OCR text layer.
+      ...range("O", 1, 9),
     ];
-    expect(expected).toHaveLength(112);
+    expect(expected).toHaveLength(114);
     expect([...DETECT_CASES.map((c) => c.id)].sort()).toEqual(expected.sort());
     for (const [k, n] of [
       ["positive", 57],
       ["negative", 48],
-      ["outcome", 7],
+      ["outcome", 9],
     ] as const)
       expect(kind(k).length, k).toBe(n);
   });
