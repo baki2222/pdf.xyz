@@ -1999,7 +1999,8 @@ describe("labelled-rule", () => {
     //
     // First pinned as 20,000 items in `< 800` ms ("measured before: 11 s;
     // after: about 0.15 s"), a wall-clock bound (see interleavedBest): CI
-    // took up to 443 ms for the whole test. Now the SHAPE: 16 times the
+    // took up to 488 ms for the whole test in 3 passing runs, and 636 ms
+    // on main's run 44428026069. Now the SHAPE: 16 times the
     // items under the same 200 rules must cost far less than 256 times
     // (each caption reading every item). 16, not 8: the linear page reads
     // 10 to 11 at 8 times (a sort is n log n), too near a defect that is
@@ -2847,7 +2848,8 @@ describe("labelled-rule: a label column (labels flush left, lines at one tab sto
   // First pinned as 20,000 lines in `< 800` ms ("measured before: 2 s at
   // 5,000 lines; after: about 0.35 s at 20,000"), a wall-clock bound (see
   // interleavedBest): CI read 809.6 ms on the fixed code (PR #382's run
-  // 44402871424, a slow runner). Now the SHAPE: 16 times the lines must
+  // 44402871424, a slow runner), and 856.9 on main once #385 merged (run
+  // 44428026069, red). Now the SHAPE: 16 times the lines must
   // cost far less than 256 times (each line reading every other's text).
   // 16, not 8: at 8 times the linear page read up to 9.9 and the defect
   // 40, too close to set a bound 2x from one and 1.5x from the other.
