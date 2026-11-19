@@ -1457,8 +1457,15 @@ describe("Compare PDF's redline is a chunk of its own", () => {
  * +760 B for the whole-line leader rule, the list reading and Tc / Tz;
  * inside the bound, which is unchanged. The raise from 20.6 is still the
  * owner's to approve.
+ *
+ * Review round 2 of S3 (2026-11-19, same method): 23,676 B gz (23.12 KB),
+ * +402 B for each character's own Tc (a font shown at two character
+ * spacings no longer places every run by a guessed 0), after trimming it
+ * from +451 B. That is over 23.1, S3's first measurement plus 5%, so the
+ * bound is this measurement plus 5%: 24.3. Both raises (20.6 to 23.1 and
+ * 23.1 to 24.3) are the owner's to approve, in the PR.
  */
-const FIND_FIELDS_FETCH_GZ_KB = 23.1;
+const FIND_FIELDS_FETCH_GZ_KB = 24.3;
 /*
  * HISTORY (review rounds 7 and 8, 2026-11-19). Round 7 added a bound here
  * for the press on a page whose preview chunk never arrived: every chunk
