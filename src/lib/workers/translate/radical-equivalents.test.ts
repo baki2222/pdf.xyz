@@ -355,7 +355,7 @@ describe("the per-face rewrite table, against measured cmap facts", () => {
     const seen = new Map<string, number>();
     let kept = 0;
     let targetKept = 0;
-    // COST, not detection (CI run 44321190257: 3697 ms of a 5 s default).
+    // COST, not detection (CI run 44171428723: 3735 ms of a 5 s default).
     // Every assertion below reads the same `radicalRewritesFor` results as
     // before; they are computed once per face (the full table, which this
     // loop rebuilt for EVERY source) and once per face and kept code point
@@ -413,8 +413,10 @@ describe("the per-face rewrite table, against measured cmap facts", () => {
     expect(radicalRewritesFor("NotoSansCJKsc-Regular").get(0x2edd)).toBe(
       0x98df,
     );
-    // 7.5 s: twice the CI maximum on record, 3697 ms (run 44321190257, the
-    // pre-hoist loop; 12 passing runs 1571-3697 ms). The hoist above took it
+    // 7.5 s: twice the CI maximum on record, 3735 ms (run 44171428723, the
+    // pre-hoist loop; 2.008x. n=58: every CI run 44148328648..44428026069
+    // that printed this test, failed and cancelled included, 1571-3735 ms —
+    // one loop, 2.38x apart by runner alone). The hoist above took it
     // from 1014 ms to about 70 ms on the developer machine, so that CI
     // figure is an upper bound. Tightening waits for CI figures of the
     // hoisted loop: a local 70 ms is not a CI number.
