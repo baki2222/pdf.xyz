@@ -66,11 +66,11 @@ export type GlyphTable = Map<string, Map<string, number>> & {
   charSpacing: Map<string, number | null>;
   /**
    * Per font, every character it showed other than a space, in the order
-   * shown, with the Tc each was shown with in ems of the size (NaN when
-   * there was no size to measure it by), and how far its text items have
-   * read it ({@link itemCharSpacing}).
+   * shown (`ch`), the Tc of each UTF-16 unit of it in ems of the size
+   * (NaN when there was no size to measure it by), and how far its text
+   * items have read it ({@link itemCharSpacing}).
    */
-  shown: Map<string, { ch: string[]; tc: number[]; at: number }>;
+  shown: Map<string, { ch: string; tc: number[]; at: number }>;
 };
 
 /**
@@ -123,6 +123,7 @@ export const ADVANCES = {
 } as const;
 
 const SPACE = /\s/;
+const SPACES = /\s/g;
 
 /**
  * The glyph table of one page's operator list. Linear in the operators and
@@ -138,7 +139,7 @@ export function glyphTable(
     new Map<string, Map<string, number>>(),
     {
       charSpacing: new Map<string, number | null>(),
-      shown: new Map<string, { ch: string[]; tc: number[]; at: number }>(),
+      shown: new Map<string, { ch: string; tc: number[]; at: number }>(),
     },
   );
   const conflicted = new Map<string, Set<string>>();
@@ -181,17 +182,7 @@ export function glyphTable(
     else if (had !== null && (tcEms === null || Math.abs(had - tcEms) > 1e-9))
       table.charSpacing.set(font, null);
     let queue = table.shown.get(font);
-    if (!queue) table.shown.set(font, (queue = { ch: [], tc: [], at: 0 }));
-    for (const g of glyphs) {
-      const u =
-        g && typeof g === "object" ? (g as { unicode?: unknown }).unicode : 0;
-      if (typeof u !== "string") continue;
-      for (const cp of u)
-        if (!SPACE.test(cp)) {
-          queue.ch.push(cp);
-          queue.tc.push(tcEms ?? NaN);
-        }
-    }
+    if (!queue) table.shown.set(font, (queue = { ch: "", tc: [], at: 0 }));
     let widths = table.get(font);
     if (!widths) table.set(font, (widths = new Map()));
     let bad = conflicted.get(font);
@@ -199,7 +190,11 @@ export function glyphTable(
     for (const g of glyphs) {
       if (!g || typeof g !== "object") continue;
       const { unicode, width } = g as { unicode?: unknown; width?: unknown };
-      if (typeof unicode !== "string" || typeof width !== "number") continue;
+      if (typeof unicode !== "string") continue;
+      const seen = unicode.replace(SPACES, "");
+      queue.ch += seen;
+      for (let j = 0; j < seen.length; j++) queue.tc.push(tcEms ?? NaN);
+      if (typeof width !== "number") continue;
       if (!isFinite(width) || width < 0) continue;
       // One code point only: a ligature's "fi" is two characters of the
       // text item and one advance here, which cannot be shared out.
@@ -229,29 +224,18 @@ export function itemCharSpacing(
   font: string,
   str: string,
 ): number[] | undefined {
-  const chars = Array.from(str);
-  const want = chars.filter((ch) => !SPACE.test(ch));
-  if (want.length === 0) return undefined;
   const q = table.shown.get(font);
-  if (!q) return undefined;
-  let start = -1;
-  const last = Math.min(q.at + SHOWN_RESYNC, q.ch.length - want.length);
-  for (let s = q.at; s <= last && start < 0; s++) {
-    let k = 0;
-    while (k < want.length && q.ch[s + k] === want[k]) k++;
-    if (k === want.length) start = s;
-  }
-  if (start < 0) return undefined;
-  q.at = start + want.length;
-  const own = want.map((_, k) => q.tc[start + k]!);
-  if (own.some((t) => !isFinite(t))) return undefined;
-  const out: number[] = [];
+  const want = str.replace(SPACES, "");
+  if (!q || !want) return undefined;
+  const s = q.ch.slice(q.at, q.at + SHOWN_RESYNC + want.length).indexOf(want);
+  if (s < 0) return undefined;
+  const tc = q.tc.slice(q.at + s, (q.at += s + want.length));
+  if (!tc.every(isFinite)) return undefined;
   let k = 0;
-  for (const ch of chars) {
-    if (SPACE.test(ch)) out.push(own[Math.max(0, k - 1)]!);
-    else out.push(own[k++]!);
-  }
-  return out;
+  let prev = tc[0]!;
+  return Array.from(str, (ch) =>
+    SPACE.test(ch) ? prev : ((prev = tc[k]!), (k += ch.length), prev),
+  );
 }
 
 /**

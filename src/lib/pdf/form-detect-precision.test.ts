@@ -1033,7 +1033,7 @@ describe("glyphTable and itemAdvances (pure)", () => {
     );
     // Health: the font's one Tc is unknown, the case that was read as 0.
     expect(table.charSpacing.get("f")).toBeNull();
-    expect(table.shown.get("f")!.ch).toEqual(["T", "i", "N", "_", "_"]);
+    expect(table.shown.get("f")!.ch).toBe("TiN__");
     expect(itemCharSpacing(table, "f", "Ti")).toEqual([0, 0]);
     // One item joining a piece at Tc 1 and pdf.js's own space.
     expect(itemCharSpacing(table, "f", "N _ _")).toEqual([
