@@ -1444,8 +1444,16 @@ describe("Compare PDF's redline is a chunk of its own", () => {
  * an open issue in the S2 PR, not hidden. Bound: the measurement plus 5%,
  * so growth fails here and the figure moves only by a written
  * re-measurement.
+ *
+ * RE-MEASURED 2026-11-19 for slice S3 (rows of dots, box symbols, and the
+ * glyph table that places text by each character's advance), both built on
+ * Windows from an empty .next, gzip -9 as below: main 04b25811's finder
+ * chunk 20,565 B gz (20.08 KB), S3's 22,514 B gz (21.99 KB), +1,949 B, one
+ * chunk either way; the page's first load is unchanged (every first-load
+ * chunk the same size raw, ids and hashes aside). Was 20.6; now that
+ * measurement plus 5%.
  */
-const FIND_FIELDS_FETCH_GZ_KB = 20.6;
+const FIND_FIELDS_FETCH_GZ_KB = 23.1;
 /*
  * HISTORY (review rounds 7 and 8, 2026-11-19). Round 7 added a bound here
  * for the press on a page whose preview chunk never arrived: every chunk

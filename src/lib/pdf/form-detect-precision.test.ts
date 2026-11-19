@@ -996,10 +996,14 @@ function expectRatioUnder(
 
 describe("cost of the new shapes stays linear in the page's rows", () => {
   // `rows` lines, each "Name ...... Date ......" and "[] Yes [] No", 16 pt
-  // apart on a tall page. 4x the rows must cost under 8x the time: linear
-  // reads ~4. Mutant (2026-11-19): the row-of-dots and box label searches
-  // scanning every item on the page instead of their baseline's band read
-  // ratios of 13 to 16 (quadratic), red 3 runs of 3.
+  // apart on a tall page; 1,500 rows against 12,000. Linear reads ~8:
+  // measured 7.77 to 8.99 over 5 quiet runs (9.53 with a build running
+  // beside it), so the bound 18 is 2x over. Mutant (2026-11-19): the
+  // row-of-dots and box label searches filtering every item on the page
+  // instead of slicing their baseline's band (the same answers, quadratic)
+  // read 25.8, 28.7 and 28.9: red 3 runs of 3. At 150 rows the quadratic
+  // term was too small to see (mutant 11 to 19 against a fixed 5 to 8), so
+  // the sizes are what make the mutant visible, not decoration.
   const page = (rows: number): CardPage => {
     const text: CardText[] = [];
     for (let i = 0; i < rows; i++) {

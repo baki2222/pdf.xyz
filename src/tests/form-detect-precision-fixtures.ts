@@ -1,11 +1,4 @@
-import {
-  PDFDocument,
-  PDFName,
-  StandardFonts,
-  rgb,
-  type PDFFont,
-  type PDFPage,
-} from "pdf-lib";
+import { PDFDocument, PDFName, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import type { Box } from "@/lib/pdf/form-detect";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import type { DetectCase, Expect } from "./form-detect-fixtures";
@@ -165,11 +158,14 @@ export const WHITE_SQUARE = String.fromCodePoint(0x25a1);
 /** An ellipsis (U+2026). */
 export const ELLIPSIS = String.fromCodePoint(0x2026);
 
-/** Fonts for one document: the standard faces, measured as drawn. */
+/**
+ * Fonts for one document: Helvetica and Times, from the product's font
+ * chooser (WinAnsi text gets the standard face itself), measured as drawn.
+ */
 async function faces(d: PDFDocument) {
   return {
-    sans: await d.embedFont(StandardFonts.Helvetica),
-    serif: await d.embedFont(StandardFonts.TimesRoman),
+    sans: await embedDrawingFont(d, ["Name"], "sans"),
+    serif: await embedDrawingFont(d, ["Name"], "serif"),
   };
 }
 
