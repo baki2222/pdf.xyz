@@ -38,10 +38,14 @@ import { uploadFiles } from "./helpers";
  * main thread), while grayscale's main thread is busy nearly throughout —
  * readback, luminance, and the JPEG lower bound (`gray-jpeg-bound.ts`), whose
  * per-block DCT took 634 ms of the 40 pages and grows with the ink on the
- * page. So the two runs are bound by different resources: a runner with a
- * slower main thread stretches grayscale and not PNG. Reproduced with CDP
- * CPU throttling on Windows: at 2× the 50-line ratio was 1.60 and PNG's time
- * barely moved at 1 and 6 lines. The JPEG was NOT being encoded and thrown
+ * page. So the two runs are bound by different resources, and a runner's
+ * speed need not move them alike. Reproduced with CDP CPU throttling on
+ * Windows: at 2× the 50-line ratio was 1.60 and PNG's time barely moved at
+ * 1 and 6 lines. CI does not move them in one fixed way either: on main's
+ * two push runs (44418885729, 44428026069) the 6-line case stretched only
+ * grayscale (2,575 and 2,496 ms against the PR's 1,931; PNG 1,866 and
+ * 1,887), but at 50 lines BOTH sides stretched about equally (PNG 2,970 and
+ * 3,052 ms against 2,348; grayscale 4,714 and 4,824 against 3,766). The JPEG was NOT being encoded and thrown
  * away (the count below is 0 on Windows, and CI prints its own).
  *
  * So the PROPERTY — no JPEG made on a text page — is asserted by counting,
@@ -58,8 +62,18 @@ import { uploadFiles } from "./helpers";
  *
  *   runs, in column order: 44373418087 (three 50-line attempts), 44409912518,
  *   44402871424, 44418885729 (main 878f7f1c), 44421232512, 44428026069 (main
- *   04b25811). The 6-line ratio moved from 1.07 on the PR to 1.38 on main:
- *   the 1.5 bound it had was 1.09× that, and the 50-line 2.2 was 1.34×.
+ *   04b25811). The 6-line sample has two modes, and the code is not why:
+ *   1.03–1.07 on the PR runs AND on 44421232512 (#385 rebased, main's code),
+ *   1.32 and 1.38 on main's two push runs. The 1.5 bound it had was 1.09×
+ *   1.38, and the 50-line 2.2 was 1.34× 1.64.
+ *
+ *   HOW MUCH THAT MAXIMUM IS WORTH: n is SIX independent runs a density (the
+ *   three 50-line attempts in 44373418087 are retries of one job), so "CI
+ *   max" is the worst of six — roughly an 86th-percentile estimate, not a
+ *   tail — and "twice CI's worst" means twice the worst of six. What softens
+ *   it: inside each density the spread is at most 1.34× (max/min), and CI
+ *   retries a failed test twice (`retries: 2`, playwright.config.ts), so a
+ *   flake here needs three failed attempts in a row.
  *
  * WHAT THESE BOUNDS STILL CATCH, honestly — measured on the developer's
  * machine (Windows, `next start`, 1 worker) on 2026-11-19, against builds
@@ -67,19 +81,28 @@ import { uploadFiles } from "./helpers";
  *
  *   mutant                                         1 line  6 lines  50 lines
  *   fixed build (no mutant)                        1.04    1.04     1.29
+ *   JPEG forced on every page, native deflate      1.96    2.02     3.00
+ *     kept (`true ||` before `grayJpegCanBeat(`;
+ *     review of 35f8fe4b, port 3841)
  *   the ORIGINAL defect: JPEG on every page,       1.75    2.26     3.00
- *     pako deflate (`true ||` before
- *     `grayJpegCanBeat(`, `deflateNatively` off)
+ *     pako deflate (that, plus
+ *     `deflateNatively` off)
  *   gross: that, plus two more JPEGs a page        3.77    4.39     5.26
  *
- * So the bounds do NOT catch the original defect here: at 40 pages it is
- * 1.75, 2.26 and 3.00, under 2.2, 2.8 and 3.3 (the 80 s against 33 s that
- * defined P3, a ratio of 2.4, was a 1,000-page run). The count below does
- * ("text 12 of 12 pages … Expected: 0, Received: 12"), on any runner. CI
- * stretches grayscale and not PNG, so CI's ratio for the defect would be
- * higher — by how much is unmeasured (no CI run of a mutant). What the
- * ratio still sees is a grayscale run more than about twice as slow as
- * CI's worst for the fixed code: the gross mutant failed all three.
+ * So the bounds do NOT catch the original defect here, nor its JPEG half
+ * alone: all three ratio tests PASSED both mutants (1.75–3.00, 1.96–3.00,
+ * under 2.2, 2.8 and 3.3), where the old bounds 1.5/1.5/2.2 failed every
+ * one of them. (The 80 s against 33 s that defined P3, a ratio of 2.4, was
+ * a 1,000-page run.) Both halves of the defect are held elsewhere, on any
+ * runner: the JPEG by the count below ("text 12 of 12 pages … Expected: 0,
+ * Received: 12", red under both mutants), pako by `grayscale-deflate.test.ts`,
+ * which counts the native deflate calls. CI's ratio for either mutant is
+ * unmeasured (no CI run of a mutant). What the ratio still sees is a
+ * grayscale run more than about twice as slow as CI's worst for the fixed
+ * code: the gross mutant was SEEN red at 1 line (3.77 > 2.2) and 6 lines
+ * (4.39 > 2.8). At 50 lines it was not seen red against 3.3 — that run had
+ * a different bound and failed first on the "bound is under twice" check —
+ * so 5.26 > 3.3 there is arithmetic, not an observed red.
  *
  * P4: those 80 s had no Cancel, although the runner already made an
  * AbortController and passed its signal down to the renderer.
