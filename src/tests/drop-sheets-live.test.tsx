@@ -7,39 +7,55 @@
  *
  * Neither check below measures time, so neither needs a slow machine to go
  * red. Each was seen red by a mutant applied to a copy of the helper:
- *  - the warm-up `import "@/lib/intent/page-target"` deleted → "loads the
- *    engine's module with itself" fails on its first assertion, on any
- *    runner (the module is never asked for while the helper loads);
+ *  - the warm-up `await loadDropEngine()` deleted → "loads the sheet's
+ *    engine with itself" fails on its first assertion, on any runner (the
+ *    loader is never called while the helper loads);
+ *  - the hook's `loadDropEngine()` replaced by an `import()` of its own (the
+ *    review's repro of f1d8a04f: a warm-up that names a module keeps
+ *    warming after the hook moves) → the same test fails on "the sheet
+ *    fetched its engine by a path the helper did not warm", in any file
+ *    order: it counts CALLS of the one loader, not whether a module happens
+ *    to be in the cache, which an earlier file in the worker can arrange;
  *  - `{ timeout: DROP_ENGINE_WAIT_MS }` deleted (the 1 s default back) →
  *    "gives a sheet DROP_ENGINE_WAIT_MS" rejects at the first second of a
  *    FAKE clock, which no runner's speed can move.
  */
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
-const ENGINE = "@/lib/intent/page-target";
+// The one loader both the hook and the helper fetch the engine by. Spied,
+// not replaced: each call is counted and handed to the real one.
+const LOADER = "@/components/upload/drop-engine-load";
 
 describe("dropSheetsLive", () => {
   afterEach(() => {
     vi.useRealTimers();
-    vi.doUnmock(ENGINE);
+    vi.doUnmock(LOADER);
   });
   // Every module this file re-evaluated is dropped, so a file that shares
   // this worker (threads, isolate: false) loads its own.
   afterAll(() => vi.resetModules());
 
-  it("loads the engine's module with itself, so a sheet's engine arrives in microtasks", async () => {
+  it("loads the sheet's engine with itself, so a sheet's engine arrives in microtasks", async () => {
     vi.resetModules();
-    // A spy on the module, not a replacement: it records that the module
-    // was asked for and hands back the real one.
-    let asked = 0;
-    vi.doMock(ENGINE, async (importOriginal) => {
-      asked += 1;
-      return importOriginal();
+    let calls = 0;
+    vi.doMock(LOADER, async (importOriginal) => {
+      const real =
+        await importOriginal<
+          typeof import("@/components/upload/drop-engine-load")
+        >();
+      return {
+        loadDropEngine: () => {
+          calls += 1;
+          return real.loadDropEngine();
+        },
+      };
     });
     const { dropSheetsLive } = await import("./drop-sheets-live");
-    // THE PROPERTY'S CAUSE: loading the helper asked for the engine's
-    // module, before any test could render a sheet.
-    expect(asked, "the helper loaded without the engine's module").toBe(1);
+    // THE PROPERTY'S CAUSE: loading the helper called the sheet's engine
+    // loader, before any test could render a sheet.
+    expect(calls, "the helper loaded without the sheet's engine loader").toBe(
+      1,
+    );
 
     // AT THE POINT OF CONSUMPTION: a real sheet, rendered after the helper,
     // has its engine without a single macrotask — no module load, no timer,
@@ -69,8 +85,13 @@ describe("dropSheetsLive", () => {
       sheet!.hasAttribute(DROP_ENGINE_MARK),
       "the sheet's engine needed more than microtasks (a module load) to arrive",
     ).toBe(true);
-    // The module the sheet used is the one the helper loaded: asked once.
-    expect(asked).toBe(1);
+    // THE RELATIONSHIP: the sheet fetched its engine by the same loader the
+    // helper warmed. Unlike the microtask check above, this does not depend
+    // on what an earlier file in this worker happened to load.
+    expect(
+      calls,
+      "the sheet fetched its engine by a path the helper did not warm",
+    ).toBe(2);
     await dropSheetsLive(container);
     rtl.cleanup();
   });
