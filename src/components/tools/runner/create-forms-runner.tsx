@@ -64,6 +64,7 @@ import {
   TextField,
 } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
+import type { Finder, Found } from "./create-forms-detect";
 
 export function CreateFormsRunner() {
   return (
@@ -94,6 +95,13 @@ type ContextState =
 type PreviewModule = typeof import("./create-forms-preview");
 type PreviewState = PreviewModule | "loading" | "failed";
 const loadPreview = () => import("./create-forms-preview");
+
+/**
+ * Find fields' chunk (backlog #17, S2): fetched when the button is pressed,
+ * never before, and never prefetched (most visits never press it).
+ */
+type DetectModule = typeof import("./create-forms-detect");
+const loadDetect = () => import("./create-forms-detect");
 
 function FormBuilderStage({
   pdf,
@@ -341,6 +349,9 @@ const TYPE_OPTIONS: { value: NewFieldType; label: string }[] =
 
 const MAX_COORD = 20000;
 
+const ADD_BUTTON =
+  "border-line bg-wash text-fg hover:border-accent/40 hover:bg-accent/10 hover:text-fg rounded-ctl inline-flex items-center justify-center gap-1.5 self-start border px-3.5 py-2 text-xs font-medium transition";
+
 /* ------------------------------------------------------------------ *
  *  Builder
  * ------------------------------------------------------------------ */
@@ -366,8 +377,15 @@ function FormBuilder({
   ]);
   // Anything changed from the one blank field the builder starts with.
   const [pristine] = useState(() => JSON.stringify(drafts));
+  const untouched = JSON.stringify(drafts) === pristine;
+  // Find fields' suggestions: their own state, never drafts, so neither the
+  // card checks below nor "Create form" can see one until it is added.
+  const [found, setFound] = useState<Found>({ list: [], note: null });
+  // The chunk once loaded; null if it failed (a press tries again).
+  const [detect, setDetect] = useState<DetectModule | null>();
+  const [runId, setRunId] = useState(0);
   useUnsavedGuard(
-    JSON.stringify(drafts) !== pristine && !result,
+    (!untouched || found.list.length > 0) && !result,
     "your form fields",
   );
 
@@ -388,16 +406,40 @@ function FormBuilder({
   const formErrors = errorsByIndex.get(-1) ?? [];
 
   // The card the preview shows the page of. Pressing or focusing a card
-  // selects it, and so does pressing its box on the preview.
+  // selects it, and so does pressing its box on the preview. Or one of Find
+  // fields' suggestions, by its key (never a card id: "f1", "f2"...).
   const [selectedId, setSelectedId] = useState<string | null>("f1");
-  const selected = drafts.find((d) => d.id === selectedId) ?? drafts[0] ?? null;
-  const shownPage =
-    selected &&
-    Number.isInteger(selected.page) &&
-    selected.page >= 1 &&
-    selected.page <= context.pageCount
+  const picked = found.list.find((p) => p.key === selectedId);
+  const selected = picked
+    ? null
+    : (drafts.find((d) => d.id === selectedId) ?? drafts[0] ?? null);
+  const shownPage = picked
+    ? picked.page
+    : selected &&
+        Number.isInteger(selected.page) &&
+        selected.page >= 1 &&
+        selected.page <= context.pageCount
       ? selected.page
       : 1;
+  // What Find fields' chunk reads and changes: the panel, Add and the
+  // preview's third state are there, not in this page's first load.
+  const finder: Finder<FieldDraft> = {
+    bytes: pdf.bytes,
+    drafts,
+    setDrafts,
+    untouched,
+    make: (id) => makeDraft(id, 1, firstPage),
+    context,
+    validate: validateFormFields,
+    found,
+    setFound,
+    selected: selectedId,
+    select: setSelectedId,
+  };
+  const findFields = () => {
+    setRunId((n) => n + 1);
+    if (!detect) loadDetect().then(setDetect, () => setDetect(null));
+  };
 
   const addField = () => {
     counter.current += 1;
@@ -490,6 +532,7 @@ function FormBuilder({
             selectedId={selected?.id ?? null}
             onSelect={setSelectedId}
             onMove={(id, at) => updateField(id, at)}
+            find={detect && { detect, finder }}
           />
         ) : preview === "failed" ? (
           <ErrorNote
@@ -510,6 +553,23 @@ function FormBuilder({
           </p>
         )}
       </RunnerSection>
+
+      {runId > 0 &&
+        (detect ? (
+          <detect.FoundFields key={runId} f={finder} />
+        ) : detect === null ? (
+          <ErrorNote message="Find fields didn't load." />
+        ) : (
+          // The chunk is on its way: the press shows at once, in the
+          // preview's own loading markup (gzip finds it twice). Inside S2's
+          // 0.3 KB only so: a role, a reset of the failure note on a retry
+          // and "use Add field" on that note cost 50 B gz between them, and
+          // the panel that replaces this line is the live region (review
+          // round 7, measured on the merged build).
+          <p className="text-muted inline-flex items-center gap-2 text-sm">
+            <Spinner /> Loading Find fields…
+          </p>
+        ))}
 
       <RunnerSection
         title="Form fields"
@@ -537,14 +597,15 @@ function FormBuilder({
               No fields yet — add one to start building your form.
             </p>
           )}
-          <button
-            type="button"
-            onClick={addField}
-            className="border-line bg-wash text-fg hover:border-accent/40 hover:bg-accent/10 hover:text-fg rounded-ctl inline-flex items-center justify-center gap-1.5 self-start border px-3.5 py-2 text-xs font-medium transition"
-          >
-            <Plus className="size-4" aria-hidden />
-            Add field
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={addField} className={ADD_BUTTON}>
+              <Plus className="size-4" aria-hidden />
+              Add field
+            </button>
+            <button type="button" onClick={findFields} className={ADD_BUTTON}>
+              Find fields
+            </button>
+          </div>
         </div>
       </RunnerSection>
 
@@ -559,6 +620,7 @@ function FormBuilder({
 
       <RunBar>
         <div className="flex flex-wrap items-center justify-end gap-3">
+          {detect && <detect.RunNote f={finder} />}
           {errors.length > 0 && drafts.length > 0 && (
             <span className="text-warn text-xs">
               Fix {errors.length} issue{errors.length === 1 ? "" : "s"} above to
@@ -616,8 +678,8 @@ function CoordinateHelp({ context }: { context: NewFormContext }) {
         <span className="text-muted">
           Type the numbers on a field&apos;s card, or set X and Y on the page
           preview: click where the field&apos;s bottom-left corner should go,
-          drag its box, or use the arrow keys. Need a{" "}
-          {EDITOR_FIELD_LABEL.signature.toLowerCase()}?{" "}
+          drag its box, or use the arrow keys. Find fields suggests fields to
+          check. Need a {EDITOR_FIELD_LABEL.signature.toLowerCase()}?{" "}
           <Link
             href={`/tools/${EDIT_PDF.slug}`}
             className="text-fg font-medium underline underline-offset-2"

@@ -1592,7 +1592,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: `Why does ${tool.name} find no fields in my PDF?`,
-          answer: `Because the PDF has no fillable form. A scanned form, or one with only printed lines and boxes, has nothing to fill: add fields with ${toolName("create-forms")} first, or place text with ${toolName("edit-pdf")}. A form built only in XFA, an older dynamic format, is not read either.`,
+          answer: `Because the PDF has no fillable form. A scanned form, or one with only printed lines and boxes, has nothing to fill. Add fields with ${toolName("create-forms")} first (its Find fields suggests some for you to check and add), or place text with ${toolName("edit-pdf")}. A form built only in XFA, an older dynamic format, is not read either.`,
         },
       ];
     case "create-forms":
@@ -1605,7 +1605,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: "How do I place a field?",
-          answer: `On the page preview: select the field, then click where its bottom-left corner belongs, drag its box, or move it with the arrow keys. Or type it: pick the “Page”, then set “X” and “Y” — points from the page's bottom-left corner, ${PT_PER_INCH} to an inch. Either way the field's card shows the numbers, and its “Width” and “Height” are typed there.`,
+          answer: `On the page preview: select the field, then click where its bottom-left corner belongs, drag its box, or move it with the arrow keys. Or type it: pick the “Page”, then set “X” and “Y” — points from the page's bottom-left corner, ${PT_PER_INCH} to an inch. Either way the field's card shows the numbers, and its “Width” and “Height” are typed there. Or press “Find fields”: a suggestion you check and add arrives as a card with all of its numbers filled in.`,
         },
       ];
     case "extract-images":

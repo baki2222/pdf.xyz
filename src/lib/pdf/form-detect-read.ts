@@ -24,11 +24,17 @@ import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
  * A READER SEES IT (the CropBox clipped by the MediaBox, turned by
  * `/Rotate`), the unit `NewFieldPlacement` in create-forms.ts takes.
  *
+ * Every page is classified in that frame (text, lines, boxes, images and
+ * widgets carried over by {@link cardMatrix}), so a label is upright when
+ * the READER sees it upright: a landscape form made the common way
+ * (`/Rotate 90`, content counter-turned) is searched, and a page whose
+ * writing `/Rotate` turns sideways on screen is "turned-content".
+ *
  * It proposes and never writes. It reads only what the PDF draws as text,
- * lines and boxes, so a scanned page (a picture of a form) reads as
- * "no-text-layer", a page with nothing readable as "nothing-drawn" or
- * "unread", and a page drawn turned (upright only on screen) as
- * "turned-content", never as "no fields here" (all pinned by the outcome
+ * lines and boxes, so a page that is only a picture (a scan with no text
+ * layer) reads as "no-text-layer", a page with nothing readable as
+ * "nothing-drawn" or "unread", and a page whose writing is turned on screen
+ * as "turned-content", never as "no fields here" (all pinned by the outcome
  * cases in src/tests/form-detect-fixtures.ts, run by
  * form-detect.pdfjs.test.ts).
  *
@@ -43,16 +49,29 @@ import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
 export const CREATE_FORMS_DETECT_READ = "pdfxyz:form-detect-read";
 
 export type PageOutcome =
-  | { page: number; outcome: "found"; proposals: FieldProposal[] }
+  | {
+      page: number;
+      outcome: "found";
+      proposals: FieldProposal[];
+      /** Proposals the caps left out on this page (60 a page, 300 a run). */
+      leftOut?: number;
+    }
+  /**
+   * Something was found, and the caps left ALL of it out (the run's 300
+   * were taken by earlier pages). Never "no-candidates": the page is not
+   * empty, the run was full (review round 7).
+   */
+  | { page: number; outcome: "capped"; leftOut: number }
   | { page: number; outcome: "no-candidates" }
   /** No ink and no text: blank OR unreadable, never "no fields". */
   | { page: number; outcome: "nothing-drawn" }
   /** Images cover over half the page and no upright text: likely a scan. */
   | { page: number; outcome: "no-text-layer" }
   /**
-   * Nothing proposed, and most of its text reads upright only because the
-   * page is turned (see {@link turnedUpright}): drawn turned, which the
-   * finder does not read. Never "no fields here".
+   * Nothing proposed, and most of its text is upright in the file but
+   * turned on screen by `/Rotate` (see {@link turnedOnScreen}): the reader
+   * sees its writing sideways or upside down, and the finder reads upright
+   * writing only. Never "no fields here".
    */
   | { page: number; outcome: "turned-content" }
   | { page: number; outcome: "unread"; reason: string }
@@ -125,27 +144,6 @@ export function toCard(
   };
 }
 
-/** A card-frame box back in content space (the inverse of {@link toCard}). */
-function fromCard(b: Box, viewport: ViewportLike): Box | null {
-  const back = viewport.convertToPdfPoint?.bind(viewport);
-  if (!back) return null;
-  const H = viewport.height;
-  const pts = [
-    back(b.x, H - b.y),
-    back(b.x + b.width, H - b.y),
-    back(b.x, H - b.y - b.height),
-    back(b.x + b.width, H - b.y - b.height),
-  ];
-  const xs = pts.map((p) => p[0]!);
-  const ys = pts.map((p) => p[1]!);
-  return {
-    x: Math.min(...xs),
-    y: Math.min(...ys),
-    width: Math.max(...xs) - Math.min(...xs),
-    height: Math.max(...ys) - Math.min(...ys),
-  };
-}
-
 interface RawTextItem {
   str?: unknown;
   transform?: unknown;
@@ -211,38 +209,74 @@ export function textItemToCard(
   };
 }
 
+/** A 2-D affine matrix, as pdf.js writes one: [a, b, c, d, e, f]. */
+export type Matrix = [number, number, number, number, number, number];
+
 /**
- * Whether a text item reads upright only because the page is turned: its
- * baseline runs at the page's `/Rotate` angle, counter-clockwise, in content
- * space, with its glyphs' up 90 degrees further on (not mirrored), so the
- * clockwise turn the viewer applies makes it upright. That is a landscape
- * form made the common way: a portrait page, `/Rotate 90`, and the content
- * counter-turned with `cm`. Its labels are not upright in content space and
- * its lines are plumb, so the finder, which reads upright content only,
- * finds nothing there.
+ * Content space to the card frame, read off `viewport` (which applies the
+ * crop origin and `/Rotate`): the viewport's own mapping, flipped so y grows
+ * up from the displayed bottom edge. {@link toCard} is this matrix on a box.
  */
-export function turnedUpright(item: RawTextItem, rotate: number): boolean {
-  if (typeof item.str !== "string" || item.str.trim() === "") return false;
-  if (item.dir === "ttb") return false;
-  const r = ((Math.round(rotate) % 360) + 360) % 360;
-  if (r === 0) return false;
+export function cardMatrix(viewport: ViewportLike): Matrix {
+  const o = viewport.convertToViewportPoint(0, 0);
+  const ex = viewport.convertToViewportPoint(1, 0);
+  const ey = viewport.convertToViewportPoint(0, 1);
+  const snap = (v: number) => (Math.abs(v) < 1e-9 ? 0 : v);
+  return [
+    snap(ex[0]! - o[0]!),
+    snap(-(ex[1]! - o[1]!)),
+    snap(ey[0]! - o[0]!),
+    snap(-(ey[1]! - o[1]!)),
+    o[0]!,
+    viewport.height - o[1]!,
+  ];
+}
+
+const applyTo = (m: Matrix, x: number, y: number): [number, number] => [
+  m[0] * x + m[2] * y + m[4],
+  m[1] * x + m[3] * y + m[5],
+];
+
+/** `t`, then `m`. Near-zero rotation terms snap to 0 (the upright test is exact). */
+function compose(m: Matrix, t: readonly number[]): number[] {
+  const snap = (v: number, scale: number) =>
+    Math.abs(v) < 1e-9 * Math.max(1, scale) ? 0 : v;
+  const [a, b, c, d, e, f] = t as number[];
+  const s = Math.hypot(a!, b!, c!, d!);
+  return [
+    snap(m[0] * a! + m[2] * b!, s),
+    snap(m[1] * a! + m[3] * b!, s),
+    snap(m[0] * c! + m[2] * d!, s),
+    snap(m[1] * c! + m[3] * d!, s),
+    m[0] * e! + m[2] * f! + m[4],
+    m[1] * e! + m[3] * f! + m[5],
+  ];
+}
+
+/**
+ * A pdf.js text item as the READER sees it: its transform carried into the
+ * card frame by `m` (see {@link cardMatrix}), so "upright" means upright on
+ * screen, after `/Rotate`, never merely upright in content space.
+ */
+export function itemOnScreen(item: RawTextItem, m: Matrix): RawTextItem {
   const t = item.transform;
-  if (!Array.isArray(t) || t.length < 6) return false;
-  const [a, b, c, d] = t as number[];
-  if (![a, b, c, d].every((n) => typeof n === "number" && isFinite(n)))
-    return false;
-  const run = Math.hypot(a!, b!);
-  const up = Math.hypot(c!, d!);
-  if (!(run > 0 && up > 0)) return false;
-  const cos = Math.cos((r * Math.PI) / 180);
-  const sin = Math.sin((r * Math.PI) / 180);
-  const near = (u: number, v: number) => Math.abs(u - v) < 0.02;
-  return (
-    near(a! / run, cos) &&
-    near(b! / run, sin) &&
-    near(c! / up, -sin) &&
-    near(d! / up, cos)
-  );
+  if (!Array.isArray(t) || t.length < 6) return item;
+  return { ...item, transform: compose(m, t) };
+}
+
+/**
+ * Whether a text item reads upright in content space but not on screen:
+ * the page's `/Rotate` turns it sideways or upside down for the reader. The
+ * finder classifies what the reader sees (review round 7, 2026-11-19: it
+ * used to classify content space, so a `/Rotate 90` page whose labels the
+ * reader sees sideways was searched and given fields whose typed text runs
+ * across the printed line, while a landscape form made the common way,
+ * upright on screen, was refused as "drawn on its side").
+ */
+export function turnedOnScreen(item: RawTextItem, m: Matrix): boolean {
+  const inContent = textItemToCard(item, [0, 0]);
+  if (!inContent?.upright) return false;
+  return !textItemToCard(itemOnScreen(item, m), [0, 0])?.upright;
 }
 
 /** Share of the page box the image boxes cover, sampled on a 50 x 50 grid. */
@@ -268,12 +302,11 @@ export function imageCover(
 
 interface ReadPage {
   page: number;
+  /** The page as the reader sees it: every primitive in the card frame. */
   card: CardPage;
-  viewport: ViewportLike;
-  origin: [number, number];
   painted: number;
   textItems: number;
-  /** Text items upright only because the page is turned. */
+  /** Text items upright in content space that `/Rotate` turns on screen. */
   turned: number;
 }
 
@@ -328,13 +361,13 @@ export async function detectFormFields(
         // The builder's points are the PDF's default user space: undo
         // pdf.js's /UserUnit scaling of the viewport.
         const viewport = page.getViewport({ scale: 1 / userUnit });
-        const view = page.view as number[];
-        const origin: [number, number] = [
-          Math.min(view[0]!, view[2]!),
-          Math.min(view[1]!, view[3]!),
-        ];
-        const width = Math.abs(view[2]! - view[0]!);
-        const height = Math.abs(view[3]! - view[1]!);
+        // Everything is classified in the card frame, the page as the
+        // reader sees it (crop applied, /Rotate turned): "upright" and
+        // "beside" then mean what they mean on screen, and a proposal
+        // needs no mapping back.
+        const m = cardMatrix(viewport);
+        const width = viewport.width;
+        const height = viewport.height;
         const content = await page.getTextContent({
           includeMarkedContent: false,
         });
@@ -344,10 +377,9 @@ export async function detectFormFields(
         >;
         const items = content.items as RawTextItem[];
         const text = items
-          .map((it) => textItemToCard(it, origin, styles))
+          .map((it) => textItemToCard(itemOnScreen(it, m), [0, 0], styles))
           .filter((t): t is CardText => t !== null);
-        const rotate = Number((page as { rotate?: unknown }).rotate) || 0;
-        const turned = items.filter((it) => turnedUpright(it, rotate)).length;
+        const turned = items.filter((it) => turnedOnScreen(it, m)).length;
         // Page content only: existing widgets are read from the annotations
         // below, and their appearance streams are not lines on the page.
         const ops = await page.getOperatorList(
@@ -363,33 +395,41 @@ export async function detectFormFields(
             reason: "too-complex",
           });
         } else {
-          const shift = <
+          // A segment keeps its direction (its ends, each carried over); a
+          // box is carried corner by corner and normalised (a quarter turn
+          // keeps it axis-aligned).
+          const seg = <
             T extends { x0: number; y0: number; x1: number; y1: number },
           >(
             s: T,
-          ): T => ({
-            ...s,
-            x0: s.x0 - origin[0],
-            y0: s.y0 - origin[1],
-            x1: s.x1 - origin[0],
-            y1: s.y1 - origin[1],
-          });
+          ): T => {
+            const [x0, y0] = applyTo(m, s.x0, s.y0);
+            const [x1, y1] = applyTo(m, s.x1, s.y1);
+            return { ...s, x0, y0, x1, y1 };
+          };
+          const box = <
+            T extends { x0: number; y0: number; x1: number; y1: number },
+          >(
+            s: T,
+          ): T => {
+            const b = toCard(s.x0, s.y0, s.x1, s.y1, viewport);
+            return {
+              ...s,
+              x0: b.x,
+              y0: b.y,
+              x1: b.x + b.width,
+              y1: b.y + b.height,
+            };
+          };
           const widgets: Box[] = [];
           for (const raw of await page.getAnnotations({ intent: "display" })) {
             const a = raw as { subtype?: unknown; rect?: unknown };
             if (a.subtype !== "Widget" || !Array.isArray(a.rect)) continue;
             const [x0, y0, x1, y1] = a.rect as number[];
-            widgets.push({
-              x: Math.min(x0!, x1!) - origin[0],
-              y: Math.min(y0!, y1!) - origin[1],
-              width: Math.abs(x1! - x0!),
-              height: Math.abs(y1! - y0!),
-            });
+            widgets.push(toCard(x0!, y0!, x1!, y1!, viewport));
           }
           read.push({
             page: n,
-            viewport,
-            origin,
             painted: scan.painted,
             textItems: text.length,
             turned,
@@ -397,11 +437,11 @@ export async function detectFormFields(
               page: n,
               width,
               height,
-              segs: scan.segs.map(shift),
-              rects: scan.rects.map(shift),
+              segs: scan.segs.map(seg),
+              rects: scan.rects.map(box),
               text,
               widgets,
-              imageCover: imageCover(scan.images, width, height, origin),
+              imageCover: imageCover(scan.images.map(box), width, height),
             },
           });
         }
@@ -428,7 +468,7 @@ export async function detectFormFields(
     for (const r of read) {
       await macrotask();
       if (o.signal?.aborted) throw abortError();
-      const { card, viewport, origin } = r;
+      const { card } = r;
       if (r.painted === 0 && r.textItems === 0) {
         outcome.set(r.page, { page: r.page, outcome: "nothing-drawn" });
         continue;
@@ -437,14 +477,8 @@ export async function detectFormFields(
         outcome.set(r.page, { page: r.page, outcome: "no-text-layer" });
         continue;
       }
-      const drafts = (o.drafts ?? [])
-        .filter((d) => d.page === r.page)
-        .flatMap((d) => {
-          const b = fromCard(d, viewport);
-          return b
-            ? [{ ...b, page: r.page, x: b.x - origin[0], y: b.y - origin[1] }]
-            : [];
-        });
+      // Cards are in the card frame already, as the page is.
+      const drafts = (o.drafts ?? []).filter((d) => d.page === r.page);
       const result = classifyPage(card, {
         disable: o.disable,
         drafts,
@@ -454,18 +488,9 @@ export async function detectFormFields(
       });
       for (const key of Object.keys(counts) as (keyof DetectCounts)[])
         counts[key] += result.counts[key];
-      const toCardBox = (b: Box): Box =>
-        toCard(
-          b.x + origin[0],
-          b.y + origin[1],
-          b.x + b.width + origin[0],
-          b.y + b.height + origin[1],
-          viewport,
-        );
-      for (const e of result.excluded)
-        excluded.push({ ...e, box: toCardBox(e.box) });
+      for (const e of result.excluded) excluded.push(e);
       let proposals = result.proposals.map((p) => {
-        const b = toCardBox(p);
+        const b: Box = p;
         const x = Math.round(b.x);
         const y = Math.round(b.y);
         const width = Math.round(b.x + b.width) - x;
@@ -480,8 +505,10 @@ export async function detectFormFields(
         };
       });
       const room = DETECT.CAPS.perRun - runTotal;
+      let leftOut = result.counts.capped;
       if (proposals.length > room) {
         counts.capped += proposals.length - Math.max(0, room);
+        leftOut += proposals.length - Math.max(0, room);
         proposals = proposals.slice(0, Math.max(0, room));
       }
       counts.proposals += proposals.length - result.counts.proposals;
@@ -493,10 +520,17 @@ export async function detectFormFields(
       outcome.set(
         r.page,
         proposals.length > 0
-          ? { page: r.page, outcome: "found", proposals }
-          : turnedPage
-            ? { page: r.page, outcome: "turned-content" }
-            : { page: r.page, outcome: "no-candidates" },
+          ? {
+              page: r.page,
+              outcome: "found",
+              proposals,
+              ...(leftOut > 0 ? { leftOut } : {}),
+            }
+          : leftOut > 0
+            ? { page: r.page, outcome: "capped", leftOut }
+            : turnedPage
+              ? { page: r.page, outcome: "turned-content" }
+              : { page: r.page, outcome: "no-candidates" },
       );
     }
 

@@ -13,21 +13,18 @@
  * THE CORPUS IS DISCOVERED, not named: every string of the tool's content,
  * its FAQ entries and facts, every guide that lists the tool, and the source
  * text of every `create-forms*` runner module (the runner's own help is JSX).
- * Each is split into sentences and EACH is judged.
+ * Each is split into sentences and EACH is judged. Since Find fields (S2,
+ * 2026-11-18) the set is built by `src/tests/create-forms-copy-corpus.ts`,
+ * shared with create-forms-detect-copy.test.ts so the two guards read the
+ * same things (it also reads the catalogue row, and other tools' sentences
+ * that name Find fields).
  *
- * Both directions are held (house rule 1): every sentence the product shipped
- * saying placement is numbers-only must be caught by some shape, and every
- * shape must catch some shipped sentence.
+ * Both directions are held (house rule 1): every sentence the product
+ * shipped saying placement is numbers-only must be caught by some shape, and
+ * every shape must catch some shipped sentence.
  */
-import { readFileSync, readdirSync } from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { getToolContent } from "@/lib/tools/content";
-import { guides } from "@/lib/guides/catalog";
-import { modeFaq, toolFacts, toolFaq } from "@/lib/tools/tool-facts";
-import { getToolBySlug } from "@/lib/tools";
-
-const SLUG = "create-forms";
+import { createFormsCorpus } from "@/tests/create-forms-copy-corpus";
 
 /** Shapes of "a field is placed by typed numbers, and only so". */
 const NUMBERS_ONLY: Record<string, RegExp> = {
@@ -58,70 +55,50 @@ const SHIPPED = [
   `By numbers: pick the ${OPEN}Page${CLOSE}, then set ${OPEN}X${CLOSE} and ${OPEN}Y${CLOSE} ${DASH} points from the page's bottom-left corner, 72 to an inch ${DASH} and the field's ${OPEN}Width${CLOSE} and ${OPEN}Height${CLOSE}.`,
 ];
 
-function strings(value: unknown, out: string[] = []): string[] {
-  if (typeof value === "string") out.push(value);
-  else if (Array.isArray(value)) for (const v of value) strings(v, out);
-  else if (value && typeof value === "object")
-    for (const v of Object.values(value)) strings(v, out);
-  return out;
-}
-
-const sentences = (text: string) =>
-  text
-    .replace(/\s+/g, " ")
-    .split(/(?<=[.!?])\s+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-
 /**
- * A sentence that also names the preview is not a numbers-ONLY claim: the
- * numbers on the card ARE how a field is placed, and the preview sets them.
- * Each served sentence a shape matches and only this lets through is listed
- * in {@link WITH_PREVIEW}, and each entry must still be served.
+ * A sentence that names BOTH the preview and Find fields is not a
+ * numbers-ONLY claim: the numbers on the card ARE how a field is placed,
+ * the preview sets them, and a suggestion from Find fields only fills them
+ * in. Each served sentence a shape matches and only this lets through is
+ * listed in {@link WITH_PREVIEW}, and each entry must still be served.
+ *
+ * WAS the preview alone (2026-11-17). Find fields (S2, 2026-11-18) made a
+ * third way to set the numbers, so a sentence naming only typing and the
+ * preview became PARTIAL: the guide sentence that passed on the preview
+ * alone is in {@link PARTIAL_SINCE_FIND_FIELDS}, inverted, and is caught.
  */
 const NAMES_PREVIEW = /\bpreview\b/i;
+const NAMES_FINDER = /\bFind fields\b/;
 
 const caught = (sentence: string) =>
-  NAMES_PREVIEW.test(sentence)
+  NAMES_PREVIEW.test(sentence) && NAMES_FINDER.test(sentence)
     ? []
     : Object.entries(NUMBERS_ONLY)
         .filter(([, re]) => re.test(sentence))
         .map(([name]) => name);
 
-/** Served sentences a shape matches, true because they name the preview. */
+/** Served sentences a shape matches, true because they name both. */
 const WITH_PREVIEW = [
-  "Each field is placed by the numbers on its card, which you can type or set on a preview of the page: click where the field's bottom-left corner belongs, drag its box, or nudge it with the arrow keys.",
+  "Each field is placed by the numbers on its card, which you can type or set on a preview of the page: click where the field's bottom-left corner belongs, drag its box, or nudge it with the arrow keys; a suggestion from Find fields only fills them in, once you check it and add it.",
 ];
 
-interface Said {
-  source: string;
-  text: string;
-}
-
-function corpus(): Said[] {
-  const tool = getToolBySlug(SLUG)!;
-  const out: Said[] = [];
-  const add = (source: string, texts: string[]) => {
-    for (const text of texts)
-      for (const s of sentences(text)) out.push({ source, text: s });
-  };
-  add("content", strings(getToolContent(SLUG)));
-  add("faq", strings([toolFaq(tool), modeFaq(tool), toolFacts(SLUG)]));
-  for (const guide of guides.filter((g) => g.tools.includes(SLUG)))
-    add(`guide ${guide.slug}`, strings(guide));
-  const dir = path.join(process.cwd(), "src/components/tools/runner");
-  for (const file of readdirSync(dir).filter(
-    (f) => /^create-forms.*\.tsx?$/.test(f) && !/\.test\./.test(f),
-  ))
-    add(file, [readFileSync(path.join(dir, file), "utf8")]);
-  return out;
-}
+/**
+ * INVERTED 2026-11-18 (S2). Served from 2026-11-17 as the guide's placement
+ * sentence and listed in WITH_PREVIEW then, as true. Once Find fields could
+ * fill the numbers in, it named two of the three ways and read as the whole
+ * list, so it must now be caught like any numbers-only sentence.
+ */
+const PARTIAL_SINCE_FIND_FIELDS = [
+  "Each field is placed by the numbers on its card, which you can type or set on a preview of the page: click where the field's bottom-left corner belongs, drag its box, or nudge it with the arrow keys.",
+];
 
 describe("Create Forms: no sentence says a field is placed only by typed numbers", () => {
   it("every shipped numbers-only sentence is caught, and every shape catches one", () => {
     for (const s of SHIPPED) expect(caught(s), s).not.toEqual([]);
-    // Every exemption is one: a shape matches it, and only the preview
-    // lets it through.
+    for (const s of PARTIAL_SINCE_FIND_FIELDS)
+      expect(caught(s), s).not.toEqual([]);
+    // Every exemption is one: a shape matches it, and only naming the
+    // preview and Find fields lets it through.
     for (const s of WITH_PREVIEW) {
       expect(caught(s), s).toEqual([]);
       expect(
@@ -137,7 +114,7 @@ describe("Create Forms: no sentence says a field is placed only by typed numbers
   });
 
   it("nothing served or rendered for the tool says so now", () => {
-    const said = corpus();
+    const said = createFormsCorpus();
     // Health: the corpus is the tool's whole copy, not a sliver of it, and
     // it holds the answer this guard was written for.
     const sources = new Set(said.map((s) => s.source));
@@ -146,6 +123,7 @@ describe("Create Forms: no sentence says a field is placed only by typed numbers
     expect([...sources].some((s) => s.startsWith("guide "))).toBe(true);
     expect(sources.has("create-forms-runner.tsx")).toBe(true);
     expect(sources.has("create-forms-preview.tsx")).toBe(true);
+    expect(sources.has("create-forms-detect.tsx")).toBe(true);
     expect(said.length).toBeGreaterThan(150);
     expect(said.some((s) => s.text === "How do I place a field?")).toBe(true);
     for (const s of WITH_PREVIEW)
@@ -153,6 +131,11 @@ describe("Create Forms: no sentence says a field is placed only by typed numbers
         said.some((d) => d.text === s),
         `exemption still served: ${s}`,
       ).toBe(true);
+    for (const s of PARTIAL_SINCE_FIND_FIELDS)
+      expect(
+        said.some((d) => d.text === s),
+        `no longer served: ${s}`,
+      ).toBe(false);
     const found = said
       .map((s) => ({ ...s, shapes: caught(s.text) }))
       .filter((s) => s.shapes.length > 0);

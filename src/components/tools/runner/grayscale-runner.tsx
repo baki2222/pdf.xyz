@@ -151,6 +151,22 @@ export function GrayscaleEditor({
     });
   };
 
+  // Stop the run in hand and go back to the start: the renderer stops at the
+  // next page (`capturePdfPages` reads the signal), `grayscalePdf` then stops
+  // before saving, and `reset` drops the run, so neither a result nor the
+  // "cancelled" error is drawn. A long document took about 80 s with no way
+  // out (perf sweep 2026-11-18, P4). Cancel removes itself, so focus goes to
+  // the run button rather than falling to the top of the page.
+  const runBarRef = useRef<HTMLDivElement | null>(null);
+  const onCancel = () => {
+    abortRef.current?.abort();
+    setProgress(null);
+    reset();
+    runBarRef.current
+      ?.querySelector<HTMLElement>("[data-run-trigger]")
+      ?.focus();
+  };
+
   if (result) {
     return (
       <ResultPanel
@@ -235,7 +251,19 @@ export function GrayscaleEditor({
       </PrivacyLine>
 
       <RunBar>
-        <div className="flex justify-end">
+        <div
+          ref={runBarRef}
+          className="flex flex-wrap items-start justify-end gap-3"
+        >
+          {busy && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className={buttonVariants({ variant: "secondary", size: "lg" })}
+            >
+              Cancel
+            </button>
+          )}
           <RunButton
             onClick={onRun}
             busy={busy}

@@ -22,8 +22,10 @@ import {
  * build and render reliably, with no arbitrary rich styling (fonts, borders,
  * colors). The engine takes numeric coordinates in PDF points and nothing
  * else; the builder's page preview (create-forms-preview.tsx, since
- * 2026-11-17) only SETS those numbers — a click, a drag or an arrow key
- * writes X and Y on the card, and this engine is handed the card. It does NOT
+ * 2026-11-17) and Find fields (create-forms-detect.tsx, since 2026-11-18)
+ * only SET those numbers — a click, a drag or an arrow key writes X and Y on
+ * the card, an added suggestion becomes a card with its numbers filled in,
+ * and this engine is handed the cards. It does NOT
  * create signature fields — Edit PDF's Forms group drags those out, as an
  * unsigned `/Sig` widget written through pdf-lib (editor/model.ts; until
  * 2026-11-07 this said pdf-lib could not render one, audit create-forms#1) —
