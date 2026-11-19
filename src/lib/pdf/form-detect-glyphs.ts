@@ -31,6 +31,19 @@
  * Tc it was shown with (following `save` / `restore`), so each advance
  * becomes (glyph + Tc) x scale, as a reader draws it.
  *
+ * TC PER CHARACTER, NOT PER FONT (review round 2 of slice S3). Kept per
+ * font, one letter-spaced heading in the body font made the font's Tc
+ * unknown, and unknown was read as 0: every run below it 11 pt late at
+ * Tc 1. The table now also keeps, per font, the order its characters were
+ * shown in with each one's Tc (`shown`), and {@link itemCharSpacing}
+ * reads a text item's characters off that queue in turn, so each
+ * character carries the Tc it was drawn with, even when one item joins
+ * two pieces of text drawn at two values. pdf.js makes its text items
+ * from the same content stream in the same order, so each font's items,
+ * read in order, consume that font's queue in order. The queue holds one
+ * entry per code point of a glyph's `unicode`, spaces left out (pdf.js
+ * writes spaces of its own between pieces of text, which no glyph drew).
+ *
  * Pure: `OPS` is a parameter, as in `./form-detect-paths`.
  */
 
@@ -51,7 +64,22 @@ export interface GlyphOps {
  */
 export type GlyphTable = Map<string, Map<string, number>> & {
   charSpacing: Map<string, number | null>;
+  /**
+   * Per font, every character it showed other than a space, in the order
+   * shown, with the Tc each was shown with in ems of the size (NaN when
+   * there was no size to measure it by), and how far its text items have
+   * read it ({@link itemCharSpacing}).
+   */
+  shown: Map<string, { ch: string[]; tc: number[]; at: number }>;
 };
+
+/**
+ * How many characters of a font's queue {@link itemCharSpacing} skips, at
+ * most, to find where a text item starts: a glyph pdf.js's text content
+ * writes differently (a ligature it spells out) is passed over, and the
+ * search stays linear. Held literally by form-detect-precision.test.ts.
+ */
+export const SHOWN_RESYNC = 64;
 
 /**
  * Tolerances for {@link itemAdvances}. Held literally by
@@ -94,6 +122,8 @@ export const ADVANCES = {
   GLYPH_SHARE_MIN: 0.5,
 } as const;
 
+const SPACE = /\s/;
+
 /**
  * The glyph table of one page's operator list. Linear in the operators and
  * glyphs shown; never throws on a shape it does not expect (a glyph that is
@@ -106,7 +136,10 @@ export function glyphTable(
 ): GlyphTable {
   const table: GlyphTable = Object.assign(
     new Map<string, Map<string, number>>(),
-    { charSpacing: new Map<string, number | null>() },
+    {
+      charSpacing: new Map<string, number | null>(),
+      shown: new Map<string, { ch: string[]; tc: number[]; at: number }>(),
+    },
   );
   const conflicted = new Map<string, Set<string>>();
   if (OPS.setFont === undefined || OPS.showText === undefined) return table;
@@ -147,6 +180,18 @@ export function glyphTable(
     if (had === undefined) table.charSpacing.set(font, tcEms);
     else if (had !== null && (tcEms === null || Math.abs(had - tcEms) > 1e-9))
       table.charSpacing.set(font, null);
+    let queue = table.shown.get(font);
+    if (!queue) table.shown.set(font, (queue = { ch: [], tc: [], at: 0 }));
+    for (const g of glyphs) {
+      const u =
+        g && typeof g === "object" ? (g as { unicode?: unknown }).unicode : 0;
+      if (typeof u !== "string") continue;
+      for (const cp of u)
+        if (!SPACE.test(cp)) {
+          queue.ch.push(cp);
+          queue.tc.push(tcEms ?? NaN);
+        }
+    }
     let widths = table.get(font);
     if (!widths) table.set(font, (widths = new Map()));
     let bad = conflicted.get(font);
@@ -171,7 +216,43 @@ export function glyphTable(
   return table;
 }
 
-const SPACE = /\s/;
+/**
+ * Each code point's Tc (ems of the size) in a text item of `font`, read
+ * off the font's queue from where its last item stopped, or undefined when
+ * the item's characters are not found there within {@link SHOWN_RESYNC}
+ * (the queue is then left where it was). A space takes the Tc of the
+ * character before it (the one after, at the start). Call it once per
+ * text item, in pdf.js's order: it moves the queue on.
+ */
+export function itemCharSpacing(
+  table: GlyphTable,
+  font: string,
+  str: string,
+): number[] | undefined {
+  const chars = Array.from(str);
+  const want = chars.filter((ch) => !SPACE.test(ch));
+  if (want.length === 0) return undefined;
+  const q = table.shown.get(font);
+  if (!q) return undefined;
+  let start = -1;
+  const last = Math.min(q.at + SHOWN_RESYNC, q.ch.length - want.length);
+  for (let s = q.at; s <= last && start < 0; s++) {
+    let k = 0;
+    while (k < want.length && q.ch[s + k] === want[k]) k++;
+    if (k === want.length) start = s;
+  }
+  if (start < 0) return undefined;
+  q.at = start + want.length;
+  const own = want.map((_, k) => q.tc[start + k]!);
+  if (own.some((t) => !isFinite(t))) return undefined;
+  const out: number[] = [];
+  let k = 0;
+  for (const ch of chars) {
+    if (SPACE.test(ch)) out.push(own[Math.max(0, k - 1)]!);
+    else out.push(own[k++]!);
+  }
+  return out;
+}
 
 /**
  * Each code point's advance in points, summing to `width`, or undefined
@@ -180,8 +261,8 @@ const SPACE = /\s/;
  * of the gap).
  *
  * Each glyph's advance is (units x size / 1000 + Tc) x the horizontal
- * scale (`spacing`: Tc in ems of the size, and the scale, both 0 / 1 when
- * not given), and
+ * scale (`spacing`: Tc in ems of the size, one for the item or one per
+ * code point, and the scale, 0 / 1 when not given), and
  * whatever the item is wider (or narrower) by goes to its spaces, shared
  * equally, when there are spaces, the difference is over
  * {@link ADVANCES.SPACE_EXTRA_MIN_EMS}, the glyphs make up at least
@@ -194,14 +275,20 @@ export function itemAdvances(
   width: number,
   size: number,
   widths: ReadonlyMap<string, number> | undefined,
-  spacing: { charSpacingEms?: number; hScale?: number } = {},
+  spacing: {
+    charSpacingEms?: number | readonly number[];
+    hScale?: number;
+  } = {},
 ): number[] | undefined {
   if (!widths || !(width > 0) || !(size > 0)) return undefined;
-  const tc = spacing.charSpacingEms ?? 0;
   const hs = spacing.hScale ?? 1;
-  if (!isFinite(tc) || !(hs > 0) || !isFinite(hs)) return undefined;
+  if (!(hs > 0) || !isFinite(hs)) return undefined;
   const chars = Array.from(str);
   if (chars.length === 0) return undefined;
+  const given = spacing.charSpacingEms ?? 0;
+  const tcs = typeof given === "number" ? chars.map(() => given) : given;
+  if (tcs.length !== chars.length || !tcs.every((t) => isFinite(t)))
+    return undefined;
   const own: (number | null)[] = [];
   const spaces: number[] = [];
   for (const [i, ch] of chars.entries()) {
@@ -211,7 +298,7 @@ export function itemAdvances(
     if (w === undefined) {
       if (!space) return undefined;
       own.push(null);
-    } else own.push((w / ADVANCES.UNITS_PER_EM + tc) * size * hs);
+    } else own.push((w / ADVANCES.UNITS_PER_EM + tcs[i]!) * size * hs);
   }
   const glyphs = own.reduce<number>((s, a) => s + (a ?? 0), 0);
   if (!(glyphs > 0)) return undefined;

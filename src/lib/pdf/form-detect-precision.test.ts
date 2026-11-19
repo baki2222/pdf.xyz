@@ -33,6 +33,8 @@ import {
   ADVANCES,
   glyphTable,
   itemAdvances,
+  SHOWN_RESYNC,
+  itemCharSpacing,
   type GlyphOps,
 } from "./form-detect-glyphs";
 import { detectFormFields, textItemToCard } from "./form-detect-read";
@@ -184,6 +186,7 @@ describe("slice S3's tables (literal, not read back)", () => {
       SPACE_EXTRA_MIN_EMS: 0.1,
       GLYPH_SHARE_MIN: 0.5,
     });
+    expect(SHOWN_RESYNC).toBe(64);
     expect(EMPTY_BOXES.map((c) => c.codePointAt(0))).toEqual([0x2610, 0x25a1]);
     expect(TICKED_BOXES.map((c) => c.codePointAt(0))).toEqual([0x2611, 0x2612]);
   });
@@ -325,6 +328,61 @@ describe("rows of dots (dot-leader)", () => {
       classifyPage(p).excluded.find((e) => e.rule === "toc-leader"),
     ).toBeDefined();
     expect(props(p).filter((x) => x.rule === "dot-leader")).toEqual([]);
+  });
+
+  // Review round 2: the square above sits 4 pt after the dots; a drawn
+  // box is led to at any distance along the line, like text is.
+  it("dots that lead to a drawn box 40 pt and 200 pt away are toc-leader too", () => {
+    const lead = item(`Helpful ${".".repeat(20)}`, 72, 600);
+    for (const gap of [40, 200]) {
+      const sq = {
+        x0: right(lead) + gap,
+        y0: 598,
+        x1: right(lead) + gap + 10,
+        y1: 608,
+        width: 1,
+        stroked: true,
+        filled: false,
+        lum: 0,
+      };
+      const p = pg({ text: [lead], rects: [sq] });
+      expect(
+        classifyPage(p).excluded.map((e) => e.rule),
+        `gap ${gap}`,
+      ).toContain("toc-leader");
+      expect(props(p).filter((x) => x.rule === "dot-leader")).toEqual([]);
+    }
+    // Positive control: a box on another line is not led to.
+    const off = {
+      x0: right(lead) + 40,
+      y0: 560,
+      x1: right(lead) + 50,
+      y1: 570,
+      width: 1,
+      stroked: true,
+      filled: false,
+      lum: 0,
+    };
+    expect(
+      props(pg({ text: [lead], rects: [off] })).filter(
+        (x) => x.rule === "dot-leader",
+      ),
+    ).toHaveLength(1);
+  });
+
+  // KNOWN (review round 2, a trade-off the spec chose): a leader reads its
+  // whole line, so on a two-column page whose right column has plain text
+  // on the same baseline, the left column's row is toc-leader. With the
+  // old 24 pt reach it was proposed. The spec says never when the line
+  // ends in text; this records the recall that costs, so a change to it is
+  // a decision, not an accident.
+  it("KNOWN: a row in the left column with plain text on its baseline in the right column is toc-leader", () => {
+    const lead = item(`Name ${".".repeat(20)}`, 72, 600);
+    const p = pg({ text: [lead, item("For office use only", 340, 600)] });
+    expect(props(p)).toEqual([]);
+    expect(classifyPage(p).excluded.map((e) => e.rule)).toEqual(["toc-leader"]);
+    // Health: the row alone is a blank.
+    expect(props(pg({ text: [lead] })).map((x) => x.label)).toEqual(["Name"]);
   });
 
   it("a label followed by dots after a leader is the next blank's label: two blanks, set apart or in one item", () => {
@@ -707,6 +765,33 @@ describe("review round 1: a second row of dots with nothing before it in its ite
       ).toEqual(["unlabelled"]);
     }
   });
+
+  // Review round 2: the single item above was never broken. The defect was
+  // the row in an item of its OWN, 6 pt after a run or a row: its label was
+  // looked for to the left, found the item "Name ____", and took "Name"
+  // even though a blank stood between them. Both were proposed as Name.
+  it("in an item of its own after a run or a row, it is unlabelled too, never a second Name", () => {
+    for (const head of [`Name ${"_".repeat(16)}`, `Name ${".".repeat(16)}`]) {
+      const a = item(head, 72, 600);
+      const b = item(".".repeat(16), right(a) + 6, 600);
+      const c = classifyPage(pg({ text: [a, b] }));
+      expect(
+        c.proposals.map((x) => x.label),
+        head,
+      ).toEqual(["Name"]);
+      expect(
+        c.excluded.map((e) => e.rule),
+        head,
+      ).toEqual(["unlabelled"]);
+    }
+    // Positive control: after a plain label item, the row is labelled.
+    const l = item("Name", 72, 600);
+    expect(
+      props(pg({ text: [l, item(".".repeat(16), right(l) + 6, 600)] })).map(
+        (x) => x.label,
+      ),
+    ).toEqual(["Name"]);
+  });
 });
 
 describe("review round 1: bulleted lists that got through (finding 2)", () => {
@@ -795,6 +880,21 @@ describe("review round 1: box symbols used as text (finding 4)", () => {
     expect(
       props(pg({ text: [item(`${BOX} not applicable`, 72, 600)] })),
     ).toHaveLength(1);
+  });
+
+  // Review round 2: the key and its meaning as two items, 3 pt apart.
+  it("a legend's key with '= not applicable' in an item of its own is no field either", () => {
+    const box = item(BOX, 72, 600);
+    const p = pg({
+      text: [box, item("= not applicable", right(box) + 3, 600)],
+    });
+    expect(props(p)).toEqual([]);
+    expect(firstRule(p)).toBe("unlabelled");
+    // Positive control: the same two items without the "=" are a field.
+    const q = pg({ text: [box, item("not applicable", right(box) + 3, 600)] });
+    expect(props(q).map((x) => [x.rule, x.label])).toEqual([
+      ["box-glyph", "not applicable"],
+    ]);
   });
 
   it("a symbol whose square is larger than a checkbox (SQUARE_MAX, 20 pt) is decoration", () => {
@@ -912,6 +1012,78 @@ describe("glyphTable and itemAdvances (pure)", () => {
     const blind = itemAdvances("N _", width, 12, widths)!;
     expect(blind[2]!).toBeCloseTo(6.672, 6);
     expect(blind[2]!).not.toBeCloseTo(own[2]!, 2);
+  });
+
+  // Review round 2 (finding 5 again): Tc was kept per font, and a font
+  // shown at two values was "unknown", read as 0. Each character now
+  // carries the Tc it was shown with, read off the font's queue in turn.
+  it("each item's characters carry the Tc they were shown with, item by item, spaces taking the one before", () => {
+    const O = { setFont: 1, showText: 2, setCharSpacing: 3 };
+    const table = glyphTable(
+      [1, 3, 2, 3, 2, 2],
+      [
+        ["f", 10],
+        [0],
+        [[g("T", 611), g("i", 222)]],
+        [1],
+        [[g("N", 722), g(" ", 278), g("_", 556)]],
+        [[g("_", 556)]],
+      ],
+      O,
+    );
+    // Health: the font's one Tc is unknown, the case that was read as 0.
+    expect(table.charSpacing.get("f")).toBeNull();
+    expect(table.shown.get("f")!.ch).toEqual(["T", "i", "N", "_", "_"]);
+    expect(itemCharSpacing(table, "f", "Ti")).toEqual([0, 0]);
+    // One item joining a piece at Tc 1 and pdf.js's own space.
+    expect(itemCharSpacing(table, "f", "N _ _")).toEqual([
+      0.1, 0.1, 0.1, 0.1, 0.1,
+    ]);
+    // The queue is spent: nothing more is found, and nothing moves.
+    expect(itemCharSpacing(table, "f", "_")).toBeUndefined();
+    // One item, two values: the label at 0, the run at Tc 1.
+    const two = glyphTable(
+      [1, 3, 2, 3, 2],
+      [["f", 10], [0], [[g("N", 722), g(":", 278)]], [1], [[g("_", 556)]]],
+      O,
+    );
+    expect(itemCharSpacing(two, "f", "N: _")).toEqual([0, 0, 0, 0.1]);
+  });
+
+  it("SHOWN_RESYNC: an item is found 64 characters on, not 65; a miss leaves the queue where it was", () => {
+    const O = { setFont: 1, showText: 2, setCharSpacing: 3 };
+    const at = (skip: number) =>
+      glyphTable(
+        [1, 2, 3, 2],
+        [
+          ["f", 10],
+          [Array.from({ length: skip }, () => g("x", 500))],
+          [1],
+          [[g("A", 667)]],
+        ],
+        O,
+      );
+    expect(itemCharSpacing(at(64), "f", "A")).toEqual([0.1]);
+    const far = at(65);
+    expect(itemCharSpacing(far, "f", "A")).toBeUndefined();
+    expect(far.shown.get("f")!.at).toBe(0);
+    // ...and the skipped characters are still there to be read.
+    expect(itemCharSpacing(far, "f", "x")).toEqual([0]);
+  });
+
+  it("each code point may carry its own Tc into itemAdvances; a wrong count places nothing", () => {
+    const widths = new Map([
+      ["N", 722],
+      ["_", 556],
+    ]);
+    const adv = itemAdvances("N_", 0.722 * 12 + 0.556 * 12 + 1, 12, widths, {
+      charSpacingEms: [0, 1 / 12],
+    })!;
+    expect(adv[0]!).toBeCloseTo(0.722 * 12, 9);
+    expect(adv[1]!).toBeCloseTo(0.556 * 12 + 1, 9);
+    expect(
+      itemAdvances("N_", 15, 12, widths, { charSpacingEms: [0] }),
+    ).toBeUndefined();
   });
 
   it("a character shown with two advances in one font is dropped for good", () => {
@@ -1095,6 +1267,10 @@ describe("MEASURED: where a run of underscores starts in its item (the decision 
       Tz?: number;
       kern?: number;
       gap?: number;
+      /** A title in the same font at Tc 0, drawn above the rows. */
+      title?: boolean;
+      /** The run's own Tc, set between the label and the run, one BT. */
+      runTc?: number;
     };
     const MODES: Mode[] = [
       { name: "Tc 0.5", Tc: 0.5 },
@@ -1108,6 +1284,12 @@ describe("MEASURED: where a run of underscores starts in its item (the decision 
       { name: "TJ -30", kern: -30 },
       { name: "TJ +20", kern: 20 },
       { name: "joined gap 6", gap: 6 },
+      // Review round 2 (finding 5 again): one font shown with two Tc values
+      // on one page. Tc was kept per font, so a letter-spaced heading made
+      // it unknown, and unknown was read as 0: every run 11 pt late at Tc 1.
+      { name: "Tc 1 under a Tc 0 title", Tc: 1, title: true },
+      { name: "label Tc 0, run Tc 1, one item", runTc: 1 },
+      { name: "label Tc 1, run Tc 0, one item", Tc: 1, runTc: 0 },
     ];
     const labels = LABELS.filter((l) => l !== "");
     const op = (o: string, ...args: unknown[]) =>
@@ -1132,6 +1314,15 @@ describe("MEASURED: where a run of underscores starts in its item (the decision 
           .slice(1);
         const hs = (m.Tz ?? 100) / 100;
         const truth: number[] = [];
+        if (m.title)
+          page.pushOperators(
+            op("BT"),
+            op("Tf", PDFName.of(key), PDFNumber.of(12)),
+            op("Tc", PDFNumber.of(0)),
+            op("Td", PDFNumber.of(72), PDFNumber.of(760)),
+            op("Tj", font.encodeText(labels.at(-1)!)),
+            op("ET"),
+          );
         labels.forEach((label, i) => {
           const y = 700 - 24 * i;
           const head = m.gap !== undefined ? label : `${label} `;
@@ -1149,7 +1340,13 @@ describe("MEASURED: where a run of underscores starts in its item (the decision 
               arr.push(font.encodeText(ch), PDFNumber.of(m.kern));
             arr.push(font.encodeText(RUN));
             ops.push(op("TJ", d.context.obj(arr as never)));
-          } else ops.push(op("Tj", font.encodeText(m.gap ? head : head + RUN)));
+          } else if (m.runTc !== undefined)
+            ops.push(
+              op("Tj", font.encodeText(head)),
+              op("Tc", PDFNumber.of(m.runTc)),
+              op("Tj", font.encodeText(RUN)),
+            );
+          else ops.push(op("Tj", font.encodeText(m.gap ? head : head + RUN)));
           ops.push(op("ET"));
           // Each label character's own advance, as a reader draws it.
           let x = 72;
@@ -1194,7 +1391,7 @@ describe("MEASURED: where a run of underscores starts in its item (the decision 
       }
     }
     console.log(`[underscore split, spacing] ${rows.join(" | ")}`);
-    // Health: the sheets were measured (4 faces, 11 modes, Tw on 3).
+    // Health: the sheets were measured (4 faces, 14 modes, Tw on 3).
     expect(rows.length).toBe(4 * MODES.length - 1);
     expect(worstAfter).toBeGreaterThan(0);
     expect(shared).toBeGreaterThanOrEqual(measured / 2);

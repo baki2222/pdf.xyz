@@ -14,6 +14,7 @@ import {
 } from "./form-detect";
 import {
   glyphTable,
+  itemCharSpacing,
   itemAdvances,
   type GlyphOps,
   type GlyphTable,
@@ -192,12 +193,26 @@ export function textItemToCard(
     style?.fontFamily && FAMILIES.has(style.fontFamily)
       ? (style.fontFamily as CardText["family"])
       : undefined;
+  // Read for every item, upright or not, so each font's queue stays in
+  // step with its items (./form-detect-glyphs `itemCharSpacing`). When the
+  // item is not found there: the font's one Tc if it had one; if it had
+  // several, the Tc is unknown and no advance is placed by guessing 0
+  // (review round 2 of slice S3: a heading at another Tc put every run
+  // below it 11 pt late).
+  const font = typeof item.fontName === "string" ? item.fontName : null;
+  const tcs =
+    glyphs && font !== null
+      ? (itemCharSpacing(glyphs, font, item.str) ??
+        (glyphs.charSpacing.has(font)
+          ? (glyphs.charSpacing.get(font) ?? undefined)
+          : 0))
+      : undefined;
   const upright = b === 0 && c === 0 && a! > 0 && d! > 0 && item.dir !== "ttb";
   if (upright) {
     const advances =
-      glyphs && typeof item.fontName === "string"
-        ? itemAdvances(item.str, width, d!, glyphs.get(item.fontName), {
-            charSpacingEms: glyphs.charSpacing.get(item.fontName) ?? 0,
+      glyphs && font !== null && tcs !== undefined
+        ? itemAdvances(item.str, width, d!, glyphs.get(font), {
+            charSpacingEms: tcs,
             // pdf.js scales the font size by Tz along x only.
             hScale: a! / d!,
           })
