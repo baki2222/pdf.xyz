@@ -588,15 +588,17 @@ describe("Summarize panel: a file swap starts over", () => {
     expect(screen.queryByRole("option", { name: /Findings/ })).toBeNull();
     await act(async () => {
       release();
-      await observeFor(
-        "summarize-late-outline-window",
-        LATE_WINDOW_MS,
-        "the positive control: an unswapped held outline arrives inside the window",
-      );
     });
-    expect(
-      screen.getByRole("option", { name: `Findings (pages 3${EN}4)` }),
-    ).toBeInTheDocument();
+    // A presence, so waited for rather than slept: the outline must arrive
+    // within the window the swap test observes for (review of lane 3: a
+    // fixed window before a presence check read as a negative observation).
+    await waitFor(
+      () =>
+        expect(
+          screen.getByRole("option", { name: `Findings (pages 3${EN}4)` }),
+        ).toBeInTheDocument(),
+      { timeout: LATE_WINDOW_MS },
+    );
   });
 
   it("resets the choice to the whole document and drops a late outline result", async () => {
