@@ -121,18 +121,71 @@ const REFRESH_PAGE = `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="refresh" content="0;url=${secretUrl}"></head>
 <body><h1>${VISIBLE}</h1></body></html>`;
 
-/** How long the pre-fix argv may run before it is killed. */
+/**
+ * How long the pre-fix argv may run before it is killed. Below the 90 s of
+ * each control, so the kill's readable message is the one that fires.
+ */
 const PRE_FIX_TIMEOUT_MS = 60_000;
 
 /**
- * The argv this module used until 2026-09: the upload written to a
- * `pdfxyz-html-` temp dir, as the pre-fix code named it, and opened as file://.
+ * The argv this module used until 2026-09 (`chromiumPdfArgs` before
+ * ba4bfb0d), verbatim: the defect under proof is that it opens the upload as
+ * a file:// document, and nothing here may change that.
+ */
+const preFixArgv = (output: string, source: string) => [
+  "--headless=new",
+  "--disable-gpu",
+  "--no-sandbox",
+  "--disable-dev-shm-usage",
+  "--run-all-compositor-stages-before-draw",
+  "--virtual-time-budget=10000",
+  `--print-to-pdf=${output}`,
+  source,
+];
+
+/**
+ * What the HARNESS adds, none of it about file access: a fresh profile per
+ * call, and no first-run or background work in it.
+ *
+ * Why (2026-11-21, the flake that blocked #390, run 44924793701 attempt 1:
+ * "Chromium wrote no PDF, exited 0" after 65 s). Without these the pre-fix
+ * argv ran on the CI runner's shared default profile, with first-run tasks
+ * and Chromium's own background networking live. Its FIRST launch in the
+ * job took 7.3-46.2 s in all 22 passing runs of 11-18..11-21 (and 65 s in the
+ * failure), while the two launches after it, the same argv on the profile
+ * the first had made, took 0.7-4.2 s; the production runner's launches,
+ * which pass these flags with a fresh profile each, show no such first
+ * launch. So the cost, and the silent exit, were the profile's first run,
+ * not the page and not the defect. The control still has to LEAK: if any of
+ * these stopped a file:// page reading a local file, it would go red.
+ */
+const harnessFlags = (profile: string) => [
+  `--user-data-dir=${profile}`,
+  "--no-first-run",
+  "--no-default-browser-check",
+  "--disable-background-networking",
+  "--disable-component-update",
+  "--disable-sync",
+];
+
+/** Chromium's stderr without the D-Bus lines a runner with no bus prints. */
+const stderrTail = (stderr: string) =>
+  stderr
+    .split("\n")
+    .filter((line) => !line.includes("dbus/bus.cc"))
+    .join("\n")
+    .slice(-1200);
+
+/**
+ * The pre-fix argv on a page: the upload written to a `pdfxyz-html-` temp
+ * dir, as the pre-fix code named it, and opened as file://.
  */
 async function renderWithPreFixArgv(html: string, name: string) {
   const dir = mkdtempSync(path.join(work, "pdfxyz-html-"));
   const input = path.join(dir, `${name}.html`);
   const output = path.join(dir, `${name}.pdf`);
   writeFileSync(input, html);
+  const startedAt = Date.now();
   // Chromium's exit is kept, not swallowed: on a slow CI runner it has hung
   // until the 60 s kill (run 41104611412), and the control then failed as a
   // bare ENOENT on the missing PDF — red for a reason nobody could read.
@@ -143,14 +196,8 @@ async function renderWithPreFixArgv(html: string, name: string) {
     execFile(
       BIN!,
       [
-        "--headless=new",
-        "--disable-gpu",
-        "--no-sandbox",
-        "--disable-dev-shm-usage",
-        "--run-all-compositor-stages-before-draw",
-        "--virtual-time-budget=10000",
-        `--print-to-pdf=${output}`,
-        pathToFileURL(input).toString(),
+        ...harnessFlags(path.join(dir, "profile")),
+        ...preFixArgv(output, pathToFileURL(input).toString()),
       ],
       { timeout: PRE_FIX_TIMEOUT_MS },
       (error, _stdout, stderr) => done({ error, stderr: String(stderr) }),
@@ -165,7 +212,7 @@ async function renderWithPreFixArgv(html: string, name: string) {
         ? `exited: ${exit.error.message}`
         : "exited 0";
     throw new Error(
-      `Chromium wrote no PDF, ${cause}; stderr tail: ${exit.stderr.slice(-600)}`,
+      `Chromium wrote no PDF, ${cause}, after ${Date.now() - startedAt} ms; stderr tail without D-Bus noise: ${stderrTail(exit.stderr)}`,
     );
   }
   return {
