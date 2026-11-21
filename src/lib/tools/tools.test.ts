@@ -18,7 +18,7 @@ import {
   tools,
 } from "./index";
 import { SYNONYM_GROUPS } from "./intents";
-import { searchTools, toolSearchIndex } from "./search-tools";
+import { rankTools, searchTools, toolSearchIndex } from "./search-tools";
 import type { Tool } from "./types";
 import { expectFasterThan, expectRatioBelow } from "@/tests/time-bound";
 
@@ -370,31 +370,55 @@ describe("the search corpus", () => {
    * A search that rebuilt the index per keystroke cost 1.28 ms a query on
    * the dev host — green there, red only on a CI runner slow enough.
    *
-   * Now two parts. The speed-independent one: the catalogue's index is built
-   * once and handed back, the same object, to every caller (`kept`), so the
-   * explorer's per-keystroke `searchTools` cannot rebuild it whatever the
-   * runner's speed. Mutant: `index ??=` in search-tools.ts made `index =`
-   * turns `kept` red. A slowdown inside `search` itself has no count; only
-   * the records below see it, and they record. The timed one: a query against a whole build of the
-   * index, same run, interleaved, time-boxed samples, best per call. A
-   * search that holds a build inside it reads 1 or more by construction
-   * (dev host: 1.01-1.08); the honest search reads 0.06 there. Measure mode
-   * until CI calibrates it: no CI figure exists for this ratio yet (the test
-   * never printed a number; its whole-test time stayed under the reporter's
-   * 300 ms floor in all 26 CI runs read, 2026-11-18..21).
+   * Now two parts. The speed-independent one, `readsKept`: every call of
+   * the two public search paths READS the one kept index. The explorer's
+   * per-keystroke call is `rankTools` (tools-explorer.tsx), and the 404's
+   * "Did you mean" calls `searchTools` (path-suggest.ts). The kept index's
+   * `entries` is swapped for a counting getter while both paths run over
+   * the corpus, so a path that searched any other index, a fresh build per
+   * keystroke included, leaves its calls unread. Mutants (verify
+   * 2026-11-22, each on a copy of search-tools.ts): `search(toolSearchIndex(),
+   * query)` in `searchTools` made `search(buildIndex(toolDocs(tools)), query)`
+   * read the kept index 0 times in 89 calls (honest: 3,329) and is red here,
+   * where the earlier `kept` (the memo's identity alone) stayed green at
+   * 1.21x of 0.25x; the same bypass in `rankTools` read 0 in 89 (honest:
+   * 3,329); `index ??=` made `index =` fails the identity check above it.
+   * A slowdown inside `search` itself has no
+   * count; only the records below see it, and they record. The timed one: a
+   * query against a whole build of the index, same run, interleaved,
+   * time-boxed samples, best per call. A search that holds a build inside it
+   * reads 1 or more by construction (dev host: 1.01-1.08); the honest search
+   * reads 0.06 there. Measure mode until CI calibrates it: no CI figure
+   * exists for this ratio yet (the test never printed a number; its
+   * whole-test time stayed under the reporter's 300 ms floor in all 26 CI
+   * runs read, 2026-11-18..21).
    */
   it("answers a query over the whole catalogue in a small fraction of building it", () => {
     const again = toolSearchIndex();
-    const kept = again === index;
-    expect(kept).toBe(true);
+    expect(again).toBe(index);
     const queries = CORPUS.map(([query]) => query);
     expect(queries.length).toBeGreaterThanOrEqual(40);
+    const reads = readsOfKeptIndex(again, () => {
+      for (const query of queries) searchTools(query);
+    });
+    const rankReads = readsOfKeptIndex(again, () => {
+      for (const query of queries) rankTools(query);
+    });
+    // Positive control: the counter itself sees a search of the kept index.
+    expect(
+      readsOfKeptIndex(again, () => search(again, "merge")),
+    ).toBeGreaterThan(0);
+    const readsKept = reads >= queries.length && rankReads >= queries.length;
+    expect(
+      readsKept,
+      `kept index read ${reads} times by ${queries.length} searchTools calls, ${rankReads} by as many rankTools calls`,
+    ).toBe(true);
     const docs = toolDocs(tools);
     const sides = [
       () => buildIndex(docs),
-      // Through `searchTools`, the explorer's per-keystroke call, so the
-      // timed path is the one `kept` holds (review 2026-11-22: timing
-      // `search(index, q)` over a prebuilt index never reached the memo).
+      // Through `searchTools`, a public per-query path, so the timed path is
+      // one `readsKept` counted (review 2026-11-22: timing `search(index, q)`
+      // over a prebuilt index never reached the memo).
       () => {
         for (const query of queries) searchTools(query);
         return queries.length;
@@ -420,19 +444,50 @@ describe("the search corpus", () => {
     const queryMs = best[1]! / queries.length;
     expectRatioBelow("tools-search-query-vs-build", queryMs, buildMs, 0.25, {
       mode: "measure",
-      witness: "kept",
+      witness: "readsKept",
       detail: `per query ${queryMs.toPrecision(3)} ms, per build ${buildMs.toPrecision(3)} ms`,
     });
     // The person-facing promise: one query well inside a 60 Hz frame.
     expectFasterThan("tools-search-query-frame", queryMs, 16, {
       mode: "measure",
-      witness: "kept",
+      witness: "readsKept",
     });
   });
 });
 
 /** One time-boxed sample: at least this long, so a timer tick is noise. */
 const SAMPLE_MS = 100;
+
+/**
+ * How often `run` reads the kept index's `entries` (every `search` of an
+ * index reads it once). The property is swapped for a counting getter on
+ * the module's own index object for the length of `run`, then put back as
+ * as it was; a search of any other index is not counted.
+ */
+function readsOfKeptIndex(
+  kept: SearchIndex<ToolDoc<Tool>>,
+  run: () => unknown,
+): number {
+  const own = Object.getOwnPropertyDescriptor(kept, "entries");
+  if (!own || !("value" in own))
+    throw new Error("index.entries is not a data property");
+  const entries = kept.entries;
+  let reads = 0;
+  Object.defineProperty(kept, "entries", {
+    configurable: true,
+    enumerable: true,
+    get: () => {
+      reads += 1;
+      return entries;
+    },
+  });
+  try {
+    run();
+  } finally {
+    Object.defineProperty(kept, "entries", own);
+  }
+  return reads;
+}
 
 describe("every synonym group earns its place, and every synonym row needs one", () => {
   const docs = toolDocs(tools);
