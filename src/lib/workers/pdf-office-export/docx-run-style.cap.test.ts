@@ -9,13 +9,15 @@
  * matched, every page read back), so a fast run is not a run that did
  * nothing.
  *
- * Since 2026-11-22 (ci-flake audit 2026-11-19) every time is routed through
- * `@/tests/time-bound` and RECORDS (measure mode) until CI calibrates it:
- * the absolute bounds were generous multiples of dev-host figures, and the
- * cap test's own mutants flipped red or green with the runner CI drew (cap
- * 40,000: about 4.8 s on the fastest runner seen, 10.7 s on the slowest).
- * What fails meanwhile is speed-independent: the matched counts, and the
- * engine's ONE structural parse of what it delivers (`structureParses`).
+ * Since 2026-11-22 (ci-flake audit 2026-11-19, line 82) the read-back's
+ * time is routed through `@/tests/time-bound` and RECORDS (measure mode)
+ * until CI calibrates it: it timed this script's own read-back, so the
+ * engine parsing twice could never move it. What fails on that defect is
+ * speed-independent: the engine's ONE structural parse of what it delivers
+ * (`structureParses`). The matcher rows' 10 s and the engine's 60 s still
+ * assert, as on main (outside the lane's scope; a cap-40,000 mutant flips
+ * red or green with the runner CI draws, about 4.8 s on the fastest runner
+ * seen and 10.7 s on the slowest, and the matched counts cannot see it).
  * Each row also prints its cost shape — the same layout at a reference
  * size, same child — so the harvest can set those bounds from CI.
  */
@@ -78,20 +80,10 @@ describe("the formatting matcher is bounded per page", () => {
       // run of 100,000 characters, searched within `TEXT_WINDOW`).
       // 2026-11-15 with parts (#28 slice 4): 45 / 49 / 781-1,143 / 31 ms and
       // +20 / +21 / +16-21 / +15 MB — about twice the base build's time,
-      // far inside these bounds.
-      // CI: 3,814 ms for match-wide's whole test (the child's start-up
-      // included), so 10 s is 2.6x or more; one ceiling shared by four rows
-      // of very different cost, which is why it only records now.
-      expectFasterThan(
-        "docx-run-style-match-at-cap",
-        got.ms as number,
-        10_000,
-        {
-          mode: "measure",
-          witness: "matched",
-          instance: mode,
-        },
-      );
+      // far inside these bounds. Outside lane 1b's scope (its item is line
+      // 82): it asserts as on main (CI: 3,814 ms for match-wide's whole
+      // test, 44299285879, so 10 s is 2.6x).
+      expect(got.ms, JSON.stringify(got)).toBeLessThan(10_000);
       // The shape, same child, alternating: the cap against an eighth for
       // the near-linear layouts (dev host 2026-11-22, time-boxed samples,
       // 2 runs: 7.6-9.8; the firstFrom-to-0 mutants the audit counted read
@@ -111,7 +103,8 @@ describe("the formatting matcher is bounded per page", () => {
   );
 
   it("a page one word past the cap is not matched at all, and says so", () => {
-    // 1,183 ms on CI for the whole test (44321190257): 100 s is 85x.
+    // 1,230 ms on CI for the whole test (failed run 43998624497; 1,183 ms in
+    // passing runs, 44321190257): 100 s is 81x.
     const got = measure("match", MAX_STYLED_PIECES_PER_PAGE + 1, 100_000);
     expect(got.capped, JSON.stringify(got)).toBe(true);
     expect(got.matched).toBe(0);
@@ -129,17 +122,17 @@ describe("a 500-page document through PDF to Word", () => {
     // The times first, so a slow run that also tripped the page reader's
     // deadline (a production limit, 120 s) is reported as time, not as a
     // formatting failure. Measured 2.0 s, a 200 ms read-back and +54 MB on
-    // the dev host; 60 s is 4.5x the CI maximum above.
-    expectFasterThan("docx-run-style-engine-500", got.ms as number, 60_000, {
-      mode: "measure",
-      witness: "structureParses",
-    });
+    // the dev host; 60 s is 4.5x the CI maximum above. It ASSERTS, as on
+    // main (line 81 is outside lane 1b's scope; review 2026-11-22: routed
+    // to measure mode, only the 280 s kill would have failed).
+    expect(got.ms, JSON.stringify(got)).toBeLessThan(60_000);
     // WAS `readBackMs < 3_000`, said to guard "one parse": it times this
     // script's OWN read-back, so the engine parsing twice could never move
     // it (ci-flake audit 2026-11-19, line 82). The one parse is a count now,
     // below; the read-back's time is a shape, 500 pages against 63 of the
     // same engine (dev host 2026-11-22: 7.5; linear about 8), and both
-    // record until CI prints them.
+    // record until CI prints them. The scale's bound is 20, 2.4x the dev
+    // host's 8.4 and 3x under a quadratic read-back's 63.
     expectFasterThan(
       "docx-run-style-read-back",
       got.readBackMs as number,
@@ -150,7 +143,7 @@ describe("a 500-page document through PDF to Word", () => {
       "docx-run-style-read-back-scale",
       got.fullReadMs as number,
       got.smallReadMs as number,
-      16,
+      20,
       { mode: "measure", witness: "structureParses" },
     );
     // Health: every page went out, read back, formatted, and Word-clean.

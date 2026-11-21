@@ -12,13 +12,22 @@
  *    same page written as tabbed rows, what main delivered, or read with
  *    absorption off), #318's: 2x the control's time AND 5 s more, or 2x its
  *    peak memory AND 300 MB more — the engine, wrap and wrap-cut tests;
- *  - four absolute hang ceilings (5 s, 10 s, 30 s, 10 s) — grid, flow, over
- *    and wrap-cell.
- * Since 2026-11-22 every TIME is routed through `@/tests/time-bound` and
- * records (measure mode) until CI calibrates it; the memory halves still
- * assert. What fails on time meanwhile: the child's own kill (CHILD_KILL_MS,
- * enforced while it runs), each test's timeout, and the grid's work COUNTED
- * (reads of the cells' x-ranges), which no runner's speed moves.
+ *  - four absolute hang ceilings (5 s on main, 6 s and recording since;
+ *    10 s, 30 s, 10 s) — grid, flow, over and wrap-cell.
+ * Lane 1b (2026-11-22) routed the times of the four tests in its scope
+ * (grid, engine, wrap, wrap-cut) through `@/tests/time-bound`, where they
+ * record (measure mode) until CI calibrates them; the memory halves still
+ * assert. What still FAILS on time:
+ *  - the grid's work, COUNTED (reads of the cells' x-ranges), which no
+ *    runner's speed moves;
+ *  - the engine's exit bound, kept asserting beside its records (review
+ *    2026-11-22: routed alone, a writer 45x slower passed; nothing counts
+ *    the writer's work);
+ *  - wrap and wrap-cut: their defect, an absorption blowup, is counted in
+ *    flow-wraps.test.ts; their times only record;
+ *  - flow, over and wrap-cell (outside the lane's scope): their hang
+ *    ceilings, as on main;
+ *  - the child's own kill (CHILD_KILL_MS, enforced while it runs).
  */
 import { execFileSync } from "node:child_process";
 import path from "node:path";
@@ -63,7 +72,8 @@ function measure(mode: string, n: number): Measured {
 /**
  * #318's exit bound against a control measured in the same job: red only
  * past 2x the control's time AND 5 s more, or 2x its peak memory AND 300 MB
- * more. The memory half asserts here. The time half is routed in each test,
+ * more. The memory half asserts here (wrap and wrap-cut; the engine test
+ * keeps the whole conjunction). The time half is routed in each test,
  * as two records of the two best samples (`msBest`: each child's fresh run
  * and one more of the same work): the ratio, and the excess over the
  * control against 5 s. The helpers hold one bound each, never a
@@ -106,10 +116,11 @@ describe("Word tables are bounded", () => {
       expect(got.readsEighth, JSON.stringify(got)).toBeGreaterThan(1_000);
       const nearLinear = got.reads! / got.readsEighth! < 23;
       expect(nearLinear, JSON.stringify(got)).toBe(true);
-      // Measured 3 ms / +4 MB each on the dev host. CI: 2,472 ms for the
-      // whole test, both children with their start-up (44299285879), so 5 s
-      // a child is 2x or more; it records until CI calibrates it.
-      expectFasterThan("docx-table-grid-at-cap", got.ms, 5_000, {
+      // Measured 3 ms / +4 MB each on the dev host. CI: 2,946 ms for the
+      // whole test, both children with their start-up (failed run
+      // 43998624497; 2,472 ms in passing runs, 44299285879), so 6 s a child
+      // is 2.04x or more; it records until CI calibrates it.
+      expectFasterThan("docx-table-grid-at-cap", got.ms, 6_000, {
         mode: "measure",
         witness: "nearLinear",
         instance: String(got.mode),
@@ -120,15 +131,10 @@ describe("Word tables are bounded", () => {
 
   it("the flow over a table of that many cells", () => {
     const got = measure("flow", MAX_TABLE_CELLS);
-    const tableRows = got.tableRows;
-    expect(tableRows, JSON.stringify(got)).toBe(MAX_TABLE_CELLS / 10);
+    expect(got.tableRows, JSON.stringify(got)).toBe(MAX_TABLE_CELLS / 10);
     expect(got.tablesAsTabs).toBe(0);
-    // Measured 37 ms / +18 MB on the dev host. CI: 1,233 ms for the whole
-    // test (44007721339), so 10 s is 8.1x; a hang ceiling, recording.
-    expectFasterThan("docx-table-flow-at-cap", got.ms, 10_000, {
-      mode: "measure",
-      witness: "tableRows",
-    });
+    // Measured 37 ms / +18 MB on the dev host.
+    expect(got.ms, JSON.stringify(got)).toBeLessThan(10_000);
   }, 120_000);
 
   it("a page AT the slot cap through the whole job, within the exit bound of its tabbed control", () => {
@@ -139,8 +145,23 @@ describe("Word tables are bounded", () => {
     const cells = got.cells;
     expect(cells).toBe(MAX_TABLE_SLOTS_PER_PAGE);
     expect(control.tables, JSON.stringify(control)).toBe(0);
-    // CI: 4,625 ms for the whole test, both children (43998624497).
-    withinMemory(got, control);
+    // #318's exit bound, BOTH halves asserting, as on main. Routed alone
+    // (measure mode, witness `cells`), a writer slowed by 0.5 ms a <w:tc>
+    // read 45.6x and 10,238 ms over the control and passed (review
+    // 2026-11-22); `cells` is a count the writer's speed never moves, and
+    // no other test counts the writer's work. CI: 4,625 ms for the whole
+    // test, both children with their start-up (43998624497; never red in the
+    // 43 CI logs read), so the excess the 5 s half reads is under 4.6 s.
+    const slower = got.ms > 2 * control.ms && got.ms - control.ms > 5_000;
+    const heavier =
+      got.rssDeltaMb > 2 * control.rssDeltaMb &&
+      got.rssDeltaMb - control.rssDeltaMb > 300;
+    expect(
+      { slower, heavier },
+      `${JSON.stringify(got)} vs ${JSON.stringify(control)}`,
+    ).toEqual({ slower: false, heavier: false });
+    // The same bound's two halves, printed apart on every CI run, so the
+    // harvest can calibrate them and retire the conjunction above.
     const [gotMs, controlMs] = [best(got), best(control)];
     expectRatioBelow("docx-table-engine-ratio", gotMs, controlMs, 5, {
       mode: "measure",
@@ -161,14 +182,8 @@ describe("Word tables are bounded", () => {
   it("one table past the cell cap comes out as tabbed rows, counted, in bounded time", () => {
     const got = measure("over", MAX_TABLE_CELLS + 10);
     expect(got.tables, JSON.stringify(got)).toBe(0);
-    const asTabs = got.asTabs;
-    expect(asTabs).toBe(1);
-    // CI: 1,809 ms for the whole test (44331878323), so 30 s is 16.6x; a
-    // hang ceiling, recording.
-    expectFasterThan("docx-table-over-cap", got.ms, 30_000, {
-      mode: "measure",
-      witness: "asTabs",
-    });
+    expect(got.asTabs).toBe(1);
+    expect(got.ms, JSON.stringify(got)).toBeLessThan(30_000);
   }, 300_000);
 
   it("a block of 200,000 aligned bands does not overflow an argument list (the spreads before any cap)", () => {
@@ -202,7 +217,7 @@ describe("Word tables are bounded", () => {
     expect(wrapLines).toBe(WRAP_ROWS - 1);
     expect(control.tables, JSON.stringify(control)).toBe(0);
     expect(control.wrapLines).toBe(0);
-    // CI: 4,280 ms for the whole test (43998624497). The writer is not
+    // CI: 4,471 ms for the whole test (44910288854). The writer is not
     // absorption (wrap-off writes no Word table), so a writer mutant only
     // shows this ratio CAN turn red; an absorption blowup's guard is the
     // counted seam in flow-wraps.test.ts.
@@ -261,13 +276,7 @@ describe("Word tables are bounded", () => {
     const got = measure("wrap-cell", 0);
     expect(got.tables, JSON.stringify(got)).toBe(1);
     expect(got.cells).toBe(60 * 3);
-    const wrapLines = got.wrapLines;
-    expect(wrapLines).toBe(MAX_WRAP_LINES_PER_CELL);
-    // CI: 1,162 ms for the whole test (ok-44299285879), so 10 s is 8.6x; a
-    // hang ceiling, recording.
-    expectFasterThan("docx-table-wrap-cell", got.ms, 10_000, {
-      mode: "measure",
-      witness: "wrapLines",
-    });
+    expect(got.wrapLines).toBe(MAX_WRAP_LINES_PER_CELL);
+    expect(got.ms, JSON.stringify(got)).toBeLessThan(10_000);
   }, 120_000);
 });
