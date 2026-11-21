@@ -220,9 +220,9 @@ describe("pdf.js load order under isolate:false", () => {
       //
       // A kill is NOT a reason to blame the runner. With the defect itself
       // (pdfjs.ts loading the main build where DOMMatrix is absent) the child
-      // HUNG until this kill rather than failing fast (mutant, 2026-11-21),
-      // so the message names the file the child was inside and the trace's
-      // last entries before anything else.
+      // HUNG until this kill rather than failing fast (mutation control,
+      // 2026-11-21), so the message names the file the child was inside and
+      // the trace's last entries before anything else.
       const killed = run.error as NodeJS.ErrnoException | undefined;
       const ended = new Set(
         traces.filter((t) => t.at === "end").map((t) => t.file),
