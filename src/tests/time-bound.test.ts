@@ -96,6 +96,24 @@ describe("the core", () => {
     expect(callTimeoutAt(src, 9).kind).toBe("unresolved");
   });
 
+  it("takes the INNERMOST call at the position, never the test that encloses it (C2)", () => {
+    // Every other control here is a one-line source with no enclosing
+    // test, so picking the OUTERMOST call stayed green (verifier,
+    // 2026-11-21: `if (contains && !inner)` held this wait to its test's
+    // 30000 ms timeout).
+    const src = [
+      `it("x", async () => {`,
+      `  await waitFor(() => go());`,
+      `  await screen.findByText("y", {}, { timeout: 2_500 });`,
+      `}, 30000);`,
+    ].join("\n");
+    expect(callTimeoutAt(src, 2, 9)).toEqual({ kind: "default" });
+    expect(callTimeoutAt(src, 3, 9)).toEqual({ kind: "explicit", ms: 2500 });
+    // Positive control: the enclosing test's own timeout IS read when the
+    // position is the test call itself.
+    expect(callTimeoutAt(src, 1, 1)).toEqual({ kind: "explicit", ms: 30000 });
+  });
+
   it("reads the timeout from the call's own options argument, by the AST, not the first `timeout:` in the text", () => {
     // Each of these borrowed a wrong timeout from the textual scan on
     // f8d48720: a `timeout:` inside the callback, and an apostrophe in a
