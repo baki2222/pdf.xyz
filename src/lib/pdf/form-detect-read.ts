@@ -461,6 +461,15 @@ export async function detectFormFields(
               y1: b.y + b.height,
             };
           };
+          const asBox = (s: ImageBox): Box => {
+            const b = box(s);
+            return {
+              x: b.x0,
+              y: b.y0,
+              width: b.x1 - b.x0,
+              height: b.y1 - b.y0,
+            };
+          };
           const widgets: Box[] = [];
           for (const raw of await page.getAnnotations({ intent: "display" })) {
             const a = raw as { subtype?: unknown; rect?: unknown };
@@ -482,12 +491,8 @@ export async function detectFormFields(
               text,
               widgets,
               imageCover: imageCover(scan.images.map(box), width, height),
-              images: scan.images.map(box).map((b) => ({
-                x: b.x0,
-                y: b.y0,
-                width: b.x1 - b.x0,
-                height: b.y1 - b.y0,
-              })),
+              images: scan.images.map(asBox),
+              curves: scan.curves.map(asBox),
             },
           });
         }

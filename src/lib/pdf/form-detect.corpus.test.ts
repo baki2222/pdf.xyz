@@ -86,15 +86,18 @@ describe("corpus health (FATAL when it fails)", () => {
       // src/tests/form-detect-boxes-fixtures.ts.
       ...range("P", 60, 69),
       ...range("N", 58, 69),
+      // Its review round 1 (2026-11-21), same file.
+      ...range("P", 70, 76),
+      ...range("N", 70, 78),
       // O8 and O9 added in review round 7 (2026-11-19): a page the reader
       // sees sideways, and a scan with an OCR text layer.
       ...range("O", 1, 9),
     ];
-    expect(expected).toHaveLength(149);
+    expect(expected).toHaveLength(165);
     expect([...DETECT_CASES.map((c) => c.id)].sort()).toEqual(expected.sort());
     for (const [k, n] of [
-      ["positive", 74],
-      ["negative", 66],
+      ["positive", 81],
+      ["negative", 75],
       ["outcome", 9],
     ] as const)
       expect(kind(k).length, k).toBe(n);
@@ -106,10 +109,11 @@ describe("corpus health (FATAL when it fails)", () => {
   // Raised again in review round 5 fixes (was 110 / 160; P49's 12
   // checkboxes took the proposals to 165). Raised by slice S4 (was 130
   // cases and 200 proposals; S4 added 22 cases and 21 proposals, taking
-  // them to 149 and 215).
+  // them to 149 and 215). Raised by S4's review round 1 (was 160 cases;
+  // it added 16 cases and 11 proposals, taking them to 165 and 226).
   it("the corpus is not implausibly large", () => {
     expect(DETECT_CASES.length, "corpus implausibly large").toBeLessThanOrEqual(
-      160,
+      185,
     );
     const proposals = kind("positive").reduce(
       (s, c) => s + runOf(c).proposals.length,

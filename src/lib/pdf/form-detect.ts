@@ -316,7 +316,7 @@ export const DETECT = {
    * is anchored, so "Initial deposit" stays a field (review round 4 fixes,
    * finding 25; corpus N43).
    */
-  SIGNATURE_RE: /\b(sign(ature|ed)?|initials)\b|^\W*initial(\s+here)?\W*$/i,
+  SIGNATURE_RE: /\b(sign(atures?|ed)?|initials)\b|^\W*initial(\s+here)?\W*$/i,
   /**
    * A letter's complimentary close. A line with no label to its left (only a
    * caption, the signer's printed name, or nothing) that has one of these up
@@ -395,9 +395,15 @@ export const DETECT_BOXES = {
    * of the page's width, ENTRY_MIN_H to ENTRY_MAX_H tall. With a label (the
    * search an outlined box's bottom edge already has: beside it, just over
    * its top, or just under it) and no text inside, its field fills it,
-   * inset DETECT.FIELD_INSET. A box with text inside keeps the field under
-   * its caption that it had before (`labelled-rule`), and a box of any
-   * other size is read as before too.
+   * inset DETECT.FIELD_INSET. A box with text inside keeps the field along
+   * its bottom edge that it had before (`labelled-rule`), labelled by its
+   * own caption only (see `entryBoxes`), and a box of any other size is
+   * read as before too. An entry box is no `full-width-divider`: that
+   * exclusion (DETECT.DIVIDER_SPAN, 0.85 of the page) is for lines, and a
+   * box up to ENTRY_MAX_SPAN wide with a label and nothing in it is a
+   * full-width comment box (review round 1, false positives 6: decided,
+   * and pinned by corpus P71). Its outline may be heavier than
+   * DETECT.RULE_MAX_WIDTH.
    */
   ENTRY_MIN_W: 40,
   ENTRY_MAX_SPAN: 0.9,
@@ -428,6 +434,27 @@ export const DETECT_BOXES = {
    * a little larger): see `filled-box`.
    */
   BORDER_EPS: 2,
+  /**
+   * A picture reaching a box's inside, up to this many times its width and
+   * height, is the box's picture: a photo placed larger than its frame and
+   * clipped to it, or bleeding a little past it (review round 1, false
+   * positives 1). A larger one is a picture the form is drawn over.
+   */
+  IMAGE_BLEED: 2,
+  /**
+   * Level lines inside a box across at least this share of its width are
+   * writing lines: a box tall enough for several lines holding only those
+   * is a lined comment box, one multiline field (review round 1, guards
+   * HIGH). Any other line inside it is something drawn in it.
+   */
+  LINED_SPAN: 0.8,
+  /**
+   * A box enclosed on all four sides by lines more than BORDER_EPS and at
+   * most this far outside it is the inner line of a double frame (a
+   * certificate's border): decoration, `filled-box` (review round 1,
+   * false positives 8).
+   */
+  DOUBLE_GAP: 6,
   /**
    * A work bound, not a shape: what is drawn on a page is looked up in
    * cells this many points square when asking whether a box holds
@@ -493,6 +520,8 @@ export interface CardPage {
   imageCover: number;
   /** The boxes images are painted into, when known (an image frame's picture). */
   images?: Box[];
+  /** The boxes of painted curves, when known (a logo, a pie, a scribble). */
+  curves?: Box[];
 }
 
 /** Where a field might go, in the same frame as its page. Whole points. */
@@ -813,6 +842,8 @@ interface Line {
    * under it is inside the box, never its caption (see `ruleCandidates`).
    */
   boxTop?: boolean;
+  /** The top edge of an outlined box, with the box, while merged with nothing. */
+  topOf?: CardRect;
 }
 
 interface PageLines {
@@ -990,9 +1021,14 @@ function readLines(p: CardPage): PageLines {
       raw.push({ x0: r.x0, x1: r.x1, y: (r.y0 + r.y1) / 2, w: h });
     } else if (r.filled && w <= DETECT.RULE_MAX_WIDTH && h > w) {
       verticals.push({ x: (r.x0 + r.x1) / 2, y0: r.y0, y1: r.y1 });
-    } else if (r.stroked && r.width <= DETECT.RULE_MAX_WIDTH) {
+    } else if (
+      r.stroked &&
+      (r.width <= DETECT.RULE_MAX_WIDTH || entrySized(r, p.width))
+    ) {
       // A larger outlined box: its edges are lines like any other, except
-      // that its top edge takes no caption from inside the box.
+      // that its top edge takes no caption from inside the box. An entry
+      // box's outline may be heavier than a rule (a 3 pt frame passed with
+      // no reason given: review round 1 of slice S4, geometry 3).
       raw.push(
         {
           x0: r.x0,
@@ -1001,7 +1037,7 @@ function readLines(p: CardPage): PageLines {
           w: r.width,
           boxBottom: { top: r.y1, rect: r },
         },
-        { x0: r.x0, x1: r.x1, y: r.y1, w: r.width, boxTop: true },
+        { x0: r.x0, x1: r.x1, y: r.y1, w: r.width, boxTop: true, topOf: r },
       );
       verticals.push(
         { x: r.x0, y0: r.y0, y1: r.y1 },
@@ -1041,8 +1077,9 @@ function readLines(p: CardPage): PageLines {
       hit.x0 = Math.min(hit.x0, l.x0);
       hit.x1 = Math.max(hit.x1, l.x1);
       if (l.boxTop) hit.boxTop = true;
-      // Merged with anything, it is no one box's bottom any more.
+      // Merged with anything, it is no one box's bottom (or top) any more.
       delete hit.boxBottom;
+      delete hit.topOf;
     } else {
       const m = { ...l };
       rules.push(m);
@@ -1697,7 +1734,12 @@ function boxHolder(p: CardPage): (t: CardText, x: number) => boolean {
  * made a page of boxes quadratic in text (review round 6 test honesty,
  * cost finding 6).
  */
-function boxCaption(ix: TextIndex, r: Line, top: number): LabelHit | null {
+function boxCaption(
+  ix: TextIndex,
+  r: Line,
+  top: number,
+  reach: number = DETECT.CAPTION_MAX,
+): LabelHit | null {
   const span = r.x0 + DETECT.CAPTION_SPAN * (r.x1 - r.x0);
   const inSpan = (t: CardText) =>
     overlap(t.x, t.x + Math.max(0, t.width), r.x0, span) > 0;
@@ -1730,16 +1772,7 @@ function boxCaption(ix: TextIndex, r: Line, top: number): LabelHit | null {
       under >= textHeight(t.size, DETECT.TEXT_H_RULE) ||
       (under >= DETECT.MIN_FIELD_H && under >= DETECT.CAPTION_TOP_RATIO * gap);
     if (inSpan(t) && room && gap >= -1 && gap <= DETECT.CAPTION_MAX) cap = t;
-  } else if (inside.length === 0) {
-    const lo = top + DETECT.TEXT_DESCENT_EMS * ix.minSize;
-    const hi = top + DETECT.CAPTION_MAX + DETECT.TEXT_DESCENT_EMS * ix.maxSize;
-    for (const t of textBand(ix, lo, hi)) {
-      if (!t.upright || !inSpan(t)) continue;
-      const gap = t.y - DETECT.TEXT_DESCENT_EMS * t.size - top;
-      if (gap < 0 || gap > DETECT.CAPTION_MAX) continue;
-      if (!cap || t.y < cap.y) cap = t;
-    }
-  }
+  } else if (inside.length === 0) cap = overTop(ix, r, top, reach);
   if (!cap || !cap.upright) return null;
   const str = cleanLabel(cap.str);
   if (!str) return null;
@@ -1750,11 +1783,38 @@ function boxCaption(ix: TextIndex, r: Line, top: number): LabelHit | null {
   return notice ? null : { text: cap, str };
 }
 
+/**
+ * The nearest upright text just over a box's top (its descent 0 to `reach`
+ * over it, reaching into the box's first CAPTION_SPAN), whatever the box
+ * holds: {@link boxCaption}'s caption of an empty box.
+ */
+function overTop(
+  ix: TextIndex,
+  r: Pick<Line, "x0" | "x1">,
+  top: number,
+  reach: number = DETECT.CAPTION_MAX,
+): CardText | undefined {
+  const span = r.x0 + DETECT.CAPTION_SPAN * (r.x1 - r.x0);
+  const lo = top + DETECT.TEXT_DESCENT_EMS * ix.minSize;
+  const hi = top + reach + DETECT.TEXT_DESCENT_EMS * ix.maxSize;
+  let cap: CardText | undefined;
+  for (const t of textBand(ix, lo, hi)) {
+    if (!t.upright || overlap(t.x, t.x + Math.max(0, t.width), r.x0, span) <= 0)
+      continue;
+    const gap = t.y - DETECT.TEXT_DESCENT_EMS * t.size - top;
+    if (gap < 0 || gap > reach) continue;
+    if (!cap || t.y < cap.y) cap = t;
+  }
+  return cap;
+}
+
 /** A line's candidate, whether a caption labelled it, and that text's size. */
 interface RuleRow {
   c: Candidate;
   captioned: boolean;
   size: number | undefined;
+  /** The caption under the line that labelled it, when one did. */
+  under?: CardText;
 }
 
 /**
@@ -1812,6 +1872,10 @@ function continuationLines(p: CardPage, rows: Map<Line, RuleRow>): void {
   sorted.forEach((r, i) => {
     const row = rows.get(r)!;
     if (row.c.labelState !== "none") return;
+    // A box's edge is no continuation line, nor does it hand one on: the
+    // label beside one box ran down the boxes under it (review round 1 of
+    // slice S4, false positives 5).
+    if (r.boxTop || r.boxBottom) return;
     // The nearest line above that overlaps it, within reach.
     let above: Line | undefined;
     for (let j = i - 1; j >= 0; j--) {
@@ -1822,7 +1886,7 @@ function continuationLines(p: CardPage, rows: Map<Line, RuleRow>): void {
         break;
       }
     }
-    if (!above) return;
+    if (!above || above.boxTop || above.boxBottom) return;
     const a = rows.get(above)!;
     // Labelled from its left (which implies a label), or a continuation.
     if (!a.c.leftLabel) return;
@@ -1868,21 +1932,41 @@ function entrySized(r: CardRect, pageWidth: number): boolean {
 }
 
 /**
- * Whether anything is drawn inside a box other than its own edges: a stroke
- * (a line, or an outlined box's edge) reaching its inside (the box less
- * {@link DETECT_BOXES.BORDER_EPS} each side, so a neighbour's edge drawn
- * up against it is not inside it), or a fill or a picture lying within it
- * (within BORDER_EPS). A box painted with a fill of its own counts too. A
- * fill or picture LARGER than an entry box (a tinted panel or a page-sized
- * picture behind a form) does not: the box is drawn over it, not round it.
- * What is drawn is looked up in cells {@link DETECT_BOXES.PAINT_CELL}
+ * What is drawn on a page, for the questions an outlined box asks of it:
+ * `holds`, what it holds inside besides its own edges, and `framed`,
+ * whether it is the inner line of a double frame. See {@link DETECT_BOXES}
+ * for each threshold. What is drawn is looked up in cells PAINT_CELL
  * square, filed only in the cells over the page (a line 4,000,000 pt long
  * once filed itself in 80,000), so each question costs the cells its box
- * covers.
+ * covers, not the page.
  */
-function paintedIndex(p: CardPage): (r: CardRect) => boolean {
+interface Paint {
+  /**
+   * "something": a stroke reaching its inside (the box less BORDER_EPS
+   * each side, so a neighbour's edge drawn up against it is not inside),
+   * other than a writing line; a fill lying within it (within BORDER_EPS:
+   * its own fill counts); a picture reaching its inside, up to IMAGE_BLEED
+   * x its width and height (clipped to the box, or bleeding past it); or
+   * a curve reaching its inside no larger than it and its border. A fill
+   * larger than the box, or a picture larger than that (a tinted panel, a
+   * page-sized picture behind a form), is behind it, not in it.
+   * "lines": only writing lines, level strokes across LINED_SPAN of its
+   * width or more (a lined comment box). "nothing": neither.
+   */
+  holds(r: CardRect): "nothing" | "lines" | "something";
+  /**
+   * Whether level and plumb strokes enclose it on all four sides, each
+   * more than BORDER_EPS and at most DOUBLE_GAP outside its edge: the inner
+   * box of a double frame (a certificate's border), decoration.
+   */
+  framed(r: CardRect): boolean;
+}
+
+function paintedIndex(p: CardPage): Paint {
   const STEP = DETECT_BOXES.PAINT_CELL;
-  type Mark = Edges & { solid: boolean };
+  const e = DETECT_BOXES.BORDER_EPS;
+  const bleed = DETECT_BOXES.IMAGE_BLEED;
+  type Mark = Edges & { kind: "stroke" | "fill" | "image" | "curve" };
   const cells = new Map<string, Mark[]>();
   const cell = (v: number) => Math.floor(v / STEP);
   // The page's cells, one more each side: nothing past them is asked about.
@@ -1892,27 +1976,32 @@ function paintedIndex(p: CardPage): (r: CardRect) => boolean {
     Math.max(a!, cell(lo)),
     Math.min(b!, cell(hi)),
   ];
-  const put = (m: Mark) => {
-    if ([m.x0, m.y0, m.x1, m.y1].some(Number.isNaN)) return;
+  const each = (m: Edges, f: (k: string) => boolean | void) => {
     const [i0, i1] = span(m.x0, m.x1, I);
     const [j0, j1] = span(m.y0, m.y1, J);
     for (let i = i0!; i <= i1!; i++)
-      for (let j = j0!; j <= j1!; j++) {
-        const k = `${i}|${j}`;
-        const list = cells.get(k);
-        if (list) list.push(m);
-        else cells.set(k, [m]);
-      }
+      for (let j = j0!; j <= j1!; j++) if (f(`${i}|${j}`)) return true;
+    return false;
   };
-  const fits = (w: number, h: number) =>
-    w <= DETECT_BOXES.ENTRY_MAX_SPAN * p.width && h <= DETECT_BOXES.ENTRY_MAX_H;
+  const put = (m: Mark) => {
+    if ([m.x0, m.y0, m.x1, m.y1].some(Number.isNaN)) return;
+    each(m, (k) => {
+      const list = cells.get(k);
+      if (list) list.push(m);
+      else cells.set(k, [m]);
+    });
+  };
+  const maxW = DETECT_BOXES.ENTRY_MAX_SPAN * p.width;
+  const maxH = DETECT_BOXES.ENTRY_MAX_H;
+  const box = (b: Box, kind: Mark["kind"]) =>
+    put({ x0: b.x, y0: b.y, x1: b.x + b.width, y1: b.y + b.height, kind });
   const line = (x0: number, y0: number, x1: number, y1: number) =>
     put({
       x0: Math.min(x0, x1),
       y0: Math.min(y0, y1),
       x1: Math.max(x0, x1),
       y1: Math.max(y0, y1),
-      solid: false,
+      kind: "stroke",
     });
   for (const s of p.segs) line(s.x0, s.y0, s.x1, s.y1);
   for (const r of p.rects) {
@@ -1922,38 +2011,70 @@ function paintedIndex(p: CardPage): (r: CardRect) => boolean {
       line(r.x1, r.y1, r.x0, r.y1);
       line(r.x0, r.y1, r.x0, r.y0);
     }
-    if (r.filled && fits(r.x1 - r.x0, r.y1 - r.y0))
-      put({ x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1, solid: true });
+    if (r.filled && r.x1 - r.x0 <= maxW && r.y1 - r.y0 <= maxH)
+      put({ x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1, kind: "fill" });
   }
+  // Only what some entry box could count is filed.
   for (const b of p.images ?? [])
-    if (fits(b.width, b.height))
-      put({
-        x0: b.x,
-        y0: b.y,
-        x1: b.x + b.width,
-        y1: b.y + b.height,
-        solid: true,
+    if (b.width <= bleed * maxW && b.height <= bleed * maxH) box(b, "image");
+  for (const b of p.curves ?? [])
+    if (b.width <= maxW + 2 * e && b.height <= maxH + 2 * e) box(b, "curve");
+  const level = (m: Edges) => m.y1 - m.y0 <= DETECT.RULE_MAX_DY;
+  const plumb = (m: Edges) => m.x1 - m.x0 <= DETECT.RULE_MAX_DY;
+  return {
+    holds(r) {
+      const w = r.x1 - r.x0;
+      const h = r.y1 - r.y0;
+      const inner = { x0: r.x0 + e, y0: r.y0 + e, x1: r.x1 - e, y1: r.y1 - e };
+      const reaches = (m: Mark) =>
+        m.x0 <= inner.x1 &&
+        m.x1 >= inner.x0 &&
+        m.y0 <= inner.y1 &&
+        m.y1 >= inner.y0;
+      let lines = false;
+      const something = (m: Mark): boolean => {
+        if (m.kind === "fill")
+          return (
+            m.x0 >= r.x0 - e &&
+            m.x1 <= r.x1 + e &&
+            m.y0 >= r.y0 - e &&
+            m.y1 <= r.y1 + e
+          );
+        if (!reaches(m)) return false;
+        const mw = m.x1 - m.x0;
+        const mh = m.y1 - m.y0;
+        if (m.kind === "image") return mw <= bleed * w && mh <= bleed * h;
+        if (m.kind === "curve") return mw <= w + 2 * e && mh <= h + 2 * e;
+        if (level(m) && mw >= DETECT_BOXES.LINED_SPAN * w) {
+          lines = true;
+          return false;
+        }
+        return true;
+      };
+      if (each(inner, (k) => (cells.get(k) ?? []).some(something)))
+        return "something";
+      return lines ? "lines" : "nothing";
+    },
+    framed(r) {
+      const g = DETECT_BOXES.DOUBLE_GAP;
+      const out = { x0: r.x0 - g, y0: r.y0 - g, x1: r.x1 + g, y1: r.y1 + g };
+      const near = (d: number) => d > e && d <= g;
+      const side = [false, false, false, false];
+      each(out, (k) => {
+        for (const m of cells.get(k) ?? []) {
+          if (m.kind !== "stroke") continue;
+          if (level(m) && m.x0 <= r.x0 && m.x1 >= r.x1) {
+            if (near(r.y0 - m.y1)) side[0] = true;
+            if (near(m.y0 - r.y1)) side[1] = true;
+          } else if (plumb(m) && m.y0 <= r.y0 && m.y1 >= r.y1) {
+            if (near(r.x0 - m.x1)) side[2] = true;
+            if (near(m.x0 - r.x1)) side[3] = true;
+          }
+        }
+        return side.every(Boolean);
       });
-  return (r) => {
-    if (r.filled) return true;
-    const e = DETECT_BOXES.BORDER_EPS;
-    const inner = { x0: r.x0 + e, y0: r.y0 + e, x1: r.x1 - e, y1: r.y1 - e };
-    const holds = (m: Mark) =>
-      m.solid
-        ? m.x0 >= r.x0 - e &&
-          m.x1 <= r.x1 + e &&
-          m.y0 >= r.y0 - e &&
-          m.y1 <= r.y1 + e
-        : m.x0 <= inner.x1 &&
-          m.x1 >= inner.x0 &&
-          m.y0 <= inner.y1 &&
-          m.y1 >= inner.y0;
-    const [i0, i1] = span(inner.x0, inner.x1, I);
-    const [j0, j1] = span(inner.y0, inner.y1, J);
-    for (let i = i0!; i <= i1!; i++)
-      for (let j = j0!; j <= j1!; j++)
-        if ((cells.get(`${i}|${j}`) ?? []).some(holds)) return true;
-    return false;
+      return side.every(Boolean);
+    },
   };
 }
 
@@ -1974,27 +2095,82 @@ function textInside(ix: TextIndex, r: Edges): boolean {
 }
 
 /**
- * Entry boxes ({@link DETECT_BOXES}): each outlined box of an entry box's
- * size, by its bottom edge's row, is asked whether it holds anything drawn
- * (`boxPainted`, for `filled-box`); an empty one (no text inside either)
- * becomes an `entry-box` whose field fills it, multiline when it is tall
- * for its label. Run after the label passes, so the label is final and the
- * box is the box's, whatever those passes set.
+ * Entry boxes ({@link DETECT_BOXES}), run after the label passes so each
+ * label is settled. Each outlined box of an entry box's size, by its
+ * bottom edge's row:
+ *
+ *  - gives up a caption UNDER it that is nearer the top of another box
+ *    below (that box's caption: in captioned boxes stacked down a page,
+ *    every box took the next one's), or any caption under it when it
+ *    holds text (a boxed paragraph took the next heading): it is then
+ *    labelled by its own caption ({@link boxCaption}), or by nothing;
+ *  - holding text, stays the line along its bottom it was before S4;
+ *  - otherwise becomes an `entry-box` whose field fills it (inset
+ *    DETECT.FIELD_INSET; an excluded one's box is that inner box too),
+ *    multiline when it is tall for its label, `boxPainted` (for
+ *    `filled-box`) when it holds something, or only writing lines while it
+ *    is too low for several lines, or is a double frame's inner box. Its
+ *    field stands for its top edge (a field in the gap over the box, under
+ *    the label of the box above it, was proposed too) and for the writing
+ *    lines of a lined box, so their own candidates are dropped.
  */
 function entryBoxes(
   p: CardPage,
   ix: TextIndex,
-  rows: ReadonlyMap<Line, RuleRow>,
+  rows: Map<Line, RuleRow>,
+  out: Candidate[],
 ): void {
-  let painted: ((r: CardRect) => boolean) | undefined;
+  const boxes: [Line, RuleRow, CardRect][] = [];
   for (const [r, row] of rows) {
     const rect = r.boxBottom?.rect;
-    if (!rect || !entrySized(rect, p.width)) continue;
-    painted ??= paintedIndex(p);
-    row.c.boxPainted = painted(rect);
-    if (textInside(ix, rect)) continue;
-    const e = DETECT.FIELD_INSET;
+    if (rect && entrySized(rect, p.width)) boxes.push([r, row, rect]);
+  }
+  if (boxes.length === 0) return;
+  const paint = paintedIndex(p);
+  const overGap = new Map<CardText, number>();
+  for (const [r, , rect] of boxes) {
+    const t = overTop(ix, r, rect.y1);
+    if (!t) continue;
+    const g = t.y - DETECT.TEXT_DESCENT_EMS * t.size - rect.y1;
+    overGap.set(t, Math.min(g, overGap.get(t) ?? Infinity));
+  }
+  const e = DETECT.FIELD_INSET;
+  const tops = new Set<CardRect>();
+  const lined: CardRect[] = [];
+  for (const [r, row, rect] of boxes) {
+    const inside = textInside(ix, rect);
+    const t = row.under;
+    // (`under` is set only with `captioned`. A check that it was still the
+    // row's label, which `stripCaptions` can move, survived its deletion
+    // over the whole corpus, as did one of `captioned`: review round 1,
+    // guards LOW; both removed.)
+    if (
+      t &&
+      (inside ||
+        (overGap.get(t) ?? Infinity) <
+          r.y - (t.y + DETECT.TEXT_ASCENT_EMS * t.size))
+    ) {
+      const cap = boxCaption(ix, r, rect.y1);
+      row.c.label = cap?.str ?? null;
+      row.c.labelState = cap ? "found" : "none";
+      row.size = cap?.text.size;
+      row.c.box.y1 =
+        row.c.box.y0 +
+        textHeight(row.size ?? DETECT.DEFAULT_SIZE, DETECT.TEXT_H_RULE);
+    }
+    if (inside) continue;
     const h = rect.y1 - rect.y0;
+    const tall =
+      h >=
+      Math.max(
+        DETECT_BOXES.MULTILINE_MIN_H,
+        DETECT_BOXES.MULTILINE_EMS * (row.size ?? DETECT.DEFAULT_SIZE),
+      );
+    const held = paint.holds(rect);
+    row.c.boxPainted =
+      held === "something" || (held === "lines" && !tall) || paint.framed(rect);
+    if (held === "lines" && !row.c.boxPainted) lined.push(rect);
+    tops.add(rect);
     row.c.rule = "entry-box";
     row.c.box = {
       x0: rect.x0 + e,
@@ -2002,26 +2178,53 @@ function entryBoxes(
       x1: rect.x1 - e,
       y1: rect.y1 - e,
     };
-    row.c.multiline =
-      h >=
-      Math.max(
-        DETECT_BOXES.MULTILINE_MIN_H,
-        DETECT_BOXES.MULTILINE_EMS * (row.size ?? DETECT.DEFAULT_SIZE),
-      );
+    row.c.multiline = tall;
   }
+  const drop = new Set<Line>();
+  for (const r of rows.keys()) if (r.topOf && tops.has(r.topOf)) drop.add(r);
+  if (lined.length > 0) {
+    const ys = [...rows.keys()]
+      .filter((r) => Number.isFinite(r.y))
+      .sort((a, b) => a.y - b.y);
+    for (const b of lined)
+      for (
+        let i = from(ys, (r) => r.y, b.y0 + e);
+        i < ys.length && ys[i]!.y < b.y1 - e;
+        i++
+      ) {
+        const r = ys[i]!;
+        if (r.x0 >= b.x0 - e && r.x1 <= b.x1 + e) drop.add(r);
+      }
+  }
+  if (drop.size === 0) return;
+  for (const r of drop) rows.delete(r);
+  const kept = out.filter((c) => !(c.line && drop.has(c.line)));
+  out.length = 0;
+  out.push(...kept);
 }
 
 /**
  * Stacked lines under one label ({@link DETECT_BOXES.STACK_PITCH_MIN}): each
  * stack becomes ONE multiline `labelled-rule` field, labelled by the caption
- * over its highest rule, and its rules' own candidates (all unlabelled)
- * are dropped from `out`. A stack with any line labelled is left alone, so
- * labelled lines stay one field each.
+ * over its highest rule (up to a pitch over it, a blank line between them,
+ * when it is small enough for lines that far apart), and its rules' own
+ * candidates (all unlabelled) are dropped from `out`. A stack with any
+ * line labelled, or with no candidate of its own (an entry box's dropped
+ * top edge or writing line), is left alone, so labelled lines stay one
+ * field each, as is one whose caption has other text beside it past its
+ * own span over the lines: column headings over a ledger's rules, not one
+ * caption. (A box's edge or a rows table's rule needs no test of its own:
+ * a captioned box's bottom is labelled, an entry box's top edge is
+ * dropped with it, and a table's rules are labelled by its row text or
+ * passed over as `table-grid`. Tests for them, for text between the
+ * lines, which labels a line first, and for a rule an earlier stack took
+ * (two runs share a rule only where the pitch changes, and a caption over
+ * the lower run's top labels a line of the upper one), survived their own
+ * deletion over the whole corpus: review round 1, guards LOW; removed.)
  */
 function stackedLines(
   lines: PageLines,
   rows: Map<Line, RuleRow>,
-  rowTable: ReadonlySet<Line>,
   ix: TextIndex,
   out: Candidate[],
 ): void {
@@ -2034,24 +2237,35 @@ function stackedLines(
       pitch >= DETECT_BOXES.STACK_PITCH_MAX
     )
       continue;
-    if (
-      run.some(
-        (r) =>
-          used.has(r) ||
-          rowTable.has(r) ||
-          r.boxTop ||
-          r.boxBottom ||
-          rows.get(r)?.c.labelState !== "none",
-      )
-    )
-      continue;
+    if (run.some((r) => rows.get(r)?.c.labelState !== "none")) continue;
     const low = run[0]!;
     const top = run[run.length - 1]!;
     const x0 = Math.min(...run.map((r) => r.x0));
     const x1 = Math.max(...run.map((r) => r.x1));
-    if (textInside(ix, { x0, x1, y0: low.y, y1: top.y })) continue;
-    const cap = boxCaption(ix, { x0, x1, y: low.y }, top.y);
+    const cap = boxCaption(
+      ix,
+      { x0, x1, y: low.y },
+      top.y,
+      Math.max(DETECT.CAPTION_MAX, pitch),
+    );
     if (!cap) continue;
+    // Past a caption's usual reach, only text small enough to be a label
+    // for lines this far apart: a 24 pt title 17 pt over 22 pt lines is no
+    // caption of theirs.
+    const t = cap.text;
+    if (
+      t.y - DETECT.TEXT_DESCENT_EMS * t.size - top.y > DETECT.CAPTION_MAX &&
+      DETECT.TITLE_LARGER * t.size > pitch
+    )
+      continue;
+    const span = x0 + DETECT.CAPTION_SPAN * (x1 - x0);
+    const eps = DETECT.GRID_ROW_EPS;
+    if (
+      textBand(ix, t.y - eps, t.y + eps).some(
+        (t) => t.str.trim() !== "" && t.x >= span && t.x < x1,
+      )
+    )
+      continue;
     run.forEach((r) => used.add(r));
     const bottom = low.y + DETECT.RULE_BOTTOM_GAP;
     made.push({
@@ -2064,7 +2278,7 @@ function stackedLines(
         y1:
           top.y +
           DETECT.RULE_BOTTOM_GAP +
-          textHeight(cap.text.size, DETECT.TEXT_H_RULE),
+          textHeight(t.size, DETECT.TEXT_H_RULE),
       },
       line: top,
       square: null,
@@ -2151,6 +2365,7 @@ function ruleCandidates(
     }
     const leftLabel = pick.state === "found";
     let captioned = false;
+    let under: CardText | undefined;
     // A caption printed inside an outlined box's top-left once labelled the
     // box's TOP edge, placing the field above the box, outside it (review
     // round 3, finding 4; corpus N35).
@@ -2186,6 +2401,7 @@ function ruleCandidates(
         pick = cap;
         size = captions.find((h) => h.text.upright)?.text.size;
         captioned = true;
+        under = captions.find((h) => h.str === cap.label)?.text;
       } else if (pick.state === "none") pick = cap;
     }
     // A box's own caption labels its bottom edge, so the field sits inside
@@ -2219,13 +2435,13 @@ function ruleCandidates(
       order: 0,
     };
     out.push(c);
-    rows.set(r, { c, captioned, size });
+    rows.set(r, { c, captioned, size, under });
   }
   stripCaptions(lines, rows, rowTable);
   continuationLines(p, rows);
   // Slice S4, once every label is settled.
-  entryBoxes(p, ix, rows);
-  stackedLines(lines, rows, rowTable, ix, out);
+  entryBoxes(p, ix, rows, out);
+  stackedLines(lines, rows, ix, out);
   return out;
 }
 
@@ -3882,6 +4098,9 @@ export function classifyPage(
         continue;
       }
     }
+    // Lines only. An entry box (slice S4) is neither: text on its bottom
+    // edge is inside it, so it is no entry box, and one 0.85 to 0.9 of the
+    // page wide is a full-width comment box (DETECT_BOXES; corpus P71).
     if (c.line && c.rule === "labelled-rule") {
       const line = c.line;
       const len = line.x1 - line.x0;

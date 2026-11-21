@@ -352,7 +352,7 @@ describe("rule tables", () => {
     });
     expect([SIGNATURE_RE.source, SIGNATURE_RE.flags]).toEqual([
       // The anchored alternative: review round 4 fixes, finding 25.
-      String.raw`\b(sign(ature|ed)?|initials)\b|^\W*initial(\s+here)?\W*$`,
+      String.raw`\b(sign(atures?|ed)?|initials)\b|^\W*initial(\s+here)?\W*$`,
       "i",
     ]);
     expect([SIGNOFF_RE.source, SIGNOFF_RE.flags]).toEqual([
@@ -2122,10 +2122,11 @@ describe("labelled-rule", () => {
       const [words, boxes, both] = interleavedBest(
         pages.map((p) => () => run(p).counts.candidates),
       );
-      // Health: each box's two edges are candidates, with the text or not;
-      // the text alone has none.
-      expect(both!.got).toBe(2 * N);
-      expect(boxes!.got).toBe(2 * N);
+      // Health: each box is a candidate (an empty entry box's field stands
+      // for its top edge since slice S4's review round 1; before, both
+      // edges were, 2 x N), with the text or not; the text alone has none.
+      expect(both!.got).toBe(N);
+      expect(boxes!.got).toBe(N);
       expect(words!.got).toBe(0);
       // Both together against the sum of each alone: a per-box scan of
       // every text item multiplies the two costs.
@@ -3388,7 +3389,10 @@ describe("table-cell: a two-column table of labels and empty cells", () => {
       ),
     });
     expect(props(p)).toEqual([]);
-    expect(grid(p)).toBe(4);
+    // 3, not 4, since slice S4's review round 1: the top row's cells are
+    // entry-sized boxes, whose candidates (each `table-grid` here) stand
+    // for their top edge.
+    expect(grid(p)).toBe(3);
   });
 
   // KNOWN MISS (review round 4 fixes, finding 26): an empty ruled table
@@ -6430,23 +6434,24 @@ describe("review round 6 sweep: known misses and a product choice", () => {
     ]);
   });
 
-  // KNOWN MISS (finding 7): a heading over blank writing lines ("Defects
-  // found / comments" over three full-width rules 20 pt apart) proposes
-  // nothing. A label over a line must sit within 0.6 em of it, and a
-  // continuation line needs a labelled first line. The wanted reading (the
-  // top line takes the heading, the others follow it) needs a guard for
-  // a heading over a page's ruled body.
-  it("KNOWN MISS: a heading 20 pt over three blank writing lines leaves all three unlabelled", () => {
+  // WAS A KNOWN MISS (finding 7): a heading over blank writing lines
+  // ("Defects found / comments" over three full-width rules 20 pt apart)
+  // proposed nothing, all three lines `unlabelled`. A label over a line
+  // must sit within 0.6 em of it, and a continuation line needs a labelled
+  // first line. INVERTED by slice S4 (stacked lines, review round 1,
+  // geometry 4): a stack's caption may sit up to one pitch over its top
+  // line, so the heading labels ONE multiline field over all three. The
+  // guard for a heading over a page's ruled body is the stack's own: no
+  // line of it labelled, and no column headings beside the caption.
+  it("a heading 20 pt over three blank writing lines is ONE multiline field (was a known miss)", () => {
     const p = pg({
       text: [txt("Defects found / comments", 72, 400)],
       segs: [hseg(72, 540, 380), hseg(72, 540, 360), hseg(72, 540, 340)],
     });
-    expect(props(p)).toEqual([]);
-    expect(run(p).excluded.map((e) => e.rule)).toEqual([
-      "unlabelled",
-      "unlabelled",
-      "unlabelled",
-    ]);
+    expect(
+      props(p).map((x) => [x.rule, x.label, x.multiline === true]),
+    ).toEqual([["labelled-rule", "Defects found / comments", true]]);
+    expect(run(p).excluded).toEqual([]);
   });
 
   // PRODUCT CHOICE (finding 9): on a numbered tax worksheet each amount

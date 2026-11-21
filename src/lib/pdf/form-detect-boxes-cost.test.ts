@@ -13,9 +13,10 @@
  * (origin/main ac88cac3: 24x the time for 8x the boxes; with this slice
  * 25x; profiled 2026-11-21, `gridTouches` and its filter on top). That is
  * reported, not this slice's to fix, and these pages are built so that no
- * line reaches that step: each box's top edge is passed over as an
- * underline (a wide caption 2.5 pt over it) and each box as a signature
- * line, both decided before it. Every S4 question about each box (is it an
+ * line reaches that step: each box is passed over as a signature line,
+ * decided before it, and its top edge goes with it (an entry box's field
+ * stands for its top edge since review round 1; before, a wide caption
+ * 2.5 pt over it passed it over as an underline). Every S4 question about each box (is it an
  * entry box's size, does it hold text, does it hold anything drawn) is
  * still asked, and the health checks read that it was from the excluded
  * box's geometry (the box's inside, not a line's strip).
@@ -131,9 +132,12 @@ const K = 16;
 
 /**
  * Boxes 80 pt apart, each 250 x 40, captioned "Signature of applicant N"
- * 2.5 pt over its top across 200 of its 250 pt (so its top edge is an
- * underline); every other box holds a short line, so "does it hold
- * anything drawn" answers both ways. (At 60 pt apart each box's bottom
+ * 2.5 pt over its top across 200 of its 250 pt (its top edge was passed
+ * over as an underline until review round 1, since when an entry box's
+ * field stands for its top edge); one box in four holds a short line and
+ * one in four a writing line across it, so "does it hold anything drawn"
+ * answers all three ways, and the writing lines are dropped as the lined
+ * box's own. (At 60 pt apart each box's bottom
  * edge took the next caption, 9 pt under it, as a caption under a line,
  * and that search reads every text item on the page, `titleSize`: also
  * quadratic before S4, so the page keeps clear of it.)
@@ -145,8 +149,13 @@ function boxes(n: number): CardPage {
   for (let i = 0; i < n; i++) {
     const y = 100 + 80 * i;
     rects.push(rect(72, y, 250, 40));
-    if (i % 2) segs.push(hseg(80, 90, y + 20));
+    if (i % 4 === 1) segs.push(hseg(80, 90, y + 20));
+    if (i % 4 === 3) segs.push(hseg(76, 318, y + 20));
     text.push(txt(`Signature of applicant ${i}`, 72, y + 42.5, 200));
+    // Margin notes level with the box, far right of it: text a "does it
+    // hold text" question must pass over, so one that read every item on
+    // the page (mutant MT) shows over this page's other costs.
+    for (const dy of [5, 15, 25]) text.push(txt(`Ref ${i}`, 500, y + dy, 30));
   }
   return pg({ height: 200 + 80 * n, rects, segs, text });
 }
@@ -178,13 +187,14 @@ describe("cost of entry boxes and stacked lines stays linear in the page's size"
     ] as const) {
       // Health: every box was read as an ENTRY box (its inside, 248 x 38),
       // so each S4 question ran on it, and passed over as a signature
-      // line; every box top as an underline; nothing proposed.
+      // line; its top edge and any writing line in it went with it (2 x n
+      // with every top an underline, before review round 1); nothing
+      // proposed.
       const sig = r.excluded.filter((e) => e.rule === "signature");
       expect(sig.length).toBe(n);
       for (const e of sig)
         expect([e.box.width, e.box.height]).toEqual([248, 38]);
-      expect(r.excluded.filter((e) => e.rule === "underline").length).toBe(n);
-      expect(r.excluded.length).toBe(2 * n);
+      expect(r.excluded.length).toBe(n);
       expect(r.proposals).toEqual([]);
     }
     expectRatioUnder("S4 entry boxes", b!, a!, BOXES_BOUND);
@@ -221,17 +231,36 @@ describe("cost of entry boxes and stacked lines stays linear in the page's size"
 /**
  * The bounds, measured 2026-11-21 (Windows 11, Node 24), each 2x over the
  * worst reading of the fixed code and at least 1.5x under the lowest
- * mutant reading:
+ * mutant reading (first cut, then review round 1 of slice S4):
  *
- *  - boxes, fixed: 16.66 to 17.41 over 5 runs one at a time, 18.41 to
- *    21.61 four at a time. Mutant MB (each "does it hold anything drawn"
- *    question scanning every mark on the page from one list, not the
- *    cells its box covers): 97.03, 100.58, 100.80. Mutant MT (each "does
- *    it hold text" question reading every text item, not its baseline's
- *    band): 74.34, 76.64, 78.46. Window 43.2 to 49.6.
- *  - stacks, fixed: 17.09 to 20.51 one at a time, 17.66 to 20.44 four at a
- *    time. MT: 75.46, 78.42, 81.68 (MB leaves stacks alone: 15.09 to
- *    18.00). Window 41.0 to 50.3.
+ *  - boxes, first cut: fixed 16.66 to 17.41 over 5 runs one at a time,
+ *    18.41 to 21.61 four at a time. Mutant MB (each "does it hold anything
+ *    drawn" question scanning every mark on the page from one list, not
+ *    the cells its box covers): 97.03, 100.58, 100.80. Mutant MT (each
+ *    "does it hold text" question reading every text item, not its
+ *    baseline's band): 74.34, 76.64, 78.46. Window 43.2 to 49.6.
+ *  - boxes, review round 1 (top edges dropped, writing lines, the margin
+ *    notes): fixed 19.32 to 19.67 over 5 runs one at a time. MB 200.70,
+ *    204.14, 232.33; MT 108.13, 111.94, 114.63; MO (the caption over a
+ *    box's top read from every text item, not its band) 77.65, 83.04,
+ *    84.75. Window 39.3 to 51.8.
+ *  - stacks, first cut: fixed 17.09 to 20.51 one at a time, 17.66 to 20.44
+ *    four at a time. MT: 75.46, 78.42, 81.68 (MB leaves stacks alone:
+ *    15.09 to 18.00). Window 41.0 to 50.3.
+ *  - stacks, review round 1 (the text-between check, which MT read, was
+ *    removed as unreachable): fixed 17.56 to 20.14 over 5 runs. MS (the
+ *    column-heading check reading every text item, not the caption's
+ *    baseline): 74.50, 75.88, 93.55. Window 40.3 to 49.7. MO reads 47.51,
+ *    50.85, 79.00 here: red at the bound 3 of 3, but inside the 1.5x
+ *    margin, so not counted for this bound.
+ *
+ * NOT SEEN, said so: mutant ML (a lined box's writing lines found by
+ * scanning every line under it, not from a binary search of its band)
+ * reads 21.66 to 22.33 on the boxes page, under the bound: its scan is a
+ * cheap test per line against classify's dear work per line, so no ratio
+ * at 16x separates it (a page of four writing lines in three boxes in
+ * four took it to 35.39 and MT down to 52.26). The binary search is
+ * pinned by review only.
  *
  * At 8x (1,200 against 9,600) no bound fitted: MT read 28.96 on the boxes
  * against a fixed worst of 10.24, a window of 20.5 to 19.3. CI's own

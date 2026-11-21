@@ -40,6 +40,7 @@ import {
   type CardRect,
   type CardSeg,
   type CardText,
+  type Box,
   type FieldProposal,
 } from "./form-detect";
 import { detectFormFields } from "./form-detect-read";
@@ -170,7 +171,8 @@ const stack = (n: number, pitch: number, more: CardText[] = []): CardPage => {
 describe("S4 tables", () => {
   // The second, independent bound (CLAUDE.md, guards rule 3): typed from
   // the slice's brief (scope items 1 to 3), not read back from the code.
-  // BORDER_EPS and PAINT_CELL are this slice's own (review: decided here).
+  // BORDER_EPS and PAINT_CELL are this slice's own (review: decided here),
+  // as are IMAGE_BLEED, LINED_SPAN and DOUBLE_GAP (review round 1).
   it("every DETECT_BOXES value is the brief's (a literal table, not a read-back)", () => {
     expect({ ...DETECT_BOXES }).toEqual({
       ENTRY_MIN_W: 40,
@@ -182,6 +184,9 @@ describe("S4 tables", () => {
       STACK_PITCH_MIN: 12,
       STACK_PITCH_MAX: 30,
       BORDER_EPS: 2,
+      IMAGE_BLEED: 2,
+      LINED_SPAN: 0.8,
+      DOUBLE_GAP: 6,
       PAINT_CELL: 50,
     });
   });
@@ -208,16 +213,22 @@ describe("entry box size bounds", () => {
     expect(rulesOf(labelled(39.9, 20))).toEqual([["labelled-rule", false]]);
   });
 
-  it("width: 0.9 of the page (550.8 of 612) is an entry box, 550.9 is not", () => {
+  // On a 600 pt page, where 0.9 x the width is exact (540): on Letter,
+  // 0.9 x 612 is 550.8000000000001 in floating point, so a box 550.8 wide
+  // was inside the bound whether it read <= or < (review round 1, guards
+  // LOW: the `<` mutant survived).
+  it("width: 0.9 of the page (540 of 600) is an entry box, 540.1 is not", () => {
+    expect(0.9 * 600).toBe(540);
     const at = (w: number) =>
       rulesOf(
         pg({
+          width: 600,
           rects: [rect(40, 600, w, 20)],
           text: [txt("No", 10, 604, { width: 20 })],
         }),
       );
-    expect(at(550.8)).toEqual([["entry-box", false]]);
-    expect(at(550.9)).toEqual([["labelled-rule", false]]);
+    expect(at(540)).toEqual([["entry-box", false]]);
+    expect(at(540.1)).toEqual([["labelled-rule", false]]);
   });
 
   it("height: 12 pt is an entry box, 11.9 is not", () => {
@@ -407,8 +418,9 @@ beforeAll(async () => {
 describe("the S4 corpus, through the real reader", () => {
   it("health: the corpus is the size it was written at, both ways", () => {
     const n = (k: string) => BOX_CASES.filter((c) => c.kind === k).length;
-    expect(n("positive")).toBe(10);
-    expect(n("negative")).toBe(12);
+    // 10 and 12 until review round 1 added P70 to P76 and N70 to N78.
+    expect(n("positive")).toBe(17);
+    expect(n("negative")).toBe(21);
     expect(RUNS.size).toBe(BOX_CASES.length);
   });
 
@@ -425,7 +437,17 @@ describe("the S4 corpus, through the real reader", () => {
         c.at &&
         decidingAt(RUNS.get(c.id)!, c.at)?.rule === "filled-box",
     );
-    expect(neg.map((c) => c.id)).toEqual(["N62", "N63", "N64", "N65"]);
+    expect(neg.map((c) => c.id)).toEqual([
+      "N62",
+      "N63",
+      "N64",
+      "N65",
+      "N70",
+      "N71",
+      "N72",
+      "N73",
+      "N74",
+    ]);
   });
 
   it("health: both multiline and one-line proposals occur (each side of the flag is exercised)", () => {
@@ -493,7 +515,16 @@ describe("composed chain: detect -> proposal -> Add -> Create form -> pdf.js rea
 
   const ids = Object.keys(PRINTED_BOXES);
   it("health: the chain runs over every printed case, multiline and not", () => {
-    expect(ids.sort()).toEqual(["P60", "P61", "P62", "P64", "P65"]);
+    expect(ids.sort()).toEqual([
+      "P60",
+      "P61",
+      "P62",
+      "P64",
+      "P65",
+      "P70",
+      "P75",
+      "P76",
+    ]);
   });
 
   for (const id of ids)
@@ -630,5 +661,313 @@ describe("the multiline flag reaches every hand-off", () => {
       ["comments", true],
       ["name", false],
     ]);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  Review round 1 (three lenses on 4c9078a4): each finding's shape
+ * ------------------------------------------------------------------ */
+
+describe("review round 1: shapes the first cut got wrong", () => {
+  const brief = (p: CardPage) =>
+    props(p).map((x) => [x.rule, x.label, x.multiline === true]);
+  const rulesOut = (p: CardPage) => classifyPage(p).excluded.map((e) => e.rule);
+
+  // guards-bytes HIGH / geometry 1: main proposed a field here; the first
+  // cut read the writing lines as "something inside" and proposed none.
+  it("a lined comment box under a caption is ONE multiline entry box", () => {
+    const p = captioned(rect(72, 500, 400, 80), {
+      segs: [520, 540, 560].map((y) => ({ ...hseg(80, 464, y), lum: 0.6 })),
+    });
+    expect(brief(p)).toEqual([["entry-box", "Notes", true]]);
+    expect(props(p)).toMatchObject([{ x: 73, y: 501, width: 398, height: 78 }]);
+    expect(rulesOut(p)).toEqual([]);
+  });
+
+  it("a lined box labelled at its left is ONE multiline entry box, its lines no fields of their own", () => {
+    const p = pg({
+      rects: [rect(72, 560, 328, 80)],
+      segs: [580, 600, 620].map((y) => hseg(72, 400, y)),
+      text: [txt("Notes:", 30, 620, { width: 30 })],
+    });
+    expect(brief(p)).toEqual([["entry-box", "Notes", true]]);
+  });
+
+  it("writing lines short of most of the box's width, or in a box too low for several lines, still fill it", () => {
+    const part = captioned(rect(72, 500, 400, 80), {
+      segs: [hseg(80, 300, 540)],
+    });
+    expect(rulesOut(part)).toContain("filled-box");
+    const low = captioned(rect(72, 500, 400, 30), {
+      segs: [hseg(80, 464, 515)],
+    });
+    expect(rulesOut(low)).toContain("filled-box");
+  });
+
+  // guards-bytes MEDIUM: filled-box is for EMPTY boxes; a shaded caption box
+  // keeps the field main gave it.
+  it("a grey shaded box with its caption inside keeps its field along the bottom", () => {
+    const p = pg({
+      rects: [rect(140, 600, 200, 30, { filled: true, lum: 0.9 })],
+      text: [txt("1 Wages, tips", 143, 621, { size: 7, width: 40 })],
+    });
+    expect(brief(p)).toEqual([["labelled-rule", "1 Wages, tips", false]]);
+  });
+
+  // geometry 2 / false-positives 4: a caption just over a box's top is that
+  // box's, even when it is also just under the box above.
+  it("stacked captioned boxes each take their own caption, not the next box's", () => {
+    const boxes: CardRect[] = [];
+    const text: CardText[] = [];
+    let top = 700;
+    for (const [label, h] of [
+      ["First name", 20],
+      ["Last name", 20],
+      ["Address", 60],
+      ["City", 20],
+    ] as const) {
+      boxes.push(rect(72, top - h, 300, h));
+      text.push(txt(label, 72, top + 4, { width: 40 }));
+      top = top - h - 12 - 4; // the next caption 12 pt under this foot
+    }
+    expect(props(pg({ rects: boxes, text })).map((x) => x.label)).toEqual([
+      "First name",
+      "Last name",
+      "Address",
+      "City",
+    ]);
+  });
+
+  it("control: captions printed just UNDER their boxes stay theirs", () => {
+    const p = pg({
+      rects: [rect(72, 680, 300, 20), rect(72, 630, 300, 20)],
+      text: [
+        txt("Name", 72, 669, { width: 25 }),
+        txt("City", 72, 619, { width: 20 }),
+      ],
+    });
+    expect(props(p).map((x) => x.label)).toEqual(["Name", "City"]);
+  });
+
+  it("boxed paragraphs with the next heading just under each box: no field", () => {
+    const rects: CardRect[] = [];
+    const text: CardText[] = [];
+    for (let k = 0; k < 4; k++) {
+      const y = 600 - 100 * k;
+      text.push(txt(`Clause ${k + 1}`, 72, y + 84, { width: 40 }));
+      rects.push(rect(72, y, 468, 80));
+      text.push(
+        txt("The buyer pays within thirty days.", 80, y + 40, { width: 180 }),
+      );
+    }
+    expect(props(pg({ rects, text }))).toEqual([]);
+  });
+
+  it("one boxed paragraph with a short note just under it, no box below: the box holds text, so no field", () => {
+    const p = pg({
+      rects: [rect(72, 600, 468, 80)],
+      text: [
+        txt("The buyer pays within thirty days.", 80, 640, { width: 180 }),
+        txt("Terms", 72, 589, { width: 30 }),
+      ],
+    });
+    expect(props(p)).toEqual([]);
+  });
+
+  it("empty figure frames captioned over their tops: each frame named by its own caption", () => {
+    const rects: CardRect[] = [];
+    const text: CardText[] = [];
+    for (let k = 0; k < 4; k++) {
+      const y = 620 - 96 * k;
+      text.push(txt(`Figure ${k + 1}`, 72, y + 84, { width: 40 }));
+      rects.push(rect(72, y, 468, 80));
+    }
+    expect(props(pg({ rects, text })).map((x) => x.label)).toEqual([
+      "Figure 1",
+      "Figure 2",
+      "Figure 3",
+      "Figure 4",
+    ]);
+  });
+
+  // false-positives 5: N boxes gave 2N-1 fields, the lower ones misnamed.
+  it("left-labelled boxes stacked 20 pt apart: one field per box, each its own label, none in the gap", () => {
+    const p = pg({
+      rects: [rect(130, 662, 300, 20), rect(130, 622, 300, 20)],
+      text: [
+        txt("Name", 100, 668, { width: 20 }),
+        txt("City", 100, 628, { width: 20 }),
+      ],
+    });
+    expect(brief(p)).toEqual([
+      ["entry-box", "Name", false],
+      ["entry-box", "City", false],
+    ]);
+  });
+
+  it("a box whose label is out of reach does not borrow the label of the box above", () => {
+    const p = pg({
+      rects: [rect(130, 662, 300, 20), rect(130, 622, 300, 20)],
+      text: [
+        txt("Name", 100, 668, { width: 20 }),
+        txt("City", 40, 628, { width: 20 }),
+      ],
+    });
+    expect(brief(p)).toEqual([["entry-box", "Name", false]]);
+  });
+
+  // The two ends of the continuation rule's box test, each alone (with
+  // both deleted, the tests above went red; with either, green).
+  it("a box under a left-labelled line does not continue the line's label", () => {
+    // Taller than an entry box, so its top edge is a line of its own (an
+    // entry box's goes with it), 20 pt under the labelled line.
+    const p = pg({
+      segs: [hseg(130, 430, 650)],
+      rects: [rect(130, 500, 300, 130)],
+      text: [txt("Address:", 82, 650, { width: 40 })],
+    });
+    expect(brief(p)).toEqual([["labelled-rule", "Address", false]]);
+  });
+
+  it("a line under a left-labelled box does not continue the box's label", () => {
+    const p = pg({
+      rects: [rect(130, 662, 300, 20)],
+      segs: [hseg(130, 430, 642)],
+      text: [txt("Name", 100, 668, { width: 20 })],
+    });
+    expect(brief(p)).toEqual([["entry-box", "Name", false]]);
+  });
+
+  // false-positives 8.
+  it("a double frame (a box drawn 4 pt inside another) is decoration: no field", () => {
+    const p = pg({
+      rects: [rect(100, 600, 400, 100), rect(104, 604, 392, 92)],
+      text: [txt("Certificate of completion", 100, 704, { width: 120 })],
+    });
+    expect(props(p)).toEqual([]);
+  });
+
+  it("DOUBLE_GAP: a box 6 pt inside another is a double frame; 6.5 pt inside, a box in a frame", () => {
+    const at = (d: number) =>
+      brief(
+        pg({
+          // Edges clear of the 50 pt lookup cells' borders, so the line
+          // 6.5 pt out is in a cell the search reads and only the gap's
+          // own test can pass it over (at 100..500 it was not read at all,
+          // and the test passed with that test deleted).
+          rects: [
+            rect(110, 610, 380, 80),
+            rect(110 + d, 610 + d, 380 - 2 * d, 80 - 2 * d),
+          ],
+          text: [txt("Remarks", 110, 694, { width: 40 })],
+        }),
+      );
+    expect(at(6)).toEqual([]);
+    expect(at(6.5)).toEqual([["entry-box", "Remarks", true]]);
+  });
+
+  // false-positives 7.
+  it("a box or lines captioned 'Signatures' are signature areas: no field", () => {
+    const box = pg({
+      rects: [rect(72, 600, 250, 50)],
+      text: [txt("Signatures", 72, 654, { width: 50 })],
+    });
+    expect(props(box)).toEqual([]);
+    expect(rulesOut(box)).toContain("signature");
+    const lines = pg({
+      segs: [600, 620, 640].map((y) => hseg(72, 300, y)),
+      text: [txt("Signatures of witnesses", 72, 646, { width: 110 })],
+    });
+    expect(props(lines)).toEqual([]);
+  });
+
+  // false-positives 3.
+  it("column headings over even lines (a ledger) are no caption: no one field across the columns", () => {
+    const p = pg({
+      segs: Array.from({ length: 6 }, (_, i) => hseg(72, 522, 580 - 20 * i)),
+      text: [
+        txt("Description", 80, 586, { width: 55 }),
+        txt("Qty", 300, 586, { width: 15 }),
+        txt("Amount", 420, 586, { width: 35 }),
+      ],
+    });
+    expect(props(p).filter((x) => x.multiline)).toEqual([]);
+  });
+
+  // false-positives 1.
+  it("a picture bleeding past its frame, or clipped to it, fills the frame (up to IMAGE_BLEED x its size)", () => {
+    const b = rect(72, 600, 200, 100);
+    const at = (img: Box) =>
+      classifyPage(captioned(b, { images: [img] })).excluded.map((e) => e.rule);
+    expect(at({ x: 69, y: 597, width: 206, height: 106 })).toContain(
+      "filled-box",
+    );
+    expect(at({ x: 60, y: 590, width: 230, height: 125 })).toContain(
+      "filled-box",
+    );
+    // At twice the frame's size it is the frame's; past that, a picture
+    // the form is drawn over.
+    expect(at({ x: -28, y: 550, width: 400, height: 200 })).toContain(
+      "filled-box",
+    );
+    expect(at({ x: -28.1, y: 550, width: 400.2, height: 200 })).not.toContain(
+      "filled-box",
+    );
+  });
+
+  // false-positives 2.
+  it("curved paint (a logo, a chart line, a seal, a scribble) fills a box; a curve larger than the box does not", () => {
+    const b = rect(72, 600, 200, 100);
+    const at = (c: Box) =>
+      classifyPage(captioned(b, { curves: [c] })).excluded.map((e) => e.rule);
+    expect(at({ x: 100, y: 620, width: 30, height: 30 })).toContain(
+      "filled-box",
+    );
+    // A curve as wide as the box and its border each side is in it...
+    expect(at({ x: 70, y: 620, width: 204, height: 30 })).toContain(
+      "filled-box",
+    );
+    // ...and a larger one (a flourish round the box) is not.
+    expect(at({ x: 70, y: 620, width: 204.1, height: 30 })).not.toContain(
+      "filled-box",
+    );
+    // One that stops short of the box's inside is beside it.
+    expect(at({ x: 300, y: 620, width: 30, height: 30 })).not.toContain(
+      "filled-box",
+    );
+  });
+
+  // geometry 3: the box vanished with no reason given.
+  it("a box outlined 3 pt thick is still an entry box", () => {
+    expect(brief(captioned(rect(72, 500, 400, 80, { width: 3 })))).toEqual([
+      ["entry-box", "Notes", true],
+    ]);
+  });
+
+  // geometry 4: one blank line between the caption and the top line.
+  it("a stack's caption may sit up to one pitch over its top line", () => {
+    const at = (gap: number) =>
+      brief(
+        pg({
+          segs: [600, 622, 644].map((y) => hseg(72, 540, y)),
+          text: [txt("Comments:", 72, 644 + gap, { width: 48 })],
+        }),
+      );
+    expect(at(18)).toEqual([["labelled-rule", "Comments", true]]);
+    expect(at(30)).toEqual([]);
+  });
+
+  it("past the usual reach only a label small enough for the lines: a 15 pt one over 22 pt lines is not", () => {
+    // 1.5 x 14.6 = 21.9 < 22; 1.5 x 14.7 = 22.05 > 22. The descent's gap
+    // over the top line stays past CAPTION_MAX (14) at either size.
+    const at = (size: number) =>
+      brief(
+        pg({
+          segs: [600, 622, 644].map((y) => hseg(72, 540, y)),
+          text: [txt("Comments:", 72, 644 + 20, { width: 48, size })],
+        }),
+      );
+    expect(at(14.6)).toEqual([["labelled-rule", "Comments", true]]);
+    expect(at(14.7)).toEqual([]);
   });
 });

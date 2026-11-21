@@ -1,4 +1,14 @@
-import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import {
+  PDFDocument,
+  clip,
+  endPath,
+  popGraphicsState,
+  pushGraphicsState,
+  rectangle,
+  rgb,
+  type PDFFont,
+  type PDFPage,
+} from "pdf-lib";
 import type { Box } from "@/lib/pdf/form-detect";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
@@ -156,6 +166,22 @@ export const S4 = {
     low: [140, 520, 200, 11],
     tall: [72, 360, 300, 121],
   },
+  // Review round 1.
+  P70: [72, 500, 400, 80],
+  P71: [(612 - 0.87 * 612) / 2, 600, 0.87 * 612, 50],
+  /** Each caption 4 pt over its box, 12 pt under the box above's foot. */
+  P72: [
+    ["First name", [72, 680, 300, 20]],
+    ["Last name", [72, 644, 300, 20]],
+    ["Address", [72, 568, 300, 60]],
+    ["City", [72, 532, 300, 20]],
+  ],
+  P74: [72, 500, 400, 80],
+  P75: { x0: 72, x1: 540, ys: [600, 622, 644], caption: 662 },
+  P76: [
+    ["Name:", [130, 662, 300, 20]],
+    ["City:", [130, 622, 300, 20]],
+  ],
 } as const;
 
 /** Where each composed-chain case drew its box or stack (page 1). */
@@ -170,6 +196,11 @@ export const PRINTED_BOXES: Record<
     P64: [S4.P64.four, S4.P64.closed],
     // The stack: from its lowest line up to the caption over its highest.
     P65: [[S4.P65.x0, 600, S4.P65.x1 - S4.P65.x0, S4.P65.caption - 600]],
+    // Review round 1: a lined box, a stack with a blank line under its
+    // caption, and two left-labelled boxes 20 pt apart.
+    P70: [S4.P70],
+    P75: [[S4.P75.x0, 600, S4.P75.x1 - S4.P75.x0, S4.P75.caption - 600]],
+    P76: S4.P76.map(([, b]) => b),
   } as Record<string, (readonly number[])[]>).map(([id, boxes]) => [
     id,
     boxes.map(([x, y, w, h]) => ({
@@ -210,6 +241,312 @@ async function leftLabel(
 ) {
   await text(page, s, x - gap - (await width(s, size)), y, size);
 }
+
+/* ------------------------------------------------------------------ *
+ *  Review round 1 (three lenses on the first cut): each finding's page,
+ *  through the real reader (pictures, clips and curves are the reader's
+ *  to see, so they are only honest here)
+ * ------------------------------------------------------------------ */
+
+/** A curve, outlined or filled, through pdf-lib's own path drawing. */
+function curve(
+  page: PDFPage,
+  path: string,
+  x: number,
+  y: number,
+  fill: boolean,
+) {
+  page.drawSvgPath(path, {
+    x,
+    y,
+    ...(fill
+      ? { color: rgb(0, 0, 0) }
+      : { borderColor: rgb(0, 0, 0), borderWidth: 1.5 }),
+  });
+}
+
+export const ROUND1_CASES: readonly DetectCase[] = [
+  {
+    id: "P70",
+    kind: "positive",
+    note: 'a LINED comment box: a 400 x 80 box captioned "Comments" holding three grey writing lines across it: one multiline field filling the box, the lines no fields of their own (review round 1: the first cut read the lines as something inside the box and proposed nothing)',
+    build: () =>
+      onePage(async (page) => {
+        const [x, y, w, h] = S4.P70;
+        await text(page, "Comments", x, over(S4.P70));
+        box(page, x, y, w, h);
+        for (const ly of [520, 540, 560])
+          page.drawLine({
+            start: { x: x + 8, y: ly },
+            end: { x: x + w - 8, y: ly },
+            thickness: 0.5,
+            color: rgb(0.6, 0.6, 0.6),
+          });
+      }),
+    expect: [entry("Comments", S4.P70, true)],
+  },
+  {
+    id: "P71",
+    kind: "positive",
+    note: 'an empty box 0.87 of the page wide (past the 0.85 full-width divider, inside the 0.9 entry-box bound) captioned "Report": a full-width comment box, one multiline field (review round 1: decided, not a divider)',
+    build: () =>
+      onePage(async (page) => {
+        const [x, y, w, h] = S4.P71;
+        await text(page, "Report", x, over(S4.P71));
+        box(page, x, y, w, h);
+      }),
+    expect: [entry("Report", S4.P71, true)],
+  },
+  {
+    id: "P72",
+    kind: "positive",
+    note: "four captioned boxes stacked down a page, each caption 4 pt over its box and 12 pt under the box above: each box named by its OWN caption (review round 1: every box took the next one's)",
+    build: () =>
+      onePage(async (page) => {
+        for (const [label, b] of S4.P72) {
+          await text(page, label, b[0], over(b));
+          box(page, b[0], b[1], b[2], b[3]);
+        }
+      }),
+    expect: S4.P72.map(([label, b]) => entry(label, b, b[3] >= 36)),
+  },
+  {
+    id: "P73",
+    kind: "positive",
+    note: 'a grey shaded box with its caption "1 Wages, tips" inside its top-left (a tax form\'s): it holds text, so it keeps the field along its bottom edge it had before slice S4 (review round 1: filled-box took it)',
+    build: () =>
+      onePage(async (page) => {
+        box(page, 140, 600, 200, 30, 0.9);
+        await text(page, "1 Wages, tips", 143, 621, 7);
+      }),
+    expect: [
+      {
+        rule: "labelled-rule",
+        type: "text",
+        label: "1 Wages, tips",
+        page: 1,
+        box: stripBox(140, 340, 600, 7),
+      },
+    ],
+  },
+  {
+    id: "P74",
+    kind: "positive",
+    note: 'an empty box outlined 3 pt thick, captioned "Comments": one multiline field filling it (review round 1: a frame over 2 pt passed with no reason given)',
+    build: () =>
+      onePage(async (page) => {
+        const [x, y, w, h] = S4.P74;
+        await text(page, "Comments", x, over(S4.P74));
+        page.drawRectangle({
+          x,
+          y,
+          width: w,
+          height: h,
+          borderColor: rgb(0, 0, 0),
+          borderWidth: 3,
+        });
+      }),
+    expect: [entry("Comments", S4.P74, true)],
+  },
+  {
+    id: "P75",
+    kind: "positive",
+    note: 'three equal blank lines 22 pt apart with "Comments:" 18 pt over the top one (a blank line between): ONE multiline field (review round 1: the caption was out of reach)',
+    build: () =>
+      onePage(async (page) => {
+        const { x0, x1, ys, caption } = S4.P75;
+        await text(page, "Comments:", x0, caption);
+        for (const y of ys) rule(page, x0, x1, y);
+      }),
+    expect: [
+      {
+        rule: "labelled-rule",
+        type: "text",
+        label: "Comments",
+        page: 1,
+        // 1 pt over the lowest line to 1.4 x 10 = 14 pt over 1 pt over the
+        // highest (659), under the caption's baseline less 1 (661).
+        box: rounded(73, 601, 539, Math.min(644 + 1 + 14, 662 - 1)),
+        multiline: true,
+      },
+    ],
+  },
+  {
+    id: "P76",
+    kind: "positive",
+    note: 'two boxes labelled at their left ("Name:", "City:"), 20 pt apart: one field per box, each named by its own label, none in the gap between them (review round 1: N boxes made 2N - 1 fields, the lower ones named "Name")',
+    build: () =>
+      onePage(async (page) => {
+        for (const [label, b] of S4.P76) {
+          await leftLabel(page, label, b[0], b[1] + 6);
+          box(page, b[0], b[1], b[2], b[3]);
+        }
+      }),
+    expect: S4.P76.map(([label, b]) => entry(label.replace(":", ""), b, false)),
+  },
+  {
+    id: "N70",
+    kind: "negative",
+    note: 'a photo placed larger than its 200 x 100 frame ("Photo of item") and clipped to it: the frame holds a picture, no field (review round 1)',
+    build: () =>
+      onePage(async (page, d) => {
+        await text(page, "Photo of item", 72, 704);
+        box(page, 72, 600, 200, 100);
+        page.pushOperators(
+          pushGraphicsState(),
+          rectangle(72, 600, 200, 100),
+          clip(),
+          endPath(),
+        );
+        await drawRasterImage(page, await embedRasterImage(d, PNG_1PX, "png"), {
+          x: 60,
+          y: 590,
+          width: 230,
+          height: 125,
+        });
+        page.pushOperators(popGraphicsState());
+      }),
+    expect: "none",
+    decidedBy: "filled-box",
+    at: { page: 1, x: 150, y: 650 },
+  },
+  {
+    id: "N71",
+    kind: "negative",
+    note: 'a picture 3 pt larger than its frame on every side ("Photo"): no field (review round 1)',
+    build: () =>
+      onePage(async (page, d) => {
+        await text(page, "Photo", 72, 704);
+        box(page, 72, 600, 200, 100);
+        await drawRasterImage(page, await embedRasterImage(d, PNG_1PX, "png"), {
+          x: 69,
+          y: 597,
+          width: 206,
+          height: 106,
+        });
+      }),
+    expect: "none",
+    decidedBy: "filled-box",
+    at: { page: 1, x: 150, y: 650 },
+  },
+  {
+    id: "N72",
+    kind: "negative",
+    note: 'a logo drawn with filled Bezier curves in a box captioned "Logo": no field (review round 1: the reader dropped curves, so the box read as empty)',
+    build: () =>
+      onePage(async (page) => {
+        await text(page, "Logo", 72, 704);
+        box(page, 72, 600, 120, 100);
+        curve(
+          page,
+          "M 0 0 C 20 40 60 40 80 0 C 60 -40 20 -40 0 0 Z",
+          92,
+          650,
+          true,
+        );
+      }),
+    expect: "none",
+    decidedBy: "filled-box",
+    at: { page: 1, x: 100, y: 605 },
+  },
+  {
+    id: "N73",
+    kind: "negative",
+    note: 'a trend line stroked as one curve across a chart frame captioned "Revenue trend": no field (review round 1)',
+    build: () =>
+      onePage(async (page) => {
+        await text(page, "Revenue trend", 72, 704);
+        box(page, 72, 600, 300, 100);
+        curve(
+          page,
+          "M 0 0 C 50 30 100 -20 150 10 C 200 30 250 0 280 20",
+          82,
+          640,
+          false,
+        );
+      }),
+    expect: "none",
+    decidedBy: "filled-box",
+    at: { page: 1, x: 200, y: 605 },
+  },
+  {
+    id: "N74",
+    kind: "negative",
+    note: 'a double frame under "Certificate of completion": a box with a second box 4 pt inside it, decoration: no field for either (review round 1)',
+    build: () =>
+      onePage(async (page) => {
+        await text(page, "Certificate of completion", 100, 704);
+        box(page, 100, 600, 400, 100);
+        box(page, 104, 604, 392, 92);
+      }),
+    expect: "none",
+    decidedBy: "filled-box",
+    at: { page: 1, x: 300, y: 650 },
+  },
+  {
+    id: "N75",
+    kind: "negative",
+    note: 'an empty 250 x 50 box captioned "Signatures": a signature area, no field (review round 1: the plural passed the signature rule)',
+    build: () =>
+      onePage(async (page) => {
+        await text(page, "Signatures", 72, 654);
+        box(page, 72, 600, 250, 50);
+      }),
+    expect: "none",
+    decidedBy: "signature",
+    at: { page: 1, x: 150, y: 620 },
+  },
+  {
+    id: "N76",
+    kind: "negative",
+    note: 'column headings ("Description", "Qty", "Amount") over six even rules: a ledger, not one caption, so no one field across its columns (review round 1)',
+    build: () =>
+      onePage(async (page) => {
+        await text(page, "Description", 80, 586);
+        await text(page, "Qty", 300, 586);
+        await text(page, "Amount", 420, 586);
+        for (let i = 0; i < 6; i++) rule(page, 72, 522, 580 - 20 * i);
+      }),
+    expect: "none",
+    decidedBy: "unlabelled",
+    at: { page: 1, x: 300, y: 483 },
+  },
+  {
+    id: "N77",
+    kind: "negative",
+    note: "three boxed clauses, each heading just over its box and so just under the box above: a boxed paragraph takes no caption from under it, so no field (review round 1: each box took the next clause's heading)",
+    build: () =>
+      onePage(async (page) => {
+        for (let k = 0; k < 3; k++) {
+          const y = 600 - 100 * k;
+          await text(page, `Clause ${k + 1}`, 72, y + 84);
+          box(page, 72, y, 468, 80);
+          await text(
+            page,
+            "The tenant keeps the property in good repair.",
+            80,
+            y + 40,
+          );
+        }
+      }),
+    expect: "none",
+    decidedBy: "unlabelled",
+    at: { page: 1, x: 300, y: 503 },
+  },
+  {
+    id: "N78",
+    kind: "negative",
+    note: 'a 24 pt title "INSTRUCTIONS" 17 pt over four blank lines 22 pt apart: past a caption\'s usual reach, and too large to label lines that far apart, so no field',
+    build: () =>
+      onePage(async (page) => {
+        await text(page, "INSTRUCTIONS", 72, 712, 24);
+        for (let i = 0; i < 4; i++) rule(page, 72, 540, 690 - 22 * i);
+      }),
+    expect: "none",
+    decidedBy: "unlabelled",
+    at: { page: 1, x: 300, y: 625 },
+  },
+];
 
 export const BOX_CASES: readonly DetectCase[] = [
   {
@@ -602,4 +939,5 @@ export const BOX_CASES: readonly DetectCase[] = [
     decidedBy: "page-band",
     at: { page: 1, x: 200, y: 20 },
   },
+  ...ROUND1_CASES,
 ];
