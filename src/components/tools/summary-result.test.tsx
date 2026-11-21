@@ -294,6 +294,12 @@ describe("Summarize PDF result — the summary is on the page", () => {
     // The ZIP button is there — from the first render, read or not, so it
     // says nothing about the read having settled.
     screen.getByRole("button", { name: `Download ${ZIP}` });
+    // The wait below is only as honest as the attribute, so check it in
+    // both directions: synchronously after the render the read cannot have
+    // settled. Without this, an attribute that claimed "unavailable" from
+    // the first render let a summary claimed 50 ms later stay green
+    // (verifier mutant, 2026-11-22).
+    expect(readState(container)).toBe("pending");
     // The read's own outcome, not a sleep: until 2026-11-21 a 20 ms tick
     // stood here, and a reader that claimed a summary 50 ms later stayed
     // green at any speed. 3000 ms: this file's slowest CI test, a real
