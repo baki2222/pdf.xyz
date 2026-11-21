@@ -1484,8 +1484,18 @@ describe("Compare PDF's redline is a chunk of its own", () => {
  * this measurement plus 5%, as before: 26.1. The raise (24.3 to 26.1) is
  * the owner's to approve, in the PR; the page's first load is unchanged
  * (first-load and bundle-budget tests green on the same build).
+ *
+ * Slice S5 (2026-11-22, zlib -9, Windows, from an empty .next): 26,925 B
+ * gz (26.29 KB), 74,856 B raw, +1,449 B over S4's review round 1 for
+ * tables: one grid finder for the label table, the headed table and the
+ * row of captioned boxes, the header and row reading, the large-table
+ * cap, a box drawn twice read once, and the plumb-line bands that keep a
+ * page of tables linear. That is over 26.1, so the bound is this
+ * measurement plus 5%: 27.6. The raise (26.1 to 27.6) is the owner's to
+ * approve, in the PR; the page's first load is unchanged (first-load and
+ * bundle-budget tests green on the same build).
  */
-const FIND_FIELDS_FETCH_GZ_KB = 26.1;
+const FIND_FIELDS_FETCH_GZ_KB = 27.6;
 /*
  * HISTORY (review rounds 7 and 8, 2026-11-19). Round 7 added a bound here
  * for the press on a page whose preview chunk never arrived: every chunk
