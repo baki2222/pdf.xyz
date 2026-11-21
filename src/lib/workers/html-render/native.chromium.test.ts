@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createNativeChromiumPdfRunner, resolveOnPath } from "./native";
 import { WebpageFetchError } from "./engine";
 import { findChromium } from "./test-chromium";
@@ -145,19 +145,20 @@ const preFixArgv = (output: string, source: string) => [
 
 /**
  * What the HARNESS adds, none of it about file access: a fresh profile per
- * call, and no first-run or background work in it.
+ * call, and no first-run or background work in it, so a control never
+ * depends on the runner's default profile or reaches the network on its
+ * own. The control still has to LEAK: if any of these stopped a file://
+ * page reading a local file, it would go red.
  *
- * Why (2026-11-21, the flake that blocked #390, run 44924793701 attempt 1:
- * "Chromium wrote no PDF, exited 0" after 65 s). Without these the pre-fix
- * argv ran on the CI runner's shared default profile, with first-run tasks
- * and Chromium's own background networking live. Its FIRST launch in the
- * job took 7.3-46.2 s in all 22 passing runs of 11-18..11-21 (and 65 s in the
- * failure), while the two launches after it, the same argv on the profile
- * the first had made, took 0.7-4.2 s; the production runner's launches,
- * which pass these flags with a fresh profile each, show no such first
- * launch. So the cost, and the silent exit, were the profile's first run,
- * not the page and not the defect. The control still has to LEAK: if any of
- * these stopped a file:// page reading a local file, it would go red.
+ * These are hygiene, NOT the fix for the slow first launch (an earlier
+ * version of this comment said they were, and the failing run contradicts
+ * it). In run 44924793701 attempt 1, capture.chromium and zip-site.chromium
+ * started 48 s and 55 s into this file, while its first launch was still
+ * running, and their first tests, which launch through the production
+ * runner with exactly these flags and a fresh profile, took 29,256 ms and
+ * 22,043 ms (736-2,335 ms in the passing runs, where they start after this
+ * file). So the cost is the MACHINE's first Chromium launch, whatever the
+ * profile; `warmUp` below pays it before any control runs.
  */
 const harnessFlags = (profile: string) => [
   `--user-data-dir=${profile}`,
@@ -168,6 +169,24 @@ const harnessFlags = (profile: string) => [
   "--disable-sync",
 ];
 
+/** How a Chromium run that wrote no PDF ended, in words. */
+interface ChromiumExit {
+  error: (Error & { killed?: boolean; signal?: string }) | null;
+  /** `ChildProcess.killed`: true once the timeout sent its signal. */
+  childKilled: boolean;
+  elapsedMs: number;
+}
+function exitCause(exit: ChromiumExit, timeoutMs: number): string {
+  // The ChildProcess and the clock, not error.killed: see the test below.
+  const killed =
+    exit.error?.killed || exit.childKilled || exit.elapsedMs >= timeoutMs;
+  return killed
+    ? `killed by the ${timeoutMs / 1000} s timeout (${exit.error?.signal ?? (exit.error ? "no signal" : "then exited 0")})`
+    : exit.error
+      ? `exited: ${exit.error.message}`
+      : "exited 0";
+}
+
 /** Chromium's stderr without the D-Bus lines a runner with no bus prints. */
 const stderrTail = (stderr: string) =>
   stderr
@@ -175,6 +194,78 @@ const stderrTail = (stderr: string) =>
     .filter((line) => !line.includes("dbus/bus.cc"))
     .join("\n")
     .slice(-1200);
+
+/**
+ * Runs Chromium with `argv` on a fresh profile in `dir`, killed at
+ * `timeoutMs`, and returns how long it took; throws, saying why, when it
+ * wrote no `output`. Chromium's exit is kept, not swallowed: on a slow CI
+ * runner it has hung until the kill (run 41104611412), and the control then
+ * failed as a bare ENOENT on the missing PDF — red for a reason nobody could
+ * read. A non-zero exit WITH a PDF written is normal for headless Chromium.
+ */
+async function printOrExplain(
+  dir: string,
+  argv: string[],
+  output: string,
+  timeoutMs: number,
+): Promise<number> {
+  const startedAt = Date.now();
+  const exit = await new Promise<{
+    error: ChromiumExit["error"];
+    childKilled: boolean;
+    stderr: string;
+  }>((done) => {
+    const child = execFile(
+      BIN!,
+      [...harnessFlags(path.join(dir, "profile")), ...argv],
+      { timeout: timeoutMs },
+      (error, _stdout, stderr) =>
+        done({ error, childKilled: child.killed, stderr: String(stderr) }),
+    );
+  });
+  const elapsedMs = Date.now() - startedAt;
+  if (!existsSync(output))
+    throw new Error(
+      `Chromium wrote no PDF, ${exitCause({ ...exit, elapsedMs }, timeoutMs)}, after ${elapsedMs} ms; stderr tail without D-Bus noise: ${stderrTail(exit.stderr)}`,
+    );
+  return elapsedMs;
+}
+
+/**
+ * How long the warm-up launch may take. The first Chromium launch in a CI
+ * job took 7.3-46.2 s in the 22 passing runs of 11-18..11-21 (max 46,233 ms,
+ * run 44910288854) and more than 65,096 ms in the failure (44924793701
+ * attempt 1, killed at 60 s; the machine was fast again about 80 s after
+ * the file started). 150 s is 3.2x the passing max and 2.3x the failure's
+ * lower bound, and stays under the hook's own timeout so this message wins.
+ */
+const WARM_UP_TIMEOUT_MS = 150_000;
+
+/**
+ * One throwaway print of an empty page, before any control: the machine's
+ * first Chromium launch (binary, font and GPU caches read cold) is paid
+ * here, under its own timeout, instead of inside the first control's 60 s
+ * kill. It prints how long it took, so the cost stays visible in every CI
+ * log. If even this writes no PDF, the hook fails and says why.
+ */
+async function warmUp(): Promise<void> {
+  const dir = mkdtempSync(path.join(work, "pdfxyz-warm-"));
+  const output = path.join(dir, "warm.pdf");
+  const ms = await printOrExplain(
+    dir,
+    [
+      "--headless=new",
+      "--disable-gpu",
+      "--no-sandbox",
+      "--disable-dev-shm-usage",
+      `--print-to-pdf=${output}`,
+      "about:blank",
+    ],
+    output,
+    WARM_UP_TIMEOUT_MS,
+  );
+  console.log(`[native.chromium] warm-up launch: ${ms} ms`);
+}
 
 /**
  * The pre-fix argv on a page: the upload written to a `pdfxyz-html-` temp
@@ -185,36 +276,12 @@ async function renderWithPreFixArgv(html: string, name: string) {
   const input = path.join(dir, `${name}.html`);
   const output = path.join(dir, `${name}.pdf`);
   writeFileSync(input, html);
-  const startedAt = Date.now();
-  // Chromium's exit is kept, not swallowed: on a slow CI runner it has hung
-  // until the 60 s kill (run 41104611412), and the control then failed as a
-  // bare ENOENT on the missing PDF — red for a reason nobody could read.
-  const exit = await new Promise<{
-    error: (Error & { killed?: boolean; signal?: string }) | null;
-    stderr: string;
-  }>((done) =>
-    execFile(
-      BIN!,
-      [
-        ...harnessFlags(path.join(dir, "profile")),
-        ...preFixArgv(output, pathToFileURL(input).toString()),
-      ],
-      { timeout: PRE_FIX_TIMEOUT_MS },
-      (error, _stdout, stderr) => done({ error, stderr: String(stderr) }),
-    ),
+  await printOrExplain(
+    dir,
+    preFixArgv(output, pathToFileURL(input).toString()),
+    output,
+    PRE_FIX_TIMEOUT_MS,
   );
-  // A non-zero exit with a PDF written is normal for headless Chromium, so
-  // only a MISSING PDF is an error, and it says why.
-  if (!existsSync(output)) {
-    const cause = exit.error?.killed
-      ? `killed by the ${PRE_FIX_TIMEOUT_MS / 1000} s timeout (${exit.error.signal ?? "no signal"})`
-      : exit.error
-        ? `exited: ${exit.error.message}`
-        : "exited 0";
-    throw new Error(
-      `Chromium wrote no PDF, ${cause}, after ${Date.now() - startedAt} ms; stderr tail without D-Bus noise: ${stderrTail(exit.stderr)}`,
-    );
-  }
   return {
     text: await pdfText(readFileSync(output)),
     url: pathToFileURL(input).toString(),
@@ -276,9 +343,53 @@ const fetch: PinnedFetch = async (url) => {
   };
 };
 
+describe("how a Chromium run that wrote no PDF is reported", () => {
+  /*
+   * Run 44924793701 attempt 1 (2026-11-21): "Chromium wrote no PDF, exited
+   * 0" after 65,096 ms of a 60 s kill. On Linux Chromium handles the
+   * timeout's SIGTERM and exits 0, so execFile hands back error === null and
+   * error.killed was never set; only the ChildProcess knew it had been
+   * killed. A Windows kill sets error.killed, so no local run could see this.
+   */
+  it("a child the timeout killed is reported as killed, even when it then exits 0", () => {
+    expect(
+      exitCause({ error: null, childKilled: true, elapsedMs: 60_004 }, 60_000),
+    ).toMatch(/^killed by the 60 s timeout/);
+  });
+
+  it("a child that exited 0 on its own, before the timeout, says so", () => {
+    expect(
+      exitCause({ error: null, childKilled: false, elapsedMs: 900 }, 60_000),
+    ).toBe("exited 0");
+  });
+
+  it("a Windows kill (error.killed) and a crash keep their own words", () => {
+    const killed = Object.assign(new Error("Command failed"), {
+      killed: true,
+      signal: "SIGTERM",
+    });
+    expect(
+      exitCause(
+        { error: killed, childKilled: true, elapsedMs: 60_001 },
+        60_000,
+      ),
+    ).toBe("killed by the 60 s timeout (SIGTERM)");
+    expect(
+      exitCause(
+        { error: new Error("boom"), childKilled: false, elapsedMs: 50 },
+        60_000,
+      ),
+    ).toBe("exited: boom");
+  });
+});
+
 describe.skipIf(!BIN)(
   `real Chromium isolation (${BIN ?? "no Chromium found"})`,
   () => {
+    // The hook's timeout is above WARM_UP_TIMEOUT_MS, so the kill's message,
+    // which names the cause, is the one that fires.
+    beforeAll(warmUp, WARM_UP_TIMEOUT_MS + 30_000);
+
     /*
      * POSITIVE CONTROL. The argv this module used until 2026-09, run on the
      * same page. It must LEAK the secret — otherwise the assertions below could
