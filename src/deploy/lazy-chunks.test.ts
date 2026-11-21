@@ -1464,6 +1464,10 @@ describe("Compare PDF's redline is a chunk of its own", () => {
  * from +451 B. That is over 23.1, S3's first measurement plus 5%, so the
  * bound is this measurement plus 5%: 24.3. Both raises (20.6 to 23.1 and
  * 23.1 to 24.3) are the owner's to approve, in the PR.
+ *
+ * Slice S4 (2026-11-21, same method, Windows, empty .next): 24,498 B gz
+ * (23.92 KB), +822 B for entry boxes, stacked lines and the filled-box
+ * question; inside the bound, which is unchanged.
  */
 const FIND_FIELDS_FETCH_GZ_KB = 24.3;
 /*
