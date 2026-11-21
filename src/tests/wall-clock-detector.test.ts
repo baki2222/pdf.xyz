@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import { ratchet } from "./wall-clock-audit";
 import { keyText, scanSource } from "./wall-clock-detector";
 
-const scan = (s: string, file = "control.test.ts") => scanSource(s, file);
+const scan = (s: string, file = "control.ts") => scanSource(s, file);
 const rules = (s: string) =>
   scan(s).comparisons.map((m) => [m.rule, m.direction]);
 
@@ -398,31 +398,31 @@ describe("the ratchet compares against an independent copy of the list (finding:
   });
 
   it("an entry the base does not have is growth; a routed entry replacing a raw one in its file is not", () => {
-    const base = [e("a.test.ts", "expect(ms).toBeLessThan(5)")];
+    const base = [e("a-spec.ts", "expect(ms).toBeLessThan(5)")];
     const r = ratchet(
       base,
       [
-        e("a.test.ts", 'expectFasterThan("x", ms, 5)', "routed"),
-        e("b.test.ts", "expect(took).toBeLessThan(9)"),
+        e("a-spec.ts", 'expectFasterThan("x", ms, 5)', "routed"),
+        e("b-spec.ts", "expect(took).toBeLessThan(9)"),
       ],
-      new Map([["a.test.ts", 'expectFasterThan("x", ms, 5)']]),
+      new Map([["a-spec.ts", 'expectFasterThan("x", ms, 5)']]),
     );
-    expect(r.grown.map((x) => x.file)).toEqual(["b.test.ts"]);
+    expect(r.grown.map((x) => x.file)).toEqual(["b-spec.ts"]);
     expect(r.lostButPresent).toEqual([]);
   });
 
   it("an entry that left while its code is still in the file is the detector going blind", () => {
-    const base = [e("a.test.ts", "expect(ms).toBeLessThan(5)")];
+    const base = [e("a-spec.ts", "expect(ms).toBeLessThan(5)")];
     const r = ratchet(
       base,
       [],
-      new Map([["a.test.ts", "it(x, () => { expect(ms).toBeLessThan(5); });"]]),
+      new Map([["a-spec.ts", "it(x, () => { expect(ms).toBeLessThan(5); });"]]),
     );
     expect(r.lostButPresent.map((x) => x.snippet)).toEqual([
       "expect(ms).toBeLessThan(5)",
     ]);
     expect(
-      ratchet(base, [], new Map([["a.test.ts", "it(x, () => {});"]]))
+      ratchet(base, [], new Map([["a-spec.ts", "it(x, () => {});"]]))
         .lostButPresent,
     ).toEqual([]);
   });

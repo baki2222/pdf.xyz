@@ -181,21 +181,21 @@ describe("the core", () => {
         // wall-clock-bounds.test.ts on f8d48720: 318% of the GLOBAL 10 s,
         // with its own beforeAll at 300 s.
         {
-          file: "/r/a.test.ts",
+          file: "/r/a-hooks.ts",
           moduleMs: 31_817,
           testsMs: 0,
           budgets: [300_000],
         },
-        { file: "/r/b.test.ts", moduleMs: 8_000, testsMs: 0, budgets: [] },
+        { file: "/r/b-hooks.ts", moduleMs: 8_000, testsMs: 0, budgets: [] },
       ],
       10_000,
       { github: true, root: "/r" },
     );
     expect(lines[0]).toMatch(/^hook headroom: 1 of 2 files/);
     expect(lines.join("\n")).not.toContain("::warning");
-    expect(lines.join("\n")).not.toContain("a.test.ts:");
+    expect(lines.join("\n")).not.toContain("a-hooks.ts:");
     expect(lines.join("\n")).toContain(
-      "b.test.ts: 8000 ms in beforeAll/afterAll (module total less its tests; an upper bound on any one hook) against 10000 ms, the smallest timeout of its hooks (none of its own; hookTimeout)",
+      "b-hooks.ts: 8000 ms in beforeAll/afterAll (module total less its tests; an upper bound on any one hook) against 10000 ms, the smallest timeout of its hooks (none of its own; hookTimeout)",
     );
   });
 
