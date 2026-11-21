@@ -182,9 +182,10 @@ describe("sign-pdf: a PDF both restricted and certificate-signed", () => {
       screen.getByRole("button", { name: /Apply & download/ });
     // The placement, retried until the page takes the pointer. CI: this wait
     // took 795 ms of the 1 s default it ran under (run 44931945692, main at
-    // eea2c3ca; 529 ms in run 44924793701), the whole test 2005 ms at most
-    // (run 44910288854, 19 passing runs). 3 s is 3.8x the wait and below the
-    // test's 60 s, so its own message wins.
+    // eea2c3ca; 529, 545 and 567 ms in runs 44924793701, 44938151052 and
+    // 44941026100), the whole test 2017 ms at most (run 44346859633, a
+    // failing run; 108 CI runs, passing and failing, to 11-21). 3 s is 3.8x
+    // the wait and below the test's 60 s, so its own message wins.
     await vi.waitFor(
       () => {
         if (

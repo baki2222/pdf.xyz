@@ -134,11 +134,11 @@ async function panelFor(slug: string): Promise<ComponentType<{ tool: Tool }>> {
  * (cold per file in the native-canvas project), Run's readiness, and the
  * effects that move focus or release the page's hold after a render.
  *
- * CI: the slowest test in this file took 1093 ms (the rate-limit test, run
- * 44299285879; 19 passing runs, 11-18 to 11-21); the slowest wait the
- * wait-headroom block saw, 1004 ms, is that test's end message, which waits
- * out the stub's 1 s Retry-After (run 44917160721; `RESUMED_END_MS`). 3 s
- * is 2.7x the slowest test.
+ * CI: the slowest test in this file took 1100 ms (the rate-limit test, run
+ * 43629904891, a failing run; 108 CI runs, passing and failing, to 11-21);
+ * the slowest wait the wait-headroom block saw, 1004 ms, is that test's end
+ * message, which waits out the stub's 1 s Retry-After (run 44917160721;
+ * `RESUMED_END_MS`). 3 s is 2.7x the slowest test.
  */
 const WAIT_MS = 3_000;
 /**

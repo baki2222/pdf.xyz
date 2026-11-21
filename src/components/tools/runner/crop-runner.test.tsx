@@ -39,11 +39,10 @@ import { CropRunner } from "./crop-runner";
  * lazy chunks load cold per file in the native-canvas project, where waits have
  * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
  *
- * CI: the slowest test here took 729 ms (run 44299285879, "positive control:
- * Per side values reach the download unequal"; 19 passing runs, 11-18 to
- * 11-21). A wait cannot outlast its test, so 3 s is at least 4.1x any wait in
- * it, and it stays below the test's own timeout, so a wait that times out fails
- * with its DOM dump.
+ * CI: the slowest test here took 754 ms (run 44057329440, a passing run; 108 CI
+ * runs, passing and failing, to 11-21). A wait cannot outlast its test, so 3 s
+ * is at least 3.9x any wait in it, and it stays below the test's own timeout,
+ * so a wait that times out fails with its DOM dump.
  */
 const WAIT_MS = 3_000;
 

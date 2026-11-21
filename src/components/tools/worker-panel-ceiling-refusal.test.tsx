@@ -88,11 +88,12 @@ import { ToolRunProvider } from "./runner/tool-context";
  * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
  *
  * CI: none of this file's 84 tests reached the 300 ms the log lists a test
- * from, in any of 19 passing runs (11-18 to 11-21; the whole file took 2935 ms
- * in run 44910288854), and the wait-headroom blocks of runs 44917160721 and
- * 44924793701 list none of its waits. A wait cannot outlast its test, so 3 s is
- * 10x any wait in it, and stays below every test's own timeout, so a wait that
- * times out fails with its DOM dump.
+ * from, in any of 108 CI runs, passing and failing, to 11-21 (the whole file
+ * took 2935 ms in run 44910288854), and the wait-headroom blocks of the 5
+ * instrumented runs (44917160721, 44924793701, 44931945692, 44938151052,
+ * 44941026100) list none of its waits. A wait cannot outlast its test, so 3 s
+ * is 10x any wait in it, and stays below every test's own timeout, so a wait
+ * that times out fails with its DOM dump.
  */
 const WAIT_MS = 3_000;
 

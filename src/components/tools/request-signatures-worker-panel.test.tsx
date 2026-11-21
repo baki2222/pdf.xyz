@@ -61,13 +61,15 @@ import {
  * lazy chunks load cold per file in the native-canvas project, where waits have
  * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
  *
- * CI (19 passing runs, 11-18 to 11-21): the two 50-box tests take up to 8847 ms
- * (run 44331878323), in their box loops, not in a wait — the wait-headroom
- * blocks of runs 44917160721 and 44924793701 list no wait in this file above
- * 500 ms, half the 1 s default. The slowest of the other tests took 1436 ms
- * (run 44299285879, the 8 KB options ceiling). 3 s is 6x the waits seen and
- * 2.1x that test, and stays below every test's own timeout (5 s, 30 s in the
- * placement block), so a wait that times out fails with its DOM dump.
+ * CI (108 CI runs, passing and failing, to 11-21): the two 50-box tests take up
+ * to 9443 ms (run 44428026069, a failing run; 9239 ms in passing run
+ * 44171428723), in their box loops, not in a wait — the wait-headroom blocks of
+ * the 5 instrumented runs (44917160721, 44924793701, 44931945692, 44938151052,
+ * 44941026100) list no wait in this file above 500 ms, half the 1 s default.
+ * The slowest of the other tests took 1444 ms (run 44410172908, the 8 KB
+ * options ceiling). 3 s is 6x the waits seen and 2.0x that test, and stays
+ * below every test's own timeout (5 s, 30 s in the placement block), so a wait
+ * that times out fails with its DOM dump.
  */
 const WAIT_MS = 3_000;
 

@@ -29,11 +29,13 @@ import { runnerMounted } from "@/tests/runner-mounted";
  * lazy chunks load cold per file in the native-canvas project, where waits have
  * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
  *
- * CI: the slowest test here took 784 ms (run 44931945692, "'Behind content'
- * keeps the letter readable under an opaqu…"; 20 passing runs, 11-18 to 11-21).
- * A wait cannot outlast its test, so 3 s is at least 3.8x any wait in it, and
- * it stays below the test's own timeout, so a wait that times out fails with
- * its DOM dump.
+ * CI: the slowest test here took 3377 ms (run 43687726834, a failing run; 108
+ * CI runs, passing and failing, to 11-21), so the test alone does not hold its
+ * waits to 2x. The wait-headroom blocks of the 5 instrumented runs
+ * (44917160721, 44924793701, 44931945692, 44938151052, 44941026100) list no
+ * wait in this file above 500 ms, half the 1 s default they ran under: 3 s is
+ * 6x that. Five samples; re-harvest before tightening. It stays below every
+ * test's own timeout, so a wait that times out fails with its DOM dump.
  */
 const WAIT_MS = 3_000;
 

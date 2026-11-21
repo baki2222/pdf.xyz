@@ -71,13 +71,15 @@ const OWNER = "Fz-owner-9T4r";
 
 /**
  * Every wait here that passed none of its own — the panel's lazy chunks
- * (cold per file in the native-canvas project), Run's readiness, and the
- * end-of-batch effect that empties the frozen password.
+ * (cold per file in the native-canvas project) and Run's readiness. The
+ * end-of-batch effect that empties the frozen password is not waited for:
+ * `heldOnceEffectsRan` flushes it and reads at once.
  *
- * CI: the slowest test in this file took 1183 ms (run 44910288854, "a
- * rate-limit pause keeps the frozen password…"; 19 passing runs, 11-18 to
- * 11-21), and the slowest wait the wait-headroom block saw took 1018 ms
- * (:544, run 44917160721). 3 s is 2.5x the slowest TEST, so it holds the
+ * CI: the slowest test in this file took 1203 ms (run 44197730601, a passing
+ * run, "a rate-limit pause keeps the frozen password…"; 108 CI runs, passing
+ * and failing, to 11-21), and the slowest wait the wait-headroom block saw
+ * took 1018 ms (:544, run 44917160721; now `RESUMED_END_MS`, which follows
+ * the stub's Retry-After). 3 s is 2.4x the slowest TEST, so it holds the
  * slowest wait too, and stays below every test's own timeout (20 s), so a
  * wait that times out fails with its DOM dump, not "test timed out".
  */

@@ -44,12 +44,14 @@ import { observeFor } from "@/tests/time-bound";
  * lazy chunks load cold per file in the native-canvas project, where waits have
  * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
  *
- * CI: the wait-headroom blocks of runs 44917160721 and 44924793701 list no wait
- * in this file above 500 ms (half the 1 s default most of them ran under). Its
- * slowest test took 1829 ms (run 44331878323, "restricted file, worker proves
- * it"; 19 passing runs, 11-18 to 11-21), most of it outside any wait. 3 s is 6x
- * the waits seen, and stays below every test's own timeout, so a wait that
- * times out fails with its DOM dump.
+ * CI: the wait-headroom blocks of the 5 instrumented runs (44917160721,
+ * 44924793701, 44931945692, 44938151052, 44941026100) list no wait in this file
+ * above 500 ms, half the 1 s default most of them ran under. Its slowest test
+ * took 1829 ms (run 44331878323, a passing run, "restricted file, worker proves
+ * it"; 108 CI runs, passing and failing, to 11-21), most of it outside any
+ * wait, so the test alone does not hold its waits to 2x. 3 s is 6x the waits
+ * seen (five samples; re-harvest before tightening), and stays below every
+ * test's own timeout, so a wait that times out fails with its DOM dump.
  */
 const WAIT_MS = 3_000;
 

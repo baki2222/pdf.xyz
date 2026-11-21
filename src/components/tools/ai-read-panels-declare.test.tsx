@@ -47,11 +47,10 @@ import { SummarizeWorkerPanel } from "./summarize-worker-panel";
  * lazy chunks load cold per file in the native-canvas project, where waits have
  * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
  *
- * CI: the slowest test here took 568 ms (run 44321190257, "sends the extracted
- * character count with its job, not not…"; 19 passing runs, 11-18 to 11-21). A
- * wait cannot outlast its test, so 3 s is at least 5.3x any wait in it, and it
- * stays below the test's own timeout, so a wait that times out fails with its
- * DOM dump.
+ * CI: the slowest test here took 615 ms (run 44174247970, a passing run; 108 CI
+ * runs, passing and failing, to 11-21). A wait cannot outlast its test, so 3 s
+ * is at least 4.8x any wait in it, and it stays below the test's own timeout,
+ * so a wait that times out fails with its DOM dump.
  */
 const WAIT_MS = 3_000;
 
