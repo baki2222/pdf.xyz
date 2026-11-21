@@ -54,6 +54,7 @@ import { signedPdf } from "@/tests/signed-pdf";
 import { USER_PASSWORD_PDF_BASE64 } from "@/tests/fixtures-encrypted";
 import { PDFDocument } from "pdf-lib";
 import { ownPanelModules } from "@/tests/tool-panel-modules";
+import { observeFor } from "@/tests/time-bound";
 import { BATCH_VIEW_LOADED } from "./batch-view";
 import { signedSkipReason } from "./worker-batch-runner";
 
@@ -127,6 +128,26 @@ async function panelFor(slug: string): Promise<ComponentType<{ tool: Tool }>> {
   if (!Panel) throw new Error(`${panel.file} exports no ${panel.name}`);
   return Panel;
 }
+
+/**
+ * Every wait here that passed none of its own: each panel's lazy chunks
+ * (cold per file in the native-canvas project), Run's readiness, and the
+ * effects that move focus or release the page's hold after a render.
+ *
+ * CI: the slowest test in this file took 1093 ms (the rate-limit test, run
+ * 44299285879; 19 passing runs, 11-18 to 11-21); the slowest wait the
+ * wait-headroom block saw, 1004 ms, is that test's end message, which waits
+ * out the stub's 1 s Retry-After (run 44917160721). 3 s is 2.7x the slowest
+ * test.
+ */
+const WAIT_MS = 3_000;
+/**
+ * A batch's end message: 5 s on main, the same as vitest's 5 s default for
+ * the whole test — a tie the test's own timer could win, losing the wait's
+ * DOM dump. Kept; every test here now runs under 20 s, set on the describe
+ * at the foot of the file, above every wait it holds.
+ */
+const BATCH_END_MS = 5_000;
 
 let events: RedactedEvent[] = [];
 let leave: () => void = () => {};
@@ -265,11 +286,14 @@ async function dropTwo(slug: string, files?: File[]) {
       <Panel tool={tool} />
     </InToolPage>,
   );
-  const input = await waitFor(() => {
-    const el = document.querySelector<HTMLInputElement>('input[type="file"]');
-    expect(el).not.toBeNull();
-    return el!;
-  });
+  const input = await waitFor(
+    () => {
+      const el = document.querySelector<HTMLInputElement>('input[type="file"]');
+      expect(el).not.toBeNull();
+      return el!;
+    },
+    { timeout: WAIT_MS },
+  );
   fireEvent.change(input, {
     target: {
       files: files ?? [fileFor(tool, "first"), fileFor(tool, "second")],
@@ -327,10 +351,12 @@ describe("every registered worker batch, through its page's own panel", () => {
     it(`${slug}: two files open the batch, and Run sends two of today's single jobs`, async () => {
       const net = network();
       const { tool, view } = await dropTwo(slug, await twoFilesFor(slug));
-      await waitFor(() =>
-        expect(
-          view.container.querySelector(`[data-chunk="${BATCH_VIEW_LOADED}"]`),
-        ).not.toBeNull(),
+      await waitFor(
+        () =>
+          expect(
+            view.container.querySelector(`[data-chunk="${BATCH_VIEW_LOADED}"]`),
+          ).not.toBeNull(),
+        { timeout: WAIT_MS },
       );
       const { verb, noun } = WORKER_BATCH_TOOLS[slug];
       // The sentence before Run, from the constants.
@@ -338,16 +364,24 @@ describe("every registered worker batch, through its page's own panel", () => {
       expect(view.container.textContent).toContain(
         `${RATE_LIMITS.jobsPerHourPerClient} server jobs an hour`,
       );
-      const run = await screen.findByRole("button", {
-        name: `${verb} 2 ${noun[1]}`,
-      });
+      const run = await screen.findByRole(
+        "button",
+        {
+          name: `${verb} 2 ${noun[1]}`,
+        },
+        { timeout: WAIT_MS },
+      );
       typeTheSecrets(slug);
       // Run waits for the panel's own check.
-      await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
-      fireEvent.click(run);
-      await screen.findByText("Batch complete. 2 done, 0 failed.", undefined, {
-        timeout: 5000,
+      await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"), {
+        timeout: WAIT_MS,
       });
+      fireEvent.click(run);
+      await screen.findByText(
+        "Batch complete. 2 done, 0 failed.",
+        {},
+        { timeout: BATCH_END_MS, timeout: WAIT_MS },
+      );
       expect(net.jobBodies).toHaveLength(2);
       for (const body of net.jobBodies) {
         expect(body.tool).toBe(tool.slug);
@@ -398,10 +432,20 @@ describe("every registered worker batch, through its page's own panel", () => {
       fileFor(tool, "signed", signed),
       fileFor(tool, "plain"),
     ]);
-    const run = await screen.findByRole("button", { name: "Optimize 2 PDFs" });
-    await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
+    const run = await screen.findByRole(
+      "button",
+      { name: "Optimize 2 PDFs" },
+      { timeout: WAIT_MS },
+    );
+    await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"), {
+      timeout: WAIT_MS,
+    });
     fireEvent.click(run);
-    await screen.findByText("Batch complete. 1 done, 0 failed, 1 skipped.");
+    await screen.findByText(
+      "Batch complete. 1 done, 0 failed, 1 skipped.",
+      {},
+      { timeout: WAIT_MS },
+    );
     expect(view.container.textContent).toContain(
       signedSkipReason(2, "Optimizing"),
     );
@@ -412,10 +456,16 @@ describe("every registered worker batch, through its page's own panel", () => {
   it("a rate limit pauses: the banner says so, Continue now waits for the limit, the file is never failed, and the batch carries on by itself", async () => {
     const net = limitedNetwork({ refuseReservation: 2 });
     const { view } = await dropTwo("repair-pdf");
-    const run = await screen.findByRole("button", { name: "Repair 2 PDFs" });
-    await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
+    const run = await screen.findByRole(
+      "button",
+      { name: "Repair 2 PDFs" },
+      { timeout: WAIT_MS },
+    );
+    await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"), {
+      timeout: WAIT_MS,
+    });
     fireEvent.click(run);
-    await screen.findByText(WORKER_BATCH_PAUSED);
+    await screen.findByText(WORKER_BATCH_PAUSED, {}, { timeout: WAIT_MS });
     const banner = view.container.querySelector("[data-batch-paused]")!;
     expect(banner.textContent).toMatch(/Continuing in about 1 second/);
     // One file is done, so the banner says it can be downloaded.
@@ -428,7 +478,9 @@ describe("every registered worker batch, through its page's own panel", () => {
     // focus is on Continue now, which the pause sentences describe. Awaited:
     // the focus moves in an effect after the pause renders, and CI under load
     // read activeElement before it ran (PR #304, 2026-11-09; 3/3 green here).
-    await waitFor(() => expect(document.activeElement).toBe(now));
+    await waitFor(() => expect(document.activeElement).toBe(now), {
+      timeout: WAIT_MS,
+    });
     const described = (now.getAttribute("aria-describedby") ?? "")
       .split(" ")
       .map((id) => document.getElementById(id)?.textContent ?? "")
@@ -442,9 +494,11 @@ describe("every registered worker batch, through its page's own panel", () => {
     const unload = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(unload);
     expect(unload.defaultPrevented).toBe(true);
-    await screen.findByText("Batch complete. 2 done, 0 failed.", undefined, {
-      timeout: 5000,
-    });
+    await screen.findByText(
+      "Batch complete. 2 done, 0 failed.",
+      {},
+      { timeout: BATCH_END_MS, timeout: WAIT_MS },
+    );
     // The paused file was asked for again: three reservations, two jobs.
     expect(net.reservations()).toBe(3);
     expect(net.jobs()).toBe(2);
@@ -453,7 +507,9 @@ describe("every registered worker batch, through its page's own panel", () => {
     // Control: once the batch has ended, nothing holds the page. Awaited:
     // the hold is released by an effect after "Batch complete" renders, and
     // CI under load read the label before it ran (PR #304, 2026-11-09).
-    await waitFor(() => expect(unsavedLabels()).toEqual([]));
+    await waitFor(() => expect(unsavedLabels()).toEqual([]), {
+      timeout: WAIT_MS,
+    });
     const after = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(after);
     expect(after.defaultPrevented).toBe(false);
@@ -468,27 +524,40 @@ describe("every registered worker batch, through its page's own panel", () => {
       </>,
     );
     const { view } = await dropTwo("repair-pdf");
-    const run = await screen.findByRole("button", { name: "Repair 2 PDFs" });
-    await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
+    const run = await screen.findByRole(
+      "button",
+      { name: "Repair 2 PDFs" },
+      { timeout: WAIT_MS },
+    );
+    await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"), {
+      timeout: WAIT_MS,
+    });
     // Focus is somewhere real, outside the batch, when the pause begins.
     const elsewhere = screen.getByRole("textbox", {
       name: "Elsewhere on the page",
     });
     elsewhere.focus();
     fireEvent.click(run);
-    const banner = await waitFor(() => {
-      const el = view.container.querySelector("[data-batch-paused]");
-      expect(el).not.toBeNull();
-      return el!;
-    });
+    const banner = await waitFor(
+      () => {
+        const el = view.container.querySelector("[data-batch-paused]");
+        expect(el).not.toBeNull();
+        return el!;
+      },
+      { timeout: WAIT_MS },
+    );
     expect(banner.textContent).not.toMatch(/finished files/);
     const region = document.querySelector('p[aria-live="polite"]')!;
-    await waitFor(() => expect(region.textContent).toBe(WORKER_BATCH_PAUSED));
+    await waitFor(() => expect(region.textContent).toBe(WORKER_BATCH_PAUSED), {
+      timeout: WAIT_MS,
+    });
     // ...and left there.
     expect(document.activeElement).toBe(elsewhere);
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    await waitFor(() =>
-      expect(view.container.querySelector("[data-batch-paused]")).toBeNull(),
+    await waitFor(
+      () =>
+        expect(view.container.querySelector("[data-batch-paused]")).toBeNull(),
+      { timeout: WAIT_MS },
     );
   });
 
@@ -500,20 +569,30 @@ describe("every registered worker batch, through its page's own panel", () => {
     await dropTwo("repair-pdf");
     // Control: before Run, nothing holds the page.
     expect(unsavedLabels()).toEqual([]);
-    const run = await screen.findByRole("button", { name: "Repair 2 PDFs" });
-    await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
+    const run = await screen.findByRole(
+      "button",
+      { name: "Repair 2 PDFs" },
+      { timeout: WAIT_MS },
+    );
+    await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"), {
+      timeout: WAIT_MS,
+    });
     fireEvent.click(run);
-    await waitFor(() => expect(net.puts()).toBe(1));
+    await waitFor(() => expect(net.puts()).toBe(1), { timeout: WAIT_MS });
     expect(unsavedLabels().some((l) => l.startsWith("your batch"))).toBe(true);
     const unload = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(unload);
     expect(unload.defaultPrevented).toBe(true);
     release();
-    await screen.findByText("Batch complete. 2 done, 0 failed.", undefined, {
-      timeout: 5000,
-    });
+    await screen.findByText(
+      "Batch complete. 2 done, 0 failed.",
+      {},
+      { timeout: BATCH_END_MS, timeout: WAIT_MS },
+    );
     // Awaited, as above: the hold is released by an effect after the end.
-    await waitFor(() => expect(unsavedLabels()).toEqual([]));
+    await waitFor(() => expect(unsavedLabels()).toEqual([]), {
+      timeout: WAIT_MS,
+    });
   });
 
   // One tool per panel module: the set is the registration, grouped by the
@@ -569,17 +648,37 @@ describe("every registered worker batch, through its page's own panel", () => {
         </InToolPage>,
       );
       fireEvent.click(
-        await screen.findByRole("button", { name: "Keep waiting" }),
+        await screen.findByRole(
+          "button",
+          { name: "Keep waiting" },
+          { timeout: WAIT_MS },
+        ),
       );
       // The resumed job runs: its Cancel is the panel's busy status.
-      await screen.findByRole("button", { name: "Cancel" });
+      await screen.findByRole(
+        "button",
+        { name: "Cancel" },
+        { timeout: WAIT_MS },
+      );
       const input =
         document.querySelector<HTMLInputElement>('input[type="file"]')!;
       expect(input).not.toBeNull();
       fireEvent.change(input, {
         target: { files: [fileFor(tool, "first"), fileFor(tool, "second")] },
       });
-      await act(() => new Promise((r) => setTimeout(r, 300)));
+      // A declared absence window: two files dropped beside a running job
+      // must not open the batch. By now this file has loaded the batch view
+      // in the tests above (its chunk is cached per file), so on the defect
+      // it would mount within a render or two; 300 ms is the window main
+      // had, and the whole test took 510 ms at most on CI (run 44299285879,
+      // 19 passing runs).
+      await act(() =>
+        observeFor(
+          "worker-batches-resumed-job-no-batch",
+          300,
+          "two files dropped beside a resumed job open no batch",
+        ),
+      );
       expect(
         view.container.querySelector(`[data-chunk="${BATCH_VIEW_LOADED}"]`),
       ).toBeNull();
@@ -596,9 +695,9 @@ describe("every registered worker batch, through its page's own panel", () => {
       fileFor(tool, "a"),
       fileFor(tool, "b"),
     ]);
-    await screen.findByText("a.html");
+    await screen.findByText("a.html", {}, { timeout: WAIT_MS });
     expect(
       view.container.querySelector(`[data-chunk="${BATCH_VIEW_LOADED}"]`),
     ).toBeNull();
   });
-});
+}, 20_000);

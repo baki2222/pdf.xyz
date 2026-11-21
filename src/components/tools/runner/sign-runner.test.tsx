@@ -35,6 +35,20 @@ afterEach(() => {
   cleanup();
 });
 
+/**
+ * Every wait here that passed none of its own: a decode across the image
+ * pipeline's lazy chunks (cold per file in the native-canvas project), the
+ * editor's status line, a page's pointer handling.
+ *
+ * CI: the wait-headroom block saw these waits take 1373 ms (:260 then,
+ * "a second upload replaces the first…", run 44917160721), 1212 ms (:293,
+ * same run) and 1101 ms (:225, run 44924793701) — all three past the 1 s
+ * default they ran under. 3 s is 2.2x the slowest, and below every test's
+ * own timeout (20 s or more), so a wait that times out fails with its DOM
+ * dump, not "test timed out".
+ */
+const WAIT_MS = 3_000;
+
 async function openSignRunner() {
   const doc = await PDFDocument.create();
   doc.addPage([612, 792]);
@@ -82,7 +96,8 @@ describe("Sign PDF signature panel", () => {
     source("Draw");
     expect(screen.getByLabelText("Signature drawing area")).toBe(pad);
     expect(pad).toBeVisible();
-  });
+    // openSignRunner's own wait is 8 s, past vitest's 5 s default.
+  }, 20_000);
 });
 
 /* ------------------------------------------------------------------ *
@@ -222,9 +237,13 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     const { encoded } = stubBrowserImaging();
     source("Upload");
     uploadSignature("first.jpg");
-    const keep = await screen.findByRole("checkbox", {
-      name: "Remove paper background",
-    });
+    const keep = await screen.findByRole(
+      "checkbox",
+      {
+        name: "Remove paper background",
+      },
+      { timeout: WAIT_MS },
+    );
     await vi.waitFor(() => expect(encoded.length).toBe(1), { timeout: 5000 });
     expect(encoded[0]!.width / encoded[0]!.height).toBeCloseTo(
       encodedAspect(PHOTO),
@@ -245,7 +264,11 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     await vi.waitFor(() => expect(held!.length).toBe(1), { timeout: 5000 });
     useSignature();
     expect(
-      await screen.findByText("Choose a picture of your signature first."),
+      await screen.findByText(
+        "Choose a picture of your signature first.",
+        {},
+        { timeout: WAIT_MS },
+      ),
       "the previous file would have been used",
     ).toBeInTheDocument();
     expect(placing()).toBe(false);
@@ -267,7 +290,7 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
       { type: "image/jpeg", aspect: Number(encodedAspect(second).toFixed(1)) },
     ]);
     // Positive control: once its preview shows, it is the one used.
-    await screen.findByAltText("Signature preview");
+    await screen.findByAltText("Signature preview", {}, { timeout: WAIT_MS });
     useSignature();
     await vi.waitFor(() => expect(placing()).toBe(true), { timeout: 5000 });
   }, 30_000);
@@ -290,9 +313,13 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
       },
     });
 
-    const keep = await screen.findByRole("checkbox", {
-      name: "Remove paper background",
-    });
+    const keep = await screen.findByRole(
+      "checkbox",
+      {
+        name: "Remove paper background",
+      },
+      { timeout: WAIT_MS },
+    );
     expect(keep).toBeChecked();
 
     // Decoded at 3000 px on the long side, not the photo's 8000.
@@ -347,7 +374,9 @@ describe("Sign PDF says when 'Save for next time' could not save", () => {
     // "Use signature", pressed directly: the file's `useSignature` helper is
     // a hook by name to the linter when called from another helper.
     fireEvent.click(screen.getByRole("button", { name: "Use signature" }));
-    await vi.waitFor(() => expect(editorSaid()).toBeDefined());
+    await vi.waitFor(() => expect(editorSaid()).toBeDefined(), {
+      timeout: WAIT_MS,
+    });
     return editorSaid()!;
   }
 
@@ -368,14 +397,14 @@ describe("Sign PDF says when 'Save for next time' could not save", () => {
     expect(said).toMatch(/^Signature ready: tap or click a page to place it\./);
     expect(said).toMatch(/couldn.t be saved for next time/);
     expect(said).toMatch(/storage is full or blocked/);
-  });
+  }, 20_000);
 
   it("CONTROL: storage that keeps it — no notice", async () => {
     const said = await typeAndUse();
     expect(said).toBe("Signature ready: tap or click a page to place it");
     // Health check: the save really happened, so the control is not vacuous.
     expect(localStorage.length).toBeGreaterThan(0);
-  });
+  }, 20_000);
 });
 
 /*
@@ -415,10 +444,13 @@ describe("Sign PDF repeats a signature on every page", () => {
       { name: "Page 1 of 3" },
       { timeout: 8000 },
     );
-    await vi.waitFor(() => {
-      fireEvent.pointerDown(page1, { button: 0, clientX: 5, clientY: 5 });
-      expect(screen.getByLabelText("Repeat on")).toBeTruthy();
-    });
+    await vi.waitFor(
+      () => {
+        fireEvent.pointerDown(page1, { button: 0, clientX: 5, clientY: 5 });
+        expect(screen.getByLabelText("Repeat on")).toBeTruthy();
+      },
+      { timeout: WAIT_MS },
+    );
     fireEvent.click(screen.getByRole("button", { name: "Repeat" }));
     fireEvent.click(screen.getByRole("button", { name: /Apply & download/ }));
     await vi.waitFor(() => expect(blobs.length).toBeGreaterThan(0), {
@@ -490,15 +522,18 @@ describe("Sign PDF countersigns without breaking an earlier signature", () => {
     );
     const apply = () =>
       screen.getByRole("button", { name: /Apply & download/ });
-    await vi.waitFor(() => {
-      if (
-        apply().hasAttribute("disabled") ||
-        apply().getAttribute("aria-disabled") === "true"
-      )
-        fireEvent.pointerDown(page1, { button: 0, clientX: 5, clientY: 5 });
-      expect(apply().hasAttribute("disabled")).toBe(false);
-      expect(apply().getAttribute("aria-disabled")).not.toBe("true");
-    });
+    await vi.waitFor(
+      () => {
+        if (
+          apply().hasAttribute("disabled") ||
+          apply().getAttribute("aria-disabled") === "true"
+        )
+          fireEvent.pointerDown(page1, { button: 0, clientX: 5, clientY: 5 });
+        expect(apply().hasAttribute("disabled")).toBe(false);
+        expect(apply().getAttribute("aria-disabled")).not.toBe("true");
+      },
+      { timeout: WAIT_MS },
+    );
     fireEvent.click(apply());
     await vi.waitFor(() => expect(blobs.length).toBeGreaterThan(0), {
       timeout: 15000,
@@ -527,7 +562,11 @@ describe("Sign PDF countersigns without breaking an earlier signature", () => {
       .join("\n");
     expect(text).toMatch(/\bTj\b|\bTJ\b/);
     expect(
-      await screen.findByText(/1 existing signature left intact/),
+      await screen.findByText(
+        /1 existing signature left intact/,
+        {},
+        { timeout: WAIT_MS },
+      ),
     ).toBeTruthy();
   }, 60_000);
 });
@@ -580,13 +619,16 @@ describe("A redaction on a signed PDF rewrites it, and says so", () => {
       { timeout: 8000 },
     );
     expect(container.querySelector("[data-signed-rewrite]")).toBeNull();
-    await vi.waitFor(() => {
-      if (!container.querySelector("[data-signed-rewrite]")) {
-        fireEvent.pointerDown(page1, { button: 0, clientX: 40, clientY: 40 });
-        fireEvent.pointerUp(window, { button: 0, clientX: 40, clientY: 40 });
-      }
-      expect(container.querySelector("[data-signed-rewrite]")).not.toBeNull();
-    });
+    await vi.waitFor(
+      () => {
+        if (!container.querySelector("[data-signed-rewrite]")) {
+          fireEvent.pointerDown(page1, { button: 0, clientX: 40, clientY: 40 });
+          fireEvent.pointerUp(window, { button: 0, clientX: 40, clientY: 40 });
+        }
+        expect(container.querySelector("[data-signed-rewrite]")).not.toBeNull();
+      },
+      { timeout: WAIT_MS },
+    );
     expect(
       container.querySelector("[data-signed-rewrite]")!.textContent,
     ).toMatch(/a redaction.*will no longer verify/s);
@@ -603,7 +645,11 @@ describe("A redaction on a signed PDF rewrites it, and says so", () => {
         out.subarray(0, original.length).every((v, i) => v === original[i]),
     ).toBe(false);
     expect(
-      await screen.findByText(/1 existing signature no longer verifies/),
+      await screen.findByText(
+        /1 existing signature no longer verifies/,
+        {},
+        { timeout: WAIT_MS },
+      ),
     ).toBeTruthy();
     expect(screen.queryByText(/left intact/)).toBeNull();
   }, 60_000);
