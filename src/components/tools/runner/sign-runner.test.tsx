@@ -40,14 +40,20 @@ afterEach(() => {
  * pipeline's lazy chunks (cold per file in the native-canvas project), the
  * editor's status line, a page's pointer handling.
  *
- * CI: the wait-headroom block saw these waits take 1373 ms (:260 then,
- * "a second upload replaces the first…", run 44917160721), 1212 ms (:293,
- * same run) and 1101 ms (:225, run 44924793701) — all three past the 1 s
- * default they ran under. 3 s is 2.2x the slowest, and below every test's
+ * CI: the wait-headroom blocks saw the two checkbox waits (:225 and :293 on
+ * main) take 1855 and 1826 ms (run 44931945692, main at eea2c3ca), 1101 and
+ * 1212 ms in runs 44924793701 and 44917160721 — every time past the 1 s
+ * default they ran under. 4 s is 2.2x the slowest, and below every test's
  * own timeout (20 s or more), so a wait that times out fails with its DOM
  * dump, not "test timed out".
  */
-const WAIT_MS = 3_000;
+const WAIT_MS = 4_000;
+/**
+ * The decode-and-encode waits, 5 s on main: the second upload's (:260 on
+ * main) took 2815 ms in run 44931945692 — 56% of 5 s, under the 2x this
+ * programme holds a bound to. 6 s is 2.1x, below the tests' 30 s.
+ */
+const ENCODE_MS = 6_000;
 
 async function openSignRunner() {
   const doc = await PDFDocument.create();
@@ -244,7 +250,9 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
       },
       { timeout: WAIT_MS },
     );
-    await vi.waitFor(() => expect(encoded.length).toBe(1), { timeout: 5000 });
+    await vi.waitFor(() => expect(encoded.length).toBe(1), {
+      timeout: ENCODE_MS,
+    });
     expect(encoded[0]!.width / encoded[0]!.height).toBeCloseTo(
       encodedAspect(PHOTO),
       1,
@@ -261,7 +269,9 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     uploadSignature("second.jpg");
 
     // While it decodes, the FIRST signature must not be the one used.
-    await vi.waitFor(() => expect(held!.length).toBe(1), { timeout: 5000 });
+    await vi.waitFor(() => expect(held!.length).toBe(1), {
+      timeout: ENCODE_MS,
+    });
     useSignature();
     expect(
       await screen.findByText(
@@ -280,7 +290,9 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     release.forEach((load) => load());
 
     // The second file lands, honouring the toggle; the first is not re-encoded.
-    await vi.waitFor(() => expect(encoded.length).toBe(2), { timeout: 5000 });
+    await vi.waitFor(() => expect(encoded.length).toBe(2), {
+      timeout: ENCODE_MS,
+    });
     expect(
       encoded.slice(1).map((e) => ({
         type: e.type,
@@ -292,7 +304,9 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     // Positive control: once its preview shows, it is the one used.
     await screen.findByAltText("Signature preview", {}, { timeout: WAIT_MS });
     useSignature();
-    await vi.waitFor(() => expect(placing()).toBe(true), { timeout: 5000 });
+    await vi.waitFor(() => expect(placing()).toBe(true), {
+      timeout: ENCODE_MS,
+    });
   }, 30_000);
 
   it("decodes at a bounded size, crops to the ink, and keys out the paper — or keeps it as a JPEG", async () => {
@@ -328,7 +342,9 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     // Encoded: the ink (1500 × 225 at that size) plus 3 % of 1500 = 45 px on
     // each side, bounded to 1200 px — as a PNG, because the paper is now
     // transparent. The whole photo would have been 3000 × 2250.
-    await vi.waitFor(() => expect(encoded.length).toBe(1), { timeout: 5000 });
+    await vi.waitFor(() => expect(encoded.length).toBe(1), {
+      timeout: ENCODE_MS,
+    });
     const keyed = encoded[0]!;
     expect(keyed.type).toBe("image/png");
     expect(keyed.width).toBe(1200);
@@ -337,7 +353,9 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     // Paper kept: still cropped and bounded, but a JPEG — not a lossless PNG
     // of a photograph.
     fireEvent.click(keep);
-    await vi.waitFor(() => expect(encoded.length).toBe(2), { timeout: 5000 });
+    await vi.waitFor(() => expect(encoded.length).toBe(2), {
+      timeout: ENCODE_MS,
+    });
     expect(encoded[1]).toEqual({ ...keyed, type: "image/jpeg" });
     expect(screen.getByAltText("Signature preview")).toBeInTheDocument();
     // Budget, not assertion (2026-10-30): up to 3.4 s on CI's slower 4-vCPU

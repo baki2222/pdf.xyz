@@ -89,11 +89,11 @@ import { TranslateWorkerPanel } from "./translate-worker-panel";
 /**
  * The timeout every wait in this file passes (CI-flake lane 3): its panels'
  * lazy chunks load cold per file in the native-canvas project, where waits have
- * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
  *
- * CI: the slowest test here took 709 ms (run 44899669004, "health: the
- * fixture's text really comes back out as Bengali"; 19 passing runs, 11-18 to
- * 11-21). A wait cannot outlast its test, so 3 s is at least 4.2x any wait in
+ * CI: the slowest test here took 796 ms (run 44931945692, "health: the
+ * fixture's text really comes back out as Bengali"; 20 passing runs, 11-18 to
+ * 11-21). A wait cannot outlast its test, so 3 s is at least 3.8x any wait in
  * it, and it stays below the test's own timeout, so a wait that times out fails
  * with its DOM dump.
  */

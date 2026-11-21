@@ -42,7 +42,7 @@ import { observeFor } from "@/tests/time-bound";
 /**
  * The timeout every wait in this file passes (CI-flake lane 3): its panels'
  * lazy chunks load cold per file in the native-canvas project, where waits have
- * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
  *
  * CI: the wait-headroom blocks of runs 44917160721 and 44924793701 list no wait
  * in this file above 500 ms (half the 1 s default most of them ran under). Its

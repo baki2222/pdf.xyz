@@ -41,7 +41,7 @@ import { PdfToImageRunner } from "./pdf-to-image-runner";
 /**
  * The timeout every wait in this file passes (CI-flake lane 3): its panels'
  * lazy chunks load cold per file in the native-canvas project, where waits have
- * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
  *
  * CI: the slowest test here took 760 ms (run 44899669004, "an A2 sheet: the PNG
  * stops at 5,000 px, and the note says…"; 19 passing runs, 11-18 to 11-21). A
