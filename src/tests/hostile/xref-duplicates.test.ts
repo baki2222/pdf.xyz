@@ -46,6 +46,7 @@ import {
 import { MARKER, duplicateObjectPdf } from "./conversion-out.fixtures";
 import { editingFixtures, streamBody } from "./editing.fixtures";
 import { PAGE_STRUCTURE_FIXTURES } from "./page-structure.fixtures";
+import { expectRatioBelow } from "../time-bound";
 
 const latin1 = (s: string) => Uint8Array.from(s, (c) => c.charCodeAt(0) & 0xff);
 const text = (b: Uint8Array) => Buffer.from(b).toString("latin1");
@@ -585,37 +586,126 @@ describe("scanner", () => {
   }, 60_000);
 
   it("costs little on a large file, and on a hostile one", () => {
-    // 64 MB of pseudo-random bytes (as compressed streams are), a header every
-    // 4 KB. Measured 2026-11-08 on a dev machine: 110-140 ms. Bound 1 s: ~7x
-    // headroom for a loaded CI runner, and still far below what a scan that
-    // went quadratic, or built a string per hit, would take.
-    const big = new Uint8Array(64 * 1024 * 1024);
+    // History: absolute bounds, 1 s on 64 MB of sparse headers and 3 s on
+    // 64 MB of hostile ones, calibrated on a dev machine (110-140 ms and
+    // 380-440 ms, "~7x"). CI's whole test reached 2,322 ms (43696792243)
+    // and the split between phases was never printed, so neither margin
+    // was known; and the 1 s bound passed a 5.7x per-byte mutant on a fast
+    // box (the endsToken test moved above the J filter), catching it only
+    // on a slow runner. Now (CI-flake audit lane 2) each cost is read
+    // against the same machine at the same moment, best of 3, interleaved,
+    // in measure mode until CI harvests set the bounds:
+    //  - per byte: the sparse scan against a reference loop typed here over
+    //    the SAME buffer (dev ratio 2.75-3.94; the endsToken mutant 22.5);
+    //  - per hit: the hostile scan against the sparse one, same size (dev
+    //    about 2.4; a string built per hit about 17.4);
+    //  - shape: the hostile scan at 128 KiB against 32 KiB (linear about 4,
+    //    copy-on-push quadratic 16 or more).
+    // The header counts are the work-done witnesses, on any runner.
+    const MiB = 1024 * 1024;
+    const sparse = new Uint8Array(32 * MiB);
     let x = 0x9e3779b9;
-    for (let i = 0; i < big.length; i += 1) {
+    for (let i = 0; i < sparse.length; i += 1) {
       x ^= x << 13;
       x ^= x >>> 17;
       x ^= x << 5;
-      big[i] = x & 0xff;
+      sparse[i] = x & 0xff;
     }
     const header = latin1("\n7 0 obj\n");
-    for (let i = 0; i + header.length < big.length; i += 4096)
-      big.set(header, i);
-    let t0 = performance.now();
-    const scan = scanObjectHeaders(big);
-    let ms = performance.now() - t0;
-    expect(scan.headers.get(7 * 0x10000)!.length).toBe(big.length / 4096);
-    expect(ms).toBeLessThan(1000);
+    for (let i = 0; i + header.length < sparse.length; i += 4096)
+      sparse.set(header, i);
     // Hostile: "0 0 obj " eight bytes at a time, so every eighth byte is a
-    // header the loop must fully walk and record: 8.4 M headers. Measured
-    // 380-440 ms; bound 3 s (~7x).
+    // header the loop must fully walk and record.
     const run = latin1("0 0 obj ");
-    for (let i = 0; i + run.length <= big.length; i += run.length)
-      big.set(run, i);
-    t0 = performance.now();
-    expect(scanObjectHeaders(big).headers.get(0)!.length).toBe(
-      big.length / run.length,
+    const hostileOf = (bytes: number) => {
+      const b = new Uint8Array(bytes);
+      for (let i = 0; i + run.length <= b.length; i += run.length)
+        b.set(run, i);
+      return b;
+    };
+    const hostile = hostileOf(sparse.length);
+    // One sample: the function repeated until at least 100 ms have passed,
+    // read as time per call, so a timer tick or one stall is a small share.
+    const perCall = (f: () => void) => {
+      let calls = 0;
+      let ms = 0;
+      const t0 = performance.now();
+      do {
+        f();
+        calls += 1;
+        ms = performance.now() - t0;
+      } while (ms < 100);
+      return ms / calls;
+    };
+    // The reference loop: one pass, two byte compares, no records.
+    let refHits = 0;
+    const ref = () => {
+      let n = 0;
+      for (let i = 2; i < sparse.length; i += 1)
+        if (sparse[i] === 0x6a && sparse[i - 1] === 0x62) n += 1;
+      refHits = n;
+    };
+    let sparseHeaders = 0;
+    let hostileHeaders = 0;
+    const scanSparse = () => {
+      sparseHeaders = scanObjectHeaders(sparse).headers.get(
+        7 * 0x10000,
+      )!.length;
+    };
+    const scanHostile = () => {
+      hostileHeaders = scanObjectHeaders(hostile).headers.get(0)!.length;
+    };
+    ref();
+    scanSparse();
+    scanHostile();
+    const best = { ref: Infinity, sparse: Infinity, hostile: Infinity };
+    for (let k = 0; k < 3; k += 1) {
+      best.ref = Math.min(best.ref, perCall(ref));
+      best.sparse = Math.min(best.sparse, perCall(scanSparse));
+      best.hostile = Math.min(best.hostile, perCall(scanHostile));
+    }
+    // Work done, speed-independent. The filler holds chance "bj" pairs
+    // (about one per 64 KiB), so the reference count is a range, not exact.
+    const counts = [sparseHeaders, hostileHeaders];
+    expect(counts).toEqual([sparse.length / 4096, hostile.length / 8]);
+    expect(refHits).toBeGreaterThanOrEqual(sparse.length / 4096);
+    expect(refHits - sparse.length / 4096).toBeLessThan(
+      (2 * sparse.length) / 65536,
     );
-    ms = performance.now() - t0;
-    expect(ms).toBeLessThan(3000);
+    const said = `ref ${best.ref.toFixed(1)} ms, sparse ${best.sparse.toFixed(1)} ms, hostile ${best.hostile.toFixed(1)} ms over 32 MiB`;
+    expectRatioBelow("xref-scan-per-byte", best.sparse, best.ref, 10, {
+      detail: said,
+      mode: "measure",
+      witness: "counts",
+    });
+    expectRatioBelow("xref-scan-per-hit", best.hostile, best.sparse, 6, {
+      detail: said,
+      mode: "measure",
+      witness: "counts",
+    });
+    // Shape: per-iteration time of 128 KiB against 32 KiB of hostile
+    // headers (16,384 and 4,096 hits on one key), each sample at least
+    // 100 ms, best of 3, interleaved.
+    const small = hostileOf(32 * 1024);
+    const large = hostileOf(128 * 1024);
+    const perPass = (b: Uint8Array) => perCall(() => scanObjectHeaders(b));
+    perPass(small);
+    perPass(large);
+    let smallPass = Infinity;
+    let largePass = Infinity;
+    for (let k = 0; k < 3; k += 1) {
+      smallPass = Math.min(smallPass, perPass(small));
+      largePass = Math.min(largePass, perPass(large));
+    }
+    const shapeHits = [
+      scanObjectHeaders(small).headers.get(0)!.length,
+      scanObjectHeaders(large).headers.get(0)!.length,
+    ];
+    expect(shapeHits).toEqual([4096, 16384]);
+    expectRatioBelow("xref-scan-hits-linear", largePass, smallPass, 8, {
+      detail: `128 KiB ${largePass.toFixed(3)} ms, 32 KiB ${smallPass.toFixed(3)} ms a pass`,
+      mode: "measure",
+      witness: "shapeHits",
+    });
   }, 30_000);
 });

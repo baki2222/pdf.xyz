@@ -51,6 +51,7 @@ import { JPEG_30X20, spliceAfterSoi } from "@/tests/jpeg-fixtures";
 import { boxOf, drawnImages } from "@/tests/drawn-images";
 import { useNodeFontSource } from "@/tests/unicode-fonts";
 import { runBounded } from "./bounded";
+import { measureTime } from "../time-bound";
 import * as F from "./conversion-in.fixtures";
 import { FLAT_GREY_MOZJPEG, REAL_JPEGS } from "./real-jpegs.fixtures";
 
@@ -587,14 +588,20 @@ describe("CI-11: Text to PDF bounds its page count", () => {
     { timeout: 60_000 },
     async () => {
       const r = await runBounded(CHILD, ["form-feeds"], 30_000);
-      expect(r).toMatchObject({
+      const refusal = r;
+      expect(refusal).toMatchObject({
         kind: "settled",
         value: {
           refused:
             "This text would make more than 5,000 pages, the most one PDF can have here. Split it into smaller files first.",
         },
       });
-      expect(r.ms).toBeLessThan(30_000);
+      // Settled at all means inside the 30 s kill; the time is measured
+      // beside the typed refusal (CI-flake audit lane 2: the test took up to
+      // 1,528 ms on CI over 12 runs of 2026-11-18, 19.6x under 30 s).
+      measureTime("conversion-in-form-feed-refusal", r.ms, 30_000, {
+        witness: "refusal",
+      });
     },
   );
 });

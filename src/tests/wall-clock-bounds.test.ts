@@ -113,7 +113,12 @@ const BOUNDS = {
   testOnly: [10, 80],
   workflowScripts: [20, 60],
   sleeps: [100, 400],
-  comparisons: [100, 500],
+  // Raw comparisons shrink BY DESIGN as the fix lanes route them (104 on
+  // 2026-11-21; 79 once lane 2 routed 25 hostile ones), so the floor that
+  // says "the detector went blind" sits below the lanes' expected drain,
+  // and the routed + debt + exempt total below is the one that must not
+  // fall. Lower it again, with the new count, when a lane drains past it.
+  comparisons: [50, 500],
   routedDebtExempt: [100, 500],
 } as const;
 

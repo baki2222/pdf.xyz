@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import { UNREADABLE_PDF_MESSAGE } from "@/lib/pdf/engine-errors";
 import { MAX_FIELD_DEPTH } from "@/lib/pdf/form-tree";
 import { runBounded } from "./bounded";
+import { measureTime } from "../time-bound";
 
 // res2 (l04#53): EDIT-02's field-tree repair (src/lib/pdf/form-tree.ts) ran
 // in forms, flatten and create-forms only. Every other getForm() met the raw
@@ -17,13 +18,11 @@ import { runBounded } from "./bounded";
 const CHILD = "src/tests/hostile/res2-field-trees.child.ts";
 
 async function run(name: string, entry: string, boundMs = 30_000) {
-  const started = Date.now();
   const r = await runBounded(CHILD, [name, entry], boundMs);
   expect(r.kind, `${name} ${entry}: ${JSON.stringify(r)}`).toBe("settled");
-  return {
-    value: (r as { value: Record<string, unknown> }).value,
-    ms: Date.now() - started,
-  };
+  // The child's whole life, spawn to exit, on the runner's monotonic clock
+  // (./bounded.ts); it was the parent's Date.now() around the same span.
+  return { value: (r as { value: Record<string, unknown> }).value, ms: r.ms };
 }
 
 const DIAMOND_LEAF = `${"d.".repeat(30)}leaf`;
@@ -49,9 +48,16 @@ describe("res2: every getForm() path repairs the field tree first", () => {
 
     test(`res2: ${entry} on a 30-level diamond returns, with one field`, async () => {
       const { value, ms } = await run("diamond:30", entry);
-      expect(value).toEqual(WORKING[entry]!(DIAMOND_LEAF));
-      // 2^30 visits before; one pass now (the bound is the child's start-up).
-      expect(ms).toBeLessThan(20_000);
+      const fields = value;
+      expect(fields).toEqual(WORKING[entry]!(DIAMOND_LEAF));
+      // 2^30 visits before (killed at 30 s on any runner); one pass now, so
+      // the time is the child's start-up. Measure mode until harvested
+      // (CI-flake audit lane 2: the test took up to 1,179 ms on CI over 12
+      // runs of 2026-11-18, 17x under 20 s).
+      measureTime("res2-diamond-30", ms, 20_000, {
+        instance: entry,
+        witness: "fields",
+      });
     }, 40_000);
   }
 
