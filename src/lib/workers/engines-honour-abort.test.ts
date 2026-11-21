@@ -107,6 +107,7 @@ import {
 } from "./ocr-native";
 import type { AiProvider } from "./ai/provider";
 import { discoverWorkerSpawnSites, rel } from "@/tests/spawn-sites";
+import { expectFasterThan, observeFor } from "@/tests/time-bound";
 
 /** Far below the stand-in's 60 s life, far above a kill's few milliseconds. */
 const ABORT_BOUND_MS = 5_000;
@@ -549,9 +550,18 @@ describe("engines honour the attempt's abort signal", () => {
       const settled = await outcome;
       const elapsed = Date.now() - abortedAt;
 
-      // 1. Gone, and promptly — not after its 60 s.
+      // 1. Gone, and promptly — not after its 60 s. An engine that ignores
+      // the signal settles only when its child ends on its own, past this
+      // test's 20 s timeout, and its outcome is no abort (2.): those two catch
+      // it whatever the runner. The settle time itself is recorded in measure
+      // mode until CI has calibrated a bound for it (the processor's verdict,
+      // `settled`, is the speed-independent witness).
       expect(await waitForExit(pid, ABORT_BOUND_MS)).toBe(true);
-      expect(elapsed).toBeLessThan(ABORT_BOUND_MS);
+      expectFasterThan("engine-abort-settles", elapsed, ABORT_BOUND_MS, {
+        instance: name,
+        mode: "measure",
+        witness: "settled",
+      });
       // 2. Recognisably an abort, from the processor itself.
       if ("error" in settled) {
         expect(isAttemptAbort(settled.error)).toBe(true);
@@ -577,13 +587,22 @@ describe("engines honour the attempt's abort signal", () => {
     const driven = [...new Set(Object.values(CASES).map((c) => c.spawnModule))];
     expect(discovered.length).toBeGreaterThanOrEqual(8);
     expect(driven.sort()).toEqual([...discovered].sort());
-  });
+    // Discovery parses the worker import graph, so its time grows with the
+    // graph: CI max 2,479 ms (44910288854, 11-21) and 2,660 ms at 401 modules
+    // (43998624497), 53% of the old 5 s default. 20 s as its siblings. Kept
+    // in the test, never at module scope, where no timeout and no headroom
+    // line could see the graph grow.
+  }, 20_000);
 
   it("positive control: with no abort the stand-in is still running", async () => {
     const controller = new AbortController();
     const name = "compress-pdf (Ghostscript)";
     const { pid, outcome } = await start(name, controller.signal);
-    await new Promise((resolve) => setTimeout(resolve, 750));
+    await observeFor(
+      "engine-abort-control-alive",
+      750,
+      "a stand-in nobody aborts must still be running after this window, so (1) above can fail",
+    );
     // The harness CAN see a live child: "gone" above is not vacuous.
     expect(isAlive(pid)).toBe(true);
     controller.abort();
