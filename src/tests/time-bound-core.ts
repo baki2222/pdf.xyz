@@ -440,6 +440,12 @@ function optionsTimeout(
     }
     return { kind: "unresolved", text: `${label}: ${text(e)}` };
   };
+  // A matcher (`toBeCloseTo(100, 0)`, `toHaveCount(n)`) takes its timeout
+  // only in an options object: its positional numbers are expected values
+  // and precisions (CI run 44917160721 read toBeCloseTo's 0 as "0 ms").
+  const matcher =
+    ts.isPropertyAccessExpression(call.expression) &&
+    /^to[A-Z]/.test(call.expression.name.text);
   // The first argument is a callback, a matcher text or a locator — an
   // options object only when it is written as one (`toBeVisible({ timeout })`).
   for (const [i, raw] of call.arguments.entries()) {
@@ -447,12 +453,16 @@ function optionsTimeout(
     if (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)) continue;
     if (i === 0 && !ts.isObjectLiteralExpression(arg)) continue;
     // vi.waitFor(cb, 2000): a bare number is the timeout.
-    if (ts.isNumericLiteral(arg))
+    if (ts.isNumericLiteral(arg)) {
+      if (matcher) continue;
       return { kind: "explicit", ms: Number(arg.text.replace(/_/g, "")) };
+    }
     if (ts.isIdentifier(arg)) {
       const init = constInit(arg.text);
-      if (!init || !ts.isObjectLiteralExpression(init))
+      if (!init || !ts.isObjectLiteralExpression(init)) {
+        if (matcher) continue;
         return { kind: "unresolved", text: `options: ${arg.text}` };
+      }
       arg = init;
     }
     if (!ts.isObjectLiteralExpression(arg)) continue;

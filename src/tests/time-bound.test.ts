@@ -96,6 +96,33 @@ describe("the core", () => {
     expect(callTimeoutAt(src, 9).kind).toBe("unresolved");
   });
 
+  it("never reads a matcher's positional number as its timeout (CI e2e, run 44917160721)", () => {
+    // `toBeCloseTo(100, 0)`: the 0 is the precision. The e2e expect block
+    // printed "inf% … Expect "toBeCloseTo" took 1 ms of 0 ms (its own
+    // timeout)" for editor-wysiwyg.spec.ts:154. A matcher takes its
+    // timeout only in an options object.
+    const src = [
+      `const DIGITS = 2;`,
+      `expect(drawn.x).toBeCloseTo(100, 0);`,
+      `expect(drawn.y).toBeCloseTo(1, DIGITS);`,
+      `await expect(row).toHaveText("a", { timeout: 4_000 });`,
+      `await vi.waitFor(() => go(), 2_000);`,
+    ].join("\n");
+    expect(callTimeoutAt(src, 2, 1, { backToExpect: true })).toEqual({
+      kind: "default",
+    });
+    expect(callTimeoutAt(src, 3, 1, { backToExpect: true })).toEqual({
+      kind: "default",
+    });
+    // Positive controls: an options object on a matcher, and vi.waitFor's
+    // bare number, are still read.
+    expect(callTimeoutAt(src, 4, 7, { backToExpect: true })).toEqual({
+      kind: "explicit",
+      ms: 4000,
+    });
+    expect(callTimeoutAt(src, 5, 7)).toEqual({ kind: "explicit", ms: 2000 });
+  });
+
   it("takes the INNERMOST call at the position, never the test that encloses it (C2)", () => {
     // Every other control here is a one-line source with no enclosing
     // test, so picking the OUTERMOST call stayed green (verifier,
