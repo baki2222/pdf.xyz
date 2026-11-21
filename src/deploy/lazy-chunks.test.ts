@@ -1444,8 +1444,28 @@ describe("Compare PDF's redline is a chunk of its own", () => {
  * an open issue in the S2 PR, not hidden. Bound: the measurement plus 5%,
  * so growth fails here and the figure moves only by a written
  * re-measurement.
+ *
+ * RE-MEASURED 2026-11-19 for slice S3 (rows of dots, box symbols, and the
+ * glyph table that places text by each character's advance), both built on
+ * Windows from an empty .next, gzip -9 as below: main 04b25811's finder
+ * chunk 20,565 B gz (20.08 KB), S3's 22,514 B gz (21.99 KB), +1,949 B, one
+ * chunk either way; the page's first load is unchanged (every first-load
+ * chunk the same size raw, ids and hashes aside). Was 20.6; now that
+ * measurement plus 5%.
+ *
+ * Review round 1 of S3 (2026-11-19, same method): 23,274 B gz (22.73 KB),
+ * +760 B for the whole-line leader rule, the list reading and Tc / Tz;
+ * inside the bound, which is unchanged. The raise from 20.6 is still the
+ * owner's to approve.
+ *
+ * Review round 2 of S3 (2026-11-19, same method): 23,676 B gz (23.12 KB),
+ * +402 B for each character's own Tc (a font shown at two character
+ * spacings no longer places every run by a guessed 0), after trimming it
+ * from +451 B. That is over 23.1, S3's first measurement plus 5%, so the
+ * bound is this measurement plus 5%: 24.3. Both raises (20.6 to 23.1 and
+ * 23.1 to 24.3) are the owner's to approve, in the PR.
  */
-const FIND_FIELDS_FETCH_GZ_KB = 20.6;
+const FIND_FIELDS_FETCH_GZ_KB = 24.3;
 /*
  * HISTORY (review rounds 7 and 8, 2026-11-19). Round 7 added a bound here
  * for the press on a page whose preview chunk never arrived: every chunk

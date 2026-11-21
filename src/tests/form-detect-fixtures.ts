@@ -36,6 +36,7 @@ import {
 } from "@/lib/pdf/form-detect-read";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
+import { PRECISION_CASES } from "./form-detect-precision-fixtures";
 
 /**
  * TEST ONLY. The Create Forms field finder's corpus: every case is a small
@@ -3503,6 +3504,8 @@ export const DETECT_CASES: readonly DetectCase[] = [
     })),
     outcome: "found",
   },
+  // Slice S3 (rows of dots, box symbols): src/tests/form-detect-precision-fixtures.ts.
+  ...PRECISION_CASES,
 ];
 
 /* ------------------------------------------------------------------ *
