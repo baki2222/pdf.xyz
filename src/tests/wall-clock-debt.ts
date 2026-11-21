@@ -10,7 +10,7 @@
  * shrink, and only by code that changed. Keys are token streams, so a
  * reformat keeps them. The list ends when it is empty; the guard does not.
  */
-export const WALL_CLOCK_DEBT_CEILING = 97;
+export const WALL_CLOCK_DEBT_CEILING = 98;
 
 /** lane, kind, file, occurrence index, collapsed snippet — one per line. */
 export const WALL_CLOCK_DEBT_TSV = `
@@ -52,6 +52,7 @@ export const WALL_CLOCK_DEBT_TSV = `
 1b	raw	src/lib/pdf/remove-annotations.test.ts	0	expect(Date.now() - started).toBeLessThan(10_000)
 1b	raw	src/lib/pdf/tiff.test.ts	0	expect(Date.now() - started).toBeLessThan(2000)
 1b	raw	src/lib/tools/tools.test.ts	0	expect(perQuery).toBeLessThan(2)
+1a	raw	src/lib/workers/engines-honour-abort.test.ts	0	expect(elapsed).toBeLessThan(ABORT_BOUND_MS)
 1b	raw	src/lib/workers/executor/executor.abort-chain.test.ts	0	expect(Date.now() - stolenAt).toBeLessThan(5_000)
 1b	raw	src/lib/workers/office-conversion/errors.test.ts	0	expect(Date.now() - started).toBeLessThan(2_000)
 1b	raw	src/lib/workers/pdf-office-export/docx-run-style.cap.test.ts	0	expect(got.ms, JSON.stringify(got)).toBeLessThan(10_000)

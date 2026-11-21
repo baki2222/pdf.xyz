@@ -107,7 +107,7 @@ import {
 } from "./ocr-native";
 import type { AiProvider } from "./ai/provider";
 import { discoverWorkerSpawnSites, rel } from "@/tests/spawn-sites";
-import { expectFasterThan, observeFor } from "@/tests/time-bound";
+import { observeFor } from "@/tests/time-bound";
 
 /** Far below the stand-in's 60 s life, far above a kill's few milliseconds. */
 const ABORT_BOUND_MS = 5_000;
@@ -550,18 +550,19 @@ describe("engines honour the attempt's abort signal", () => {
       const settled = await outcome;
       const elapsed = Date.now() - abortedAt;
 
-      // 1. Gone, and promptly — not after its 60 s. An engine that ignores
-      // the signal settles only when its child ends on its own, past this
-      // test's 20 s timeout, and its outcome is no abort (2.): those two catch
-      // it whatever the runner. The settle time itself is recorded in measure
-      // mode until CI has calibrated a bound for it (the processor's verdict,
-      // `settled`, is the speed-independent witness).
+      // 1. Gone, and promptly — not after its 60 s.
+      //
+      // The settle time stays a plain assertion (wall-clock debt) until CI
+      // has calibrated "engine-abort-settles" for assert mode. It was routed
+      // into measure mode on 2026-11-21 and that removed "promptly": the
+      // child's exit and the processor's verdict say nothing about WHEN the
+      // processor settled, so an engine that killed its child at once and
+      // then awaited 8 s before settling passed (mutant in
+      // compression/native.ts's finally block, review of 0036b227). It was
+      // never a flake risk: absent from CI's >300 ms list in all 12 runs of
+      // 11-18, so 5 s is at least 16x its CI time.
       expect(await waitForExit(pid, ABORT_BOUND_MS)).toBe(true);
-      expectFasterThan("engine-abort-settles", elapsed, ABORT_BOUND_MS, {
-        instance: name,
-        mode: "measure",
-        witness: "settled",
-      });
+      expect(elapsed).toBeLessThan(ABORT_BOUND_MS);
       // 2. Recognisably an abort, from the processor itself.
       if ("error" in settled) {
         expect(isAttemptAbort(settled.error)).toBe(true);
