@@ -23,6 +23,7 @@ import {
   it,
   vi,
 } from "vitest";
+import { useLayoutEffect, useRef } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { BatchSkip, withNote } from "@/lib/batch";
 import { currentActivity, resetActivityForTests } from "@/lib/activity/bus";
@@ -180,6 +181,53 @@ describe("retryFailed — runs the failed rows again, and only them", () => {
     expect(calls).toEqual(["a.pdf", "b.pdf", "c.pdf", "b.pdf"]);
     // The first row is the same object: its result was never re-made.
     expect(result.current.state.items[0]).toBe(first);
+  });
+});
+
+describe("the files and the rows a press reads come from the same commit", () => {
+  // A new selection re-seeds the rows in a PASSIVE effect, so for one
+  // commit the old rows are still drawn under the new `units`. runIds takes
+  // its ids from the rows (stateRef, synced in a layout effect) and looks
+  // each up in the files (unitsRef). If unitsRef ran ahead of the rows (a
+  // layout effect), a press in that commit looked the drawn rows up among
+  // files they are not in, and ran nothing: the HEAD of 6e84169e did that.
+  it("a press in the commit that brings new files runs the rows still drawn, and the new files then cancel it and re-seed", async () => {
+    const before = unitsOf("a.pdf");
+    const after = unitsOf("x.pdf", "y.pdf");
+    const calls: { name: string; signal: AbortSignal }[] = [];
+    const process: BatchProcess<string> = (file, signal) => {
+      calls.push({ name: file.name, signal });
+      return new Promise<string>(() => {});
+    };
+    let rowsAtPress: string[] | null = null;
+    const { result, rerender } = renderHook(
+      ({ units }: { units: BatchUnit[] }) => {
+        const runner = useBatchRunner<string>(units, process);
+        // Declared after the hook, so its layout effects (stateRef) have run.
+        const pressed = useRef(false);
+        useLayoutEffect(() => {
+          if (units !== after || pressed.current) return;
+          pressed.current = true;
+          rowsAtPress = runner.state.items.map((i) => i.name);
+          runner.start();
+        });
+        return runner;
+      },
+      { initialProps: { units: before } },
+    );
+    act(() => rerender({ units: after }));
+    // Health check: the press landed in the commit that still drew the old
+    // rows, before the re-seed (otherwise this proves nothing).
+    expect(rowsAtPress).toEqual(["a.pdf"]);
+    // The drawn row ran (not nothing) ...
+    expect(calls.map((c) => c.name)).toEqual(["a.pdf"]);
+    // ... and the new selection cancelled it and re-seeded the rows.
+    expect(calls[0]!.signal.aborted).toBe(true);
+    expect(result.current.state.items.map((i) => i.name)).toEqual([
+      "x.pdf",
+      "y.pdf",
+    ]);
+    expect(result.current.state.phase).toBe("idle");
   });
 });
 
@@ -399,8 +447,9 @@ describe("pauseOn — a rate limit pauses, and the batch carries on from the sam
     });
     act(() => result.current.start());
     // 3000 ms: the earlier form of this real-timer test waited this same
-    // 400 ms pause and took at most 425 ms in all on CI (run 44264031662,
-    // ci-durations.tsv, 12 passing runs of 11-18), so > 7x; and it stays
+    // 400 ms pause and took at most 465 ms in all on CI (failed run
+    // 44228410852, the max over 33 CI runs of 11-09..11-21; 425 ms among
+    // the 12 passing runs of 11-18, run 44264031662), so > 6x; and it stays
     // under the 5 s test timeout, so this wait's own message wins.
     await waitFor(() => expect(result.current.state.phase).toBe("done"), {
       timeout: 3000,
