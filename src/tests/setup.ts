@@ -10,6 +10,7 @@ import { resetWorkerStatusForTests } from "@/components/tools/use-worker-status"
 import { observeClassesForTests } from "@/lib/utils";
 import { droppedClasses } from "./class-conflicts";
 import { assertNoPollLeft } from "./poll-leak-guard";
+import { drainWaitRecords, installWaitRecorder } from "./wait-recorder";
 import {
   setPdfjsForAccessSource,
   type PdfjsForAccess,
@@ -73,6 +74,19 @@ observeClassesForTests((classes) => {
 // worker tests nothing is ever rendered, so cleanup() is a harmless no-op.
 afterEach(() => {
   cleanup();
+});
+
+// Every testing-library wait is timed, and its record handed to the test's
+// meta for the headroom reporter (`./wait-recorder.ts` has how, and why it
+// is installed once per realm). Drained after every test, pass or fail.
+installWaitRecorder();
+afterEach((context) => {
+  const waits = drainWaitRecords();
+  if (waits.length === 0) return;
+  const task = context.task;
+  (task.meta.waits ??= []).push(
+    ...waits.map((w) => ({ ...w, test: task.name })),
+  );
 });
 
 // Per-client rate-limit keying is gated on the privacy disclosure
