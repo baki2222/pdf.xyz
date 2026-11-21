@@ -96,15 +96,19 @@ describe("corpus health (FATAL when it fails)", () => {
       // inverted in place, keeping their ids).
       ...range("P", 78, 85),
       ...range("N", 79, 85),
+      // Its review round 1 (2026-11-22): paint in cells, filled tables,
+      // headerless data, boxes 1 pt apart, heavy fractional rules.
+      ...range("P", 86, 89),
+      ...range("N", 86, 90),
       // O8 and O9 added in review round 7 (2026-11-19): a page the reader
       // sees sideways, and a scan with an OCR text layer.
       ...range("O", 1, 9),
     ];
-    expect(expected).toHaveLength(181);
+    expect(expected).toHaveLength(190);
     expect([...DETECT_CASES.map((c) => c.id)].sort()).toEqual(expected.sort());
     for (const [k, n] of [
-      ["positive", 92],
-      ["negative", 80],
+      ["positive", 96],
+      ["negative", 85],
       ["outcome", 9],
     ] as const)
       expect(kind(k).length, k).toBe(n);
@@ -120,7 +124,8 @@ describe("corpus health (FATAL when it fails)", () => {
   // it added 16 cases and 11 proposals, taking them to 165 and 226).
   // Raised by slice S5 (was 185 cases and 240 proposals; S5 added 15 cases
   // and, with N39 and N45 inverted to positives, 77 proposals, taking them
-  // to 181 and 303: tables propose a field a cell).
+  // to 181 and 303: tables propose a field a cell). S5's review round 1
+  // added 9 cases and 17 proposals (190 and 320), inside both bounds.
   it("the corpus is not implausibly large", () => {
     expect(DETECT_CASES.length, "corpus implausibly large").toBeLessThanOrEqual(
       200,

@@ -180,6 +180,7 @@ describe("S5 tables", () => {
       TABLE_MAX_CELLS: 200,
       STRIP_MIN_CELLS: 2,
       STRIP_MAX_CELLS: 4,
+      TINT_MIN_LUM: 0.75,
     });
   });
 
@@ -417,6 +418,413 @@ describe("filled cells propose nothing", () => {
 });
 
 /* ------------------------------------------------------------------ *
+ *  Review round 1 of S5 (2026-11-22): each finding at its boundary
+ * ------------------------------------------------------------------ */
+
+/** A filled rectangle with no outline, `lum` its luminance. */
+const fill = (
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  lum: number,
+): CardRect => ({ ...rect(x, y, w, h), stroked: false, filled: true, lum });
+
+/** `p` with more drawn on it. */
+const plus = (p: CardPage, more: Partial<CardPage>): CardPage => ({
+  ...p,
+  segs: [...p.segs, ...(more.segs ?? [])],
+  rects: [...p.rects, ...(more.rects ?? [])],
+  text: [...p.text, ...(more.text ?? [])],
+  ...(more.images ? { images: more.images } : {}),
+});
+
+/** A segment of any direction. */
+const seg = (x0: number, y0: number, x1: number, y1: number): CardSeg => ({
+  ...hseg(x0, x1, y0),
+  y1,
+});
+
+// headed(3): the header row 680-700, row 1 660-680, row 2 640-660, row 3
+// 620-640; columns XS = 72 | 200 | 300 | 400 | 540.
+const ALL12 = [1, 2, 3].flatMap((r) => HEAD.map((h) => `${h} row ${r}`));
+
+describe("paint in a cell (review round 1, HIGH): a mark fills its cell as text does", () => {
+  it("an X drawn as two strokes in row 1: row 1 is filled, so rows 2 and 3 alone get fields", () => {
+    const x = plus(headed(3), {
+      segs: [seg(240, 664, 255, 676), seg(240, 676, 255, 664)],
+    });
+    expect(labels(headed(3))).toEqual(ALL12);
+    expect(labels(x)).toEqual(ALL12.slice(4));
+    // Row 1's three other cells are passed over as a filled row's gaps.
+    expect(rules(x).filter((r) => r === "filled-cells")).toHaveLength(3);
+  });
+
+  it("a picture in a cell is a mark too", () => {
+    const img = plus(headed(3), {
+      images: [{ x: 210, y: 663, width: 30, height: 14 }],
+    });
+    expect(labels(img)).toEqual(ALL12.slice(4));
+  });
+
+  it("a fill over PART of a cell is a mark at any colour (a chart's bar); a light tint over the WHOLE cell, drawn cell by cell or row by row, is behind it", () => {
+    const bar = plus(headed(3), { rects: [fill(210, 665, 50, 10, 0.9)] });
+    expect(labels(bar)).toEqual(ALL12.slice(4));
+    const cellTint = plus(headed(3), { rects: [fill(200, 660, 100, 20, 0.9)] });
+    expect(labels(cellTint)).toEqual(ALL12);
+    const rowTint = plus(headed(3), { rects: [fill(72, 660, 468, 20, 0.9)] });
+    expect(labels(rowTint)).toEqual(ALL12);
+  });
+
+  it("a fill over a whole cell: at TINT_MIN_LUM (0.75) it is behind; at 0.74 the cell is SHUT, no field there and its row still read", () => {
+    // The Unit price column's three body cells, one fill.
+    const col = (lum: number) =>
+      plus(headed(3), { rects: [fill(300, 620, 100, 60, lum)] });
+    expect(labels(col(0.75))).toEqual(ALL12);
+    expect(labels(col(0.74))).toEqual(
+      ALL12.filter((l) => !l.startsWith("Unit price")),
+    );
+    expect(rules(col(0.74)).filter((r) => r === "filled-cells")).toHaveLength(
+      3,
+    );
+    // Seam: with filled-cells off, the shut cells are fields again.
+    expect(
+      run(col(0.74), ["filled-cells"]).proposals.filter(
+        (x) => x.rule === "header-cell",
+      ),
+    ).toHaveLength(12);
+  });
+
+  it("a dark fill over every body cell (a redaction): no field", () => {
+    const p = plus(headed(3), { rects: [fill(72, 620, 468, 60, 0.2)] });
+    expect(cells(p)).toEqual([]);
+    expect(rules(p)).toContain("filled-cells");
+  });
+
+  it("a fill reaching no further than BORDER_EPS (2 pt) into the next cell is not in it", () => {
+    // A bar in row 1 (660-680) whose foot reaches 1.9 pt down into row 2:
+    // row 2 is still empty, after the last filled row, so it is read.
+    const reach = (d: number) =>
+      plus(headed(3), { rects: [fill(210, 660 - d, 50, 10 + d, 0.3)] });
+    expect(labels(reach(1.9))).toEqual(ALL12.slice(4));
+    // 2.1 pt down: row 2 holds the bar too, so only row 3 is read.
+    expect(labels(reach(2.1))).toEqual(ALL12.slice(8));
+  });
+});
+
+describe("filled tables (review round 1, MEDIUM): only the empty rows after the last filled row are blanks", () => {
+  it("a section heading row among filled rows (a balance sheet) is passed over; with no filled row the same rows are read", () => {
+    const sheet = (filled: boolean) =>
+      headed(
+        4,
+        (r, k) =>
+          [
+            ["Current assets", "", "", ""],
+            filled ? ["Cash", "1", "1,200", "900"] : ["Cash", "", "", ""],
+            ["Current liabilities", "", "", ""],
+            filled ? ["Loans", "2", "500", "700"] : ["Loans", "", "", ""],
+          ][r - 1]![k]!,
+      );
+    expect(cells(sheet(true))).toEqual([]);
+    expect(rules(sheet(true))).toContain("filled-cells");
+    expect(labels(sheet(false))).toHaveLength(12);
+    expect(labels(sheet(false))[0]).toBe("Current assets Qty");
+  });
+
+  it("an empty row between filled rows is a spacer (no field); empty rows after the last filled row are read", () => {
+    const rows = (empty: number[]) =>
+      headed(5, (r, k) => (empty.includes(r) ? "" : `x${k}`));
+    expect(cells(rows([3]))).toEqual([]);
+    expect(rules(rows([3])).filter((r) => r === "filled-cells")).toHaveLength(
+      4,
+    );
+    expect(labels(rows([4, 5]))).toEqual(
+      [4, 5].flatMap((r) => HEAD.map((h) => `${h} row ${r}`)),
+    );
+    // Both: the spacer is passed over, the trailing row is read.
+    expect(labels(rows([2, 5]))).toEqual(HEAD.map((h) => `${h} row 5`));
+  });
+
+  // Mutant F2 (every labelled row of a filled table passed over) passed
+  // every test above: it differs only AFTER the last filled row, where a
+  // labelled row is a total to fill in, so that is read.
+  it("a labelled row after the last filled row (an invoice's Total) is read; the same row between filled rows is a heading", () => {
+    const after = headed(3, (r, k) =>
+      r === 3 ? (k === 0 ? "Total" : "") : `x${k}`,
+    );
+    expect(labels(after)).toEqual([
+      "Total Qty",
+      "Total Unit price",
+      "Total Amount",
+    ]);
+    const between = headed(3, (r, k) =>
+      r === 2 ? (k === 0 ? "Total" : "") : `x${k}`,
+    );
+    expect(cells(between)).toEqual([]);
+  });
+});
+
+describe("a top row that reads like the data under it is no header (review round 1, MEDIUM)", () => {
+  const people = () =>
+    table([72, 240, 400, 540], 6, (r, k) =>
+      r <= 1
+        ? [
+            ["Alice Grant", "Leeds", "UK"],
+            ["Bob Ortiz", "Lyon", "France"],
+          ][r]![k]!
+        : "",
+    );
+  it("names and towns, then empty rows: no field, the grid stays a table, and no name becomes a field's name", () => {
+    const p = people();
+    expect(run(p).proposals).toEqual([]);
+    expect(rules(p)).toContain("table-grid");
+  });
+
+  it("controls: a header in a larger size, or another family, or data with a digit, is a header", () => {
+    const resize = (p: CardPage, f: (t: CardText) => Partial<CardText>) => ({
+      ...p,
+      text: p.text.map((t) => (t.y > 680 ? { ...t, ...f(t) } : t)),
+    });
+    const base = people();
+    expect(cells(resize(base, () => ({ size: 10.5 })))).toHaveLength(12);
+    expect(cells(resize(base, () => ({ size: 10.4 })))).toEqual([]);
+    expect(cells(resize(base, () => ({ family: "serif" })))).toHaveLength(12);
+    const digits = table([72, 240, 400, 540], 6, (r, k) =>
+      r <= 1
+        ? [
+            ["Name", "Town", "Age"],
+            ["Bob Ortiz", "Lyon", "41"],
+          ][r]![k]!
+        : "",
+    );
+    expect(labels(digits)[0]).toBe("Name row 2");
+  });
+
+  it("a sub-header row of words in the header's size reads as data: no header (a miss, decided); in a smaller size the header stands and rows are numbered as printed", () => {
+    const sub = () =>
+      table([72, 240, 400, 540], 6, (r, k) =>
+        r === 0
+          ? ["Name", "Address", "Phone"][k]!
+          : r === 1
+            ? ["first, last", "street, town", "mobile"][k]!
+            : "",
+      );
+    const at = (size: number) => {
+      const p = sub();
+      return {
+        ...p,
+        text: p.text.map((t) => (t.y > 660 && t.y < 680 ? { ...t, size } : t)),
+      };
+    };
+    expect(cells(at(10))).toEqual([]);
+    expect(labels(at(8))[0]).toBe("Name row 2");
+  });
+});
+
+describe("boxes drawn 1 pt apart (review round 1, LOW): each border twice is one line", () => {
+  /** 3 x 3 boxes 120 x 24, `gap` apart; heads in the top three. */
+  const boxes = (gap: number) => {
+    const rects: CardRect[] = [];
+    const text: CardText[] = [];
+    for (let r = 0; r < 3; r++)
+      for (let k = 0; k < 3; k++) {
+        const x = 72 + k * (120 + gap);
+        const y = 700 - r * (24 + gap);
+        rects.push(rect(x, y, 120, 24));
+        if (r === 0)
+          text.push(txt(["Name", "Role", "Phone"][k]!, x + 3, y + 8));
+      }
+    return pg({ rects, text });
+  };
+  it("0.5, 0.8 and 1 pt: six header-cell fields, each clear of its box's ink; 1.2 pt: S4's three entry boxes", () => {
+    for (const gap of [0, 0.5, 0.8, 1]) {
+      const got = cells(boxes(gap));
+      expect(
+        got.map((x) => x.label),
+        String(gap),
+      ).toEqual([
+        "Name row 1",
+        "Role row 1",
+        "Phone row 1",
+        "Name row 2",
+        "Role row 2",
+        "Phone row 2",
+      ]);
+      // The saved widget is the field half a point wider each side: it
+      // must clear the 0.75 pt outline (0.375 in from each edge).
+      for (const x of got) {
+        const k = Math.round((x.x - 72) / (120 + gap));
+        const r = x.y > 676 - gap ? 1 : 2;
+        const bx = 72 + k * (120 + gap);
+        const by = 700 - r * (24 + gap);
+        expect(x.x - 0.5, `${gap} ${x.label}`).toBeGreaterThanOrEqual(
+          bx + 0.375,
+        );
+        expect(x.x + x.width + 0.5).toBeLessThanOrEqual(bx + 120 - 0.375);
+        expect(x.y - 0.5).toBeGreaterThanOrEqual(by + 0.375);
+        expect(x.y + x.height + 0.5).toBeLessThanOrEqual(by + 24 - 0.375);
+      }
+    }
+    const apart = run(boxes(1.2));
+    expect(cells(boxes(1.2))).toEqual([]);
+    expect(apart.proposals.map((x) => [x.rule, x.label])).toEqual([
+      ["entry-box", "Name"],
+      ["entry-box", "Role"],
+      ["entry-box", "Phone"],
+    ]);
+  });
+});
+
+describe("heavy and fractional rules (review round 1, LOW): the field clears the printed line", () => {
+  it("1.5 pt rules at .4 offsets: every field edge is ink + 0.5 in from its line, rounded inward", () => {
+    const xs = [72.4, 200.4, 330.4];
+    const ys = [600.4, 624.4, 648.4, 672.4];
+    const heavy = (s: CardSeg) => ({ ...s, width: 1.5 });
+    const p = pg({
+      segs: [
+        ...ys.map((y) => heavy(hseg(72.4, 330.4, y))),
+        ...xs.map((x) => heavy(vseg(x, 600.4, 672.4))),
+      ],
+      text: [txt("Name", 76, 655), txt("City", 204, 655)],
+    });
+    const got = cells(p);
+    expect(got.map((x) => x.label)).toEqual([
+      "Name row 1",
+      "City row 1",
+      "Name row 2",
+      "City row 2",
+    ]);
+    const near = (v: number, lines: number[]) =>
+      Math.min(...lines.map((l) => Math.abs(v - l)));
+    for (const x of got)
+      for (const [v, lines] of [
+        [x.x, xs],
+        [x.x + x.width, xs],
+        [x.y, ys],
+        [x.y + x.height, ys],
+      ] as const) {
+        // widget edge (v -/+ 0.5) clear of the ink (line +/- 0.75)
+        expect(near(v, [...lines]), String(x.label)).toBeGreaterThanOrEqual(
+          1.25,
+        );
+        expect(Number.isInteger(v)).toBe(true);
+      }
+  });
+});
+
+describe("shapes review round 1 decided at the boundary", () => {
+  // Mutant B1 (a grid of ONE column allowed) passed every test.
+  it("a ruled stack of one column with a heading in its top row is no table: S4's lines, no header-cell", () => {
+    const ys = [700, 680, 660, 640, 620];
+    const p = pg({
+      segs: [
+        ...ys.map((y) => hseg(72, 400, y)),
+        vseg(72, 620, 700),
+        vseg(400, 620, 700),
+      ],
+      text: [txt("Notes", 75, 685)],
+    });
+    expect(cells(p)).toEqual([]);
+    expect(run(p).proposals.map((x) => [x.rule, x.label])).toEqual([
+      ["labelled-rule", "Notes"],
+    ]);
+  });
+
+  // Mutant M1 (the head's own gap test widened by 2 pt) survived: the band
+  // read for heads reaches CAPTION_MAX past the rule in the page's LARGEST
+  // size, so only a page with larger text tells the gap test apart.
+  it("a head 15.1 pt over the rule (its own descent) is no head even when larger text on the page widens the band read", () => {
+    const over = (dy: number) =>
+      table(XS, 2, () => "", {
+        more: {
+          text: [
+            ...HEAD.map((h, k) => txt(h, XS[k]! + 3, 700 + dy, { width: 30 })),
+            txt("Order form", 72, 760, { size: 30, width: 150 }),
+          ],
+        },
+      });
+    expect(cells(over(16))).toHaveLength(8);
+    expect(cells(over(17.1))).toEqual([]);
+  });
+
+  // Mutant E4 (a large table also recording its filled rows' gaps) passed.
+  it("a table of over 200 empty cells under a partly filled row is one large-table entry and nothing else", () => {
+    const p = table(
+      [72, 200, 330, 460],
+      69,
+      (r, k) =>
+        r === 0
+          ? ["Name", "Email", "Team"][k]!
+          : r === 1 && k === 1
+            ? "ann@x.org"
+            : "",
+      { top: 3000, h: 14 },
+    );
+    const out = run(p);
+    expect(out.proposals).toEqual([]);
+    expect(out.excluded.filter((e) => e.rule === "large-table")).toHaveLength(
+      1,
+    );
+    expect(out.excluded.filter((e) => e.rule === "filled-cells")).toEqual([]);
+  });
+
+  it("a '#' head has no letter: its column is read as a blank corner and gets no field; the other columns do", () => {
+    const p = headed(2, () => "", [72, 100, 300, 400], ["#", "Item", "Qty"]);
+    expect(labels(p)).toEqual([
+      "Item row 1",
+      "Qty row 1",
+      "Item row 2",
+      "Qty row 2",
+    ]);
+  });
+
+  // Decided, not fixed: a top row of 7 pt captions in each box's top-left
+  // over one blank row reads as a header, so the blank row gets the fields
+  // and the captioned boxes none. Both readings are plausible; one row of
+  // such boxes alone is read as captioned boxes (the strip).
+  it("captions in the top-left of a top row over one blank row: read as a header (decided)", () => {
+    const xs = [72, 220, 360, 540];
+    const ys = [600, 632, 664];
+    const p = pg({
+      segs: [
+        ...ys.map((y) => hseg(72, 540, y)),
+        ...xs.map((x) => vseg(x, 600, 664)),
+      ],
+      text: ["Full name", "Date of birth", "Phone"].map((s, k) =>
+        txt(s, xs[k]! + 2, 656, { size: 7, width: s.length * 3.5 }),
+      ),
+    });
+    expect(cells(p).map((x) => [x.label, x.y])).toEqual([
+      ["Full name", 601],
+      ["Date of birth", 601],
+      ["Phone", 601],
+    ]);
+  });
+
+  it("a chart grid with month labels over it and bars rising from its foot: no field (the bars fill the bottom rows)", () => {
+    const xs = [100, 140, 180, 220, 260, 300];
+    const ys = [400, 440, 480, 520, 560, 600];
+    const chart = (bars: boolean) =>
+      pg({
+        segs: [
+          ...ys.map((y) => hseg(100, 300, y)),
+          ...xs.map((x) => vseg(x, 400, 600)),
+        ],
+        text: ["Jan", "Feb", "Mar", "Apr", "May"].map((m, k) =>
+          txt(m, xs[k]! + 5, 604, { width: 15 }),
+        ),
+        rects: bars
+          ? [fill(150, 400, 20, 100, 0.3), fill(230, 400, 20, 60, 0.3)]
+          : [],
+      });
+    expect(cells(chart(true))).toEqual([]);
+    // KNOWN MISS (decided and reported): the same grid with no bars is an
+    // empty headed table, 25 fields, as a blank chart to draw on would be.
+    expect(cells(chart(false))).toHaveLength(25);
+  });
+});
+
+/* ------------------------------------------------------------------ *
  *  Size bounds
  * ------------------------------------------------------------------ */
 
@@ -479,6 +887,10 @@ describe("row heights: a cell is 12 to 120 pt tall", () => {
       table(XS, 2, (r, k) => (r === 0 ? HEAD[k]! : ""), { h });
     expect(cells(at(12))).toHaveLength(4);
     expect(cells(at(11.9))).toEqual([]);
+    // Mutant K2 (no minimum row height) passed the line above: the short
+    // cells were proposed and then refused downstream (no-clearance). The
+    // grid is refused AS A TABLE, so table-grid alone decides it.
+    expect(new Set(rules(at(11.9)))).toEqual(new Set(["table-grid"]));
     const tall = cells(at(120));
     expect(tall).toHaveLength(4);
     expect(tall.every((x) => x.multiline === true)).toBe(true);
@@ -626,8 +1038,9 @@ beforeAll(async () => {
 describe("the S5 corpus, through the real reader", () => {
   it("health: the corpus is the size it was written at, both ways", () => {
     const n = (k: string) => TABLE_CASES.filter((c) => c.kind === k).length;
-    expect(n("positive")).toBe(8);
-    expect(n("negative")).toBe(7);
+    // 8 + 7 written with S5; review round 1 added P86-P89 and N86-N90.
+    expect(n("positive")).toBe(12);
+    expect(n("negative")).toBe(12);
     expect(RUNS.size).toBe(TABLE_CASES.length);
   });
 
@@ -637,7 +1050,17 @@ describe("the S5 corpus, through the real reader", () => {
         c.kind === "positive" &&
         RUNS.get(c.id)!.proposals.some((p) => p.rule === "header-cell"),
     );
-    expect(pos.map((c) => c.id)).toEqual(["P78", "P79", "P80", "P81", "P83"]);
+    expect(pos.map((c) => c.id)).toEqual([
+      "P78",
+      "P79",
+      "P80",
+      "P81",
+      "P83",
+      "P86",
+      "P87",
+      "P88",
+      "P89",
+    ]);
     const decided = (rule: string) =>
       TABLE_CASES.filter(
         (c) =>
@@ -645,7 +1068,14 @@ describe("the S5 corpus, through the real reader", () => {
           c.at &&
           decidingAt(RUNS.get(c.id)!, c.at)?.rule === rule,
       ).map((c) => c.id);
-    expect(decided("filled-cells")).toEqual(["N79", "N83"]);
+    expect(decided("filled-cells")).toEqual([
+      "N79",
+      "N83",
+      "N86",
+      "N87",
+      "N88",
+      "N90",
+    ]);
     expect(decided("large-table")).toEqual(["N80"]);
   });
 
@@ -713,11 +1143,25 @@ async function chain(id: string) {
 describe("composed chain: detect -> proposal -> Add -> Create form -> pdf.js reads the saved field", () => {
   const ids = Object.keys(PRINTED_CELLS);
   it("health: the chain runs over every printed case", () => {
-    expect(ids.sort()).toEqual(["P78", "P79", "P80", "P81", "P82", "P83"]);
+    expect(ids.sort()).toEqual([
+      "P78",
+      "P79",
+      "P80",
+      "P81",
+      "P82",
+      "P83",
+      "P86",
+      "P87",
+      "P88",
+      "P89",
+    ]);
   });
 
+  // Inside means clear of the printed INK (review round 1: the check was
+  // the cell's centre-lines plus 0.5 pt, which a widget lying 0.65 pt over
+  // a 1.5 pt rule passed; P89 is its positive control).
   for (const id of ids)
-    it(`${id}: each saved widget sits inside a printed cell, one widget a cell, names unique`, async () => {
+    it(`${id}: each saved widget sits inside a printed cell, clear of its ink, one widget a cell, names unique`, async () => {
       const { c, found, dropped, saved } = await chain(id);
       const printed = PRINTED_CELLS[id]!;
       expect(dropped).toEqual([]);
@@ -729,10 +1173,10 @@ describe("composed chain: detect -> proposal -> Add -> Create form -> pdf.js rea
         const [x0, y0, x1, y1] = w.rect;
         const i = printed.findIndex(
           (b) =>
-            x0! >= b.x0 - 0.5 &&
-            x1! <= b.x1 + 0.5 &&
-            y0! >= b.y0 - 0.5 &&
-            y1! <= b.y1 + 0.5,
+            x0! >= b.x0 + b.ink &&
+            x1! <= b.x1 - b.ink &&
+            y0! >= b.y0 + b.ink &&
+            y1! <= b.y1 - b.ink,
         );
         expect(i, `${w.name} ${JSON.stringify(w.rect)}`).toBeGreaterThanOrEqual(
           0,

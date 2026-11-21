@@ -3592,9 +3592,16 @@ describe("table-cell: a two-column table of labels and empty cells", () => {
     // (the rewrite keeps the old walk's answer: a reach starting at the
     // lower rule already meets the upper), with a border ending under the
     // pair so that only the starting reach can join them.
-    it("KNOWN MISS: a top rule doubled 0.8 pt over itself loses the table (a thin row with no label)", () => {
+    //
+    // INVERTED in slice S5 (review round 1): the grid finder now reads lines
+    // within GRID_TOUCH_EPS of each other as ONE line drawn twice (two boxes
+    // touching 1 pt apart drew every border twice and lost the table), so
+    // the doubled top rule no longer makes a thin row and the table is read.
+    // The test no longer tells the walk's starting reach apart: either way
+    // the pair is one line.
+    it("a top rule doubled 0.8 pt over itself is one line: the table is read (was a KNOWN MISS)", () => {
       expect(bordered([vseg(72, 504, 599.5)], [hseg(72, 400, 600.8)])).toEqual(
-        [],
+        LABELS,
       );
       // Control: not doubled, the same border is a table.
       expect(bordered([vseg(72, 504, 599.5)])).toEqual(LABELS);
