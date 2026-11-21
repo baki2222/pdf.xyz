@@ -25,7 +25,7 @@ const TREE: Record<string, string> = {
   // The roots supportCorpus walks must exist (a missing one is fatal there).
   "e2e/README.md": "",
   "scripts/README.md": "",
-  "src/tests/a.test.ts": [
+  "src/tests/entry.ts": [
     `import { under } from "../lib/helper/expect-under";`,
     `import { check } from "../lib/plant/timing-util";`,
     `import { late } from "../lib/prod/deadline";`,
@@ -66,14 +66,14 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 describe("supportCorpus outside the test-side folders", () => {
   it("reaches a helper that calls the test framework (the `outside` reach)", () => {
-    const c = supportCorpus(["src/tests/a.test.ts"], { root });
+    const c = supportCorpus(["src/tests/entry.ts"], { root });
     expect(c.outside).toEqual(["src/lib/helper/expect-under.ts"]);
     expect(c.modules).toContain("src/lib/helper/expect-under.ts");
     expect(c.broken).toEqual([]);
   });
 
   it("reaches every module only the corpus imports, transitively, and nothing product code loads (the `testOnly` reach)", () => {
-    const c = supportCorpus(["src/tests/a.test.ts"], { root });
+    const c = supportCorpus(["src/tests/entry.ts"], { root });
     console.log(`[wall-clock-corpus] testOnly: ${c.testOnly.join(", ")}`);
     expect(c.testOnly).toEqual([
       "src/lib/chain/leaf.ts",
@@ -91,7 +91,7 @@ describe("supportCorpus outside the test-side folders", () => {
   });
 
   it("the planted helper is a member the detector flags (the composed chain, not the unit)", () => {
-    const c = supportCorpus(["src/tests/a.test.ts"], { root });
+    const c = supportCorpus(["src/tests/entry.ts"], { root });
     const file = "src/lib/plant/timing-util.ts";
     expect(c.modules).toContain(file);
     const r = scanSource(TREE[file]!, file);
