@@ -1,12 +1,7 @@
-import {
-  PDFDocument,
-  StandardFonts,
-  rgb,
-  type PDFFont,
-  type PDFPage,
-} from "pdf-lib";
+import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import type { Box } from "@/lib/pdf/form-detect";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
+import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import type { DetectCase, Expect } from "./form-detect-fixtures";
 
 /**
@@ -33,12 +28,18 @@ const LETTER: [number, number] = [612, 792];
 
 const save = (d: PDFDocument) => d.save({ useObjectStreams: false });
 
-/** Helvetica, measured and drawn by pdf-lib (the corpus's "sans"). */
+/**
+ * The corpus's "sans", through the product's font chooser (as every module
+ * that draws text must: text-drawing-call-sites.test.ts), which hands back
+ * Helvetica itself for the WinAnsi strings drawn here.
+ */
 let helvetica: PDFFont | undefined;
 const measure = async () =>
-  (helvetica ??= await (
-    await PDFDocument.create()
-  ).embedFont(StandardFonts.Helvetica));
+  (helvetica ??= await embedDrawingFont(
+    await PDFDocument.create(),
+    ["Name: _"],
+    "sans",
+  ));
 
 /** pdf-lib's own width of `s` in Helvetica at `size`. */
 export async function width(s: string, size: number): Promise<number> {
@@ -56,7 +57,7 @@ async function text(
     x,
     y,
     size,
-    font: await page.doc.embedFont(StandardFonts.Helvetica),
+    font: await embedDrawingFont(page.doc, [s], "sans"),
     color: rgb(0, 0, 0),
   });
 }
