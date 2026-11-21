@@ -194,11 +194,49 @@ const [kind = "", arg = "", arg2 = "", arg3 = ""] = (
  * cached per Uint8Array (pdfjs-guard.ts), so a reused array would skip the
  * preflight, and the ratio would time pdf.js's open alone. `entries` is
  * what each call's preflight counted: the health check that it ran.
+ *
+ * `fetched` is the pages pdf.js was asked for during each sample, counted
+ * on the document prototype every open shares (review 2026-11-22: `entries`
+ * is the same for a board that walks pdf.js's tree before refusing, and the
+ * ratio is printed only, so nothing could fail on the walk this test names).
+ * Refused before any page is fetched means 0 on any runner;
+ * `controlFetched`, one board read of a 3-page file, is its positive
+ * control (a counter that saw nothing would read 0 there too).
  */
+async function countPageFetches(): Promise<() => number> {
+  const { loadPdfjs, awaitPdfjsDocument } = await import("../../lib/pdf/pdfjs");
+  const { PDFJS_DOCUMENT_DEFAULTS } = await import("../../lib/pdf/wasm-assets");
+  const pdfjs = await loadPdfjs();
+  const task = pdfjs.getDocument({
+    data: flatTree(1),
+    ...PDFJS_DOCUMENT_DEFAULTS,
+  });
+  let fetched = 0;
+  try {
+    const probe = await awaitPdfjsDocument(task);
+    const proto = Object.getPrototypeOf(probe) as {
+      getPage: (...args: unknown[]) => unknown;
+    };
+    const getPage = proto.getPage;
+    proto.getPage = function (this: unknown, ...args: unknown[]) {
+      fetched += 1;
+      return Reflect.apply(getPage, this, args);
+    };
+  } finally {
+    await task.destroy().catch(() => {});
+  }
+  return () => fetched;
+}
+
 async function pair(small: number, big: number, rounds: number) {
   const { preflightPdfjsOpen } = await import("../../lib/pdf/pdfjs-guard");
   const fixtures = { small: flatTree(small), big: flatTree(big) };
+  const fetchedSoFar = await countPageFetches();
+  const beforeControl = fetchedSoFar();
+  await board(flatTree(3));
   const out = {
+    controlFetched: fetchedSoFar() - beforeControl,
+    fetched: [] as number[],
     smallMs: [] as number[],
     bigMs: [] as number[],
     entries: [] as number[],
@@ -220,6 +258,7 @@ async function pair(small: number, big: number, rounds: number) {
       let ms = 0;
       let entries = -1;
       let typed = true;
+      const fetchedBefore = fetchedSoFar();
       const t0 = performance.now();
       do {
         const b = fixtures[side].slice();
@@ -240,6 +279,7 @@ async function pair(small: number, big: number, rounds: number) {
       (side === "small" ? out.smallMs : out.bigMs).push(ms / calls);
       out.entries.push(entries);
       out.typed.push(typed);
+      out.fetched.push(fetchedSoFar() - fetchedBefore);
     }
   out.distinctPreflights = answers.size;
   return out;

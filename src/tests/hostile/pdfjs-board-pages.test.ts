@@ -172,6 +172,8 @@ describe("the reader:'pdfjs' board reaches an outcome on a page tree of any size
       await runBounded(CHILD, [`pair:${small}:100000:3`], 120_000),
     );
     const got = v as {
+      controlFetched: number;
+      fetched: number[];
       smallMs: number[];
       bigMs: number[];
       entries: number[];
@@ -190,6 +192,14 @@ describe("the reader:'pdfjs' board reaches an outcome on a page tree of any size
     expect(got.calls).toBeGreaterThanOrEqual(6);
     // The second file really is ten times the first.
     expect(got.bytes.big / got.bytes.small).toBeGreaterThan(9);
+    // Pages squared is pdf.js walking the tree page by page, so it is a
+    // count (review 2026-11-22): past the limit no page is fetched, on any
+    // runner; a board that fetched even 500 of them before refusing read
+    // ratio 15, inside 30, with `counted` unchanged. Positive control: the
+    // 3-page read in the same child fetched at least its 3 pages.
+    expect(got.controlFetched).toBeGreaterThanOrEqual(3);
+    const pagesFetched = got.fetched;
+    expect(pagesFetched).toEqual(Array(6).fill(0));
     // Ten times the pages: about ten times the bytes to parse, where a walk
     // would cost a hundred times. Best of 3 samples each, every sample at
     // least 100 ms of calls (the old 250 ms floor on the small side is no
@@ -199,7 +209,7 @@ describe("the reader:'pdfjs' board reaches an outcome on a page tree of any size
     expectRatioBelow("board-pages-past-limit", bigMs, smallMs, 30, {
       detail: `big ${got.bigMs.map(Math.round).join("/")} ms, small ${got.smallMs.map(Math.round).join("/")} ms`,
       mode: "measure",
-      witness: "counted",
+      witness: "pagesFetched",
     });
   }, 150_000);
 
@@ -289,17 +299,13 @@ describe("the board's walk is bounded by the /Kids the file contains, not by its
     "%s (%s pages reported; %s) is refused, typed, in seconds",
     async (c, pages) => {
       const v = settled(await runBounded(CHILD, [c], 60_000));
-      const refused = v.error;
-      expect(refused).toMatchObject(treeRefusal);
+      expect(v.error).toMatchObject(treeRefusal);
+      // Kept raw (review 2026-11-22): never flaky (absent from CI's >300 ms
+      // list in all 12 runs of 2026-11-18, so 20 s is over 66x), and the
+      // refusal's type is the same however long it took to reach.
+      expect(v.ms as number).toBeLessThan(20_000);
       // Refused for its tree: the count puts it past the bound.
       expect(charge(v, pages)).toBeGreaterThan(PDFJS_BOARD_MAX_WALK);
-      // In seconds: measure mode until harvested (CI-flake audit lane 2;
-      // absent from CI's >300 ms list in all 12 runs of 2026-11-18). A walk
-      // that charged per element again is killed at 60 s on any runner.
-      measureTime("board-pages-tree-refusal", v.ms as number, 20_000, {
-        instance: c,
-        witness: "refused",
-      });
     },
     90_000,
   );

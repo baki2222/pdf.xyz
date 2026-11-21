@@ -25,7 +25,9 @@
 //                          over the same pages and reports each outcome
 //                          (`kinds`): which pages the work meter stopped is a
 //                          count no runner speed moves.
-//   isolate-distinct also reports each page's own time (`pageMs`), and
+//   isolate-distinct also reports each page's own time (`pageMs`) and the
+//   bytes its decoder handed back (`pageBytes`, counted at pdf-lib's
+//   `getBytes` through the `lib` isolation is given), and
 //   isolate-costly the best of 3 scans of 4 MiB of ordinary operators
 //   (`ctrlMs`), so its time can be read against the same machine.
 //   The scan modes take an optional 3rd argument, `<small>:<big>` bytes: then
@@ -158,16 +160,36 @@ async function main() {
         .addPage([612, 792])
         .node.set(PDFName.of("Contents"), raw(`%${i}\n${BIG}`));
     const loaded = await PDFDocument.load(await doc.save());
+    // Every byte isolation decodes comes through the `lib` it is handed
+    // (decodePDFRawStream, then getBytes in chunks): counted there, so a page
+    // decoded and then refused shows as bytes, whatever the runner's speed.
+    let decoded = 0;
+    const counted: typeof PdfLib = {
+      ...PdfLib,
+      decodePDFRawStream: (raw) => {
+        const stream = PdfLib.decodePDFRawStream(raw);
+        const getBytes = stream.getBytes.bind(stream);
+        stream.getBytes = (length) => {
+          const chunk = getBytes(length);
+          decoded += chunk.length;
+          return chunk;
+        };
+        return stream;
+      },
+    };
     const t0 = Date.now();
     const kinds: string[] = [];
     const pageMs: number[] = [];
+    const pageBytes: number[] = [];
     for (const p of loaded.getPages()) {
+      const before = decoded;
       const tp = performance.now();
-      const o = await isolatePageContent(p, PdfLib);
+      const o = await isolatePageContent(p, counted);
       pageMs.push(performance.now() - tp);
+      pageBytes.push(decoded - before);
       kinds.push(o.kind === "skipped" ? `skipped:${o.reason}` : o.kind);
     }
-    reportResult({ ms: Date.now() - t0, kinds, pageMs });
+    reportResult({ ms: Date.now() - t0, kinds, pageMs, pageBytes });
     return;
   } else if (mode === "stamp-costly" || mode === "isolate-costly") {
     const pages = Number(process.argv[4]);

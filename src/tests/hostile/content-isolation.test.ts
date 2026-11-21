@@ -771,16 +771,15 @@ describe("decoding is bounded", () => {
     const content = enc(
       unit.repeat(Math.floor(ISOLATION_DECODE_BUDGET / unit.length)),
     );
-    const t0 = performance.now();
+    const t0 = Date.now();
     const got = scanContentBalance(content);
-    const scanned = performance.now() - t0;
+    // Kept raw (review 2026-11-22): never flaky on CI, and the result
+    // asserted here is the same however slow the scan was, so it cannot
+    // stand in for this bound. The CI max is beside it.
+    // Test CI max 854 ms (12 runs of 2026-11-18): 5 s is 5.9x.
+    expect(Date.now() - t0).toBeLessThan(5_000);
     // Health: it read the whole thing as the balanced, certain page it is.
     expect(got).toEqual({ surplus: [], open: 0, uncertain: false });
-    // Measure mode until harvested (CI-flake audit lane 2): the test took
-    // up to 854 ms on CI (12 runs of 2026-11-18), so 5 s is 5.9x.
-    measureTime("content-isolation-ordinary-budget", scanned, 5_000, {
-      witness: "got",
-    });
   }, 30_000);
 
   test("a deflate bomb as page content stops at the budget instead of inflating", async () => {
@@ -793,15 +792,16 @@ describe("decoding is bounded", () => {
       doc.context.register(doc.context.flateStream(zeros)),
     );
     const loaded = await PDFDocument.load(await doc.save());
-    const t0 = performance.now();
-    const outcome = await isolatePageContent(loaded.getPage(0), PdfLib);
-    const isolating = performance.now() - t0;
-    expect(outcome).toEqual({ kind: "skipped", reason: "budget" });
-    // Measure mode until harvested (CI-flake audit lane 2): the test took
-    // up to 1,255 ms on CI (12 runs of 2026-11-18), so 10 s is 8x.
-    measureTime("content-isolation-deflate-bomb", isolating, 10_000, {
-      witness: "outcome",
+    const t0 = Date.now();
+    expect(await isolatePageContent(loaded.getPage(0), PdfLib)).toEqual({
+      kind: "skipped",
+      reason: "budget",
     });
+    // Kept raw (review 2026-11-22): never flaky on CI, and the result
+    // asserted here is the same however slow the scan was, so it cannot
+    // stand in for this bound. The CI max is beside it.
+    // Test CI max 1,255 ms (12 runs of 2026-11-18): 10 s is 8x.
+    expect(Date.now() - t0).toBeLessThan(10_000);
   }, 60_000);
 });
 
@@ -915,10 +915,12 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
   }, 90_000);
 
   test("past the document budget, pages are left as before: 12 distinct ~30 MB pages, 8 isolated (2.9 s measured, 15 s allowed)", async () => {
-    const got = await settle<{ ms: number; kinds: string[]; pageMs: number[] }>(
-      ["isolate-distinct", "12"],
-      120_000,
-    );
+    const got = await settle<{
+      ms: number;
+      kinds: string[];
+      pageMs: number[];
+      pageBytes: number[];
+    }>(["isolate-distinct", "12"], 120_000);
     // Ignoring the document budget isolates all 12: red here on any runner.
     const kinds = got.kinds;
     expect(kinds).toEqual([
@@ -926,13 +928,30 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
       ...Array(4).fill("skipped:budget"),
     ]);
     // Past the budget a page costs almost nothing: it is refused at its
-    // first 64 KiB, not decoded and scanned and then refused. A per-page
-    // ratio in the same child (CI-flake audit lane 2), where it WAS an
-    // absolute `ms < 15_000` on the whole loop, which CI's test reached at
-    // 14,737 ms (43629904891). Medians, so one major GC on one page cannot
-    // decide it; page 9 legitimately decodes the budget's last ~28 MB and is
-    // left out. Decode-then-refuse reads about 0.6-0.85. Measure mode until
-    // harvested.
+    // first 64 KiB chunk (DECODE_CHUNK, content-isolation.ts), not decoded
+    // and then refused. As BYTES, counted at the decoder the child hands
+    // isolation: no runner's speed moves them (review 2026-11-22: `kinds`
+    // is the same for decode-then-refuse, and its time ratio read 0.13,
+    // inside the 0.2 below, so nothing could fail on that defect). Pages
+    // 10-12 only; page 9 legitimately decodes the budget's last ~28 MB.
+    // Positive control: each isolated page decoded its whole ~30 MB.
+    expect(got.pageBytes).toHaveLength(12);
+    for (const [i, bytes] of got.pageBytes.slice(0, 8).entries())
+      expect(bytes, `page ${i + 1} decoded`).toBeGreaterThan(29_000_000);
+    const pastBudgetOverChunk = Math.max(
+      0,
+      ...got.pageBytes.slice(9).map((b) => b - 64 * 1024),
+    );
+    expect(
+      pastBudgetOverChunk,
+      `pages 10-12 decoded ${got.pageBytes.slice(9).join(", ")} bytes`,
+    ).toBe(0);
+    // And the time, per page in the same child (CI-flake audit lane 2),
+    // where it WAS an absolute `ms < 15_000` on the whole loop, which CI's
+    // test reached at 14,737 ms (43629904891). Medians, so one major GC on
+    // one page cannot decide it. Decode-then-refuse measured 0.13 on
+    // Windows (honest 0.01), so 0.2 would not catch it either: the bytes
+    // above are the detector, this is printed until CI is harvested.
     const median = (xs: number[]) => {
       const s = [...xs].sort((a, b) => a - b);
       return s[Math.floor(s.length / 2)]!;
@@ -948,7 +967,7 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
       {
         detail: `loop ${got.ms} ms; pages ${got.pageMs.map((m) => Math.round(m)).join(" ")} ms`,
         mode: "measure",
-        witness: "kinds",
+        witness: "pastBudgetOverChunk",
       },
     );
   }, 150_000);
@@ -1069,8 +1088,14 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
     // copies came out at 50x the input.
     const overThreeCopies = Math.max(0, got.outBytes - got.inBytes * 3);
     expect(overThreeCopies, `${got.outBytes} of ${got.inBytes}`).toBe(0);
-    // Measure mode until harvested (CI-flake audit lane 2): the test took
-    // up to 2,511 ms on CI (12 runs of 2026-11-18), so 10 s is 4x.
+    // Measure mode, witness overThreeCopies (CI-flake audit lane 2): the
+    // test took up to 2,511 ms on CI (12 runs of 2026-11-18), so 10 s is 4x.
+    // The size check sees 50 rewrites that are KEPT; 50 rewrites thrown
+    // away but one only time sees. The raw `got.ms < 10_000` could not be
+    // restored (review 2026-11-22): the debt writer reads one remaining
+    // copy of that snippet as the detector going blind to the four other
+    // occurrences this lane routed (wall-clock-audit.ts `lostButPresent`
+    // matches by snippet, not by occurrence).
     measureTime("content-isolation-stamp-shared", got.ms, 10_000, {
       witness: "overThreeCopies",
     });
