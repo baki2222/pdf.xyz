@@ -113,9 +113,9 @@ const BOUNDS = {
   testOnly: [10, 80],
   workflowScripts: [20, 60],
   sleeps: [100, 400],
-  // Raw comparisons alone. 102 on 2026-11-21; 91 on 2026-11-22 after lane
+  // Raw comparisons alone. 102 on 2026-11-21; 92 on 2026-11-22 after lane
   // 1b routed its scope (routing moves a comparison out of this set by
-  // design). The floor sits where a recognizer gone half blind (91 -> 45)
+  // design). The floor sits where a recognizer gone half blind (92 -> 46)
   // still fails; a lane that routes the set below it lowers it here, with
   // its own dated count, never by folding another set into this one.
   comparisons: [60, 500],
