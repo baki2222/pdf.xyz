@@ -96,7 +96,8 @@ export const sharedTestOptions: {
   // which printed "Failed to load source map for …typescript.js" 5 times
   // in every CI unit log and stalled whichever test was running (up to
   // 2.7 s in tool-page-substance, run 44299285879). The property, not this
-  // option, is the exit condition: zero of those lines in the unit log.
+  // option, is the exit condition: zero of those lines in the unit log,
+  // held by src/tests/typescript-external.test.ts with a positive control.
   // Here, so it reaches both projects and the pdfjs-load-order child config.
   server: { deps: { external: ["typescript"] } },
 };

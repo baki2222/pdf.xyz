@@ -1395,10 +1395,13 @@ describe("the converters' pages describe the page they produce", () => {
         .answer,
     ).toMatch(/white/);
     // Under 300 ms in 20 of 23 CI runs; 1,911-2,739 ms in the other three
-    // (max 44299285879), 55% of the old 5 s default: a stall while Vite
-    // inlined the TypeScript compiler and missed its source map, now
-    // removed at the cause (vitest.config.ts, server.deps.external). 15 s is
-    // 5.5x that stall, so a regression of it is still seen here.
+    // (max 44299285879), 55% of the old 5 s default. Probably a stall while
+    // Vite inlined the TypeScript compiler and missed its source map: in
+    // that one log the miss fell inside this file's window, which is the
+    // whole of the evidence. The cause is now removed in vitest.config.ts
+    // (server.deps.external), and src/tests/typescript-external.test.ts,
+    // not this timeout, fails if it comes back: a returning 2.7 s stall is
+    // far under 15 s and would pass here. 15 s is 5.5x the CI max.
   }, 15_000);
 
   /*
