@@ -247,6 +247,14 @@ const WARM_UP_TIMEOUT_MS = 150_000;
  * here, under its own timeout, instead of inside the first control's 60 s
  * kill. It prints how long it took, so the cost stays visible in every CI
  * log. If even this writes no PDF, the hook fails and says why.
+ *
+ * Scope, so this is not read as more than it is: it protects THIS file's
+ * controls only. capture.chromium and zip-site.chromium can still start
+ * inside the cold launch, now during this warm-up instead of a control
+ * (their first tests took 29,256 and 22,043 ms of the runner's 60 s in
+ * 44924793701 attempt 1); that exposure is open in another lane. And one
+ * warm-up may not pay all of it: in 44910288854 the second test still took
+ * 4,188 ms after a 46,233 ms first one, well inside the 60 s kill.
  */
 async function warmUp(): Promise<void> {
   const dir = mkdtempSync(path.join(work, "pdfxyz-warm-"));

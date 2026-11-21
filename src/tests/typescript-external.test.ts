@@ -5,8 +5,8 @@
  *
  * ── THE DEFECT ──────────────────────────────────────────────────────────────
  *
- * Until 2026-11-21 a file that imported "typescript" (37 guards walk an AST
- * with it) could have the ~9 MB compiler inlined: Vite transformed it, looked
+ * Until 2026-11-21 a file that imported "typescript" (the guards that walk an
+ * AST with it) could have the ~9 MB compiler inlined: Vite transformed it, looked
  * for its source map, missed, and printed "Failed to load source map for
  * …typescript.js" (4-5 times in every CI unit log of 11-21, 44891504062 to
  * 44931945692). In run 44299285879 that miss fell inside the window of a
