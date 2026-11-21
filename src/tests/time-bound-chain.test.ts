@@ -20,7 +20,8 @@
  * nothing while its unit test, fed a planted log, passed).
  *
  * CONTROL, through the same child: the helper with its registration deleted
- * (written to a scratch copy, the deletion grepped back first) must make
+ * (written to a scratch copy outside every walked root, the deletion
+ * grepped back first) must make
  * the reporter say the pipe is broken — in the log AND in the step summary.
  * A green here without that red would be a check that cannot fail.
  */
@@ -37,6 +38,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { chainScratchDir } from "./chain-scratch";
 import { harvestLog, mergeRun, todayHashes } from "./time-bounds-harvest-core";
 import { scanSource } from "./wall-clock-detector";
 
@@ -202,7 +204,7 @@ describe("the time-bound instrument, end to end through a child vitest", () => {
     const original = readFileSync(HELPER, "utf8");
     const registration = "(task.meta.timeBounds ??= []).push(rec);";
     expect(original).toContain(registration);
-    const dir = join(__dirname, ".time-bound-chain-mutant");
+    const dir = chainScratchDir("time-bound-chain-mutant");
     mkdirSync(dir, { recursive: true });
     const mutantPath = join(dir, "time-bound.ts");
     const abs = (name: string) => join(__dirname, name).split("\\").join("/");

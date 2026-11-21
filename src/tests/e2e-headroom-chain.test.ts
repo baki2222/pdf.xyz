@@ -35,6 +35,7 @@ import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { TestCase, TestResult, TestStep } from "@playwright/test/reporter";
 import HeadroomReporter from "../../e2e/headroom-reporter";
+import { chainScratchDir } from "./chain-scratch";
 
 const ROOT = join(__dirname, "..", "..");
 const FIXTURE_DIR = join(ROOT, "e2e", "headroom-chain");
@@ -139,7 +140,7 @@ describe("the e2e headroom reporter, end to end through a child Playwright", () 
     const helper = readFileSync(join(ROOT, "e2e", "time-bound.ts"), "utf8");
     const annotation = "info.annotations.push(";
     expect(helper).toContain(annotation);
-    const dir = join(ROOT, "e2e", ".headroom-chain-mutant");
+    const dir = chainScratchDir("headroom-chain-mutant");
     rmSync(dir, { recursive: true, force: true });
     try {
       cpSync(FIXTURE_DIR, dir, { recursive: true });
