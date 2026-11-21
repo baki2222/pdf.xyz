@@ -395,6 +395,36 @@ describe("the wait recorder", () => {
       waitCallSite("Error\n    at x (E:/r/node_modules/y.js:1:1)"),
     ).toBeNull();
   });
+
+  it("reads a POSIX frame without parentheses as the path, never with its `at ` (CI, run 44917160721)", () => {
+    // On Linux an anonymous frame is `at /home/...:105:9`: with no drive
+    // letter the old pattern took "at /home/..." as the file, the source
+    // was never found, and every wait was held to the default — a 300 ms
+    // wait that timed out read as "rejected early" at 10% (seen only on
+    // GitHub; Windows frames start with a drive letter).
+    const frames = [
+      "    at /home/runner/work/r/r/src/tests/a.fixture.ts:105:9",
+      "    at async /home/runner/work/r/r/src/tests/a.fixture.ts:105:9",
+      "    at fn (/home/runner/work/r/r/src/tests/a.fixture.ts:105:9)",
+      "    at async fn (file:///home/runner/work/r/r/src/tests/a.fixture.ts:105:9)",
+    ];
+    for (const f of frames)
+      expect(waitCallSite(`Error\n${f}`), f).toEqual({
+        file: "/home/runner/work/r/r/src/tests/a.fixture.ts",
+        line: 105,
+        column: 9,
+      });
+    // A Windows path with a space, parenthesised and bare.
+    for (const f of [
+      "    at fn (C:/My Repo/src/tests/b.test.ts:7:3)",
+      "    at C:/My Repo/src/tests/b.test.ts:7:3",
+    ])
+      expect(waitCallSite(`Error\n${f}`), f).toEqual({
+        file: "C:/My Repo/src/tests/b.test.ts",
+        line: 7,
+        column: 3,
+      });
+  });
 });
 
 describe("the reporter collects meta from passed AND failed tests", () => {

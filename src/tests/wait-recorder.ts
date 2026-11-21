@@ -50,11 +50,20 @@ export function waitCallSite(
   stack: string,
 ): { file: string; line: number; column: number } | null {
   for (const frame of stack.split("\n").slice(1)) {
-    const m = /\(?((?:[A-Za-z]:)?[^():]+):(\d+):(\d+)\)?\s*$/.exec(
-      frame.trim(),
-    );
+    // `at fn (loc)` or a bare `at [async ]loc`: the location is the
+    // parenthesised part, else what follows `at `. (The old single pattern
+    // took "at /home/..." as the file on Linux, where a path has no drive
+    // letter to anchor it: CI run 44917160721.)
+    const t = frame.trim().replace(/^at\s+(?:async\s+)?/, "");
+    const loc = /\(([^()]+)\)\s*$/.exec(t)?.[1] ?? t;
+    const m = /^(.+):(\d+):(\d+)$/.exec(loc.trim());
     if (!m) continue;
-    const file = m[1]!.replace(/^file:\/\/\/?/, "").replace(/\\/g, "/");
+    // file:///home/x keeps its root; file:///E:/x drops the slash before
+    // the drive letter.
+    const file = m[1]!
+      .replace(/^file:\/\//, "")
+      .replace(/^\/([A-Za-z]:)/, "$1")
+      .replace(/\\/g, "/");
     if (/node_modules|wait-recorder\.ts|\/setup\.ts$/.test(file)) continue;
     if (
       /\.(test|spec)\.[cm]?[jt]sx?$/.test(file) ||
