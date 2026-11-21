@@ -20,6 +20,7 @@ import {
 import { SYNONYM_GROUPS } from "./intents";
 import { searchTools, toolSearchIndex } from "./search-tools";
 import type { Tool } from "./types";
+import { expectFasterThan, expectRatioBelow } from "@/tests/time-bound";
 
 const categoryIds = new Set(categories.map((c) => c.id));
 
@@ -363,19 +364,71 @@ describe("the search corpus", () => {
     expect(misses.map(([phrase]) => phrase)).toEqual([]);
   });
 
-  it("answers a query over the whole catalogue in well under 2 ms", () => {
-    // A generous bound, on purpose (CI machines are slower than a laptop);
-    // a regression to a per-keystroke cost a person can feel still fails it.
+  /**
+   * WAS `perQuery < 2` ms: one mean of 445 searches against a constant, the
+   * verdict set by the runner (ci-flake audit 2026-11-19, tools.test.ts:376).
+   * A search that rebuilt the index per keystroke cost 1.28 ms a query on
+   * the dev host — green there, red only on a CI runner slow enough.
+   *
+   * Now two parts. The speed-independent one: the catalogue's index is built
+   * once and handed back, the same object, to every caller (`kept`), so the
+   * explorer's per-keystroke `searchTools` cannot rebuild it whatever the
+   * runner's speed. Mutant: `index ??=` in search-tools.ts made `index =`
+   * turns `kept` red. The timed one: a query against a whole build of the
+   * index, same run, interleaved, time-boxed samples, best per call. A
+   * search that holds a build inside it reads 1 or more by construction
+   * (dev host: 1.01-1.08); the honest search reads 0.06 there. Measure mode
+   * until CI calibrates it: no CI figure exists for this ratio yet (the test
+   * never printed a number; its whole-test time stayed under the reporter's
+   * 300 ms floor in all 26 CI runs read, 2026-11-18..21).
+   */
+  it("answers a query over the whole catalogue in a small fraction of building it", () => {
+    const again = toolSearchIndex();
+    const kept = again === index;
+    expect(kept).toBe(true);
     const queries = CORPUS.map(([query]) => query);
-    for (const query of queries) search(index, query);
-    const start = performance.now();
-    for (let i = 0; i < 5; i++) {
-      for (const query of queries) search(index, query);
-    }
-    const perQuery = (performance.now() - start) / (queries.length * 5);
-    expect(perQuery).toBeLessThan(2);
+    expect(queries.length).toBeGreaterThanOrEqual(40);
+    const docs = toolDocs(tools);
+    const sides = [
+      () => buildIndex(docs),
+      () => {
+        for (const query of queries) search(index, query);
+        return queries.length;
+      },
+    ] as const;
+    // Warm both: the first build and the first pass pay compilation.
+    sides[0]();
+    sides[1]();
+    const best = [Infinity, Infinity];
+    for (let round = 0; round < 3; round++)
+      sides.forEach((side, i) => {
+        let calls = 0;
+        let spent = 0;
+        const t0 = performance.now();
+        do {
+          side();
+          calls += 1;
+          spent = performance.now() - t0;
+        } while (spent < SAMPLE_MS);
+        best[i] = Math.min(best[i]!, spent / calls);
+      });
+    const buildMs = best[0]!;
+    const queryMs = best[1]! / queries.length;
+    expectRatioBelow("tools-search-query-vs-build", queryMs, buildMs, 0.25, {
+      mode: "measure",
+      witness: "kept",
+      detail: `per query ${queryMs.toPrecision(3)} ms, per build ${buildMs.toPrecision(3)} ms`,
+    });
+    // The person-facing promise: one query well inside a 60 Hz frame.
+    expectFasterThan("tools-search-query-frame", queryMs, 16, {
+      mode: "measure",
+      witness: "kept",
+    });
   });
 });
+
+/** One time-boxed sample: at least this long, so a timer tick is noise. */
+const SAMPLE_MS = 100;
 
 describe("every synonym group earns its place, and every synonym row needs one", () => {
   const docs = toolDocs(tools);
