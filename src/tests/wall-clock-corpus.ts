@@ -15,10 +15,17 @@ import ts from "typescript";
  *  - e2e specs: a child `playwright test --list --reporter=json`, checked
  *    both ways against a readdir of `testDir` by Playwright's default
  *    testMatch;
- *  - support modules: the runtime imports (type-only imports elided — a
- *    widened set is a defect too) of those entries that live under
- *    `src/tests` or `e2e`, plus every `*.child.ts` under `src/tests`, each
- *    of which must be named by some file in the set or it is dead;
+ *  - config files: the vitest config(s) the projects resolved from and the
+ *    Playwright config `--list` names — roots, since a config names a
+ *    test-side module by a string literal;
+ *  - support modules (`supportCorpus` has the three ways): runtime imports
+ *    into `src/tests` and `e2e`, runtime imports elsewhere of a module that
+ *    calls the test framework, and string-literal references to test-side
+ *    scripts (spawned children, child configs, their fixtures). Every
+ *    test-side script must be reached, or named by something outside the
+ *    suite, or it is reported as unreached — on f8d48720 children were
+ *    found only by the `*.child.ts` suffix and the chain fixtures, four
+ *    spawned scripts and any helper outside the two folders sat outside;
  *  - CI scripts: what the workflows run (`node scripts/x`, and each
  *    `pnpm <script>` through package.json), the corpus a timing bound in CI
  *    itself lives in (critic P10).
@@ -35,6 +42,8 @@ export const DEFAULT_TEST_MATCH = /\.(spec|test)\.(c|m)?[jt]sx?$/;
 export interface VitestCorpus {
   entries: string[];
   setupFiles: string[];
+  /** The config file(s) the projects were resolved from. */
+  configFiles: string[];
   byProject: Record<string, number>;
 }
 
@@ -47,18 +56,23 @@ export async function vitestCorpus(
   try {
     const entries = new Set<string>();
     const setup = new Set<string>();
+    const configs = new Set<string>([rel(config)]);
     const byProject: Record<string, number> = {};
     for (const project of vitest.projects) {
       const { testFiles } = await project.globTestFiles();
       byProject[project.name] = testFiles.length;
       for (const f of testFiles) entries.add(rel(f));
       for (const f of project.config.setupFiles) setup.add(rel(f));
+      const file = (project.vite?.config as { configFile?: string } | undefined)
+        ?.configFile;
+      if (file) configs.add(rel(file));
     }
     for (const f of vitest.config.globalSetup ?? [])
       setup.add(rel(path.resolve(ROOT, f)));
     return {
       entries: [...entries].sort(),
       setupFiles: [...setup].sort(),
+      configFiles: [...configs].sort(),
       byProject,
     };
   } finally {
@@ -69,6 +83,7 @@ export async function vitestCorpus(
 export interface E2eCorpus {
   listed: string[];
   readdir: string[];
+  configFiles: string[];
 }
 
 /** What Playwright lists (visual included), and what a readdir finds. */
@@ -94,7 +109,7 @@ export function e2eCorpus(): E2eCorpus {
     },
   );
   const report = JSON.parse(run.stdout || "{}") as {
-    config?: { rootDir?: string };
+    config?: { rootDir?: string; configFile?: string };
     suites?: { file?: string; suites?: unknown[] }[];
     errors?: { message?: string }[];
   };
@@ -115,7 +130,13 @@ export function e2eCorpus(): E2eCorpus {
   const readdir = walkFiles(path.join(ROOT, "e2e"))
     .filter((f) => DEFAULT_TEST_MATCH.test(f))
     .map(rel);
-  return { listed: [...listed].sort(), readdir: readdir.sort() };
+  if (!report.config?.configFile)
+    throw new Error("playwright --list named no config file");
+  return {
+    listed: [...listed].sort(),
+    readdir: readdir.sort(),
+    configFiles: [rel(report.config.configFile)],
+  };
 }
 
 export function walkFiles(dir: string): string[] {
@@ -176,25 +197,131 @@ export function runtimeSpecifiers(file: string, source: string): string[] {
   return specs;
 }
 
-const SUPPORT = /^(src\/tests\/|e2e\/)/;
+/** The test-side folders: Playwright's testDir and the suite's support folder. */
+const TEST_SIDE = /^(src\/tests\/|e2e\/)/;
+const SCRIPT_FILE = /\.[cm]?[jt]sx?$/;
 
 export interface SupportCorpus {
+  /** Support modules: every reached file that is not an entry. */
   modules: string[];
+  /** Reached by a string-literal reference (a spawned script, a child config, a fixture). */
   children: string[];
-  deadChildren: string[];
+  /** Reached by import from outside the test-side folders because it calls the test framework. */
+  outside: string[];
+  /** Test-side script files nothing in the corpus reaches: FATAL. */
+  unreached: string[];
+  /**
+   * Test-side files reached only from OUTSIDE the suite (a hand-run script
+   * under scripts/ importing a fixture maker), each with its referrer:
+   * printed, not scanned — no CI test runs them.
+   */
+  external: string[];
   broken: string[];
 }
 
-/** Support modules reached from `entries` by runtime imports, plus child scripts. */
+/**
+ * Whether a module outside the test-side folders is test support: it
+ * imports a test framework, or calls one (`expect`, `vi.*`, `test`, hooks —
+ * the suite runs with `globals: true`, so an import is not required).
+ * Product code imported by a test is not: scanning it would widen the set
+ * with production deadlines that no runner speed can fail a test on.
+ */
+export function callsTestFramework(file: string, source: string): boolean {
+  if (
+    runtimeSpecifiers(file, source).some((s) =>
+      /^(vitest|@playwright\/test|@testing-library\/[\w-]+)$/.test(s),
+    )
+  )
+    return true;
+  const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  // `expect` and `vi` only: product code declares its own `describe` and
+  // `test` functions (batch-view.tsx, readiness.ts, print-chrome.ts), and a
+  // helper module declares no tests of its own.
+  const declared = new Set<string>();
+  const calls: string[] = [];
+  const visit = (n: ts.Node): void => {
+    if (
+      (ts.isFunctionDeclaration(n) ||
+        ts.isVariableDeclaration(n) ||
+        ts.isParameter(n)) &&
+      n.name &&
+      ts.isIdentifier(n.name)
+    )
+      declared.add(n.name.text);
+    if (ts.isCallExpression(n)) {
+      const c = n.expression.getText(sf).replace(/\s+/g, "");
+      if (/^expect(\.soft|\.poll)?$|^vi\.\w+$/.test(c))
+        calls.push(c.split(".")[0]!);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return calls.some((c) => !declared.has(c));
+}
+
+/** String literals in a file that name a script file (`"labels-probe-hang.ts"`, `"src/tests/x.child.ts"`). */
+function scriptLiterals(file: string, source: string): string[] {
+  const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  const out: string[] = [];
+  const visit = (n: ts.Node): void => {
+    if (
+      (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) &&
+      SCRIPT_FILE.test(n.text) &&
+      /^[\w./@-]+$/.test(n.text)
+    )
+      out.push(n.text);
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+/**
+ * Support modules, derived three ways from the entries, to a fixed point:
+ *
+ *  - runtime imports into the test-side folders (type-only edges elided —
+ *    a widened set is a defect too);
+ *  - runtime imports anywhere else of a module that calls the test
+ *    framework (a timing helper in `src/lib/x/` was invisible on f8d48720);
+ *  - string-literal references to a test-side script file, which is how a
+ *    child process, a child config and its fixture are named
+ *    (`path.join(root, "src", "tests", "labels-probe-hang.ts")`,
+ *    `include: ["src/tests/time-bound-chain.fixture.ts"]`) — by basename,
+ *    since the path is often split into segments.
+ *
+ * Every test-side script file must be reached, or it is `unreached`: the
+ * mirror check, so a new convention cannot sit outside the set unseen.
+ */
 export function supportCorpus(entries: readonly string[]): SupportCorpus {
   const entrySet = new Set(entries);
+  const testSide = [
+    ...walkFiles(path.join(ROOT, "src", "tests")),
+    ...walkFiles(path.join(ROOT, "e2e")),
+  ]
+    .map(rel)
+    .filter((f) => SCRIPT_FILE.test(f) && !f.endsWith(".d.ts"));
+  const byBase = new Map<string, string[]>();
+  for (const f of testSide) {
+    const b = path.basename(f);
+    byBase.set(b, [...(byBase.get(b) ?? []), f]);
+  }
   const seen = new Set<string>(entries);
   const queue = [...entries];
   const broken: string[] = [];
   const support = new Set<string>();
+  const children = new Set<string>();
+  const outside = new Set<string>();
+  const reach = (r: string, how: "import" | "literal") => {
+    if (!entrySet.has(r)) support.add(r);
+    if (how === "literal" && !entrySet.has(r)) children.add(r);
+    if (!seen.has(r)) {
+      seen.add(r);
+      queue.push(r);
+    }
+  };
   while (queue.length > 0) {
     const file = queue.shift()!;
-    if (!/\.[cm]?[jt]sx?$/.test(file)) continue;
+    if (!SCRIPT_FILE.test(file)) continue;
     const abs = path.join(ROOT, file);
     const source = readFileSync(abs, "utf8");
     for (const spec of runtimeSpecifiers(abs, source)) {
@@ -205,28 +332,78 @@ export function supportCorpus(entries: readonly string[]): SupportCorpus {
         continue;
       }
       const r = rel(resolved);
-      if (!SUPPORT.test(r)) continue;
-      if (!entrySet.has(r)) support.add(r);
-      if (!seen.has(r)) {
-        seen.add(r);
-        queue.push(r);
+      if (!SCRIPT_FILE.test(r)) continue;
+      if (TEST_SIDE.test(r)) reach(r, "import");
+      else if (
+        !seen.has(r) &&
+        callsTestFramework(resolved, readFileSync(resolved, "utf8"))
+      ) {
+        outside.add(r);
+        reach(r, "import");
       }
     }
+    for (const lit of scriptLiterals(file, source)) {
+      const direct = [
+        path.resolve(path.dirname(abs), lit),
+        path.resolve(ROOT, lit),
+      ]
+        .filter((p) => existsSync(p) && statSync(p).isFile())
+        .map(rel)
+        .filter((r) => TEST_SIDE.test(r));
+      const named =
+        direct.length > 0 ? direct : (byBase.get(path.basename(lit)) ?? []);
+      // A bare basename shared by two test-side files names neither for sure.
+      if (direct.length === 0 && named.length !== 1) continue;
+      for (const r of named) reach(r, "literal");
+    }
   }
-  const children = walkFiles(path.join(ROOT, "src", "tests"))
-    .map(rel)
-    .filter((f) => f.endsWith(".child.ts"));
-  const texts = [...entries, ...support].map((f) =>
-    readFileSync(path.join(ROOT, f), "utf8"),
-  );
-  const deadChildren = children.filter(
-    (c) => !texts.some((t) => t.includes(path.basename(c))),
-  );
-  for (const c of children) support.add(c);
+  const reached = new Set([...entries, ...support]);
+  const left = testSide.filter((f) => !reached.has(f)).sort();
+  // Who outside the suite imports what is left, by the same resolver.
+  const external: string[] = [];
+  const unreached: string[] = [];
+  if (left.length > 0) {
+    const others = [
+      ...walkFiles(path.join(ROOT, "src")),
+      ...walkFiles(path.join(ROOT, "scripts")),
+      ...walkFiles(path.join(ROOT, "e2e")),
+    ].filter((f) => SCRIPT_FILE.test(f));
+    for (const f of left) {
+      const stem = path.basename(f).replace(SCRIPT_FILE, "");
+      const by = others.find((o) => {
+        const text = readFileSync(o, "utf8");
+        if (!text.includes(stem)) return false;
+        return runtimeSpecifiers(o, text).some(
+          (spec) =>
+            (spec.startsWith(".") || spec.startsWith("@/")) &&
+            resolveSpecifier(o, spec) === path.join(ROOT, f),
+        );
+      });
+      if (by) {
+        external.push(`${f} <- imported by ${rel(by)}`);
+        continue;
+      }
+      // A hand-run maker named by the README beside it, or by a script.
+      const named = [
+        ...walkFiles(path.join(ROOT, "src")),
+        ...walkFiles(path.join(ROOT, "scripts")),
+      ].find(
+        (o) =>
+          o !== path.join(ROOT, f) &&
+          !SCRIPT_FILE.test(o) &&
+          /\.(md|py|sh|ya?ml)$/.test(o) &&
+          readFileSync(o, "utf8").includes(f),
+      );
+      if (named) external.push(`${f} <- named by ${rel(named)}`);
+      else unreached.push(f);
+    }
+  }
   return {
     modules: [...support].sort(),
-    children: children.sort(),
-    deadChildren,
+    children: [...children].sort(),
+    outside: [...outside].sort(),
+    unreached,
+    external,
     broken,
   };
 }

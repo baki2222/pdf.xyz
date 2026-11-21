@@ -15,7 +15,12 @@ import type { RoutedCall } from "./wall-clock-detector";
  *    certify 2x on their own — the window must include a slow one
  *    (`slowRunnerFloorS`; CI's unit step ran 1010-1677 s over the 12
  *    passing runs of 2026-11-18, a 1.66x spread);
- *  - failed runs count as much as passing ones (survivorship, critic P5).
+ *  - failed runs count as much as passing ones (survivorship, critic P5),
+ *    and EVERY attempt of a run counts (keyed `run/attempt`): the common
+ *    flake is a failed first attempt that a rerun turned green;
+ *  - `window`: the attempts the harvest read — every completed attempt of
+ *    the last N runs of the workflow, never a hand-picked list — and an
+ *    entry's runs must all lie inside it.
  *
  * A floor needs no calibration: a slower runner only makes it easier.
  */
@@ -37,8 +42,15 @@ export interface CalibrationEntry {
   bodyHash: string;
 }
 
+export interface CalibrationWindow {
+  workflow: string;
+  /** Every `run/attempt` the harvest read, in the order it read them. */
+  attempts: string[];
+}
+
 export interface Calibration {
   slowRunnerFloorS: number;
+  window: CalibrationWindow;
   runs: Record<string, CalibrationRun>;
   entries: Record<string, CalibrationEntry>;
 }
@@ -60,12 +72,19 @@ export function calibrationProblem(
   call: RoutedCall,
   cal: Calibration,
 ): string | null {
+  if (!call.optionsLiteral)
+    return "its options are not a literal object (the guard cannot read its mode)";
+  // A literal measured value cannot move with the runner's speed.
+  if (call.measuredLiteral) return null;
   if (call.mode === "measure" || call.kind === "floor") return null;
   if (call.id === null) return "its id is not a string literal";
   const entry = cal.entries[call.id];
   if (!entry) return `no calibration for "${call.id}"`;
   if (entry.bodyHash !== call.bodyHash)
     return `"${call.id}" was calibrated against a different test body (${entry.bodyHash}, now ${call.bodyHash}): re-harvest`;
+  const outside = entry.runs.filter((r) => !cal.window.attempts.includes(r));
+  if (outside.length > 0)
+    return `"${call.id}" counts runs outside the harvested window: ${outside.join(", ")}`;
   if (entry.n < MIN_RUNS)
     return `"${call.id}" has n=${entry.n} CI runs, fewer than ${MIN_RUNS}`;
   const slow = entry.runs.filter(

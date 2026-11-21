@@ -11,10 +11,12 @@ import {
   type VitestCorpus,
 } from "./wall-clock-corpus";
 import {
+  keyText,
   keyed,
   scanSource,
   type RoutedCall,
   type SleepMember,
+  type TimeBoundRef,
   type WallClockMember,
 } from "./wall-clock-detector";
 import { laneOf, type Lane } from "./wall-clock-lanes";
@@ -24,7 +26,7 @@ import { nativeCanvasTestFiles } from "./native-canvas";
 /**
  * One pass over the derived corpus, shared by the guard
  * (`wall-clock-bounds.test.ts`) and the generator that writes its debt
- * lists (`scripts/wall-clock-debt.ts`), so the two cannot disagree about
+ * lists (`scripts/wall-clock-debt.mjs`), so the two cannot disagree about
  * what is in debt.
  */
 
@@ -37,32 +39,48 @@ export interface Audit {
   comparisons: (WallClockMember & { n: number })[];
   routed: RoutedCall[];
   sleeps: (SleepMember & { n: number })[];
+  /** Uses of the time-bound helpers the routed scan cannot read (must be none). */
+  timeBoundRefs: TimeBoundRef[];
   parseErrors: string[];
   /** Collapsed whole-file text, for seed matching. */
   text: Map<string, string>;
+  /** Each file's whole token stream: a debt key still present is a substring of it. */
+  keys: Map<string, string>;
 }
 
 export async function runAudit(): Promise<Audit> {
   const vitest = await vitestCorpus();
   const e2e = e2eCorpus();
+  // The config files are roots too: vitest.config.ts resolves a module to
+  // a test-side stand-in by a string literal (src/tests/hero-desk-island.tsx).
   const entries = [
-    ...new Set([...vitest.entries, ...vitest.setupFiles, ...e2e.listed]),
+    ...new Set([
+      ...vitest.entries,
+      ...vitest.setupFiles,
+      ...vitest.configFiles,
+      ...e2e.listed,
+      ...e2e.configFiles,
+    ]),
   ];
   const support = supportCorpus(entries);
   const files = [...new Set([...entries, ...support.modules])].sort();
   const comparisons: WallClockMember[] = [];
   const routed: RoutedCall[] = [];
   const sleeps: SleepMember[] = [];
+  const timeBoundRefs: TimeBoundRef[] = [];
   const parseErrors: string[] = [];
   const text = new Map<string, string>();
+  const keys = new Map<string, string>();
   for (const file of files) {
     if (!/\.[cm]?[jt]sx?$/.test(file)) continue;
     const source = readFileSync(path.join(ROOT, file), "utf8");
     text.set(file, source.replace(/\s+/g, " "));
+    keys.set(file, keyText(source, file));
     const r = scanSource(source, file);
     comparisons.push(...r.comparisons);
     routed.push(...r.routed);
     sleeps.push(...r.sleeps);
+    timeBoundRefs.push(...r.timeBoundRefs);
     parseErrors.push(...r.parseErrors);
   }
   return {
@@ -73,8 +91,10 @@ export async function runAudit(): Promise<Audit> {
     comparisons: keyed(comparisons),
     routed,
     sleeps: keyed(sleeps),
+    timeBoundRefs,
     parseErrors,
     text,
+    keys,
   };
 }
 
@@ -117,7 +137,9 @@ export function seedStatus(audit: Audit, seed: SeedEntry): SeedStatus {
     inFile.some(
       (m) =>
         m.snippet.includes(seed.code) ||
+        m.raw.includes(seed.code) ||
         seed.code.includes(m.snippet) ||
+        seed.code.includes(m.raw) ||
         m.lines.includes(seed.code),
     )
   )
@@ -267,6 +289,64 @@ export function parseDebt(tsv: string): DebtEntry[] {
         snippet: rest.join("\t"),
       };
     });
+}
+
+/**
+ * The TSV body of a generated debt module's template literal, unescaped the
+ * way the literal would be — read from text, so the ratchet can read the
+ * list as `origin/main` has it (`git show`), not only as this tree does.
+ */
+export function debtTsvFromModule(text: string, name: string): string {
+  const open = text.indexOf(`${name} = \``);
+  if (open === -1) return "";
+  let body = "";
+  for (let i = open + name.length + 4; i < text.length; i++) {
+    const ch = text[i]!;
+    if (ch === "\\") {
+      body += text[++i] ?? "";
+      continue;
+    }
+    if (ch === "`") break;
+    body += ch;
+  }
+  return body;
+}
+
+/**
+ * The ratchet, against an independent copy of the list (the base's), not
+ * against a ceiling the generator writes from the list's own length — that
+ * was self-referential on f8d48720: `--accept-new` grew it and stayed green.
+ *
+ *  - `grown`: entries the base list does not have (a new raw comparison, a
+ *    new sleep). A routed entry replacing a raw one in the same file is a
+ *    conversion, not growth, while the file's entry count does not rise.
+ *  - `lostButPresent`: entries the base had, gone from this list, whose
+ *    code is still in the file's token stream — the detector went blind to
+ *    them, which a shrink-only writer would otherwise record as progress.
+ */
+export function ratchet<
+  T extends { file: string; snippet: string; n: number; kind?: string },
+>(
+  base: readonly T[],
+  now: readonly T[],
+  keys: ReadonlyMap<string, string>,
+): { grown: T[]; lostButPresent: T[] } {
+  const baseKeys = new Set(base.map(debtKey));
+  const nowKeys = new Set(now.map(debtKey));
+  const count = (list: readonly T[], file: string) =>
+    list.filter((e) => e.file === file).length;
+  const grown = now.filter(
+    (e) =>
+      !baseKeys.has(debtKey(e)) &&
+      !(e.kind === "routed" && count(now, e.file) <= count(base, e.file)),
+  );
+  const lostButPresent = base.filter(
+    (e) =>
+      !nowKeys.has(debtKey(e)) &&
+      e.kind !== "routed" &&
+      (keys.get(e.file) ?? "").includes(e.snippet),
+  );
+  return { grown, lostButPresent };
 }
 
 export function parseSleepDebt(tsv: string): SleepDebtEntry[] {

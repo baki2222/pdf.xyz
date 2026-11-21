@@ -17,7 +17,7 @@ export const WALL_CLOCK_EXEMPT: readonly ExemptEntry[] = [
   {
     file: "src/lib/batch/limits.test.ts",
     snippet:
-      "expect(BATCH_LIMITS.ocrMaxFiles * waitPerFileMs).toBeLessThanOrEqual( 60 * 60 * 1000, )",
+      "expect(BATCH_LIMITS.ocrMaxFiles * waitPerFileMs).toBeLessThanOrEqual(60 * 60 * 1000)",
     reason: "config-relation",
     why: "waitPerFileMs is the product of three configured constants (resumes, poll interval, poll attempts); nothing is timed, so no runner can make it fail.",
   },

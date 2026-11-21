@@ -20,14 +20,17 @@
  * `scripts/wall-clock-debt.mjs` runs the one test here that writes the debt
  * lists (only when WALL_CLOCK_DEBT_MODE is set).
  */
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { readCalibration } from "./time-bound-calibration";
 import {
   debtKey,
+  debtTsvFromModule,
   parseDebt,
   parseSleepDebt,
+  ratchet,
   requiredDebt,
   runAudit,
   type Audit,
@@ -36,9 +39,11 @@ import {
 import { ROOT, workflowScripts } from "./wall-clock-corpus";
 import { regenerate } from "./wall-clock-debt-writer";
 import {
+  WALL_CLOCK_RULES,
   findTimeComparisonsAnywhere,
   findWallClockComparisons,
   scanSource,
+  type WallClockRule,
 } from "./wall-clock-detector";
 import {
   FIXED_SLEEP_DEBT_CEILING,
@@ -66,7 +71,59 @@ const WORKFLOW_NAMED_OUT: readonly { file: string; reason: string }[] = [
     reason:
       "container.yml's HEALTHCHECK budget (probe <= 2/3 of the Dockerfile/compose timeout, cold and warm) is a property of production, not of the runner: the same probe runs under the same timeout in the deployed worker, so a CI run over budget is a real finding. It reads its numbers from the Dockerfile and compose, and has its own unit test (src/deploy/healthcheck-budget.test.ts).",
   },
+  {
+    file: "scripts/check-backup-freshness.mjs",
+    reason:
+      "posture-watch.yml's backup check compares the age of the newest production backup (hours since its LastModified, read through `new Date()`) with MAX_AGE_HOURS: a property of the backup schedule, which no runner speed can move by an hour. Found on 2026-11-21 once the detector learned `new Date()` as a clock read.",
+  },
 ];
+
+/**
+ * Detector rules with no member in the real corpus today, and why each is
+ * kept (CLAUDE.md rule 1, the reverse direction: a pattern nothing shipped
+ * exercises is decoration unless it says what it is waiting for). Held both
+ * ways: a rule with zero real members must be here, and an entry here must
+ * still have zero — the day a real member appears it is promoted out.
+ */
+const ANTICIPATED_RULES: readonly { rule: WallClockRule; why: string }[] = [
+  {
+    rule: "R4",
+    why: "a boolean comparison handed to an assertion (`expect(t < 200).toBe(true)`, `assert(t < 500)`, `toSatisfy`) evades every matcher rule; the audit's corpus had none and neither does the tree, so it waits for its first member (reviewer's attack, 2026-11-21).",
+  },
+  {
+    rule: "R8",
+    why: "chai's order assertions (`.below`, `assert.isBelow`) ship with vitest and were walked straight past by a reviewer's attack file on 2026-11-21; nothing in the tree uses them yet.",
+  },
+];
+
+/**
+ * Size bounds for every derived set, FATAL both ways (CLAUDE.md rule 4): a
+ * set that quietly shrinks reports the strongest pass, and one that quietly
+ * grows (a widened folder filter took support modules 178 -> 1453 on
+ * f8d48720 with every check green) answers an easier question. Measured
+ * 2026-11-21; each bound leaves room for ordinary growth, not for an order
+ * of magnitude.
+ */
+const BOUNDS = {
+  vitest: [1200, 2000],
+  e2e: [80, 200],
+  support: [150, 450],
+  workflowScripts: [20, 60],
+  sleeps: [100, 400],
+  comparisons: [100, 500],
+  routedDebtExempt: [100, 500],
+} as const;
+
+const within = (what: keyof typeof BOUNDS, n: number) => {
+  const [lo, hi] = BOUNDS[what];
+  expect(
+    n,
+    `${what}: ${n} is under ${lo}, the set went blind`,
+  ).toBeGreaterThanOrEqual(lo);
+  expect(n, `${what}: ${n} is over ${hi}, the set widened`).toBeLessThanOrEqual(
+    hi,
+  );
+};
 
 let audit: Audit;
 let req: Required;
@@ -102,8 +159,7 @@ describe.skipIf(MODE)("the corpus is derived, plausible, and printed", () => {
       `vitest entries (${audit.vitest.entries.length}; ${JSON.stringify(audit.vitest.byProject)}):\n  ${audit.vitest.entries.join("\n  ")}`,
     );
     console.log(`setup files:\n  ${audit.vitest.setupFiles.join("\n  ")}`);
-    expect(audit.vitest.entries.length).toBeGreaterThanOrEqual(1200);
-    expect(audit.vitest.entries.length).toBeLessThanOrEqual(2000);
+    within("vitest", audit.vitest.entries.length);
     expect(audit.vitest.entries).toContain(
       "src/tests/wall-clock-bounds.test.ts",
     );
@@ -114,8 +170,7 @@ describe.skipIf(MODE)("the corpus is derived, plausible, and printed", () => {
     console.log(
       `e2e specs (${audit.e2e.listed.length}):\n  ${audit.e2e.listed.join("\n  ")}`,
     );
-    expect(audit.e2e.listed.length).toBeGreaterThanOrEqual(80);
-    expect(audit.e2e.listed.length).toBeLessThanOrEqual(200);
+    within("e2e", audit.e2e.listed.length);
     expect(
       audit.e2e.listed.filter((f) => !audit.e2e.readdir.includes(f)),
     ).toEqual([]);
@@ -124,16 +179,35 @@ describe.skipIf(MODE)("the corpus is derived, plausible, and printed", () => {
     ).toEqual([]);
   });
 
-  it("support modules by runtime import, at least 150, every child script referenced, no broken link", () => {
+  it("support modules by runtime import and by name, bounded both ways, every test-side file reached, no broken link", () => {
     console.log(
       `support modules (${audit.support.modules.length}):\n  ${audit.support.modules.join("\n  ")}`,
     );
+    console.log(
+      `  of which named by a string literal (children, configs, fixtures) (${audit.support.children.length}):\n  ${audit.support.children.join("\n  ")}`,
+    );
+    console.log(
+      `  of which outside src/tests and e2e, calling the test framework (${audit.support.outside.length}):\n  ${audit.support.outside.join("\n  ")}`,
+    );
+    console.log(
+      `test-side files reached only from outside the suite, not scanned (${audit.support.external.length}):\n  ${audit.support.external.join("\n  ")}`,
+    );
     expect(audit.support.broken).toEqual([]);
-    expect(audit.support.deadChildren).toEqual([]);
-    expect(audit.support.modules.length).toBeGreaterThanOrEqual(150);
+    expect(
+      audit.support.unreached,
+      "a test-side script nothing in the corpus imports or names: reference it, or delete it",
+    ).toEqual([]);
+    within("support", audit.support.modules.length);
     // The hook layer is in: setup.ts imports the poll-leak guard (critic P7).
     expect(audit.support.modules).toContain("src/tests/poll-leak-guard.ts");
-    expect(audit.support.children.length).toBeGreaterThan(0);
+    // Spawned children, child configs and their fixtures are in (the chain
+    // fixtures were outside the set on f8d48720).
+    for (const child of [
+      "src/tests/labels-probe-hang.ts",
+      "src/tests/time-bound-chain.fixture.ts",
+      "e2e/headroom-chain/headroom.chain.ts",
+    ])
+      expect(audit.support.children).toContain(child);
   });
 
   it("parses every file (a parse error is fatal)", () => {
@@ -171,13 +245,75 @@ describe.skipIf(MODE)(
       for (const e of listed) expect(LANES).toContain(e.lane);
     });
 
-    it("the debt list only shrinks: its length is its ceiling", () => {
+    // HISTORY: on f8d48720 this test was titled "the debt list only
+    // shrinks" and checked only that the list's length equals the ceiling
+    // the generator writes from that same length — self-referential, so
+    // `--write --accept-new` grew the list and every check stayed green. It
+    // now says what it checks; the ratchet itself is the next test.
+    it("the generated ceiling equals the list's length (a hand edit shows)", () => {
       expect(parseDebt(WALL_CLOCK_DEBT_TSV).length).toBe(
         WALL_CLOCK_DEBT_CEILING,
       );
       expect(parseSleepDebt(FIXED_SLEEP_DEBT_TSV).length).toBe(
         FIXED_SLEEP_DEBT_CEILING,
       );
+    });
+
+    it("the debt lists only shrink against origin/main's, and only by changed code", () => {
+      // The base is origin/main; WALL_CLOCK_RATCHET_BASE names another ref
+      // only for a mutation proof of this very test.
+      const base = process.env.WALL_CLOCK_RATCHET_BASE ?? "origin/main";
+      if (process.env.GITHUB_ACTIONS === "true")
+        expect(base, "CI compares against origin/main, nothing else").toBe(
+          "origin/main",
+        );
+      const show = (file: string): string | null => {
+        try {
+          return execFileSync("git", ["show", `${base}:${file}`], {
+            cwd: ROOT,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "pipe"],
+            maxBuffer: 64 * 1024 * 1024,
+          });
+        } catch (e) {
+          const msg = String((e as { stderr?: string }).stderr ?? e);
+          // The ref must exist (CI fetches it); only the FILE may be
+          // absent, on the PR that introduces the lists.
+          if (/exists on disk, but not in|does not exist in/.test(msg))
+            return null;
+          throw new Error(
+            `cannot read ${base} (${msg.trim()}): the ratchet has nothing to compare against — run git fetch origin main`,
+          );
+        }
+      };
+      const debtBase = show("src/tests/wall-clock-debt.ts");
+      const sleepBase = show("src/tests/fixed-sleep-debt.ts");
+      if (debtBase === null || sleepBase === null) {
+        console.log(
+          `ratchet: ${base} has no debt lists yet (this is the PR that introduces them); every later PR is compared against them`,
+        );
+        return;
+      }
+      const debt = ratchet(
+        parseDebt(debtTsvFromModule(debtBase, "WALL_CLOCK_DEBT_TSV")),
+        parseDebt(WALL_CLOCK_DEBT_TSV),
+        audit.keys,
+      );
+      const sleeps = ratchet(
+        parseSleepDebt(debtTsvFromModule(sleepBase, "FIXED_SLEEP_DEBT_TSV")),
+        parseSleepDebt(FIXED_SLEEP_DEBT_TSV),
+        audit.keys,
+      );
+      const label = (e: { file: string; n: number; snippet: string }) =>
+        `${e.file}#${e.n}: ${e.snippet}`;
+      expect(
+        [...debt.grown, ...sleeps.grown].map(label),
+        "debt that origin/main does not have: route the new check through the time-bound helpers (measure mode first), or make the sleep event-driven",
+      ).toEqual([]);
+      expect(
+        [...debt.lostButPresent, ...sleeps.lostButPresent].map(label),
+        "debt that left the list while its code is still in the file: the detector went blind",
+      ).toEqual([]);
     });
 
     it("every exempt entry matches a member, for a stated reason", () => {
@@ -213,9 +349,31 @@ describe.skipIf(MODE)(
         parseDebt(WALL_CLOCK_DEBT_TSV).length +
         WALL_CLOCK_EXEMPT.length;
       console.log(
-        `routed ${audit.routed.length}, debt ${parseDebt(WALL_CLOCK_DEBT_TSV).length}, exempt ${WALL_CLOCK_EXEMPT.length}`,
+        `routed ${audit.routed.length}, debt ${parseDebt(WALL_CLOCK_DEBT_TSV).length}, exempt ${WALL_CLOCK_EXEMPT.length}, comparisons ${audit.comparisons.length}`,
       );
-      expect(total).toBeGreaterThanOrEqual(100);
+      within("routedDebtExempt", total);
+      within("comparisons", audit.comparisons.length);
+    });
+
+    it("every rule catches a real member, or says what it is waiting for (rule 1, both directions)", () => {
+      const counts = Object.fromEntries(
+        WALL_CLOCK_RULES.map((r) => [
+          r,
+          audit.comparisons.filter((m) => m.rule === r).length,
+        ]),
+      ) as Record<WallClockRule, number>;
+      console.log(`real members by rule: ${JSON.stringify(counts)}`);
+      const anticipated = new Set(ANTICIPATED_RULES.map((a) => a.rule));
+      expect(
+        WALL_CLOCK_RULES.filter((r) => counts[r] === 0 && !anticipated.has(r)),
+        "a rule with no real member: give a reason in ANTICIPATED_RULES, or remove the rule",
+      ).toEqual([]);
+      expect(
+        ANTICIPATED_RULES.filter((a) => counts[a.rule] > 0).map((a) => a.rule),
+        "an anticipated rule now has real members: remove it from ANTICIPATED_RULES",
+      ).toEqual([]);
+      for (const a of ANTICIPATED_RULES)
+        expect(a.why.length).toBeGreaterThan(40);
     });
   },
 );
@@ -243,16 +401,34 @@ describe.skipIf(MODE)("routed calls", () => {
     ).toEqual([]);
   });
 
+  it("every use of a time-bound helper is a call the routed scan reads (no alias, object, re-export or dynamic import)", () => {
+    expect(
+      audit.timeBoundRefs.map((r) => `${r.file}:${r.line} ${r.text}`),
+      "call the helpers directly, or through a named or namespace import: any other use runs a check no list carries",
+    ).toEqual([]);
+  });
+
+  it("every routed call passes its options as a literal object, so what the guard reads is what runs", () => {
+    expect(
+      audit.routed
+        .filter((r) => !r.optionsLiteral)
+        .map((r) => `${r.file}:${r.line} ${r.snippet}`),
+    ).toEqual([]);
+  });
+
   it("a measure-mode call names a witness asserted in the same test, or is pending", () => {
     const pendingIds = new Set(WALL_CLOCK_PENDING.map((p) => p.id));
     const blind = audit.routed.filter(
       (r) =>
-        r.mode === "measure" && !r.witnessAsserted && !pendingIds.has(r.id!),
+        r.mode === "measure" &&
+        !r.measuredLiteral &&
+        !r.witnessAsserted &&
+        !pendingIds.has(r.id!),
     );
     expect(
       blind.map(
         (r) =>
-          `${r.file}:${r.line} ${r.id}${r.witness ? ` (witness "${r.witness}" is not the subject of an expect in this test)` : ""}`,
+          `${r.file}:${r.line} ${r.id}${r.witnessProblem ? ` (${r.witnessProblem})` : ""}`,
       ),
       "measure mode switches detection off: assert a speed-independent count, size or shape in the same test and name it as the witness",
     ).toEqual([]);
@@ -299,8 +475,9 @@ describe.skipIf(MODE)("fixed sleeps (class b): ratcheted, both ways", () => {
         )
         .map((e) => `${e.file}: ${e.lane}`),
     ).toEqual([]);
-    // Health: the family is not blind (150 sites at the audit, 2026-11-19).
-    expect(audit.sleeps.length).toBeGreaterThanOrEqual(100);
+    // Health: the family is neither blind nor widened (150 sites at the
+    // audit, 2026-11-19).
+    within("sleeps", audit.sleeps.length);
   });
 });
 
@@ -310,7 +487,7 @@ describe.skipIf(MODE)("CI itself", () => {
     console.log(
       `workflow scripts (${scripts.length}):\n  ${scripts.map((s) => `${s.workflow}: ${s.run} -> ${s.file}`).join("\n  ")}`,
     );
-    expect(scripts.length).toBeGreaterThanOrEqual(20);
+    within("workflowScripts", scripts.length);
     const bounding = [
       ...new Set(
         scripts
