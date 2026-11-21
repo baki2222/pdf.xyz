@@ -52,6 +52,9 @@ export function MobileMenu() {
   const [openOn, setOpenOn] = useState<string | null>(null);
   const open = openOn !== null && openOn === pathname;
   const [recent, setRecent] = useState<Recent[]>([]);
+  // This open has read its recents (`data-recents`): what a test waits on,
+  // since an absent list looks the same before the read as after it.
+  const [recentsRead, setRecentsRead] = useState(false);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const headingId = useId();
@@ -92,11 +95,16 @@ export function MobileMenu() {
     if (!open) return;
     let live = true;
     readRecentTools().then(
-      (list) => live && setRecent(list),
+      (list) => {
+        if (!live) return;
+        setRecent(list);
+        setRecentsRead(true);
+      },
       () => {},
     );
     return () => {
       live = false;
+      setRecentsRead(false);
     };
   }, [open]);
 
@@ -122,6 +130,7 @@ export function MobileMenu() {
         id="mobile-menu"
         aria-labelledby={headingId}
         data-motion-ui=""
+        data-recents={recentsRead ? "read" : undefined}
         onKeyDown={(e) => {
           if (e.key !== "Escape") return;
           e.preventDefault();
