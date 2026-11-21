@@ -22,6 +22,7 @@
  * box's geometry (the box's inside, not a line's strip).
  */
 import { describe, expect, it } from "vitest";
+import { expectRatioBelow } from "@/tests/time-bound";
 import {
   classifyPage,
   type CardPage,
@@ -78,8 +79,9 @@ const pg = (o: Partial<CardPage>): CardPage => ({
  * so this file depends on no other file's helpers): each function runs
  * again and again for SAMPLE_MS per sample, the samples INTERLEAVED, 3 of
  * them, after one untimed warm-up of the first; each side keeps its best
- * time per call (a pause only ever adds). On GitHub Actions the ratio is
- * printed as `[time-bound] <name>: ratio R (bound B)`, pass or fail.
+ * time per call (a pause only ever adds). The ratio goes through
+ * src/tests/time-bound.ts, which prints its `[time-bound]` line on every
+ * run for the CI harvest.
  */
 const SAMPLE_MS = 100;
 
@@ -109,21 +111,6 @@ function interleavedBest<T>(fns: readonly (() => T)[], reps = 3): Timed<T>[] {
       }
     });
   return out;
-}
-
-function expectRatioUnder(
-  name: string,
-  num: Timed<unknown>,
-  den: Timed<unknown>,
-  bound: number,
-): void {
-  const ratio = num.ms / den.ms;
-  const said = `${name}: ratio ${ratio.toFixed(2)} (bound ${bound})`;
-  if (process.env.GITHUB_ACTIONS === "true")
-    console.log(
-      `[time-bound] ${said} ${num.ms.toPrecision(3)} ms (${num.calls}) / ${den.ms.toPrecision(3)} ms (${den.calls})`,
-    );
-  expect(ratio, said).toBeLessThan(bound);
 }
 
 /** 600 against 9,600 (16x): linear reads about 16. */
@@ -181,7 +168,7 @@ describe("cost of entry boxes and stacked lines stays linear in the page's size"
       () => classifyPage(small),
       () => classifyPage(large),
     ]);
-    for (const [r, n] of [
+    for (const [result, n] of [
       [a!.got, SMALL],
       [b!.got, SMALL * K],
     ] as const) {
@@ -190,14 +177,18 @@ describe("cost of entry boxes and stacked lines stays linear in the page's size"
       // line; its top edge and any writing line in it went with it (2 x n
       // with every top an underline, before review round 1); nothing
       // proposed.
-      const sig = r.excluded.filter((e) => e.rule === "signature");
+      const sig = result.excluded.filter((e) => e.rule === "signature");
       expect(sig.length).toBe(n);
       for (const e of sig)
         expect([e.box.width, e.box.height]).toEqual([248, 38]);
-      expect(r.excluded.length).toBe(n);
-      expect(r.proposals).toEqual([]);
+      expect(result.excluded.length).toBe(n);
+      expect(result.proposals).toEqual([]);
     }
-    expectRatioUnder("S4 entry boxes", b!, a!, BOXES_BOUND);
+    expectRatioBelow("S4 entry boxes", b!.ms, a!.ms, BOXES_BOUND, {
+      mode: "measure",
+      witness: "result",
+      detail: `${b!.calls} / ${a!.calls} calls`,
+    });
   }, 120_000);
 
   it("stacks: 16x the stacks cost under STACKS_BOUND x the time (same run, interleaved, time-boxed)", () => {
@@ -207,24 +198,28 @@ describe("cost of entry boxes and stacked lines stays linear in the page's size"
       () => classifyPage(small),
       () => classifyPage(large),
     ]);
-    for (const [r, n] of [
+    for (const [result, n] of [
       [a!.got, SMALL],
       [b!.got, SMALL * K],
     ] as const) {
       // Health: one multiline field a stack, proposed (the per-page cap
       // counted) or, in the page's outer 8% (the same share of either
       // page), passed over as a band; nothing else excluded.
-      const band = r.excluded.filter((e) => e.rule === "page-band").length;
+      const band = result.excluded.filter((e) => e.rule === "page-band").length;
       expect(band).toBeGreaterThan(0);
       expect(band).toBeLessThan(0.2 * n);
-      expect(r.proposals.length + r.counts.capped + band).toBe(n);
-      expect(r.excluded.length).toBe(band);
-      for (const p of r.proposals) {
+      expect(result.proposals.length + result.counts.capped + band).toBe(n);
+      expect(result.excluded.length).toBe(band);
+      for (const p of result.proposals) {
         expect(p.rule).toBe("labelled-rule");
         expect(p.multiline).toBe(true);
       }
     }
-    expectRatioUnder("S4 stacks", b!, a!, STACKS_BOUND);
+    expectRatioBelow("S4 stacks", b!.ms, a!.ms, STACKS_BOUND, {
+      mode: "measure",
+      witness: "result",
+      detail: `${b!.calls} / ${a!.calls} calls`,
+    });
   }, 120_000);
 });
 
@@ -266,6 +261,17 @@ describe("cost of entry boxes and stacked lines stays linear in the page's size"
  * against a fixed worst of 10.24, a window of 20.5 to 19.3. CI's own
  * [time-bound] lines are the check; a reading over half a bound there is
  * grounds to recalibrate.
+ *
+ * MEASURE MODE, AND WHY (2026-11-22). Until then these were assertions.
+ * #390 (the time-bound instrument) holds every new wall-clock check to
+ * src/tests/time-bound.ts, and an assert-mode bound to a CI calibration
+ * (n >= 5 runs, one on a slow runner) that does not exist yet; its debt
+ * list may not grow. So these two bounds RECORD and do not fail, each
+ * witnessed by `result`, the health checks above (both pages read as
+ * expected, so the ratio compared like with like). That witness does NOT
+ * catch a quadratic step: the readings above are the evidence for the
+ * bound, and turning it back to assert, once
+ * src/tests/time-bounds.calibration.json holds these ids, is owed.
  */
 const BOXES_BOUND = 45;
 const STACKS_BOUND = 45;
