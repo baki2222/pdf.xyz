@@ -7,7 +7,7 @@
  * becoming event-driven, or a declared observation window (`observeFor`).
  * Held both ways by wall-clock-bounds.test.ts.
  */
-export const FIXED_SLEEP_DEBT_CEILING = 138;
+export const FIXED_SLEEP_DEBT_CEILING = 117;
 
 /** lane, file, occurrence index, collapsed snippet — one per line. */
 export const FIXED_SLEEP_DEBT_TSV = `
@@ -98,20 +98,11 @@ export const FIXED_SLEEP_DEBT_TSV = `
 4	src/components/layout/handoff-sweep.test.tsx	0	new Promise((r) => setTimeout(r, 50))
 4	src/components/layout/site-landmarks.test.tsx	0	new Promise((r) => setTimeout(r, 50))
 4	src/components/tools/ai-extract-result.test.tsx	0	new Promise((resolve) => setTimeout(resolve, 20))
-3	src/components/tools/ai-extract-worker-panel.test.tsx	0	new Promise((resolve) => setTimeout(resolve, 20))
-3	src/components/tools/chat-with-pdf-worker-panel.test.tsx	0	new Promise((resolve) => setTimeout(resolve, 20))
-3	src/components/tools/ocr-owner.dom.test.tsx	0	new Promise((r) => setTimeout(r, 300))
-3	src/components/tools/ocr-owner.dom.test.tsx	1	new Promise((r) => setTimeout(r, 300))
-3	src/components/tools/ocr-owner.dom.test.tsx	2	new Promise((r) => setTimeout(r, 300))
-3	src/components/tools/ocr-owner.dom.test.tsx	0	new Promise((r) => setTimeout(r, 50))
-3	src/components/tools/ocr-owner.dom.test.tsx	0	new Promise((r) => setTimeout(r, 500))
 4	src/components/tools/runner/batch/ocr-batch.dom.test.tsx	0	new Promise((r) => setTimeout(r, 100))
-3	src/components/tools/runner/batch/security-batch.dom.test.tsx	0	new Promise((r) => setTimeout(r, 200))
 1a	src/components/tools/runner/batch/worker-batch.test.ts	0	new Promise((r) => setTimeout(r, 300))
 1a	src/components/tools/runner/batch/worker-batch.test.ts	0	new Promise((r) => setTimeout(r, 50))
 1a	src/components/tools/runner/batch/worker-batch.test.ts	1	new Promise((r) => setTimeout(r, 50))
 1a	src/components/tools/runner/batch/worker-batch.test.ts	2	new Promise((r) => setTimeout(r, 50))
-3	src/components/tools/runner/batch/worker-batches.dom.test.tsx	0	new Promise((r) => setTimeout(r, 300))
 1b	src/components/tools/runner/bookmarks-editor.test.tsx	0	new Promise((r) => setTimeout(r, 50))
 1a	src/components/tools/runner/compare/compare-docs.test.ts	0	new Promise((r) => setTimeout(r, 5))
 4	src/components/tools/runner/compare/compare-overlay.test.tsx	0	new Promise((r) => setTimeout(r, 20))
@@ -125,25 +116,13 @@ export const FIXED_SLEEP_DEBT_TSV = `
 4	src/components/tools/runner/editor/signature-style-picker.test.tsx	0	new Promise((r) => setTimeout(r, 50))
 4	src/components/tools/runner/endings.test.tsx	0	new Promise((r) => setTimeout(r, 80))
 4	src/components/tools/runner/flatten-runner.test.tsx	0	new Promise((resolve) => setTimeout(resolve, 50))
-3	src/components/tools/runner/grayscale-runner.test.tsx	0	new Promise((resolve) => setTimeout(resolve, 1_500))
 4	src/components/tools/runner/handoff-notice.test.tsx	0	new Promise((r) => setTimeout(r, 20))
-3	src/components/tools/runner/replace-target.test.tsx	0	new Promise((r) => setTimeout(r, 200))
-3	src/components/tools/runner/replace-target.test.tsx	1	new Promise((r) => setTimeout(r, 200))
-3	src/components/tools/runner/replace-target.test.tsx	0	new Promise((r) => setTimeout(r, 300))
 4	src/components/tools/runner/runner-kit.a11y.test.tsx	0	new Promise((resolve) => setTimeout(resolve, 30))
 4	src/components/tools/runner/unkept-result-race.dom.test.tsx	0	later(50)
 4	src/components/tools/runner/unkept-result-race.dom.test.tsx	1	later(50)
 4	src/components/tools/runner/use-batch-runner.test.tsx	0	new Promise((r) => setTimeout(r, 100))
 4	src/components/tools/runner/use-batch-runner.test.tsx	0	new Promise((r) => setTimeout(r, 50))
-3	src/components/tools/summarize-worker-panel.pages.test.tsx	0	new Promise((r) => setTimeout(r, LATE_WINDOW_MS))
-3	src/components/tools/summarize-worker-panel.pages.test.tsx	1	new Promise((r) => setTimeout(r, LATE_WINDOW_MS))
 4	src/components/tools/summary-result.test.tsx	0	new Promise((resolve) => setTimeout(resolve, 20))
-3	src/components/tools/translate-worker-panel.ocr.test.tsx	0	new Promise((r) => setTimeout(r, 300))
-3	src/components/tools/translate-worker-panel.ocr.test.tsx	1	new Promise((r) => setTimeout(r, 300))
-3	src/components/tools/translate-worker-panel.ocr.test.tsx	0	new Promise((r) => setTimeout(r, 500))
-3	src/components/tools/translate-worker-panel.test.tsx	0	new Promise((resolve) => setTimeout(resolve, 300))
-3	src/components/tools/worker-result-paste.test.tsx	0	new Promise((r) => setTimeout(r, 300))
-3	src/lib/telemetry/tool-outcome.test.tsx	0	new Promise((resolve) => setTimeout(resolve, 20))
 1a	src/lib/workers/engines-honour-abort.test.ts	0	new Promise((resolve) => setTimeout(resolve, 750))
 1a	src/lib/workers/slot-upload.test.ts	0	new Promise((r) => setTimeout(r, 5))
 1a	src/tests/long-child.ts	0	new Promise((resolve) => setTimeout(resolve, 20))
