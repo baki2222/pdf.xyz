@@ -380,7 +380,7 @@ describe("every registered worker batch, through its page's own panel", () => {
       await screen.findByText(
         "Batch complete. 2 done, 0 failed.",
         {},
-        { timeout: BATCH_END_MS, timeout: WAIT_MS },
+        { timeout: BATCH_END_MS },
       );
       expect(net.jobBodies).toHaveLength(2);
       for (const body of net.jobBodies) {
@@ -497,7 +497,7 @@ describe("every registered worker batch, through its page's own panel", () => {
     await screen.findByText(
       "Batch complete. 2 done, 0 failed.",
       {},
-      { timeout: BATCH_END_MS, timeout: WAIT_MS },
+      { timeout: BATCH_END_MS },
     );
     // The paused file was asked for again: three reservations, two jobs.
     expect(net.reservations()).toBe(3);
@@ -587,7 +587,7 @@ describe("every registered worker batch, through its page's own panel", () => {
     await screen.findByText(
       "Batch complete. 2 done, 0 failed.",
       {},
-      { timeout: BATCH_END_MS, timeout: WAIT_MS },
+      { timeout: BATCH_END_MS },
     );
     // Awaited, as above: the hold is released by an effect after the end.
     await waitFor(() => expect(unsavedLabels()).toEqual([]), {
