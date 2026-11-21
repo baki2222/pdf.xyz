@@ -75,6 +75,7 @@ export const sharedTestOptions: {
   globals: boolean;
   setupFiles: string[];
   css: boolean;
+  server: { deps: { external: string[] } };
 } = {
   // Default to the fast Node environment: the overwhelming majority of the suite
   // is worker/library logic that never touches the DOM, and booting jsdom for
@@ -89,6 +90,15 @@ export const sharedTestOptions: {
   // may not: in a worker thread, or (a stale marker) not at all.
   setupFiles: ["./src/tests/setup.ts", "./src/tests/native-canvas-guard.ts"],
   css: false,
+  // The TypeScript compiler (~9 MB of CJS, imported by 37 guards that walk
+  // an AST) is handed to Node as it is, never run through Vite: inlined, it
+  // was transformed per project and its source map looked up and missed,
+  // which printed "Failed to load source map for …typescript.js" 5 times
+  // in every CI unit log and stalled whichever test was running (up to
+  // 2.7 s in tool-page-substance, run 44299285879). The property, not this
+  // option, is the exit condition: zero of those lines in the unit log.
+  // Here, so it reaches both projects and the pdfjs-load-order child config.
+  server: { deps: { external: ["typescript"] } },
 };
 
 export default defineConfig({
