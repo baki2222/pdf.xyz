@@ -84,9 +84,14 @@ describe("which tests are near their timeout", () => {
     expect(headroomReport(0, [], false)).toEqual([
       "timeout headroom: saw no test results, so it checked nothing",
     ]);
-    expect(headroomReport(0, [], true)[0]).toMatch(
-      /^::warning .*checked nothing$/,
-    );
+    // INVERTED 2026-11-21 (finding C4): this pinned the GitHub case to an
+    // annotation ALONE (`[0]` matched `::warning ...`), and the step summary
+    // drops workflow commands, so on CI the health check reached the log's
+    // annotation list and nothing else. The plain line now comes first.
+    expect(headroomReport(0, [], true)).toEqual([
+      "timeout headroom: saw no test results, so it checked nothing",
+      "::warning title=timeout headroom::the headroom reporter saw no test results, so it checked nothing",
+    ]);
   });
 });
 

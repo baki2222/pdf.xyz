@@ -1,0 +1,10 @@
+{
+  "about": "CI measurements of every routed time bound, written by scripts/time-bounds-harvest.ts from the [time-bound] lines of every attempt (failed AND passing) of the last N runs of ci.yml, each value counted only for the test body it was measured on. An assert-mode bound is calibrated only with n >= 5 runs, at least one of them on a slow runner (unitSuiteS >= slowRunnerFloorS), bound >= 2 x ciMax, and a bodyHash equal to its test body today. Never edited by hand.",
+  "slowRunnerFloorS": 1300,
+  "window": {
+    "workflow": "ci.yml",
+    "attempts": []
+  },
+  "runs": {},
+  "entries": {}
+}

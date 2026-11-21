@@ -13,7 +13,12 @@
  * just been fixed.
  */
 import { describe, expect, it } from "vitest";
-import config from "../../playwright.config";
+import { existsSync } from "node:fs";
+import path from "node:path";
+import config, {
+  EXPECT_TIMEOUT_MS,
+  e2eReporters,
+} from "../../playwright.config";
 import { resolvePnpmInvocation } from "@/lib/workers/exec-pnpm";
 import { shellQuote } from "@/lib/workers/shell-quote";
 
@@ -34,5 +39,36 @@ describe("playwright webServer command", () => {
     expect(command).toContain(`${expected} start --port `);
     // No bare, unquoted `pnpm` token that a non-PATH shell would fail to resolve.
     expect(command).not.toMatch(/(^|[^'\w-])pnpm\s/);
+  });
+});
+
+describe("the e2e headroom reporter is wired into CI", () => {
+  it("is in the CI reporter list, handed the suite's own expect timeout", () => {
+    const ci = e2eReporters(true);
+    const entry = ci.find(([name]) => name === "./e2e/headroom-reporter.ts");
+    expect(entry, JSON.stringify(ci)).toBeDefined();
+    // One constant spread two ways: the reporter cannot read the config's
+    // expect timeout itself, so the two must be the same value.
+    expect(entry![1]).toEqual({ expectTimeoutMs: EXPECT_TIMEOUT_MS });
+    expect(config.expect?.timeout).toBe(EXPECT_TIMEOUT_MS);
+    expect(
+      existsSync(path.resolve(__dirname, "../..", entry![0])),
+      entry![0],
+    ).toBe(true);
+    // The CI list keeps the reporters it had (github annotates failures).
+    expect(ci.map(([name]) => name)).toEqual([
+      "github",
+      "html",
+      "list",
+      "./e2e/headroom-reporter.ts",
+    ]);
+  });
+
+  it("runs locally only when asked", () => {
+    expect(e2eReporters(false).map(([name]) => name)).toEqual(["list"]);
+    expect(e2eReporters(false, true).map(([name]) => name)).toEqual([
+      "list",
+      "./e2e/headroom-reporter.ts",
+    ]);
   });
 });

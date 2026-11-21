@@ -190,6 +190,13 @@ const ALLOWED = new Set(
     // its own `*.test.ts`; nothing on a route, a component or a barrel
     // reaches it. (Added 2026-10-11, when this check named it on first run.)
     "src/tests/powershell-json.ts",
+    // The wall-clock guard's corpus: spawns `playwright test --list` to
+    // derive the e2e set. Imported by the audit and the debt writer, which
+    // only `wall-clock-bounds.test.ts` imports. (Added 2026-11-21, when this
+    // check named all three on first run.)
+    "src/tests/wall-clock-corpus.ts",
+    "src/tests/wall-clock-audit.ts",
+    "src/tests/wall-clock-debt-writer.ts",
     // The hostile-input hang runner: spawns `node --import tsx <child>` so a
     // hang can be killed (a synchronous parser blocks vitest's event loop).
     // Imported only by `*.test.ts` files. Its child scripts print through
