@@ -20,7 +20,8 @@ import ts from "typescript";
  *    test-side module by a string literal;
  *  - support modules (`supportCorpus` has the three ways): runtime imports
  *    into `src/tests` and `e2e`, runtime imports elsewhere of a module that
- *    calls the test framework, and string-literal references to test-side
+ *    calls the test framework or that only the corpus imports (a reverse
+ *    index over src, scripts and e2e), and string-literal references to test-side
  *    scripts (spawned children, child configs, their fixtures). Every
  *    test-side script must be reached, or named by something outside the
  *    suite, or it is reported as unreached — on f8d48720 children were
@@ -162,10 +163,14 @@ const SUFFIXES = [
   "/index.tsx",
 ];
 
-function resolveSpecifier(from: string, spec: string): string | null {
+function resolveSpecifier(
+  from: string,
+  spec: string,
+  root: string = ROOT,
+): string | null {
   let base: string;
   if (spec.startsWith(".")) base = path.resolve(path.dirname(from), spec);
-  else if (spec.startsWith("@/")) base = path.join(ROOT, "src", spec.slice(2));
+  else if (spec.startsWith("@/")) base = path.join(root, "src", spec.slice(2));
   else return null;
   const stems = base.endsWith(".js") ? [base, base.slice(0, -3)] : [base];
   for (const stem of stems)
@@ -208,6 +213,15 @@ export interface SupportCorpus {
   children: string[];
   /** Reached by import from outside the test-side folders because it calls the test framework. */
   outside: string[];
+  /**
+   * Reached by import from outside the test-side folders because every
+   * runtime importer it has (static or dynamic, in src, scripts and e2e)
+   * is itself in the corpus: a module only tests use is test support,
+   * whatever it calls (verifier, 2026-11-21: a timing helper in
+   * `src/lib/` that threw on `performance.now() - t0 > 250` and called
+   * neither `expect` nor `vi` was never scanned).
+   */
+  testOnly: string[];
   /** Test-side script files nothing in the corpus reaches: FATAL. */
   unreached: string[];
   /**
@@ -282,7 +296,11 @@ function scriptLiterals(file: string, source: string): string[] {
  *  - runtime imports into the test-side folders (type-only edges elided —
  *    a widened set is a defect too);
  *  - runtime imports anywhere else of a module that calls the test
- *    framework (a timing helper in `src/lib/x/` was invisible on f8d48720);
+ *    framework (a timing helper in `src/lib/x/` was invisible on f8d48720),
+ *    or whose every runtime importer is already in the corpus — to a fixed
+ *    point, so a helper chain only tests load is reached link by link
+ *    (verifier, 2026-11-21: a helper that called neither `expect` nor `vi`
+ *    was never scanned);
  *  - string-literal references to a test-side script file, which is how a
  *    child process, a child config and its fixture are named
  *    (`path.join(root, "src", "tests", "labels-probe-hang.ts")`,
@@ -292,11 +310,17 @@ function scriptLiterals(file: string, source: string): string[] {
  * Every test-side script file must be reached, or it is `unreached`: the
  * mirror check, so a new convention cannot sit outside the set unseen.
  */
-export function supportCorpus(entries: readonly string[]): SupportCorpus {
+export function supportCorpus(
+  entries: readonly string[],
+  opts: { root?: string } = {},
+): SupportCorpus {
+  const root = opts.root ?? ROOT;
+  const relR = (file: string): string =>
+    path.relative(root, file).split(path.sep).join("/");
   const entrySet = new Set(entries);
   const testSide = [
-    ...walkFiles(path.join(ROOT, "src", "tests")),
-    ...walkFiles(path.join(ROOT, "e2e")),
+    ...walkFiles(path.join(root, "src", "tests")),
+    ...walkFiles(path.join(root, "e2e")),
   ]
     .map(rel)
     .filter((f) => SCRIPT_FILE.test(f) && !f.endsWith(".d.ts"));
@@ -319,43 +343,66 @@ export function supportCorpus(entries: readonly string[]): SupportCorpus {
       queue.push(r);
     }
   };
-  while (queue.length > 0) {
-    const file = queue.shift()!;
-    if (!SCRIPT_FILE.test(file)) continue;
-    const abs = path.join(ROOT, file);
-    const source = readFileSync(abs, "utf8");
-    for (const spec of runtimeSpecifiers(abs, source)) {
-      if (!spec.startsWith(".") && !spec.startsWith("@/")) continue;
-      const resolved = resolveSpecifier(abs, spec);
-      if (!resolved) {
-        broken.push(`${file} -> ${spec}`);
+  const pending = new Set<string>();
+  const testOnly = new Set<string>();
+  const importers = productImporters(root);
+  for (;;) {
+    while (queue.length > 0) {
+      const file = queue.shift()!;
+      if (!SCRIPT_FILE.test(file)) continue;
+      const abs = path.join(root, file);
+      const source = readFileSync(abs, "utf8");
+      for (const spec of runtimeSpecifiers(abs, source)) {
+        if (!spec.startsWith(".") && !spec.startsWith("@/")) continue;
+        const resolved = resolveSpecifier(abs, spec, root);
+        if (!resolved) {
+          broken.push(`${file} -> ${spec}`);
+          continue;
+        }
+        const r = relR(resolved);
+        if (!SCRIPT_FILE.test(r)) continue;
+        if (TEST_SIDE.test(r)) reach(r, "import");
+        else if (
+          !seen.has(r) &&
+          callsTestFramework(resolved, readFileSync(resolved, "utf8"))
+        ) {
+          outside.add(r);
+          reach(r, "import");
+        } else if (!seen.has(r)) pending.add(r);
+      }
+      for (const lit of scriptLiterals(file, source)) {
+        const direct = [
+          path.resolve(path.dirname(abs), lit),
+          path.resolve(root, lit),
+        ]
+          .filter((p) => existsSync(p) && statSync(p).isFile())
+          .map(rel)
+          .filter((r) => TEST_SIDE.test(r));
+        const named =
+          direct.length > 0 ? direct : (byBase.get(path.basename(lit)) ?? []);
+        // A bare basename shared by two test-side files names neither for sure.
+        if (direct.length === 0 && named.length !== 1) continue;
+        for (const r of named) reach(r, "literal");
+      }
+    }
+    // The fixed point: a module every importer of which is now in the
+    // corpus is test support, whatever it calls.
+    let promoted = 0;
+    for (const r of [...pending]) {
+      if (seen.has(r)) {
+        pending.delete(r);
         continue;
       }
-      const r = rel(resolved);
-      if (!SCRIPT_FILE.test(r)) continue;
-      if (TEST_SIDE.test(r)) reach(r, "import");
-      else if (
-        !seen.has(r) &&
-        callsTestFramework(resolved, readFileSync(resolved, "utf8"))
-      ) {
-        outside.add(r);
+      if (isConventionEntry(r, root)) continue;
+      const by = importers(r);
+      if (by.length > 0 && by.every((f) => seen.has(f))) {
+        pending.delete(r);
+        testOnly.add(r);
         reach(r, "import");
+        promoted++;
       }
     }
-    for (const lit of scriptLiterals(file, source)) {
-      const direct = [
-        path.resolve(path.dirname(abs), lit),
-        path.resolve(ROOT, lit),
-      ]
-        .filter((p) => existsSync(p) && statSync(p).isFile())
-        .map(rel)
-        .filter((r) => TEST_SIDE.test(r));
-      const named =
-        direct.length > 0 ? direct : (byBase.get(path.basename(lit)) ?? []);
-      // A bare basename shared by two test-side files names neither for sure.
-      if (direct.length === 0 && named.length !== 1) continue;
-      for (const r of named) reach(r, "literal");
-    }
+    if (promoted === 0) break;
   }
   const reached = new Set([...entries, ...support]);
   const left = testSide.filter((f) => !reached.has(f)).sort();
@@ -364,9 +411,9 @@ export function supportCorpus(entries: readonly string[]): SupportCorpus {
   const unreached: string[] = [];
   if (left.length > 0) {
     const others = [
-      ...walkFiles(path.join(ROOT, "src")),
-      ...walkFiles(path.join(ROOT, "scripts")),
-      ...walkFiles(path.join(ROOT, "e2e")),
+      ...walkFiles(path.join(root, "src")),
+      ...walkFiles(path.join(root, "scripts")),
+      ...walkFiles(path.join(root, "e2e")),
     ].filter((f) => SCRIPT_FILE.test(f));
     for (const f of left) {
       const stem = path.basename(f).replace(SCRIPT_FILE, "");
@@ -376,25 +423,25 @@ export function supportCorpus(entries: readonly string[]): SupportCorpus {
         return runtimeSpecifiers(o, text).some(
           (spec) =>
             (spec.startsWith(".") || spec.startsWith("@/")) &&
-            resolveSpecifier(o, spec) === path.join(ROOT, f),
+            resolveSpecifier(o, spec, root) === path.join(root, f),
         );
       });
       if (by) {
-        external.push(`${f} <- imported by ${rel(by)}`);
+        external.push(`${f} <- imported by ${relR(by)}`);
         continue;
       }
       // A hand-run maker named by the README beside it, or by a script.
       const named = [
-        ...walkFiles(path.join(ROOT, "src")),
-        ...walkFiles(path.join(ROOT, "scripts")),
+        ...walkFiles(path.join(root, "src")),
+        ...walkFiles(path.join(root, "scripts")),
       ].find(
         (o) =>
-          o !== path.join(ROOT, f) &&
+          o !== path.join(root, f) &&
           !SCRIPT_FILE.test(o) &&
           /\.(md|py|sh|ya?ml)$/.test(o) &&
           readFileSync(o, "utf8").includes(f),
       );
-      if (named) external.push(`${f} <- named by ${rel(named)}`);
+      if (named) external.push(`${f} <- named by ${relR(named)}`);
       else unreached.push(f);
     }
   }
@@ -402,9 +449,90 @@ export function supportCorpus(entries: readonly string[]): SupportCorpus {
     modules: [...support].sort(),
     children: [...children].sort(),
     outside: [...outside].sort(),
+    testOnly: [...testOnly].sort(),
     unreached,
     external,
     broken,
+  };
+}
+
+/**
+ * Files a framework or a deployment runs by convention, with no importer:
+ * Next.js route segments, middleware and instrumentation, and anything a
+ * package.json script, a Dockerfile or a workflow names. Imported only by a
+ * test, such a file is still product code (an API test imports
+ * `route.ts`), so it is never promoted to test support.
+ */
+const NEXT_CONVENTION =
+  /^src\/(app\/(.*\/)?(page|layout|route|template|error|global-error|loading|not-found|default|opengraph-image|twitter-image|icon|apple-icon|sitemap|robots|manifest)\.[cm]?[jt]sx?|(middleware|proxy|instrumentation(-client)?)\.[cm]?[jt]s)$/;
+const namedByDeploy = new Map<string, string>();
+function isConventionEntry(r: string, root: string): boolean {
+  if (NEXT_CONVENTION.test(r)) return true;
+  let text = namedByDeploy.get(root);
+  text ??= [
+    "package.json",
+    "Dockerfile",
+    ...readdirSync(root).filter((f) =>
+      /^Dockerfile\.|\.config\.[cm]?[jt]s$/.test(f),
+    ),
+    ...(existsSync(path.join(root, ".github", "workflows"))
+      ? readdirSync(path.join(root, ".github", "workflows")).map((f) =>
+          path.join(".github", "workflows", f),
+        )
+      : []),
+  ]
+    .filter((f) => existsSync(path.join(root, f)))
+    .map((f) => readFileSync(path.join(root, f), "utf8"))
+    .join("\n");
+  namedByDeploy.set(root, text);
+  return text.includes(r);
+}
+
+/**
+ * Every runtime edge a file declares, by a lexical scan: static imports and
+ * re-exports (`import type` / `export type` skipped: erased at runtime),
+ * dynamic `import("…")` and `require("…")`. Lexical on purpose — it runs
+ * over every script under src, scripts and e2e, and the only use is to ask
+ * whether a module has an importer OUTSIDE the corpus, where a spurious
+ * extra edge can only keep a module out (the conservative direction).
+ */
+const EDGE =
+  /\b(?:(?:import|export)\s+(type\s+)?(?:[\w$*{}\s,]+?\s+from\s+)?|(?:import|require)\(\s*)["'`]([^"'`$\n]+)["'`]/g;
+export function lexicalEdges(source: string): string[] {
+  const out: string[] = [];
+  for (const m of source.matchAll(EDGE)) if (!m[1]) out.push(m[2]!);
+  return out;
+}
+
+/**
+ * The reverse runtime-import index over every script file under src,
+ * scripts and e2e, built once on first use: who imports `r`.
+ */
+function productImporters(root: string): (r: string) => string[] {
+  const relR = (file: string): string =>
+    path.relative(root, file).split(path.sep).join("/");
+  let index: Map<string, string[]> | undefined;
+  return (r) => {
+    if (!index) {
+      const built = new Map<string, string[]>();
+      for (const d of ["src", "scripts", "e2e"]) {
+        if (!existsSync(path.join(root, d))) continue;
+        for (const file of walkFiles(path.join(root, d))) {
+          if (!SCRIPT_FILE.test(file) || file.endsWith(".d.ts")) continue;
+          for (const spec of lexicalEdges(readFileSync(file, "utf8"))) {
+            if (!spec.startsWith(".") && !spec.startsWith("@/")) continue;
+            const t = resolveSpecifier(file, spec, root);
+            if (!t || t === file) continue;
+            const key = relR(t);
+            const by = built.get(key) ?? [];
+            if (!by.includes(relR(file))) by.push(relR(file));
+            built.set(key, by);
+          }
+        }
+      }
+      index = built;
+    }
+    return index.get(r) ?? [];
   };
 }
 

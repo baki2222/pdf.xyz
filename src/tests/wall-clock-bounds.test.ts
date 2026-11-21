@@ -108,6 +108,9 @@ const BOUNDS = {
   vitest: [1200, 2000],
   e2e: [80, 200],
   support: [150, 450],
+  // 27 on 2026-11-21 (fakes, corpora, probe builders): a module only the
+  // corpus imports. Zero would mean the reverse index went blind.
+  testOnly: [10, 80],
   workflowScripts: [20, 60],
   sleeps: [100, 400],
   comparisons: [100, 500],
@@ -190,6 +193,9 @@ describe.skipIf(MODE)("the corpus is derived, plausible, and printed", () => {
       `  of which outside src/tests and e2e, calling the test framework (${audit.support.outside.length}):\n  ${audit.support.outside.join("\n  ")}`,
     );
     console.log(
+      `  of which outside src/tests and e2e, imported only by the corpus (${audit.support.testOnly.length}):\n  ${audit.support.testOnly.join("\n  ")}`,
+    );
+    console.log(
       `test-side files reached only from outside the suite, not scanned (${audit.support.external.length}):\n  ${audit.support.external.join("\n  ")}`,
     );
     expect(audit.support.broken).toEqual([]);
@@ -198,6 +204,11 @@ describe.skipIf(MODE)("the corpus is derived, plausible, and printed", () => {
       "a test-side script nothing in the corpus imports or names: reference it, or delete it",
     ).toEqual([]);
     within("support", audit.support.modules.length);
+    within("testOnly", audit.support.testOnly.length);
+    // A fake no product code loads: the testOnly reach's standing member.
+    expect(audit.support.testOnly).toContain(
+      "src/lib/workers/queue/redis-fake.ts",
+    );
     // The hook layer is in: setup.ts imports the poll-leak guard (critic P7).
     expect(audit.support.modules).toContain("src/tests/poll-leak-guard.ts");
     // Spawned children, child configs and their fixtures are in (the chain
