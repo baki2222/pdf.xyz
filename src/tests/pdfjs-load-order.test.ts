@@ -80,10 +80,12 @@ const CONFIG = "src/tests/pdfjs-load-order.vitest.config.ts";
  * How long the child vitest may run before spawnSync kills it. The child runs
  * the poisoner and every driver with no warm-up, cold, in one fork: CI max of
  * the whole test 56,493 ms over 31 runs (43998624497, 11-17), 55,628 ms in the
- * 11 runs of 11-21 (44891504062). 240 s is 4.25x, so a slow runner is never
- * mistaken for a hang, and a kill is reported as a kill (first assertion).
+ * 11 runs of 11-21 (44891504062). 150 s, as before 2026-11-21, is 2.65x
+ * that max. Not more: the load-order defect itself shows as a HANG of the
+ * child (see the first assertion), so every second added here is a second
+ * added to how long CI takes to report the regression this file exists for.
  */
-const KILL_MS = 240_000;
+const KILL_MS = 150_000;
 
 const repoPath = (path: string) => relative(ROOT, path).replaceAll("\\", "/");
 
@@ -215,10 +217,28 @@ describe("pdf.js load order under isolate:false", () => {
       // First, so a kill reads as one: spawnSync sets `error` when it kills the
       // child (ETIMEDOUT at KILL_MS, ENOBUFS past its 1 MiB buffer), whether or
       // not a report was written before it.
+      //
+      // A kill is NOT a reason to blame the runner. With the defect itself
+      // (pdfjs.ts loading the main build where DOMMatrix is absent) the child
+      // HUNG until this kill rather than failing fast (mutant, 2026-11-21),
+      // so the message names the file the child was inside and the trace's
+      // last entries before anything else.
       const killed = run.error as NodeJS.ErrnoException | undefined;
+      const ended = new Set(
+        traces.filter((t) => t.at === "end").map((t) => t.file),
+      );
+      const inside = traces
+        .filter((t) => t.at === "start" && !ended.has(t.file))
+        .map((t) => t.file);
       expect(
         killed,
-        `child killed after ${childMs} ms of ${KILL_MS} (${killed?.code}, status ${run.status}): the runner is too slow or the child hung; this is not a load-order failure\n${output}`,
+        [
+          `child killed after ${childMs} ms of ${KILL_MS} (${killed?.code}, status ${run.status}).`,
+          `A hang is how the poisoned main build showed itself when this was mutated, so this may be the load-order defect, not a slow runner.`,
+          `Started and never ended: ${inside.join(", ") || "(none)"}.`,
+          `Last trace entries: ${JSON.stringify(traces.slice(-4))}`,
+          output,
+        ].join("\n"),
       ).toBeUndefined();
       expect(wrote, `the child run wrote a report:\n${output}`).toBe(true);
 
