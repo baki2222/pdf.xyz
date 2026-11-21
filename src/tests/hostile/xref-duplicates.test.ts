@@ -601,7 +601,14 @@ describe("scanner", () => {
     //    about 2.4; a string built per hit about 17.4);
     //  - shape: the hostile scan at 128 KiB against 32 KiB (linear about 4,
     //    copy-on-push quadratic 16 or more).
-    // The header counts are the work-done witnesses, on any runner.
+    // The header counts are correctness checks, NOT witnesses for these
+    // bounds (review 2026-11-22): no cost regression changes them. A 9x
+    // per-byte mutant read xref-scan-per-byte 9.78-10.66 and a string per
+    // hit read xref-scan-per-hit 14.37, both green in measure mode. So the
+    // three ratios are listed in src/tests/wall-clock-pending.ts, where the
+    // guard counts them as having no speed-independent witness, until CI
+    // harvests flip them to assert. The bounds below are proposals from
+    // Windows (P11: never the bound source); the flip sets them from CI.
     const MiB = 1024 * 1024;
     const sparse = new Uint8Array(32 * MiB);
     let x = 0x9e3779b9;
@@ -676,12 +683,10 @@ describe("scanner", () => {
     expectRatioBelow("xref-scan-per-byte", best.sparse, best.ref, 10, {
       detail: said,
       mode: "measure",
-      witness: "counts",
     });
     expectRatioBelow("xref-scan-per-hit", best.hostile, best.sparse, 6, {
       detail: said,
       mode: "measure",
-      witness: "counts",
     });
     // Shape: per-iteration time of 128 KiB against 32 KiB of hostile
     // headers (16,384 and 4,096 hits on one key), each sample at least
@@ -702,10 +707,12 @@ describe("scanner", () => {
       scanObjectHeaders(large).headers.get(0)!.length,
     ];
     expect(shapeHits).toEqual([4096, 16384]);
-    expectRatioBelow("xref-scan-hits-linear", largePass, smallPass, 8, {
+    // Linear reads 4 by construction (four times the hits), copy-on-push
+    // quadratic 16. Proposed 10: under 16 / 1.5, and 2.5x over the linear
+    // floor (8 was exactly 2x over it, and a loaded Windows run read 4.45).
+    expectRatioBelow("xref-scan-hits-linear", largePass, smallPass, 10, {
       detail: `128 KiB ${largePass.toFixed(3)} ms, 32 KiB ${smallPass.toFixed(3)} ms a pass`,
       mode: "measure",
-      witness: "shapeHits",
     });
   }, 30_000);
 });

@@ -113,12 +113,16 @@ const BOUNDS = {
   testOnly: [10, 80],
   workflowScripts: [20, 60],
   sleeps: [100, 400],
-  // Raw comparisons shrink BY DESIGN as the fix lanes route them (104 on
-  // 2026-11-21; 79 once lane 2 routed 25 hostile ones), so the floor that
-  // says "the detector went blind" sits below the lanes' expected drain,
-  // and the routed + debt + exempt total below is the one that must not
-  // fall. Lower it again, with the new count, when a lane drains past it.
-  comparisons: [50, 500],
+  // Raw comparisons shrink BY DESIGN as the fix lanes route them: 104 at
+  // eea2c3ca, 86 on lane 2's branch (test/flake-lane-2, 2026-11-22: it
+  // routed 18 and kept raw the bounds whose witnesses could not see the
+  // defect). The floor that says "the detector went blind" sits just under
+  // the count a lane leaves, never at a guess of later drains, so a
+  // blindness of more than 6 still reds it; the routed + debt + exempt
+  // total below is the one that must not fall. Each lane that drains past
+  // it lowers it to its own count minus a few, in its own PR, with the
+  // count it saw (this file is shared: merge it, do not take either side).
+  comparisons: [80, 500],
   routedDebtExempt: [100, 500],
 } as const;
 

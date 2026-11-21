@@ -18,4 +18,23 @@ import type { PendingEntry } from "./time-bound-core";
  */
 export const PENDING_CAP = 25;
 
-export const WALL_CLOCK_PENDING: readonly PendingEntry[] = [];
+export const WALL_CLOCK_PENDING: readonly PendingEntry[] = [
+  {
+    id: "xref-scan-per-byte",
+    file: "src/tests/hostile/xref-duplicates.test.ts",
+    reason:
+      "a constant per-byte cost changes no count: a 9x per-byte mutant read 9.78-10.66 against 10, green (lane 2 review, 2026-11-22); flip to assert from CI harvests",
+  },
+  {
+    id: "xref-scan-per-hit",
+    file: "src/tests/hostile/xref-duplicates.test.ts",
+    reason:
+      "a constant per-hit cost changes no count: a string built per hit read 14.37 against 6, green in measure mode (lane 2 review, 2026-11-22); flip to assert from CI harvests",
+  },
+  {
+    id: "xref-scan-hits-linear",
+    file: "src/tests/hostile/xref-duplicates.test.ts",
+    reason:
+      "the hit counts are the same for a linear and a quadratic record step; only time tells them apart (lane 2 review, 2026-11-22); flip to assert from CI harvests",
+  },
+];
