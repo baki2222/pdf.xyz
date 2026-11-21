@@ -23,6 +23,7 @@ import {
   BookmarksEditor,
 } from "./bookmarks-editor";
 import { MetadataRunner } from "./metadata-runner";
+import { expectRatioBelow, observeFor } from "@/tests/time-bound";
 
 /**
  * Edit PDF Bookmarks' panel as a reader meets it: the real engine reads the
@@ -141,7 +142,13 @@ async function more(title: string) {
   fireEvent.click(
     screen.getByRole("button", { name: `More actions for “${title}”` }),
   );
-  return screen.findByRole("group", { name: `Actions for “${title}”` });
+  // OPEN_WAIT, named, not the 1 s default (ci-flake audit 2026-11-19, line
+  // 144): the rows are already drawn when this is called.
+  return screen.findByRole(
+    "group",
+    { name: `Actions for “${title}”` },
+    { timeout: OPEN_WAIT },
+  );
 }
 
 const live = () =>
@@ -157,7 +164,17 @@ async function save() {
   return panel;
 }
 
-describe("Edit PDF Bookmarks' panel", () => {
+/**
+ * Every test here may mount (READ_WAIT), save (READ_WAIT) and open a menu
+ * (OPEN_WAIT), so the describe's timeout lets each named wait run out first
+ * and fail with its DOM, never vitest's bare "timed out in 5000ms" (ci-flake
+ * audit 2026-11-19, lines 111/152/500/585: the panel-box test mounts twice,
+ * 1,364 ms on CI over 26 runs, 3.9x of the old 5 s default). Tests with
+ * their own value keep it.
+ */
+const PANEL_TESTS = { timeout: 2 * READ_WAIT + OPEN_WAIT };
+
+describe("Edit PDF Bookmarks' panel", PANEL_TESTS, () => {
   it("lists the outline nested, each row with its title and page", async () => {
     const list = (await mount(await fixture()))!;
     expect(titleInputs()).toEqual(["Part A", "A.1", "A.2", "Part B", "Part C"]);
@@ -248,11 +265,16 @@ describe("Edit PDF Bookmarks' panel", () => {
       g.IS_REACT_ACT_ENVIRONMENT = false;
       try {
         const name = "More actions for “Part B”";
-        const atClick = new Promise<string | null>((resolve) => {
+        // Raced against READ_WAIT (ci-flake audit 2026-11-19, line 300): an
+        // outline that never draws the button fails HERE, by name, with the
+        // observer disconnected, before the test's READ_WAIT + OPEN_WAIT.
+        let gaveUp: ReturnType<typeof setTimeout> | undefined;
+        const atClick = new Promise<string | null>((resolve, reject) => {
           const observer = new MutationObserver(() => {
             const opener = screen.queryByRole("button", { name });
             if (!opener) return;
             observer.disconnect();
+            clearTimeout(gaveUp);
             opener.click();
             // Read after React's own microtask: a SUBSCRIBED row has opened
             // by then (a click is a sync-lane update, flushed in a
@@ -260,6 +282,14 @@ describe("Edit PDF Bookmarks' panel", () => {
             queueMicrotask(() => resolve(opener.getAttribute("aria-expanded")));
           });
           observer.observe(document.body, { childList: true, subtree: true });
+          gaveUp = setTimeout(() => {
+            observer.disconnect();
+            reject(
+              new Error(
+                `the outline never drew ${name} within READ_WAIT (${READ_WAIT} ms)`,
+              ),
+            );
+          }, READ_WAIT);
         });
         render(
           <BookmarksEditor
@@ -287,8 +317,14 @@ describe("Edit PDF Bookmarks' panel", () => {
         const opener = screen.getByRole("button", { name });
         expect(opener.getAttribute("aria-expanded")).toBe("true");
         expect(within(group).getAllByRole("button")).toHaveLength(7);
-        // Nothing later in the panel's start-up closes it on its own.
-        await new Promise((r) => setTimeout(r, 50));
+        // Nothing later in the panel's start-up closes it on its own. A real
+        // timer on purpose: an act() flush would not catch a closer that is
+        // itself a timer.
+        await observeFor(
+          "bookmarks-menu-stays-open",
+          50,
+          "a negative window: no start-up timer closes the menu just opened",
+        );
         expect(opener.getAttribute("aria-expanded")).toBe("true");
         expect(
           screen.getByRole("group", { name: "Actions for “Part B”" }),
@@ -371,7 +407,9 @@ describe("Edit PDF Bookmarks' panel", () => {
       },
     );
     fireEvent.click(
-      within(await more("A.1")).getByRole("button", { name: /^Delete: “A.1”/ }),
+      within(await more("A.1")).getByRole("button", {
+        name: /^Delete: “A.1”/,
+      }),
     );
     fireEvent.click(screen.getByRole("button", { name: BOOKMARK_ADD_LABEL }));
     // The new row's title has focus and is selected for typing over.
@@ -443,7 +481,9 @@ describe("Edit PDF Bookmarks' panel", () => {
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
       "Indent: “Part B”",
     );
-    const outdentB = screen.getByRole("button", { name: "Outdent: “Part B”" });
+    const outdentB = screen.getByRole("button", {
+      name: "Outdent: “Part B”",
+    });
     outdentB.focus();
     fireEvent.click(outdentB);
     expect(
@@ -573,13 +613,41 @@ describe("Edit PDF Bookmarks' panel", () => {
     const first = screen.getByRole("textbox", {
       name: "Title, level 1, 1 of 400",
     });
-    commits.length = 0;
-    fireEvent.change(first, { target: { value: "Item 1x" } });
-    expect(commits.length).toBeGreaterThan(0);
-    const last = commits.at(-1)!;
-    // Health check: the profiler measured the whole list's cost.
-    expect(last.base).toBeGreaterThan(0);
-    expect(last.actual).toBeLessThan(last.base / 4);
+    // WAS one keystroke, `actual < base / 4` from one commit (ci-flake audit
+    // 2026-11-19, line 582; measured 15.18 against 13.86 under load). The
+    // two figures are recorded at different moments, and the first update
+    // after mount also allocates every row's alternate fiber, so a stall
+    // lands on the numerator alone. Now three keystrokes into the same
+    // field, the best ratio of the three (the 2nd and 3rd reuse the
+    // alternates). Rows un-memoised (drop `memo(` on BookmarkRow, or the
+    // useMemo on `shared`) re-render all 400: ratio about 1, in every
+    // sample. It records (pending: no speed-independent row-render count
+    // reaches this test without instrumenting bookmarks-editor.tsx) until
+    // CI prints the ratio; then the bound is set at 2x the CI maximum or
+    // more, and if that cannot sit under the mutant's ~1 with 2x margin,
+    // the check must become a render count.
+    const samples: { actual: number; base: number }[] = [];
+    for (const value of ["Item 1x", "Item 1xy", "Item 1xyz"]) {
+      commits.length = 0;
+      fireEvent.change(first, { target: { value } });
+      expect(commits.length).toBeGreaterThan(0);
+      const last = commits.at(-1)!;
+      // Health check: the profiler measured the whole list's cost.
+      expect(last.base).toBeGreaterThan(0);
+      samples.push(last);
+    }
+    const ratio = (x: { actual: number; base: number }) => x.actual / x.base;
+    const best = samples.reduce((a, b) => (ratio(b) < ratio(a) ? b : a));
+    expectRatioBelow(
+      "bookmarks-keystroke-actual-vs-base",
+      best.actual,
+      best.base,
+      1 / 4,
+      {
+        mode: "measure",
+        detail: `actual/base per keystroke ${samples.map((x) => ratio(x).toFixed(3)).join(" ")}`,
+      },
+    );
   }, 30_000);
 
   it("the panel box starts ticked for a file with no /PageMode, unticked for one opening to another panel — as the FAQ says", async () => {
