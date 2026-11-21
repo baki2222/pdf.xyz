@@ -22,6 +22,7 @@ import { PDFJS_DOCUMENT_DEFAULTS } from "../../lib/pdf/wasm-assets";
 import {
   XREF_ENTRY_FLOOR,
   ZERO_WIDTH_ROW_LIMIT,
+  prescanLexerSteps,
   prescanXref,
 } from "../../lib/pdf/xref-prescan";
 import { startMemoryMeter } from "./memory";
@@ -286,13 +287,19 @@ const ENTRIES: Record<string, (bytes: Uint8Array) => Promise<unknown>> = {
   },
   // The pre-scan alone, on the caller's thread as readAccessFacts runs it.
   async prescan(bytes) {
+    const before = prescanLexerSteps();
     const scan = prescanXref(bytes);
+    const steps = prescanLexerSteps() - before;
     return {
       settled: scan.unbounded ? "refused" : "passed",
       size: bytes.length,
       // The bytes it lexed (CI-flake audit lane 2, security-bounds L241):
       // the cost shape as a count, which no runner speed moves.
       lexed: scan.lexed,
+      // The bytes its lexers stepped over, charged or not (review 2026-11-22:
+      // `lexed` counts only what was charged, so a re-lex outside the
+      // budget left it byte-identical).
+      steps,
     };
   },
   async probe(bytes) {

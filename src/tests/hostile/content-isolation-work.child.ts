@@ -39,6 +39,7 @@ import { deflateSync } from "node:zlib";
 import { performance } from "node:perf_hooks";
 import { PDFDocument, PDFName } from "pdf-lib";
 import {
+  contentScanSteps,
   isolatePageContent,
   scanContentBalance,
 } from "../../lib/pdf/content-isolation";
@@ -100,8 +101,10 @@ function sizeRatio(
 ) {
   const a = build(small);
   const b = build(big);
-  scanContentBalance(a);
-  scanContentBalance(b);
+  // The warm-up scans also count the steps each size takes: the same at
+  // any speed, so linearity is a count as well as a time.
+  const smallSteps = stepsOf(a);
+  const bigSteps = stepsOf(b);
   const smallMs: number[] = [];
   const bigMs: number[] = [];
   for (let i = 0; i < 3; i += 1) {
@@ -113,7 +116,16 @@ function sizeRatio(
     bigBytes: b.length,
     smallMs: Math.min(...smallMs),
     bigMs: Math.min(...bigMs),
+    smallSteps,
+    bigSteps,
   };
+}
+
+/** The bytes one scan of `content` steps over (contentScanSteps). */
+function stepsOf(content: Uint8Array): number {
+  const before = contentScanSteps();
+  scanContentBalance(content);
+  return contentScanSteps() - before;
 }
 
 async function main() {
@@ -123,9 +135,11 @@ async function main() {
     const build = (n: number) =>
       latin1(head + unit.repeat(Math.floor((n - head.length) / unit.length)));
     const content = build(count);
+    const before = contentScanSteps();
     const t0 = Date.now();
     const got = scanContentBalance(content);
     const ms = Date.now() - t0;
+    const steps = contentScanSteps() - before;
     const sizes = process.argv[4]?.split(":").map(Number);
     reportResult({
       ms,
@@ -133,6 +147,7 @@ async function main() {
       surplus: got.surplus.length,
       open: got.open,
       uncertain: got.uncertain,
+      steps,
       ...(sizes ? { ratio: sizeRatio(build, sizes[0]!, sizes[1]!) } : {}),
     });
     return;
@@ -206,6 +221,7 @@ async function main() {
     }
     if (mode === "isolate-costly") {
       const loaded = await PDFDocument.load(await doc.save());
+      const before = contentScanSteps();
       const t0 = Date.now();
       const kinds: string[] = [];
       for (const p of loaded.getPages()) {
@@ -213,6 +229,7 @@ async function main() {
         kinds.push(o.kind === "skipped" ? `skipped:${o.reason}` : o.kind);
       }
       const ms = Date.now() - t0;
+      const steps = contentScanSteps() - before;
       // The meter's unit on this machine: 4 MiB of ordinary operators, the
       // shape one metered byte stands for, best of 3.
       const unitOp = "q 1 0 0 1 5.5 5 cm 0 0 m 10 10 l S Q\n";
@@ -225,7 +242,7 @@ async function main() {
         timedScan(ordinary),
         timedScan(ordinary),
       );
-      reportResult({ ms, kinds, ctrlMs: ctrl });
+      reportResult({ ms, kinds, ctrlMs: ctrl, steps, pageBytes: size });
       return;
     }
     const stamped = await stamp(doc);

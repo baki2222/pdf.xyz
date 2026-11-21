@@ -37,4 +37,10 @@ export const WALL_CLOCK_PENDING: readonly PendingEntry[] = [
     reason:
       "the hit counts are the same for a linear and a quadratic record step; only time tells them apart (lane 2 review, 2026-11-22); flip to assert from CI harvests",
   },
+  {
+    id: "content-isolation-costly-document-vs-budget",
+    file: "src/tests/hostile/content-isolation.test.ts",
+    reason:
+      "a metered unit that costs more time per byte it reads changes no count: kinds and scan steps both stay put (lane 2 verify, 2026-11-22); flip to assert from CI harvests",
+  },
 ];

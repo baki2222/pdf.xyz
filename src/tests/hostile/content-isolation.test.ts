@@ -830,7 +830,28 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
     bigBytes: number;
     smallMs: number;
     bigMs: number;
+    /** The bytes each scan stepped over (contentScanSteps): no clock in it. */
+    smallSteps: number;
+    bigSteps: number;
   };
+
+  /**
+   * The scan's work as counts (review 2026-11-22): the bytes it stepped
+   * over per byte scanned, against `perByte`, and the step count's own size
+   * ratio, which a linear scan holds at the byte ratio (8 here) and a
+   * quadratic one at its square. Six extra lexer passes ran 1.52x slower
+   * with every outcome unchanged, inside the old time ratio; as steps they
+   * are red. What only time sees: a step that got costlier per byte.
+   */
+  const stepShape = (
+    steps: number,
+    bytes: number,
+    perByte: number,
+    ratio: Ratio,
+  ) => ({
+    overSteps: Math.max(0, steps - perByte * bytes),
+    stepRatio: Math.round((ratio.bigSteps / ratio.smallSteps) * 10) / 10,
+  });
 
   test("a full budget of inline images that no EI ends scans in linear time", async () => {
     const got = await settle<{
@@ -838,6 +859,7 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
       bytes: number;
       surplus: number;
       uncertain: boolean;
+      steps: number;
       ratio: Ratio;
     }>(
       [
@@ -861,6 +883,13 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
     // Measure mode until harvested.
     const { ratio } = got;
     expect(ratio.bigBytes / ratio.smallBytes).toBeCloseTo(8, 1);
+    // Honest: 1.85 steps per byte (61,946,631 for 32 MiB), step ratio 8.0.
+    // One extra pass over the content is 2.85: red at 2.
+    const work = stepShape(got.steps, got.bytes, 2, ratio);
+    expect(work, `${got.steps} steps for ${got.bytes} bytes`).toEqual({
+      overSteps: 0,
+      stepRatio: 8,
+    });
     expectRatioBelow(
       "content-isolation-ei-less-linear",
       ratio.bigMs,
@@ -869,12 +898,12 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
       {
         detail: `full budget ${got.ms} ms; 4 MiB ${ratio.bigMs.toFixed(1)} ms, 512 KiB ${ratio.smallMs.toFixed(1)} ms`,
         mode: "measure",
-        witness: "found",
+        witness: "work",
       },
     );
   }, 90_000);
 
-  test("the costliest inline-image shape, EI candidates pdf.js tests one by one, scans in linear time (4 MiB: 1.2 s measured, 10 s allowed)", async () => {
+  test("the costliest inline-image shape, EI candidates pdf.js tests one by one, scans in linear time (as steps per byte and a size ratio)", async () => {
     // Every `EI ` passes pdf.js's printable test and costs a 75-byte lex, the
     // same work pdf.js does to display the page. The bare scan is unmetered;
     // isolatePageContent meters it (round 3, below), so here only linearity
@@ -894,13 +923,21 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
       ms: number;
       bytes: number;
       uncertain: boolean;
+      steps: number;
       ratio: Ratio;
     }>(["scan-dense-ei", String(size), `${256 * 1024}:${2 * 2 ** 20}`], 60_000);
     expect(got.bytes).toBeGreaterThan(size - 16);
-    const uncertain = got.uncertain;
-    expect(uncertain).toBe(true);
+    expect(got.uncertain).toBe(true);
     const { ratio } = got;
     expect(ratio.bigBytes / ratio.smallBytes).toBeCloseTo(8, 1);
+    // Honest: 31.0 steps per byte (130,022,012 for 4 MiB: each 3-byte `EI `
+    // is a 75-byte printable test and its lex), step ratio 8.0. One extra
+    // lexer pass over the content is 32: red at 31.5.
+    const work = stepShape(got.steps, got.bytes, 31.5, ratio);
+    expect(work, `${got.steps} steps for ${got.bytes} bytes`).toEqual({
+      overSteps: 0,
+      stepRatio: 8,
+    });
     expectRatioBelow(
       "content-isolation-dense-ei-linear",
       ratio.bigMs,
@@ -909,12 +946,12 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
       {
         detail: `4 MiB ${got.ms} ms; 2 MiB ${ratio.bigMs.toFixed(1)} ms, 256 KiB ${ratio.smallMs.toFixed(1)} ms`,
         mode: "measure",
-        witness: "uncertain",
+        witness: "work",
       },
     );
   }, 90_000);
 
-  test("past the document budget, pages are left as before: 12 distinct ~30 MB pages, 8 isolated (2.9 s measured, 15 s allowed)", async () => {
+  test("past the document budget, pages are left as before: 12 distinct ~30 MB pages, 8 isolated, the rest refused at their first chunk", async () => {
     const got = await settle<{
       ms: number;
       kinds: string[];
@@ -1009,16 +1046,18 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
     }, 90_000);
   }
 
-  test("the worst DOCUMENT for the work meter: 20 dense pages each scanned in full under the page budget, until the document budget (1.6 s measured, 10 s allowed)", async () => {
+  test("the worst DOCUMENT for the work meter: 20 dense pages each scanned in full under the page budget, until the document budget", async () => {
     // 512 KiB of `EI ` candidates costs ~23 MiB of work: under the page
     // budget, so each page is scanned to the end and charged in full, and
     // the document budget stops it after ~11 pages. Over the page budget
     // (the tests above) a page stops early; this is the shape that spends
     // the whole document budget on scanning.
-    const got = await settle<{ ms: number; kinds: string[]; ctrlMs: number }>(
-      ["isolate-costly", "dense", "20", "512"],
-      60_000,
-    );
+    const got = await settle<{
+      ms: number;
+      kinds: string[];
+      ctrlMs: number;
+      steps: number;
+    }>(["isolate-costly", "dense", "20", "512"], 60_000);
     // Health: the early pages really were scanned to the end (ambiguous is
     // decided only from a complete scan), and the budget then stopped it.
     const kinds = got.kinds;
@@ -1032,24 +1071,37 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
       ...Array(full).fill("skipped:ambiguous"),
       ...Array(20 - full).fill("skipped:budget"),
     ]);
-    // What only time sees: one metered unit costing far more than the
-    // ordinary byte it is charged as. Read against the same child's scan of
-    // 4 MiB of ordinary operators (best of 3): the whole document budget is
-    // 64 of them. Both are measure mode until harvested (CI-flake audit
-    // lane 2). It WAS `ms < 10_000`; CI's test reached 8,929 ms
-    // (44007721339), 1.12x. 20 s is 2.24x over that; the ratio's CI spread
-    // is estimated at 1.5-2.2 from same-run durations, never measured.
-    const said = `${got.ms} ms; 4 MiB ordinary ${got.ctrlMs.toFixed(1)} ms`;
+    // The work DONE against the work charged (review 2026-11-22: `kinds`
+    // cannot see a metered unit doing more than it is charged for). The
+    // bytes the scan stepped over (contentScanSteps), against the document
+    // budget, 256 MiB of charged work: honest 196,219,104 steps, 0.73 of
+    // it. A unit that reads more bytes than it is charged for, or an extra
+    // pass the meter never hears of, passes 0.8: six extra lexer passes
+    // read 0.87. Positive control: `full` pages above were scanned.
+    const documentBudget = 8 * ISOLATION_DECODE_BUDGET;
+    const overSteps = Math.max(0, got.steps - 0.8 * documentBudget);
+    expect(overSteps, `${got.steps} steps`).toBe(0);
+    expect(got.steps).toBeGreaterThan(full * 512 * 1024);
+    // What only time sees: one metered unit costing far more TIME than the
+    // ordinary byte it is charged as, its bytes unchanged. Read against the
+    // same child's scan of 4 MiB of ordinary operators (best of 3): the
+    // whole document budget is 64 of them. Both are measure mode until
+    // harvested (CI-flake audit lane 2). It WAS `ms < 10_000`; CI's test
+    // reached 8,929 ms (44007721339), 1.12x. 20 s is 2.24x over that; the
+    // ratio's CI spread is estimated at 1.5-2.2 from same-run durations,
+    // never measured. The ratio is the one check of that per-unit cost, so
+    // it is pending (wall-clock-pending.ts), not witnessed.
+    const said = `${got.ms} ms; 4 MiB ordinary ${got.ctrlMs.toFixed(1)} ms; ${got.steps} steps`;
     measureTime("content-isolation-costly-document", got.ms, 20_000, {
       detail: said,
-      witness: "kinds",
+      witness: "overSteps",
     });
     expectRatioBelow(
       "content-isolation-costly-document-vs-budget",
       got.ms,
       64 * got.ctrlMs,
       4.5,
-      { detail: said, mode: "measure", witness: "kinds" },
+      { detail: said, mode: "measure" },
     );
   }, 90_000);
 

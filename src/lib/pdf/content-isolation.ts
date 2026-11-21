@@ -111,6 +111,22 @@ const IMAGE_WORK = 128;
 /** pdfjsInlineEnd's result when the meter runs out. */
 const OUT_OF_WORK = -2;
 
+/**
+ * Bytes the scan has stepped over since the module loaded: every lexer
+ * advance, every byte pdfjsInlineEnd's search read, and the span endsImage's
+ * printable test may read. No meter is charged from it, so a test can hold
+ * the work DONE against the bytes scanned: extra passes, or a search that
+ * re-reads, show as a count no runner's speed moves (CI-flake audit lane 2:
+ * six extra lexer passes ran 1.52x slower with every outcome unchanged).
+ * What it cannot see is a step that got costlier per byte.
+ */
+let scanSteps = 0;
+
+/** For tests: {@link scanSteps}. */
+export function contentScanSteps(): number {
+  return scanSteps;
+}
+
 /** Graphics-state balance of a page's content, as a viewer executes it. */
 export interface ContentBalance {
   /** Byte offsets of each `Q` that pops an empty stack (a viewer ignores it). */
@@ -259,6 +275,13 @@ class Lexer {
   }
 
   next(): TokKind {
+    const from = this.pos;
+    const kind = this.step();
+    scanSteps += this.pos - from;
+    return kind;
+  }
+
+  private step(): TokKind {
     const { b, end } = this;
     let i = this.pos;
     for (;;) {
@@ -415,26 +438,32 @@ function pdfjsInlineEnd(
   meter: Meter,
 ): number {
   let state = 0;
-  for (let p = from; p < n; p += 1) {
-    const ch = b[p]!;
-    if (state === 0) state = ch === 69 ? 1 : 0;
-    else if (state === 1) state = ch === 73 ? 2 : 0;
-    else {
-      state = 0;
-      if (ch === 32 || ch === 10 || ch === 13) {
-        if ((meter.left -= CANDIDATE_WORK) < 0) return OUT_OF_WORK;
-        if (endsImage(b, p + 1, n)) return p - 2;
+  let p = from;
+  try {
+    for (; p < n; p += 1) {
+      const ch = b[p]!;
+      if (state === 0) state = ch === 69 ? 1 : 0;
+      else if (state === 1) state = ch === 73 ? 2 : 0;
+      else {
+        state = 0;
+        if (ch === 32 || ch === 10 || ch === 13) {
+          if ((meter.left -= CANDIDATE_WORK) < 0) return OUT_OF_WORK;
+          if (endsImage(b, p + 1, n)) return p - 2;
+        }
       }
+      if (knownNone && ch !== 69 && ch !== 73) return -1;
     }
-    if (knownNone && ch !== 69 && ch !== 73) return -1;
+    return state === 2 ? n - 2 : -1; // EI ends the content
+  } finally {
+    scanSteps += p - from;
   }
-  return state === 2 ? n - 2 : -1; // EI ends the content
 }
 
 /** pdf.js's test of what follows a candidate `EI` and its whitespace. */
 function endsImage(b: Uint8Array, after: number, n: number): boolean {
   if (after >= n) return true;
   const stop = Math.min(n, after + PRINTABLE_LOOKAHEAD);
+  scanSteps += stop - after; // the span it may read, an upper bound
   for (let k = after; k < stop; k += 1) {
     const ch = b[k]!;
     if (ch === 0 && b[k + 1] !== 0) continue;

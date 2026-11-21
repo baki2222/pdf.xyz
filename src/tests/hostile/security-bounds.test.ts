@@ -279,14 +279,34 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
         // runner; the old `ms < 1_000` caught it only on a slow one.
         const overLexed = Math.max(0, lexed - (9 * size + 9 * 2 ** 20));
         expect(overLexed, `${fixture}: lexed ${lexed} of ${size}`).toBe(0);
+        // `lexed` is what the budget was CHARGED, so it cannot see lexing
+        // the budget never hears of: review 2026-11-22 re-lexed each
+        // dictionary 40 more times outside it, ran 21x slower, and `lexed`
+        // stayed byte-identical. So also the bytes every lexer stepped over
+        // (`steps`, counted in the Lexer itself), against what was charged.
+        // Honest: 1.375x lexed on both xref fixtures (parseValue backs up
+        // over the two tokens after a number to test for `n g R`), 1.008x
+        // on the trailer one. 2x + 1 MiB: one extra full pass is red.
+        // Positive control: every charged byte here is a lexed byte.
+        const steps = v.steps as number;
+        expect(steps, `${fixture}: steps`).toBeGreaterThanOrEqual(0.9 * lexed);
+        const lexWork = {
+          overLexed,
+          overSteps: Math.max(0, steps - (2 * lexed + 2 ** 20)),
+        };
+        expect(lexWork, `${fixture}: lexed ${lexed}, steps ${steps}`).toEqual({
+          overLexed: 0,
+          overSteps: 0,
+        });
         // Time is a backstop, never what catches the multiplier. `< 1_000`
         // had about 1.05-1.4x on slow CI runners (test max 9,251 ms in
         // 43636213581 for three children). Measure mode until harvested,
-        // with a floor of 3 s.
+        // with a floor of 3 s. What only time sees: a lexer step that got
+        // costlier per byte.
         measureTime("sib03-prescan-unclosed", v.ms as number, 3_000, {
           instance: fixture,
-          detail: `lexed ${lexed} bytes`,
-          witness: "overLexed",
+          detail: `lexed ${lexed} bytes, ${steps} steps`,
+          witness: "lexWork",
         });
       }
     },
