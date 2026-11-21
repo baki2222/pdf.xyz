@@ -52,7 +52,7 @@ import path from "node:path";
 import vm from "node:vm";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
-import config from "../../playwright.config";
+import config, { e2eReporters } from "../../playwright.config";
 
 const ROOT = path.resolve(__dirname, "../..");
 const SRC = path.join(ROOT, "src");
@@ -225,9 +225,17 @@ describe("Playwright loads every e2e module as CommonJS", () => {
     typeof config.globalSetup === "string"
       ? [path.resolve(ROOT, config.globalSetup)]
       : [];
+  // Reporters named by path are loaded through the same CommonJS path, so
+  // they are entries too — read from the CI reporter list, the one that
+  // carries them (a reporter that fails to load stops the whole run).
+  const reporters = e2eReporters(true)
+    .map(([name]) => name)
+    .filter((name) => name.startsWith("."))
+    .map((name) => path.resolve(ROOT, name));
   const entries = [
     path.join(ROOT, "playwright.config.ts"),
     ...globalSetup,
+    ...reporters,
     ...specs,
   ];
 
@@ -243,6 +251,8 @@ describe("Playwright loads every e2e module as CommonJS", () => {
     // would report the strongest possible pass.
     expect(specs.length).toBeGreaterThanOrEqual(15);
     expect(specs.map(rel)).toContain("e2e/client-proof/client-tools.spec.ts");
+    // The CI reporter list names at least the headroom reporter by path.
+    expect(reporters.map(rel)).toContain("e2e/headroom-reporter.ts");
   });
 
   const graph = loadGraph(entries);
