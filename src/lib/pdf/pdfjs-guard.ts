@@ -1626,6 +1626,19 @@ function labelledNotContent(
 }
 
 /**
+ * What every stream scan in this process has done, as counts: the bytes
+ * inflated, and the bytes each object scanner (`/Kids`, `/Contents` and
+ * reference counters of an object stream) was fed, counted INSIDE the
+ * scanner's own `feed` (its `fed` field), so a caller that hands a chunk
+ * over twice shows as more fed than inflated whatever calls it. Only ever
+ * added to. The hostile suite reads it around one refusal
+ * (src/tests/hostile/pdfjs-guard-bounds.test.ts), where no runner's speed
+ * can hide a re-read. What it cannot see: extra work INSIDE one scanner's
+ * `feed` for the bytes it was fed once; only that test's time ratio does.
+ */
+export const pdfjsScanWork = { inflated: 0, refs: 0, contents: 0, kids: 0 };
+
+/**
  * One pass over every stream in `bytes`, bounded and LINEAR in the file's
  * size (work past that is charged to a budget and refused): every stream
  * pdf.js may read as content has its leading Flate, ASCIIHex and ASCII85
@@ -1657,19 +1670,26 @@ function labelledNotContent(
  * {@link DictMatcher}. Every reading of a stream is scanned, so a disagreement
  * can only add work, never hide a stream.
  */
-/**
- * What every stream scan in this process has done, as counts: the bytes
- * inflated, and of them the bytes handed to the object scanners (the
- * `/Kids`, `/Contents` and reference counters of an object stream). Only
- * ever added to. The hostile suite reads it around one refusal
- * (src/tests/hostile/pdfjs-guard-bounds.test.ts): a preflight that
- * re-reads what it inflated shows as more scanned than inflated, which no
- * runner's speed can hide, where its time against a yardstick could.
- */
-export const pdfjsScanWork = { inflated: 0, objectScanned: 0 };
-
 export async function scanPdfStreams(
   bytes: Uint8Array,
+): Promise<PdfStreamScan> {
+  const refs = new RefCounter();
+  const contents = new ContentsRefs();
+  const kids = new KidsCounter();
+  try {
+    return await scanStreamsWith(bytes, refs, contents, kids);
+  } finally {
+    pdfjsScanWork.refs += refs.fed;
+    pdfjsScanWork.contents += contents.fed;
+    pdfjsScanWork.kids += kids.fed;
+  }
+}
+
+async function scanStreamsWith(
+  bytes: Uint8Array,
+  refs: RefCounter,
+  contents: ContentsRefs,
+  kids: KidsCounter,
 ): Promise<PdfStreamScan> {
   const scan: PdfStreamScan = {
     streams: 0,
@@ -1694,9 +1714,6 @@ export async function scanPdfStreams(
   };
   /** Streams that may be content whose operators the scan could not read. */
   let hiddenContent = 0;
-  const refs = new RefCounter();
-  const contents = new ContentsRefs();
-  const kids = new KidsCounter();
   /** The largest decoded object stream: what any array held in one can hold. */
   let largestObjectStream = 0;
   /** Every object stream decoded, to find an array object held in one. */
@@ -1877,7 +1894,6 @@ export async function scanPdfStreams(
       ops?.feed(c);
       unpredicted?.feed(c);
       if (objects) {
-        pdfjsScanWork.objectScanned += c.length;
         refs.feed(c);
         contents.feed(c);
         kids.feed(c);

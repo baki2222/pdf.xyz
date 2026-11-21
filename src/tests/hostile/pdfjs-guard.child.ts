@@ -856,7 +856,9 @@ if (kind === "open") {
         yardstick: stick,
         work: {
           inflated: pdfjsScanWork.inflated - before.inflated,
-          objectScanned: pdfjsScanWork.objectScanned - before.objectScanned,
+          refs: pdfjsScanWork.refs - before.refs,
+          contents: pdfjsScanWork.contents - before.contents,
+          kids: pdfjsScanWork.kids - before.kids,
         },
       };
     }
@@ -867,7 +869,7 @@ let growth: {
   method: string;
   ms: number;
   yardstick: Yardstick;
-  work: { inflated: number; objectScanned: number };
+  work: { inflated: number; refs: number; contents: number; kids: number };
 } | null = null;
 
 const run = CASES[process.argv[2] ?? ""];
