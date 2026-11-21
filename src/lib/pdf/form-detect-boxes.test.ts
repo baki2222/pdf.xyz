@@ -418,8 +418,9 @@ beforeAll(async () => {
 describe("the S4 corpus, through the real reader", () => {
   it("health: the corpus is the size it was written at, both ways", () => {
     const n = (k: string) => BOX_CASES.filter((c) => c.kind === k).length;
-    // 10 and 12 until review round 1 added P70 to P76 and N70 to N78.
-    expect(n("positive")).toBe(17);
+    // 10 and 12 until review round 1 added P70 to P76 and N70 to N78;
+    // review round 2 added P77.
+    expect(n("positive")).toBe(18);
     expect(n("negative")).toBe(21);
     expect(RUNS.size).toBe(BOX_CASES.length);
   });
@@ -969,5 +970,67 @@ describe("review round 1: shapes the first cut got wrong", () => {
       );
     expect(at(14.6)).toEqual([["labelled-rule", "Comments", true]]);
     expect(at(14.7)).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  Review round 2 (verify pass on e352803d): untested lines it found
+ * ------------------------------------------------------------------ */
+
+describe("review round 2: lines the verify pass found no test for", () => {
+  const brief = (p: CardPage) =>
+    props(p).map((x) => [x.rule, x.label, x.multiline === true]);
+  const out = (p: CardPage) =>
+    classifyPage(p).excluded.map((e) => [
+      e.rule,
+      e.box.x,
+      e.box.x + e.box.width,
+    ]);
+
+  // A box's top edge that runs on as a line is no longer only the box's
+  // top: merged with the line, it must still be reckoned with (listed with
+  // its reason), not dropped as the top of a box that took a field. The
+  // line gets no field here ("Date" over it is not taken as its label);
+  // that is the older merge logic, not S4, and is not pinned as wanted.
+  it("a box's top edge running on as a line to its right stays a line, not the box's top", () => {
+    const p = pg({
+      rects: [rect(110, 610, 300, 60)],
+      segs: [hseg(410, 560, 670)],
+      text: [
+        txt("Notes", 110, 674, { width: 25 }),
+        txt("Date", 430, 674, { width: 20 }),
+      ],
+    });
+    expect(brief(p)).toEqual([["entry-box", "Notes", true]]);
+    // The merged line, 110..560 less the 1 pt inset each end.
+    expect(out(p)).toContainEqual(["unlabelled", 111, 559]);
+    // Control: a top edge that does NOT run on is dropped as the box's
+    // top, so nothing is listed for it.
+    const alone = pg({
+      rects: [rect(110, 610, 300, 60)],
+      text: [txt("Notes", 110, 674, { width: 25 })],
+    });
+    expect(brief(alone)).toEqual([["entry-box", "Notes", true]]);
+    expect(out(alone)).toEqual([]);
+  });
+
+  // Paint.framed: a line counts as a frame round a box only when it lies
+  // MORE than BORDER_EPS outside the box's edge. A copy of the box within
+  // that is the same box drawn twice (a duplicate), not a frame round it.
+  it("a box drawn again 1.5 pt outside itself is a duplicate, not a box in a frame; 2.5 pt out, a frame", () => {
+    const at = (d: number) =>
+      pg({
+        // Edges clear of the 50 pt lookup cells' borders (see DOUBLE_GAP).
+        rects: [
+          rect(110, 610, 380, 80),
+          rect(110 - d, 610 - d, 380 + 2 * d, 80 + 2 * d),
+        ],
+        text: [txt("Remarks", 110, 696, { width: 40 })],
+      });
+    const rules = (p: CardPage) => out(p).map(([r]) => r);
+    expect(brief(at(1.5))).toEqual([["entry-box", "Remarks", true]]);
+    expect(rules(at(1.5))).toEqual(["duplicate"]);
+    expect(brief(at(2.5))).toEqual([]);
+    expect(rules(at(2.5))).toContain("filled-box");
   });
 });

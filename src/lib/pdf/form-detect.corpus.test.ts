@@ -88,15 +88,17 @@ describe("corpus health (FATAL when it fails)", () => {
       ...range("N", 58, 69),
       // Its review round 1 (2026-11-21), same file.
       ...range("P", 70, 76),
+      // Its review round 2 (2026-11-22): a swoosh larger than its box.
+      "P77",
       ...range("N", 70, 78),
       // O8 and O9 added in review round 7 (2026-11-19): a page the reader
       // sees sideways, and a scan with an OCR text layer.
       ...range("O", 1, 9),
     ];
-    expect(expected).toHaveLength(165);
+    expect(expected).toHaveLength(166);
     expect([...DETECT_CASES.map((c) => c.id)].sort()).toEqual(expected.sort());
     for (const [k, n] of [
-      ["positive", 81],
+      ["positive", 82],
       ["negative", 75],
       ["outcome", 9],
     ] as const)

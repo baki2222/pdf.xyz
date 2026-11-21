@@ -182,6 +182,8 @@ export const S4 = {
     ["Name:", [130, 662, 300, 20]],
     ["City:", [130, 622, 300, 20]],
   ],
+  // Review round 2.
+  P77: [72, 600, 300, 100],
 } as const;
 
 /** Where each composed-chain case drew its box or stack (page 1). */
@@ -383,6 +385,22 @@ export const ROUND1_CASES: readonly DetectCase[] = [
         }
       }),
     expect: S4.P76.map(([label, b]) => entry(label.replace(":", ""), b, false)),
+  },
+  {
+    id: "P77",
+    kind: "positive",
+    note: 'an empty 300 x 100 box captioned "Notes", with a large swoosh that starts inside it and sweeps out across the page: one multiline field filling the box (100 >= max(36, 22)), the swoosh larger than the box and so no paint in it (review round 2: the reader sizes a curve by its control points, not by where it starts)',
+    build: () =>
+      onePage(async (page) => {
+        const [x, y, w, h] = S4.P77;
+        await text(page, "Notes", x, over(S4.P77));
+        box(page, x, y, w, h);
+        // One Bezier from (100, 650), inside the box, to (590, 780), its
+        // control points at (400, 1000) and (500, 100): its control hull
+        // is x 100..590, y 100..1000, far larger than the box.
+        raw(page, "q 1.5 w 0 0 0 RG 100 650 m 400 1000 500 100 590 780 c S Q");
+      }),
+    expect: [entry("Notes", S4.P77, true)],
   },
   {
     id: "N70",
