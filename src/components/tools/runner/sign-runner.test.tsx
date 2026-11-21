@@ -40,20 +40,25 @@ afterEach(() => {
  * pipeline's lazy chunks (cold per file in the native-canvas project), the
  * editor's status line, a page's pointer handling.
  *
- * CI: the wait-headroom blocks saw the two checkbox waits (:225 and :293 on
- * main) take 1855 and 1826 ms (run 44931945692, main at eea2c3ca), 1101 and
- * 1212 ms in runs 44924793701 and 44917160721 — every time past the 1 s
- * default they ran under. 4 s is 2.2x the slowest, and below every test's
- * own timeout (20 s or more), so a wait that times out fails with its DOM
- * dump, not "test timed out".
+ * CI: five wait-headroom blocks saw the two checkbox waits (:225 and :293
+ * on main) take, slowest first, 1855/1826 ms (run 44931945692, main at
+ * eea2c3ca), 1059/1278 (44941026100), 881/1264 (44938151052), 1097/1212
+ * (44917160721) and 1101/1068 (44924793701): nearly every time past the 1 s
+ * default they ran under, and 1.7x apart between consecutive runs. 5 s is
+ * 2.7x the slowest, kept above 2x against that spread (review of lane 3:
+ * 4 s was 2.16x from three samples), and below every test's own timeout
+ * (20 s or more), so a wait that times out fails with its DOM dump, not
+ * "test timed out". Re-harvest it first if these waits grow.
  */
-const WAIT_MS = 4_000;
+const WAIT_MS = 5_000;
 /**
  * The decode-and-encode waits, 5 s on main: the second upload's (:260 on
  * main) took 2815 ms in run 44931945692 — 56% of 5 s, under the 2x this
- * programme holds a bound to. 6 s is 2.1x, below the tests' 30 s.
+ * programme holds a bound to; the other four blocks did not list it, so it
+ * stayed under 2.5 s there. One high sample, so 7 s (2.5x), below the
+ * tests' 30 s.
  */
-const ENCODE_MS = 6_000;
+const ENCODE_MS = 7_000;
 
 async function openSignRunner() {
   const doc = await PDFDocument.create();
