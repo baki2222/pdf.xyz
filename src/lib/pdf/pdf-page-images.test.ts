@@ -11,6 +11,7 @@
  * reads sizes from dictionaries and never decodes an image.
  */
 import { readdirSync, readFileSync } from "node:fs";
+import { GCProfiler } from "node:v8";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
@@ -918,12 +919,7 @@ describe("the map's work is bounded on the main thread", () => {
     const decodes = (await mapWith(bytes, false)).decodes;
     expect(decodes).toBe(1);
     // Before: 6.4 s for 200 pages, 87.5 s for 2,000 (hostile review r1).
-    // CI: 467 ms for the whole test (12 passing runs, 2026-11-18), so 5 s is
-    // 10.7x; it records until CI calibrates it.
-    expectFasterThan("ppi-shared-stream-200-pages", ms, 5_000, {
-      mode: "measure",
-      witness: "decodes",
-    });
+    expect(ms).toBeLessThan(5_000);
   }, 30_000);
 
   it("...and with a distinct /Resources on every page: a weight walks only what paints, so the 3.9 million `Q` cost nothing past their one read", async () => {
@@ -942,11 +938,7 @@ describe("the map's work is bounded on the main thread", () => {
     // summary cache alone makes that one a page (ci-flake audit, line 895).
     const decodes = (await mapWith(bytes, false)).decodes;
     expect(decodes).toBe(1);
-    // CI: 425 ms for the whole test (2026-11-18), so 5 s is 11.8x.
-    expectFasterThan("ppi-distinct-resources-200-pages", ms, 5_000, {
-      mode: "measure",
-      witness: "decodes",
-    });
+    expect(ms).toBeLessThan(5_000);
   }, 30_000);
 
   it("...and one name run 400,000 times, or one inline image read 200,000 times, is weighed once a page: every page complete and measured", async () => {
@@ -970,17 +962,10 @@ describe("the map's work is bounded on the main thread", () => {
       const pre = await preflightPdfjsBytes(bytes);
       const ms = Date.now() - t0;
       expect(pre.pages!.incomplete).toBeNull();
-      const weighed = weights(pre);
-      expect(weighed).toHaveLength(200);
-      expect(new Set(weighed)).toEqual(new Set([each]));
+      expect(weights(pre)).toHaveLength(200);
+      expect(new Set(weights(pre))).toEqual(new Set([each]));
       expect(pageImageVerdict(pre, { num: 6 })).toBe(verdict);
-      // CI: 796 ms for the whole test, both files (ci-flake audit
-      // 2026-11-19), so 5 s a file is 6.3x or more.
-      expectFasterThan("ppi-repeated-paint-200-pages", ms, 5_000, {
-        mode: "measure",
-        witness: "weighed",
-        instance: String(each),
-      });
+      expect(ms).toBeLessThan(5_000);
     }
   }, 60_000);
 
@@ -1421,15 +1406,10 @@ describe("the map's cost is linear in what pages name", () => {
     expect(pre.pages!.incomplete).toBeNull();
     expect(pre.pages!.weights.size).toBe(pages);
     // Each page paints the 49 MP image 20,000 times.
-    const painted = new Set(pre.pages!.weights.values());
-    expect(painted).toEqual(new Set([refs * 49_000_000]));
-    // CI: under the reporter's 300 ms floor in every run read (ci-flake
-    // audit 2026-11-19), so 3 s is 10x or more; it records until CI
-    // calibrates it. A quadratic walk is a 100x-class slowdown here.
-    expectFasterThan("ppi-contents-array-40-pages", ms, 3_000, {
-      mode: "measure",
-      witness: "painted",
-    });
+    expect(new Set(pre.pages!.weights.values())).toEqual(
+      new Set([refs * 49_000_000]),
+    );
+    expect(ms).toBeLessThan(3_000);
   }, 60_000);
 });
 
@@ -1591,17 +1571,9 @@ describe("review r3 (2026-11-14): never worse than main", () => {
     const pre = await preflightPdfjsBytes(lattice(22, "content"));
     const ms = Date.now() - t0;
     expect(pre.pages!.incomplete).toBeNull();
-    const weight = pre.pages!.weights.get(3);
-    expect(weight).toBe(2 ** 21 * 1_000_000);
+    expect(pre.pages!.weights.get(3)).toBe(2 ** 21 * 1_000_000);
     expect(pre.pages!.exact.get(3)).toBe(2 ** 21 * 1_000_000);
-    // CI: under 300 ms in every run read (ci-flake audit 2026-11-19), so
-    // 2 s is 6.7x or more. The defect it names (a memo key per path) also
-    // ends the map, which `incomplete` and the exact weight catch at any
-    // speed; it records until CI calibrates it.
-    expectFasterThan("ppi-diamond-lattice", ms, 2_000, {
-      mode: "measure",
-      witness: "weight",
-    });
+    expect(ms).toBeLessThan(2_000);
   }, 30_000);
 
   it("an annotation's /D and /R appearances are never drawn by pdf.js, so they weigh nothing; its /N is weighed", async () => {
@@ -1641,15 +1613,7 @@ describe("review r3 (2026-11-14): never worse than main", () => {
     }
     const t0 = Date.now();
     const pre = await preflightPdfjsBytes(rawPdf(objects));
-    const ms = Date.now() - t0;
-    const pages = pre.pages!.weights.size;
-    expect(pages).toBe(1);
-    // CI: under 300 ms in every run read (ci-flake audit 2026-11-19), so
-    // 3 s is 10x or more; it records until CI calibrates it.
-    expectFasterThan("ppi-cyclic-lattice", ms, 3_000, {
-      mode: "measure",
-      witness: "pages",
-    });
+    expect(Date.now() - t0).toBeLessThan(3_000);
     expect(pre.pages!.incomplete).toBeNull();
     // At least what pdf.js paints: 2^17 bottom forms, each its image once
     // (each one's /T is the top form, its own ancestor: refused).
@@ -1885,9 +1849,10 @@ describe("review r3 (2026-11-14): never worse than main", () => {
    * per-row allocation put back in the unpredictor slows the subject alone.
    * Control and subject alternate, best of two each, after a warm-up of
    * both. K = 16 is the audit's provisional figure, not a CI one; it and the
-   * 20 s ceiling record until CI prints the ratio. `weight` (the page with
-   * no image weighs 0, the map complete) is what fails meanwhile; it cannot
-   * see the allocation, only a map the predictor broke.
+   * 20 s ceiling record until CI prints the ratio. What fails meanwhile is
+   * `allocationFree`, the collections the read triggers counted against
+   * the control's (review 2026-11-22: the earlier witness, `weight`, could
+   * not see the allocation, and the mutant passed at 79.8x).
    */
   it("content behind /Predictor 12 /Columns 1 is read in a fraction of the 8 s that 64 MB took", async () => {
     const { deflateSync } = await import("node:zlib");
@@ -1907,30 +1872,54 @@ describe("review r3 (2026-11-14): never worse than main", () => {
     const bytes = fileWith(" /DecodeParms << /Predictor 12 /Columns 1 >>");
     const plain = fileWith("");
     const time = async (file: Uint8Array) => {
+      const gc = new GCProfiler();
+      gc.start();
       const t0 = Date.now();
-      const pre = await preflightPdfjsBytes(file);
-      return { pre, ms: Date.now() - t0 };
+      try {
+        const pre = await preflightPdfjsBytes(file);
+        return { pre, ms: Date.now() - t0, gcs: gc.stop().statistics.length };
+      } catch (error) {
+        gc.stop();
+        throw error;
+      }
     };
     await time(plain);
     let control = Infinity;
     let subject = Infinity;
+    let controlGcs = Infinity;
+    let subjectGcs = Infinity;
     let pre: PdfjsPreflight | undefined;
     for (let round = 0; round < 2; round += 1) {
-      control = Math.min(control, (await time(plain)).ms);
+      const base = await time(plain);
+      control = Math.min(control, base.ms);
+      controlGcs = Math.min(controlGcs, base.gcs);
       const run = await time(bytes);
       subject = Math.min(subject, run.ms);
+      subjectGcs = Math.min(subjectGcs, run.gcs);
       pre = run.pre;
     }
     expect(pre!.pages!.incomplete).toBeNull();
     const weight = pre!.pages!.weights.get(3);
     expect(weight).toBe(0);
+    // The allocation itself, counted: garbage collections during the read,
+    // over the control's (dev host 2026-11-22: 8 against 4, 6 against 2).
+    // One `new Uint8Array` a row put back in the unpredictor (its fast path
+    // off, the row swap allocating) read 132 against 2: 32 million rows of
+    // garbage. A collection is triggered by bytes allocated, not by time, so
+    // the count reads the same on a slow runner. 40 is 3x under that mutant
+    // and over 6x the honest excess.
+    const allocationFree = subjectGcs - controlGcs < 40;
+    expect(
+      allocationFree,
+      `collections: predictor ${subjectGcs}, plain ${controlGcs}`,
+    ).toBe(true);
     expectRatioBelow("ppi-predictor-columns-1-vs-plain", subject, control, 16, {
       mode: "measure",
-      witness: "weight",
+      witness: "allocationFree",
     });
     expectFasterThan("ppi-predictor-columns-1-ceiling", subject, 20_000, {
       mode: "measure",
-      witness: "weight",
+      witness: "allocationFree",
     });
     // WAS 60 s: four 64 MiB preflights and a warm-up now, at today's CI
     // maximum about 12 s; 120 s keeps the ceiling's two attempts inside it.
