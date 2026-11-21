@@ -151,6 +151,46 @@ async function more(title: string) {
   );
 }
 
+/** The part of a React fiber this file reads. */
+interface Fiber {
+  key: string | null;
+  type: unknown;
+  memoizedState: unknown;
+  child: Fiber | null;
+  sibling: Fiber | null;
+  stateNode: unknown;
+}
+
+/**
+ * Every BookmarkRow of the tree React has COMMITTED, by key, mapped to its
+ * hook list. A render allocates a fresh hook list (React clones each hook
+ * into the work-in-progress fiber); a bailout (memo's props equal, no
+ * context change) keeps the old one. So, across one update, "the hook list
+ * is a different object" is "the row rendered": a count of work, the same
+ * on any runner. Read from the root's `current` tree, never from a DOM
+ * node's fiber, which may be the stale half of React's double buffer.
+ */
+function rowHookLists(container: Element): Map<string, unknown> {
+  const rootKey = Object.keys(container).find((k) =>
+    k.startsWith("__reactContainer$"),
+  );
+  const hostRoot = (container as unknown as Record<string, Fiber>)[rootKey!]!;
+  const rows = new Map<string, unknown>();
+  const stack: Fiber[] = [(hostRoot.stateNode as { current: Fiber }).current];
+  while (stack.length > 0) {
+    const fiber = stack.pop()!;
+    if (
+      typeof fiber.type === "function" &&
+      fiber.type.name === "BookmarkRow" &&
+      fiber.key !== null
+    )
+      rows.set(fiber.key, fiber.memoizedState);
+    if (fiber.sibling) stack.push(fiber.sibling);
+    if (fiber.child) stack.push(fiber.child);
+  }
+  return rows;
+}
+
 const live = () =>
   document.querySelector('[aria-live="polite"][role="status"]')!.textContent;
 
@@ -584,7 +624,7 @@ describe("Edit PDF Bookmarks' panel", PANEL_TESTS, () => {
       type: "application/pdf",
     });
     const commits: { actual: number; base: number }[] = [];
-    render(
+    const { container } = render(
       <Profiler
         id="editor"
         onRender={(_id, _phase, actual, base) => commits.push({ actual, base })}
@@ -621,13 +661,13 @@ describe("Edit PDF Bookmarks' panel", PANEL_TESTS, () => {
     // field, the best ratio of the three (the 2nd and 3rd reuse the
     // alternates). Rows un-memoised (drop `memo(` on BookmarkRow, or the
     // useMemo on `shared`) re-render all 400: ratio about 1, in every
-    // sample. It records (pending: no speed-independent row-render count
-    // reaches this test without instrumenting bookmarks-editor.tsx) until
-    // CI prints the ratio; then the bound is set at 2x the CI maximum or
-    // more, and if that cannot sit under the mutant's ~1 with 2x margin,
-    // the check must become a render count.
+    // sample. That defect is held by `rendered`, a count of the rows each
+    // keystroke rendered, read from React's committed tree; the ratio
+    // records until CI prints it.
     const samples: { actual: number; base: number }[] = [];
+    const rendered: number[] = [];
     for (const value of ["Item 1x", "Item 1xy", "Item 1xyz"]) {
+      const before = rowHookLists(container);
       commits.length = 0;
       fireEvent.change(first, { target: { value } });
       expect(commits.length).toBeGreaterThan(0);
@@ -635,7 +675,18 @@ describe("Edit PDF Bookmarks' panel", PANEL_TESTS, () => {
       // Health check: the profiler measured the whole list's cost.
       expect(last.base).toBeGreaterThan(0);
       samples.push(last);
+      const after = rowHookLists(container);
+      // Health check: the walk found every row, before and after.
+      expect([before.size, after.size]).toEqual([400, 400]);
+      rendered.push(
+        [...after].filter(([key, hooks]) => before.get(key) !== hooks).length,
+      );
     }
+    // The rows each keystroke rendered, counted (review 2026-11-22): one,
+    // the row typed into. Dropping `memo(` on BookmarkRow reads 400 400 400
+    // (the Profiler ratio 1.01, recording); so does the useMemo on `shared`
+    // removed, which re-renders every row through the context.
+    expect(rendered).toEqual([1, 1, 1]);
     const ratio = (x: { actual: number; base: number }) => x.actual / x.base;
     const best = samples.reduce((a, b) => (ratio(b) < ratio(a) ? b : a));
     expectRatioBelow(
@@ -645,6 +696,7 @@ describe("Edit PDF Bookmarks' panel", PANEL_TESTS, () => {
       1 / 4,
       {
         mode: "measure",
+        witness: "rendered",
         detail: `actual/base per keystroke ${samples.map((x) => ratio(x).toFixed(3)).join(" ")}`,
       },
     );
