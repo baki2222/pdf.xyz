@@ -1657,6 +1657,17 @@ function labelledNotContent(
  * {@link DictMatcher}. Every reading of a stream is scanned, so a disagreement
  * can only add work, never hide a stream.
  */
+/**
+ * What every stream scan in this process has done, as counts: the bytes
+ * inflated, and of them the bytes handed to the object scanners (the
+ * `/Kids`, `/Contents` and reference counters of an object stream). Only
+ * ever added to. The hostile suite reads it around one refusal
+ * (src/tests/hostile/pdfjs-guard-bounds.test.ts): a preflight that
+ * re-reads what it inflated shows as more scanned than inflated, which no
+ * runner's speed can hide, where its time against a yardstick could.
+ */
+export const pdfjsScanWork = { inflated: 0, objectScanned: 0 };
+
 export async function scanPdfStreams(
   bytes: Uint8Array,
 ): Promise<PdfStreamScan> {
@@ -1866,6 +1877,7 @@ export async function scanPdfStreams(
       ops?.feed(c);
       unpredicted?.feed(c);
       if (objects) {
+        pdfjsScanWork.objectScanned += c.length;
         refs.feed(c);
         contents.feed(c);
         kids.feed(c);
@@ -1889,6 +1901,7 @@ export async function scanPdfStreams(
     if (decoding.length > 0) scan.inflated += 1;
     scan.maxStreamBytes = Math.max(scan.maxStreamBytes, decoded);
     scan.totalBytes += decoded;
+    pdfjsScanWork.inflated += decoded;
     if (objects) {
       largestObjectStream = Math.max(largestObjectStream, decoded);
       objectStreams.push({ s, decoding, bytes: decoded });

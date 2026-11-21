@@ -736,8 +736,7 @@ const CASES: Record<string, () => Promise<unknown>> = {
     raster(await indirectSubtypePdf()),
   "scan-unmatched-dict-preflight": async () =>
     preflight(unmatchedDictSoup(500_000)),
-  "scan-no-endstream-preflight": async () =>
-    preflight(noEndstreamSoup(200_000)),
+  "scan-no-endstream-preflight": async () => preflight(noEndstreamSoup(50_000)),
 };
 
 // Lane res1: every pdf.js open goes through the preflight. Each reader that
@@ -839,6 +838,10 @@ if (kind === "open") {
     // constant (see ./yardstick.ts). Before the meter: it is not the
     // reader's cost, in time or memory.
     const stick = await inflateScanYardstick();
+    // The preflight's own work counts (pdfjs-guard.ts `pdfjsScanWork`),
+    // read around the reader alone: the warm-up's scans are before it.
+    const { pdfjsScanWork } = await import("@/lib/pdf/pdfjs-guard");
+    const before = { ...pdfjsScanWork };
     // Measured from here: the fixture's own build is not the reader's cost.
     const meter = startMemoryMeter();
     const t0 = performance.now();
@@ -851,6 +854,10 @@ if (kind === "open") {
         method: meter.method,
         ms: Math.round(performance.now() - t0),
         yardstick: stick,
+        work: {
+          inflated: pdfjsScanWork.inflated - before.inflated,
+          objectScanned: pdfjsScanWork.objectScanned - before.objectScanned,
+        },
       };
     }
   };
@@ -860,6 +867,7 @@ let growth: {
   method: string;
   ms: number;
   yardstick: Yardstick;
+  work: { inflated: number; objectScanned: number };
 } | null = null;
 
 const run = CASES[process.argv[2] ?? ""];
