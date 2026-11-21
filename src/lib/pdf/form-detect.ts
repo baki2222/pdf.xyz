@@ -7,7 +7,10 @@ import type { Rect, Seg } from "./form-detect-paths";
  * propose where a fillable field might go, and say why each other shape was
  * passed over.
  *
- * LIMITS, in plain words. It looks at six shapes only: a run of
+ * LIMITS, in plain words. It looks at seven shapes only (slice S4 added
+ * the seventh, and one field over stacked lines; see {@link DETECT_BOXES}):
+ * an empty outlined box with a label, its field filling it, and three or
+ * more equal blank lines under one caption, one field over them all; a run of
  * underscores typed in the text (labelled beside it, or, alone in a ruled
  * cell, by the cell to its left), a straight line with a label near it
  * (beside it, under it, at the top of the strip it closes, or on the
@@ -51,6 +54,7 @@ export const DETECTION_RULES = [
   { id: "table-cell", plain: "empty cells beside a label in a table" },
   { id: "dot-leader", plain: "dotted lines after a label" },
   { id: "box-glyph", plain: "box symbols in the text" },
+  { id: "entry-box", plain: "larger empty boxes to write in" },
 ] as const;
 
 /** Why a shape was passed over, in the order they are decided (mostly). */
@@ -59,6 +63,7 @@ export const EXCLUSION_RULES = [
   { id: "full-width-divider" },
   { id: "page-band" },
   { id: "table-grid" },
+  { id: "filled-box" },
   { id: "comb" },
   { id: "bullet" },
   { id: "signature" },
@@ -376,6 +381,61 @@ export const DETECT_TEXT_SHAPES = {
   BULLET_COLUMN_MIN: 3,
 } as const;
 
+/**
+ * The thresholds of slice S4 (entry boxes and stacked lines), kept apart from
+ * {@link DETECT} so each literal table stays its own slice's; this one's
+ * literal table, and each value's boundary test, are in
+ * form-detect-boxes.test.ts.
+ */
+export const DETECT_BOXES = {
+  /**
+   * An ENTRY BOX is an outlined box, closed on its own (a `re`, a closed
+   * four-edge path, or four separate lines whose corners meet within
+   * DETECT.JOIN_EPS), at least ENTRY_MIN_W wide and at most ENTRY_MAX_SPAN
+   * of the page's width, ENTRY_MIN_H to ENTRY_MAX_H tall. With a label (the
+   * search an outlined box's bottom edge already has: beside it, just over
+   * its top, or just under it) and no text inside, its field fills it,
+   * inset DETECT.FIELD_INSET. A box with text inside keeps the field under
+   * its caption that it had before (`labelled-rule`), and a box of any
+   * other size is read as before too.
+   */
+  ENTRY_MIN_W: 40,
+  ENTRY_MAX_SPAN: 0.9,
+  ENTRY_MIN_H: 12,
+  ENTRY_MAX_H: 120,
+  /**
+   * A box at least max(MULTILINE_MIN_H, MULTILINE_EMS x its label's size)
+   * tall (DETECT.DEFAULT_SIZE when it has no label text) is a box for
+   * several lines of writing: its field is multiline.
+   */
+  MULTILINE_MIN_H: 36,
+  MULTILINE_EMS: 2.2,
+  /**
+   * STACKED LINES under one label: a stack `evenRuns` finds (3 or more
+   * rules whose ends line up, at an even pitch: the fewest that show a
+   * pitch at all), at a pitch of STACK_PITCH_MIN up to (not including)
+   * STACK_PITCH_MAX, no rule of it labelled, a box's edge or a table's row,
+   * no text between its lowest and highest rule, and a caption just over
+   * its highest (the search an empty box's top has): ONE multiline field
+   * from its lowest rule to the top of its highest one's writing space.
+   * Under the minimum pitch it is a double rule, not lines to write on.
+   */
+  STACK_PITCH_MIN: 12,
+  STACK_PITCH_MAX: 30,
+  /**
+   * What is drawn within this of a box's edge is its border, not inside it
+   * (a neighbour's edge drawn up against it, a fill laid under its outline
+   * a little larger): see `filled-box`.
+   */
+  BORDER_EPS: 2,
+  /**
+   * A work bound, not a shape: what is drawn on a page is looked up in
+   * cells this many points square when asking whether a box holds
+   * anything, so the question costs the cells a box covers, not the page.
+   */
+  PAINT_CELL: 50,
+} as const;
+
 /** Box symbols, empty: a ballot box and a white square. */
 export const EMPTY_BOXES: readonly string[] = [cp(0x2610), cp(0x25a1)];
 /** Box symbols already answered: with a tick, with a cross (`ticked-box`). */
@@ -431,6 +491,8 @@ export interface CardPage {
   widgets: Box[];
   /** Share of the page covered by images, 0..1. */
   imageCover: number;
+  /** The boxes images are painted into, when known (an image frame's picture). */
+  images?: Box[];
 }
 
 /** Where a field might go, in the same frame as its page. Whole points. */
@@ -444,6 +506,12 @@ export interface FieldProposal {
   type: "text" | "checkbox";
   label: string | null;
   rule: DetectionRuleId;
+  /**
+   * Set (true) only on a text field meant for several lines: a tall entry
+   * box, or one field over stacked lines. The builder's card then has
+   * "Multiple lines" on, and the saved field its multiline flag.
+   */
+  multiline?: true;
 }
 
 export interface DetectCounts {
@@ -734,7 +802,7 @@ interface Line {
    * The bottom edge of a larger outlined box, with the box's top, while it
    * is merged with nothing: it takes the box's caption (`ruleCandidates`).
    */
-  boxBottom?: { top: number };
+  boxBottom?: { top: number; rect: CardRect };
   /**
    * The stroke's weight (a filled bar's height), for `continuationLines`:
    * merged pieces keep the first piece's. Undefined for a run's baseline.
@@ -777,14 +845,30 @@ function isSquare(r: CardRect): boolean {
  * lefts, rights and tops and the cost stays linear in the page's segments.
  * (Without that bound the map did not make it linear: 2,400 edges at one
  * corner, every left paired with every right, took 12.7 s.)
+ *
+ * Slice S4: edges an ENTRY BOX could have ({@link DETECT_BOXES}: level ones
+ * ENTRY_MIN_W to ENTRY_MAX_SPAN of the page wide, plumb ones ENTRY_MIN_H to
+ * ENTRY_MAX_H tall) are joined the same way, so a box drawn as four lines
+ * is read as one drawn with `re`.
  */
-function joinSquares(segs: readonly CardSeg[]): {
+function joinSquares(
+  segs: readonly CardSeg[],
+  pageWidth: number,
+): {
   rects: CardRect[];
   used: Set<CardSeg>;
 } {
   const eps = DETECT.JOIN_EPS;
-  const fits = (len: number) =>
+  const side = (len: number) =>
     len >= DETECT.SQUARE_MIN - eps && len <= DETECT.SQUARE_MAX + eps;
+  const fitsLevel = (len: number) =>
+    side(len) ||
+    (len >= DETECT_BOXES.ENTRY_MIN_W - eps &&
+      len <= DETECT_BOXES.ENTRY_MAX_SPAN * pageWidth + eps);
+  const fitsPlumb = (len: number) =>
+    side(len) ||
+    (len >= DETECT_BOXES.ENTRY_MIN_H - eps &&
+      len <= DETECT_BOXES.ENTRY_MAX_H + eps);
   type Level = { x0: number; x1: number; y: number; s: CardSeg };
   type Plumb = { x: number; y0: number; y1: number; s: CardSeg };
   const key = (a: number, b: number) => `${Math.round(a)}|${Math.round(b)}`;
@@ -813,7 +897,7 @@ function joinSquares(segs: readonly CardSeg[]): {
     if (!s.stroked) continue;
     const dx = Math.abs(s.x1 - s.x0);
     const dy = Math.abs(s.y1 - s.y0);
-    if (dy <= eps && fits(dx)) {
+    if (dy <= eps && fitsLevel(dx)) {
       const l = {
         x0: Math.min(s.x0, s.x1),
         x1: Math.max(s.x0, s.x1),
@@ -822,7 +906,7 @@ function joinSquares(segs: readonly CardSeg[]): {
       };
       add(levels, key(l.x0, l.y), l);
       bottoms.push(l);
-    } else if (dx <= eps && fits(dy)) {
+    } else if (dx <= eps && fitsPlumb(dy)) {
       const v = {
         x: (s.x0 + s.x1) / 2,
         y0: Math.min(s.y0, s.y1),
@@ -876,7 +960,7 @@ function readLines(p: CardPage): PageLines {
   const raw: Line[] = [];
   const verticals: PageLines["verticals"] = [];
   const squares: CardRect[] = [];
-  const joined = joinSquares(p.segs);
+  const joined = joinSquares(p.segs, p.width);
   for (const s of p.segs) {
     if (joined.used.has(s)) continue;
     const dy = Math.abs(s.y1 - s.y0);
@@ -910,7 +994,13 @@ function readLines(p: CardPage): PageLines {
       // A larger outlined box: its edges are lines like any other, except
       // that its top edge takes no caption from inside the box.
       raw.push(
-        { x0: r.x0, x1: r.x1, y: r.y0, w: r.width, boxBottom: { top: r.y1 } },
+        {
+          x0: r.x0,
+          x1: r.x1,
+          y: r.y0,
+          w: r.width,
+          boxBottom: { top: r.y1, rect: r },
+        },
         { x0: r.x0, x1: r.x1, y: r.y1, w: r.width, boxTop: true },
       );
       verticals.push(
@@ -1027,6 +1117,13 @@ interface Candidate {
   leadsTo?: boolean;
   /** A box symbol: answered, one of a row of character boxes, a bullet. */
   glyph?: { ticked: boolean; comb: boolean; bullet: boolean };
+  /** A field for several lines (a tall entry box, or stacked lines). */
+  multiline?: boolean;
+  /**
+   * The bottom edge of an entry-sized box that holds something drawn or
+   * painted: a fill, a picture, or other lines or boxes (`filled-box`).
+   */
+  boxPainted?: boolean;
 }
 
 const clamp = (v: number, lo: number, hi: number) =>
@@ -1758,6 +1855,234 @@ function continuationLines(p: CardPage, rows: Map<Line, RuleRow>): void {
   });
 }
 
+/** Whether an outlined box is an entry box's size ({@link DETECT_BOXES}). */
+function entrySized(r: CardRect, pageWidth: number): boolean {
+  const w = r.x1 - r.x0;
+  const h = r.y1 - r.y0;
+  return (
+    w >= DETECT_BOXES.ENTRY_MIN_W &&
+    w <= DETECT_BOXES.ENTRY_MAX_SPAN * pageWidth &&
+    h >= DETECT_BOXES.ENTRY_MIN_H &&
+    h <= DETECT_BOXES.ENTRY_MAX_H
+  );
+}
+
+/**
+ * Whether anything is drawn inside a box other than its own edges: a stroke
+ * (a line, or an outlined box's edge) reaching its inside (the box less
+ * {@link DETECT_BOXES.BORDER_EPS} each side, so a neighbour's edge drawn
+ * up against it is not inside it), or a fill or a picture lying within it
+ * (within BORDER_EPS). A box painted with a fill of its own counts too. A
+ * fill or picture LARGER than an entry box (a tinted panel or a page-sized
+ * picture behind a form) does not: the box is drawn over it, not round it.
+ * What is drawn is looked up in cells {@link DETECT_BOXES.PAINT_CELL}
+ * square, filed only in the cells over the page (a line 4,000,000 pt long
+ * once filed itself in 80,000), so each question costs the cells its box
+ * covers.
+ */
+function paintedIndex(p: CardPage): (r: CardRect) => boolean {
+  const STEP = DETECT_BOXES.PAINT_CELL;
+  type Mark = Edges & { solid: boolean };
+  const cells = new Map<string, Mark[]>();
+  const cell = (v: number) => Math.floor(v / STEP);
+  // The page's cells, one more each side: nothing past them is asked about.
+  const I = [cell(0) - 1, cell(p.width) + 1];
+  const J = [cell(0) - 1, cell(p.height) + 1];
+  const span = (lo: number, hi: number, [a, b]: number[]) => [
+    Math.max(a!, cell(lo)),
+    Math.min(b!, cell(hi)),
+  ];
+  const put = (m: Mark) => {
+    if ([m.x0, m.y0, m.x1, m.y1].some(Number.isNaN)) return;
+    const [i0, i1] = span(m.x0, m.x1, I);
+    const [j0, j1] = span(m.y0, m.y1, J);
+    for (let i = i0!; i <= i1!; i++)
+      for (let j = j0!; j <= j1!; j++) {
+        const k = `${i}|${j}`;
+        const list = cells.get(k);
+        if (list) list.push(m);
+        else cells.set(k, [m]);
+      }
+  };
+  const fits = (w: number, h: number) =>
+    w <= DETECT_BOXES.ENTRY_MAX_SPAN * p.width && h <= DETECT_BOXES.ENTRY_MAX_H;
+  const line = (x0: number, y0: number, x1: number, y1: number) =>
+    put({
+      x0: Math.min(x0, x1),
+      y0: Math.min(y0, y1),
+      x1: Math.max(x0, x1),
+      y1: Math.max(y0, y1),
+      solid: false,
+    });
+  for (const s of p.segs) line(s.x0, s.y0, s.x1, s.y1);
+  for (const r of p.rects) {
+    if (r.stroked) {
+      line(r.x0, r.y0, r.x1, r.y0);
+      line(r.x1, r.y0, r.x1, r.y1);
+      line(r.x1, r.y1, r.x0, r.y1);
+      line(r.x0, r.y1, r.x0, r.y0);
+    }
+    if (r.filled && fits(r.x1 - r.x0, r.y1 - r.y0))
+      put({ x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1, solid: true });
+  }
+  for (const b of p.images ?? [])
+    if (fits(b.width, b.height))
+      put({
+        x0: b.x,
+        y0: b.y,
+        x1: b.x + b.width,
+        y1: b.y + b.height,
+        solid: true,
+      });
+  return (r) => {
+    if (r.filled) return true;
+    const e = DETECT_BOXES.BORDER_EPS;
+    const inner = { x0: r.x0 + e, y0: r.y0 + e, x1: r.x1 - e, y1: r.y1 - e };
+    const holds = (m: Mark) =>
+      m.solid
+        ? m.x0 >= r.x0 - e &&
+          m.x1 <= r.x1 + e &&
+          m.y0 >= r.y0 - e &&
+          m.y1 <= r.y1 + e
+        : m.x0 <= inner.x1 &&
+          m.x1 >= inner.x0 &&
+          m.y0 <= inner.y1 &&
+          m.y1 >= inner.y0;
+    const [i0, i1] = span(inner.x0, inner.x1, I);
+    const [j0, j1] = span(inner.y0, inner.y1, J);
+    for (let i = i0!; i <= i1!; i++)
+      for (let j = j0!; j <= j1!; j++)
+        if ((cells.get(`${i}|${j}`) ?? []).some(holds)) return true;
+    return false;
+  };
+}
+
+/**
+ * Whether any text stands inside a box: a non-blank item whose baseline is
+ * between its edges and which reaches past its left or right edge's inset
+ * (a label ending at the box's edge is beside it, not in it).
+ */
+function textInside(ix: TextIndex, r: Edges): boolean {
+  const e = DETECT.FIELD_INSET;
+  return textBand(ix, r.y0, r.y1).some(
+    (t) =>
+      t.str.trim() !== "" &&
+      t.y > r.y0 &&
+      t.y < r.y1 &&
+      overlap(t.x, t.x + Math.max(0, t.width), r.x0 + e, r.x1 - e) > 0,
+  );
+}
+
+/**
+ * Entry boxes ({@link DETECT_BOXES}): each outlined box of an entry box's
+ * size, by its bottom edge's row, is asked whether it holds anything drawn
+ * (`boxPainted`, for `filled-box`); an empty one (no text inside either)
+ * becomes an `entry-box` whose field fills it, multiline when it is tall
+ * for its label. Run after the label passes, so the label is final and the
+ * box is the box's, whatever those passes set.
+ */
+function entryBoxes(
+  p: CardPage,
+  ix: TextIndex,
+  rows: ReadonlyMap<Line, RuleRow>,
+): void {
+  let painted: ((r: CardRect) => boolean) | undefined;
+  for (const [r, row] of rows) {
+    const rect = r.boxBottom?.rect;
+    if (!rect || !entrySized(rect, p.width)) continue;
+    painted ??= paintedIndex(p);
+    row.c.boxPainted = painted(rect);
+    if (textInside(ix, rect)) continue;
+    const e = DETECT.FIELD_INSET;
+    const h = rect.y1 - rect.y0;
+    row.c.rule = "entry-box";
+    row.c.box = {
+      x0: rect.x0 + e,
+      y0: rect.y0 + e,
+      x1: rect.x1 - e,
+      y1: rect.y1 - e,
+    };
+    row.c.multiline =
+      h >=
+      Math.max(
+        DETECT_BOXES.MULTILINE_MIN_H,
+        DETECT_BOXES.MULTILINE_EMS * (row.size ?? DETECT.DEFAULT_SIZE),
+      );
+  }
+}
+
+/**
+ * Stacked lines under one label ({@link DETECT_BOXES.STACK_PITCH_MIN}): each
+ * stack becomes ONE multiline `labelled-rule` field, labelled by the caption
+ * over its highest rule, and its rules' own candidates (all unlabelled)
+ * are dropped from `out`. A stack with any line labelled is left alone, so
+ * labelled lines stay one field each.
+ */
+function stackedLines(
+  lines: PageLines,
+  rows: Map<Line, RuleRow>,
+  rowTable: ReadonlySet<Line>,
+  ix: TextIndex,
+  out: Candidate[],
+): void {
+  const used = new Set<Line>();
+  const made: Candidate[] = [];
+  for (const { run } of evenRuns(lines.rules)) {
+    const pitch = run[1]!.y - run[0]!.y;
+    if (
+      pitch < DETECT_BOXES.STACK_PITCH_MIN ||
+      pitch >= DETECT_BOXES.STACK_PITCH_MAX
+    )
+      continue;
+    if (
+      run.some(
+        (r) =>
+          used.has(r) ||
+          rowTable.has(r) ||
+          r.boxTop ||
+          r.boxBottom ||
+          rows.get(r)?.c.labelState !== "none",
+      )
+    )
+      continue;
+    const low = run[0]!;
+    const top = run[run.length - 1]!;
+    const x0 = Math.min(...run.map((r) => r.x0));
+    const x1 = Math.max(...run.map((r) => r.x1));
+    if (textInside(ix, { x0, x1, y0: low.y, y1: top.y })) continue;
+    const cap = boxCaption(ix, { x0, x1, y: low.y }, top.y);
+    if (!cap) continue;
+    run.forEach((r) => used.add(r));
+    const bottom = low.y + DETECT.RULE_BOTTOM_GAP;
+    made.push({
+      rule: "labelled-rule",
+      type: "text",
+      box: {
+        x0: x0 + DETECT.FIELD_INSET,
+        x1: x1 - DETECT.FIELD_INSET,
+        y0: bottom,
+        y1:
+          top.y +
+          DETECT.RULE_BOTTOM_GAP +
+          textHeight(cap.text.size, DETECT.TEXT_H_RULE),
+      },
+      line: top,
+      square: null,
+      label: cap.str,
+      labelState: "found",
+      leftLabel: false,
+      ownPiece: null,
+      order: 0,
+      multiline: true,
+    });
+  }
+  if (used.size === 0) return;
+  for (const r of used) rows.delete(r);
+  const kept = out.filter((c) => !(c.line && used.has(c.line)));
+  out.length = 0;
+  out.push(...kept, ...made);
+}
+
 function ruleCandidates(
   p: CardPage,
   lines: PageLines,
@@ -1898,6 +2223,9 @@ function ruleCandidates(
   }
   stripCaptions(lines, rows, rowTable);
   continuationLines(p, rows);
+  // Slice S4, once every label is settled.
+  entryBoxes(p, ix, rows);
+  stackedLines(lines, rows, rowTable, ix, out);
   return out;
 }
 
@@ -3586,7 +3914,15 @@ export function classifyPage(
         continue;
       }
     }
-    if (c.line && on("page-band") && inBand(c.line.y, p.height)) {
+    // An entry box is in the band only when all of it is (its bottom edge
+    // can sit in the band under a box that reaches well above it).
+    if (
+      c.line &&
+      on("page-band") &&
+      inBand(c.line.y, p.height) &&
+      (c.rule !== "entry-box" ||
+        inBand(c.line.boxBottom?.top ?? c.box.y1, p.height))
+    ) {
       const len = c.line.x1 - c.line.x0;
       // A line labelled only by the text under it, in the band: a header or
       // footer rule, which a one-page document repeats nowhere (review
@@ -3607,12 +3943,18 @@ export function classifyPage(
     }
     if (
       c.line &&
-      c.rule === "labelled-rule" &&
+      (c.rule === "labelled-rule" || c.rule === "entry-box") &&
       on("table-grid") &&
       (gridTouches(c.line, lines.verticals) ||
         (rowTable.has(c.line) && !c.leftLabel))
     ) {
       exclude("table-grid", c.box);
+      continue;
+    }
+    // A box that holds a picture, a fill or other lines or boxes is no
+    // empty box to write in (slice S4).
+    if (c.boxPainted && on("filled-box")) {
+      exclude("filled-box", c.box);
       continue;
     }
     if (c.square) {
@@ -3749,6 +4091,9 @@ export function classifyPage(
       type: s.c.type,
       label: s.c.label,
       rule: s.c.rule,
+      ...(s.c.multiline && s.c.type === "text"
+        ? { multiline: true as const }
+        : {}),
     });
   }
   proposals.sort((a, b) => b.y - a.y || a.x - b.x);
@@ -3808,7 +4153,7 @@ export function nameFor(
 /**
  * Proposals as the builder's field specs: named by {@link nameFor} against
  * `taken` (and each other), with the defaults a new card has (no default
- * value, single line, unchecked).
+ * value, unchecked), multiline only where the proposal says so.
  */
 export function proposalToDraftFields(
   proposals: readonly FieldProposal[],
@@ -3829,7 +4174,7 @@ export function proposalToDraftFields(
       height: p.height,
     };
     return p.type === "text"
-      ? { type: "text" as const, ...at, multiline: false }
+      ? { type: "text" as const, ...at, multiline: p.multiline === true }
       : { type: "checkbox" as const, ...at, checked: false };
   });
 }

@@ -254,9 +254,10 @@ describe("rule tables", () => {
     expect(new Set(ids).size).toBe(ids.length);
     // 3 until review round 4 added table-cell (the owner's decision on the
     // Word-style two-column table, round 3's finding 9); 4 and 17 until
-    // slice S3 added dot-leader, box-glyph, toc-leader and ticked-box.
-    expect(DETECTION_RULES).toHaveLength(6);
-    expect(EXCLUSION_RULES).toHaveLength(19);
+    // slice S3 added dot-leader, box-glyph, toc-leader and ticked-box; 6
+    // and 19 until slice S4 added entry-box and filled-box.
+    expect(DETECTION_RULES).toHaveLength(7);
+    expect(EXCLUSION_RULES).toHaveLength(20);
   });
 
   // The independent second bound on every threshold (CLAUDE.md, guards

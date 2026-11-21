@@ -1,0 +1,242 @@
+/**
+ * Slice S4's cost (entry boxes and stacked lines): a same-run size ratio,
+ * never a wall-clock bound. A file of its own: run beside the real reader
+ * (form-detect-boxes.test.ts runs pdf.js over its corpus first), the large
+ * side of the box ratio read 5x slower for the heap that left behind
+ * (2.36 s against 0.48 s for the same page), and a ratio is only as fair as
+ * its two sides' conditions.
+ *
+ * WHAT IS TIMED, AND WHAT IS NOT. A page of N empty labelled boxes is not
+ * linear BEFORE slice S4: `gridTouches` scans every plumb line on the page
+ * for each line that reaches the table-grid step, and every box's top edge
+ * (a line with no label) reaches it, so the page costs N x 2N there
+ * (origin/main ac88cac3: 24x the time for 8x the boxes; with this slice
+ * 25x; profiled 2026-11-21, `gridTouches` and its filter on top). That is
+ * reported, not this slice's to fix, and these pages are built so that no
+ * line reaches that step: each box's top edge is passed over as an
+ * underline (a wide caption 2.5 pt over it) and each box as a signature
+ * line, both decided before it. Every S4 question about each box (is it an
+ * entry box's size, does it hold text, does it hold anything drawn) is
+ * still asked, and the health checks read that it was from the excluded
+ * box's geometry (the box's inside, not a line's strip).
+ */
+import { describe, expect, it } from "vitest";
+import {
+  classifyPage,
+  type CardPage,
+  type CardRect,
+  type CardSeg,
+  type CardText,
+} from "./form-detect";
+
+const txt = (str: string, x: number, y: number, width: number): CardText => ({
+  str,
+  x,
+  y,
+  width,
+  size: 10,
+  upright: true,
+});
+
+const rect = (x: number, y: number, w: number, h: number): CardRect => ({
+  x0: x,
+  y0: y,
+  x1: x + w,
+  y1: y + h,
+  width: 0.75,
+  stroked: true,
+  filled: false,
+  lum: 0,
+});
+
+const hseg = (x0: number, x1: number, y: number): CardSeg => ({
+  x0,
+  y0: y,
+  x1,
+  y1: y,
+  width: 0.75,
+  stroked: true,
+  filled: false,
+  lum: 0,
+});
+
+const pg = (o: Partial<CardPage>): CardPage => ({
+  page: 1,
+  width: 612,
+  height: 792,
+  segs: [],
+  rects: [],
+  text: [],
+  widgets: [],
+  imageCover: 0,
+  ...o,
+});
+
+/**
+ * The time-boxed convention of form-detect.test.ts (copied, not imported,
+ * so this file depends on no other file's helpers): each function runs
+ * again and again for SAMPLE_MS per sample, the samples INTERLEAVED, 3 of
+ * them, after one untimed warm-up of the first; each side keeps its best
+ * time per call (a pause only ever adds). On GitHub Actions the ratio is
+ * printed as `[time-bound] <name>: ratio R (bound B)`, pass or fail.
+ */
+const SAMPLE_MS = 100;
+
+interface Timed<T> {
+  ms: number;
+  calls: number;
+  got: T;
+}
+
+function interleavedBest<T>(fns: readonly (() => T)[], reps = 3): Timed<T>[] {
+  fns[0]!();
+  const out = fns.map(() => ({ ms: Infinity, calls: 0, got: undefined as T }));
+  for (let k = 0; k < reps; k++)
+    fns.forEach((fn, i) => {
+      const side = out[i]!;
+      let calls = 0;
+      let ms = 0;
+      const t0 = performance.now();
+      do {
+        side.got = fn();
+        calls++;
+        ms = performance.now() - t0;
+      } while (ms < SAMPLE_MS);
+      if (ms / calls < side.ms) {
+        side.ms = ms / calls;
+        side.calls = calls;
+      }
+    });
+  return out;
+}
+
+function expectRatioUnder(
+  name: string,
+  num: Timed<unknown>,
+  den: Timed<unknown>,
+  bound: number,
+): void {
+  const ratio = num.ms / den.ms;
+  const said = `${name}: ratio ${ratio.toFixed(2)} (bound ${bound})`;
+  if (process.env.GITHUB_ACTIONS === "true")
+    console.log(
+      `[time-bound] ${said} ${num.ms.toPrecision(3)} ms (${num.calls}) / ${den.ms.toPrecision(3)} ms (${den.calls})`,
+    );
+  expect(ratio, said).toBeLessThan(bound);
+}
+
+/** 600 against 9,600 (16x): linear reads about 16. */
+const SMALL = 600;
+const K = 16;
+
+/**
+ * Boxes 80 pt apart, each 250 x 40, captioned "Signature of applicant N"
+ * 2.5 pt over its top across 200 of its 250 pt (so its top edge is an
+ * underline); every other box holds a short line, so "does it hold
+ * anything drawn" answers both ways. (At 60 pt apart each box's bottom
+ * edge took the next caption, 9 pt under it, as a caption under a line,
+ * and that search reads every text item on the page, `titleSize`: also
+ * quadratic before S4, so the page keeps clear of it.)
+ */
+function boxes(n: number): CardPage {
+  const rects: CardRect[] = [];
+  const segs: CardSeg[] = [];
+  const text: CardText[] = [];
+  for (let i = 0; i < n; i++) {
+    const y = 100 + 80 * i;
+    rects.push(rect(72, y, 250, 40));
+    if (i % 2) segs.push(hseg(80, 90, y + 20));
+    text.push(txt(`Signature of applicant ${i}`, 72, y + 42.5, 200));
+  }
+  return pg({ height: 200 + 80 * n, rects, segs, text });
+}
+
+/** Stacks 80 pt apart: three lines 20 pt apart under "Comments N". */
+function stacks(n: number): CardPage {
+  const segs: CardSeg[] = [];
+  const text: CardText[] = [];
+  for (let i = 0; i < n; i++) {
+    const y = 100 + 80 * i;
+    for (const dy of [0, 20, 40]) segs.push(hseg(72, 372, y + dy));
+    text.push(txt(`Comments ${i}`, 72, y + 46, 60));
+  }
+  return pg({ height: 200 + 80 * n, segs, text });
+}
+
+describe("cost of entry boxes and stacked lines stays linear in the page's size", () => {
+  // BOXES_BOUND and STACKS_BOUND: see the readings beside them.
+  it("entry boxes: 16x the boxes cost under BOXES_BOUND x the time (same run, interleaved, time-boxed)", () => {
+    const small = boxes(SMALL);
+    const large = boxes(SMALL * K);
+    const [a, b] = interleavedBest([
+      () => classifyPage(small),
+      () => classifyPage(large),
+    ]);
+    for (const [r, n] of [
+      [a!.got, SMALL],
+      [b!.got, SMALL * K],
+    ] as const) {
+      // Health: every box was read as an ENTRY box (its inside, 248 x 38),
+      // so each S4 question ran on it, and passed over as a signature
+      // line; every box top as an underline; nothing proposed.
+      const sig = r.excluded.filter((e) => e.rule === "signature");
+      expect(sig.length).toBe(n);
+      for (const e of sig)
+        expect([e.box.width, e.box.height]).toEqual([248, 38]);
+      expect(r.excluded.filter((e) => e.rule === "underline").length).toBe(n);
+      expect(r.excluded.length).toBe(2 * n);
+      expect(r.proposals).toEqual([]);
+    }
+    expectRatioUnder("S4 entry boxes", b!, a!, BOXES_BOUND);
+  }, 120_000);
+
+  it("stacks: 16x the stacks cost under STACKS_BOUND x the time (same run, interleaved, time-boxed)", () => {
+    const small = stacks(SMALL);
+    const large = stacks(SMALL * K);
+    const [a, b] = interleavedBest([
+      () => classifyPage(small),
+      () => classifyPage(large),
+    ]);
+    for (const [r, n] of [
+      [a!.got, SMALL],
+      [b!.got, SMALL * K],
+    ] as const) {
+      // Health: one multiline field a stack, proposed (the per-page cap
+      // counted) or, in the page's outer 8% (the same share of either
+      // page), passed over as a band; nothing else excluded.
+      const band = r.excluded.filter((e) => e.rule === "page-band").length;
+      expect(band).toBeGreaterThan(0);
+      expect(band).toBeLessThan(0.2 * n);
+      expect(r.proposals.length + r.counts.capped + band).toBe(n);
+      expect(r.excluded.length).toBe(band);
+      for (const p of r.proposals) {
+        expect(p.rule).toBe("labelled-rule");
+        expect(p.multiline).toBe(true);
+      }
+    }
+    expectRatioUnder("S4 stacks", b!, a!, STACKS_BOUND);
+  }, 120_000);
+});
+
+/**
+ * The bounds, measured 2026-11-21 (Windows 11, Node 24), each 2x over the
+ * worst reading of the fixed code and at least 1.5x under the lowest
+ * mutant reading:
+ *
+ *  - boxes, fixed: 16.66 to 17.41 over 5 runs one at a time, 18.41 to
+ *    21.61 four at a time. Mutant MB (each "does it hold anything drawn"
+ *    question scanning every mark on the page from one list, not the
+ *    cells its box covers): 97.03, 100.58, 100.80. Mutant MT (each "does
+ *    it hold text" question reading every text item, not its baseline's
+ *    band): 74.34, 76.64, 78.46. Window 43.2 to 49.6.
+ *  - stacks, fixed: 17.09 to 20.51 one at a time, 17.66 to 20.44 four at a
+ *    time. MT: 75.46, 78.42, 81.68 (MB leaves stacks alone: 15.09 to
+ *    18.00). Window 41.0 to 50.3.
+ *
+ * At 8x (1,200 against 9,600) no bound fitted: MT read 28.96 on the boxes
+ * against a fixed worst of 10.24, a window of 20.5 to 19.3. CI's own
+ * [time-bound] lines are the check; a reading over half a bound there is
+ * grounds to recalibrate.
+ */
+const BOXES_BOUND = 45;
+const STACKS_BOUND = 45;
