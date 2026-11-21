@@ -156,12 +156,13 @@ describe("the header on a phone", () => {
     expect(menu()?.open).toBe(true);
   });
 
-  // 3000 ms per wait: the read is two lazy imports and a storage read; every
-  // test of this file ran under 300 ms in all 12 passing CI runs of 11-18
-  // (no row in ci-durations.tsv, whose floor is 300 ms), so > 10x. Two such
+  // 3000 ms per wait: the read is two lazy imports and a storage read. This
+  // test has no CI row (the reporter prints a test only past 300 ms); the
+  // slowest test of this file was 307 ms in 33 CI runs of 11-09..11-21,
+  // failed runs included (run 43998624497, a different test), so > 9x. Two such
   // waits stay inside this test's own 10 s, so a wait's DOM dump is what a
   // failure shows.
-  const READ_WAIT = { timeout: 3_000 } as const;
+  const READ_WAIT = { timeout: 3_000 };
   const recentsRead = () =>
     waitFor(() => expect(menu()!.dataset.recents).toBe("read"), READ_WAIT);
 
@@ -182,6 +183,11 @@ describe("the header on a phone", () => {
       act(() => {
         fireEvent.keyDown(menu()!, { key: "Escape" });
       });
+      // A close forgets the read, so the next open's wait is for ITS read:
+      // a mark kept from this open would pass the wait below at once, and
+      // the list would be judged before it was read (green here only while
+      // the warm read beats the wait's first check).
+      expect(menu()!.dataset.recents).toBeUndefined();
 
       localStorage.setItem(
         RECENTS_STORAGE_KEY,
