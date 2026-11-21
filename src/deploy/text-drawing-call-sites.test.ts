@@ -244,7 +244,13 @@ describe("text-drawing call sites", () => {
     // chosen-pages proof draws its four probe pages through pdf-lib) and
     // src/lib/workers/translate/reading-order-capability.ts (#340's proof),
     // each branch 47 alone. Real members, not a widened scan.
-    expect(drawing.length).toBeLessThan(52);
+    // 52 until 2026-11-21, when slice S4 of Create Forms' Find fields
+    // reached exactly 52. All 52 members were printed and checked against
+    // main at ac88cac3 (51): the only new one is
+    // src/tests/form-detect-boxes-fixtures.ts, the S4 corpus, which draws
+    // its labels into the PDFs it makes through embedDrawingFont. A real
+    // member, not a widened scan.
+    expect(drawing.length).toBeLessThan(56);
   });
 
   it("finds the modules that are known to draw text", () => {
