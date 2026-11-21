@@ -1,8 +1,23 @@
 /**
  * PDF to Word's Word-table costs (#28 slice 2), measured in a FRESH process:
  * `tsx src/tests/docx-table-measure.ts <mode> [n]`. Prints one line of JSON:
- * numbers only. A process's peak resident set only rises, so each mode warms
- * up, reads the peak, runs, and reads it again.
+ * numbers only. A process's peak resident set only rises, so each mode reads
+ * the peak, runs, and reads it again. (WAS "warms up, reads the peak": no
+ * mode ever warmed up, and none may at full size — the warm-up would lift
+ * the baseline peak to the run's own working set, and every rssDeltaMb, and
+ * so every memory bound, would read about 0. Ci-flake audit 2026-11-19.)
+ *
+ * Added 2026-11-22 (ci-flake audit 2026-11-19):
+ *  - `grid` and `grid-wide` also report `reads` and `readsEighth`: how
+ *    many times tableGrid read a cell's x-range at `n` cells and at an
+ *    eighth of them (counting getters, after the timed run and the peak):
+ *    work, which no runner's speed changes. An insertion sort in place of
+ *    the sort reads per pair: its growth for the 8x step is the square;
+ *  - every mode reports `msBest`: for the modes an exit bound divides by a
+ *    control (engine, engine-tabbed, wrap, wrap-off, wrap-cut), the better
+ *    of the fresh run and one more
+ *    of the same work in this process (time only: the peak is read once,
+ *    around the first), so a ratio of two modes is of two best samples.
  *
  * Modes:
  *  - `grid <n>`: `tableGrid` over one table of `n` cells, 10 to a row;
@@ -96,20 +111,83 @@ function wrapPage(rows: number, wraps: (r: number) => string[]): string {
   return `<doc><page width="612" height="${y + 50}"><flow>${blocks.join("")}</flow></page></doc>`;
 }
 
+/** The modes the cap test divides by a control's time. */
+const RATIO_MODES = new Set([
+  "engine",
+  "engine-tabbed",
+  "wrap",
+  "wrap-off",
+  "wrap-cut",
+]);
+
+/** The table of `n` cells, `perRow` to a row; `read` counts x-range reads. */
+function gridRows(n: number, perRow: number, read?: () => void) {
+  return Array.from({ length: Math.ceil(n / perRow) }, () =>
+    Array.from({ length: perRow }, (_, c) =>
+      read
+        ? {
+            get xMin() {
+              read();
+              return c * 40;
+            },
+            get xMax() {
+              read();
+              return c * 40 + 10;
+            },
+          }
+        : { xMin: c * 40, xMax: c * 40 + 10 },
+    ),
+  );
+}
+
 async function main(): Promise<void> {
   const [mode, nArg] = process.argv.slice(2);
   const n = Number(nArg ?? "0");
-  const before = peakMb();
+  const once = await work(mode, n, true);
+  // The second sample only where a ratio of two modes is taken (the exit
+  // bounds against a control): elsewhere it would be time spent for nothing.
+  const again = RATIO_MODES.has(mode ?? "") ? await work(mode, n, false) : once;
+  const reads: Record<string, number> = {};
+  if (mode === "grid" || mode === "grid-wide") {
+    const perRow = mode === "grid" ? 10 : 63;
+    for (const [key, size] of [
+      ["reads", n],
+      ["readsEighth", Math.floor(n / 8)],
+    ] as const) {
+      let count = 0;
+      tableGrid(
+        gridRows(size, perRow, () => (count += 1)),
+        { cells: Infinity, slots: Infinity },
+      );
+      reads[key] = count;
+    }
+  }
+  console.log(
+    JSON.stringify({
+      ...once,
+      msBest: Math.min(once.ms, again.ms),
+      ...reads,
+    }),
+  );
+}
+
+/** One run of `mode` at `n`, timed; the peak read around it when `peak`. */
+async function work(
+  mode: string | undefined,
+  n: number,
+  peak: boolean,
+): Promise<
+  { mode?: string; n: number; ms: number; rssDeltaMb: number } & Record<
+    string,
+    number | boolean | string | undefined
+  >
+> {
+  const before = peak ? peakMb() : 0;
   const t0 = performance.now();
   let extra: Record<string, number | boolean> = {};
   if (mode === "grid" || mode === "grid-wide") {
     const perRow = mode === "grid" ? 10 : 63;
-    const rows = Array.from({ length: Math.ceil(n / perRow) }, () =>
-      Array.from({ length: perRow }, (_, c) => ({
-        xMin: c * 40,
-        xMax: c * 40 + 10,
-      })),
-    );
+    const rows = gridRows(n, perRow);
     const grid = tableGrid(rows, { cells: Infinity, slots: Infinity });
     extra = {
       columns: typeof grid === "string" ? 0 : grid.spans.length,
@@ -209,9 +287,13 @@ async function main(): Promise<void> {
     throw new Error(`unknown mode ${mode}`);
   }
   const ms = performance.now() - t0;
-  console.log(
-    JSON.stringify({ mode, n, ms, rssDeltaMb: peakMb() - before, ...extra }),
-  );
+  return {
+    mode,
+    n,
+    ms,
+    rssDeltaMb: peak ? peakMb() - before : 0,
+    ...extra,
+  };
 }
 
 void main().catch((error: unknown) => {

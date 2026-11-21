@@ -6,14 +6,24 @@
  * carries its own health check — the work was done (the cells were written,
  * the refusal counted) — so a fast run is not a run that did nothing.
  *
- * Wall time is bounded RELATIVE to a control measured in the same job (the
- * same page written as tabbed rows, what main delivered), with #318's exit
- * bound: red only past 2x the control's time AND 5 s more, or 2x its peak
- * memory AND 300 MB more. CI's runners are not the dev host.
+ * WHICH bounds are which (WAS "wall time is bounded RELATIVE to a control",
+ * true of three of the seven time checks; ci-flake audit 2026-11-19):
+ *  - three exit bounds against a control measured in the same job (the
+ *    same page written as tabbed rows, what main delivered, or read with
+ *    absorption off), #318's: 2x the control's time AND 5 s more, or 2x its
+ *    peak memory AND 300 MB more — the engine, wrap and wrap-cut tests;
+ *  - four absolute hang ceilings (5 s, 10 s, 30 s, 10 s) — grid, flow, over
+ *    and wrap-cell.
+ * Since 2026-11-22 every TIME is routed through `@/tests/time-bound` and
+ * records (measure mode) until CI calibrates it; the memory halves still
+ * assert. What fails on time meanwhile: the child's own kill (CHILD_KILL_MS,
+ * enforced while it runs), each test's timeout, and the grid's work COUNTED
+ * (reads of the cells' x-ranges), which no runner's speed moves.
  */
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { expectFasterThan, expectRatioBelow } from "@/tests/time-bound";
 import {
   MAX_TABLE_CELLS,
   MAX_TABLE_SLOTS_PER_PAGE,
@@ -29,14 +39,53 @@ type Measured = { ms: number; rssDeltaMb: number } & Record<
   number | undefined
 >;
 
+/**
+ * A child's kill bound, enforced WHILE it runs: execFileSync blocks the
+ * worker, so vitest's timeout is checked only after it returns, and a child
+ * that never exits would hold the job to GitHub's 6 h default. The slowest
+ * single child seen on CI: 5,509 ms (spread, 43998624497; ci-flake audit
+ * 2026-11-19; 5,233 ms over 14 attempts 2026-11-19..21, 44428026069). 60 s
+ * is 10.9x that, and two of them fit the 120 s tests.
+ */
+const CHILD_KILL_MS = 60_000;
+
 function measure(mode: string, n: number): Measured {
   const out = execFileSync(process.execPath, [TSX_CLI, SCRIPT, mode, `${n}`], {
     cwd: ROOT,
     encoding: "utf8",
     maxBuffer: 1024 * 1024,
+    timeout: CHILD_KILL_MS,
+    killSignal: "SIGKILL",
   });
   return JSON.parse(out.trim().split("\n").at(-1)!) as Measured;
 }
+
+/**
+ * #318's exit bound against a control measured in the same job: red only
+ * past 2x the control's time AND 5 s more, or 2x its peak memory AND 300 MB
+ * more. The memory half asserts here. The time half is routed in each test,
+ * as two records of the two best samples (`msBest`: each child's fresh run
+ * and one more of the same work): the ratio, and the excess over the
+ * control against 5 s. The helpers hold one bound each, never a
+ * conjunction, so each half must stand ALONE: the ratio's record is against
+ * 5, not #318's 2 — on the dev host the wrap-cut pair alone reads 2.12
+ * (2.18 in the worker image), so 2 by itself would be red on honest code.
+ * Both record until CI calibrates them (ci-flake audit 2026-11-19, lines
+ * 72/129/142: the 5 s floor decided the predicate, 1.08-1.17x strict, and
+ * the ratio was never printed).
+ */
+function withinMemory(got: Measured, control: Measured) {
+  const heavier =
+    got.rssDeltaMb > 2 * control.rssDeltaMb &&
+    got.rssDeltaMb - control.rssDeltaMb > 300;
+  expect(
+    { heavier },
+    `${JSON.stringify(got)} vs ${JSON.stringify(control)}`,
+  ).toEqual({ heavier: false });
+}
+
+/** A child's best time for its work (see docx-table-measure.ts's msBest). */
+const best = (m: Measured) => m.msBest ?? m.ms;
 
 describe("Word tables are bounded", () => {
   it("the grid of a table AT the cell cap, 10 and 63 columns wide", () => {
@@ -47,19 +96,39 @@ describe("Word tables are bounded", () => {
     const wide = measure("grid-wide", wideRows * 63);
     expect(wide.rows, JSON.stringify(wide)).toBe(wideRows);
     expect(wide.columns).toBe(63);
-    // Measured 3 ms / +4 MB each on the dev host.
+    // The work, counted: reads of the cells' x-ranges at the cap against an
+    // eighth of it. The sort and the chaining are near-linear (dev host
+    // 2026-11-22: 8.19x narrow, 8.95x wide); an insertion sort in place of
+    // `[...cells].sort` reads per pair, about 64x. 23 sits near the
+    // geometric mean, so either side has 2.5x or more, on any runner. It
+    // cannot see work that never reads a cell.
     for (const got of [narrow, wide]) {
-      expect(got.ms, JSON.stringify(got)).toBeLessThan(5_000);
+      expect(got.readsEighth, JSON.stringify(got)).toBeGreaterThan(1_000);
+      const nearLinear = got.reads! / got.readsEighth! < 23;
+      expect(nearLinear, JSON.stringify(got)).toBe(true);
+      // Measured 3 ms / +4 MB each on the dev host. CI: 2,472 ms for the
+      // whole test, both children with their start-up (44299285879), so 5 s
+      // a child is 2x or more; it records until CI calibrates it.
+      expectFasterThan("docx-table-grid-at-cap", got.ms, 5_000, {
+        mode: "measure",
+        witness: "nearLinear",
+        instance: String(got.mode),
+      });
       expect(got.rssDeltaMb, JSON.stringify(got)).toBeLessThan(300);
     }
   }, 120_000);
 
   it("the flow over a table of that many cells", () => {
     const got = measure("flow", MAX_TABLE_CELLS);
-    expect(got.tableRows, JSON.stringify(got)).toBe(MAX_TABLE_CELLS / 10);
+    const tableRows = got.tableRows;
+    expect(tableRows, JSON.stringify(got)).toBe(MAX_TABLE_CELLS / 10);
     expect(got.tablesAsTabs).toBe(0);
-    // Measured 37 ms / +18 MB on the dev host.
-    expect(got.ms, JSON.stringify(got)).toBeLessThan(10_000);
+    // Measured 37 ms / +18 MB on the dev host. CI: 1,233 ms for the whole
+    // test (44007721339), so 10 s is 8.1x; a hang ceiling, recording.
+    expectFasterThan("docx-table-flow-at-cap", got.ms, 10_000, {
+      mode: "measure",
+      witness: "tableRows",
+    });
   }, 120_000);
 
   it("a page AT the slot cap through the whole job, within the exit bound of its tabbed control", () => {
@@ -67,23 +136,39 @@ describe("Word tables are bounded", () => {
     const got = measure("engine", MAX_TABLE_SLOTS_PER_PAGE);
     // Health: two tables, every slot written as a w:tc; the control none.
     expect(got.tables, JSON.stringify(got)).toBe(2);
-    expect(got.cells).toBe(MAX_TABLE_SLOTS_PER_PAGE);
+    const cells = got.cells;
+    expect(cells).toBe(MAX_TABLE_SLOTS_PER_PAGE);
     expect(control.tables, JSON.stringify(control)).toBe(0);
-    const slower = got.ms > 2 * control.ms && got.ms - control.ms > 5_000;
-    const heavier =
-      got.rssDeltaMb > 2 * control.rssDeltaMb &&
-      got.rssDeltaMb - control.rssDeltaMb > 300;
-    expect(
-      { slower, heavier },
-      `${JSON.stringify(got)} vs ${JSON.stringify(control)}`,
-    ).toEqual({ slower: false, heavier: false });
+    // CI: 4,625 ms for the whole test, both children (43998624497).
+    withinMemory(got, control);
+    const [gotMs, controlMs] = [best(got), best(control)];
+    expectRatioBelow("docx-table-engine-ratio", gotMs, controlMs, 5, {
+      mode: "measure",
+      witness: "cells",
+      detail: `${gotMs.toFixed(0)} ms vs control ${controlMs.toFixed(0)} ms`,
+    });
+    expectFasterThan(
+      "docx-table-engine-excess",
+      Math.max(0, gotMs - controlMs),
+      5_000,
+      {
+        mode: "measure",
+        witness: "cells",
+      },
+    );
   }, 300_000);
 
   it("one table past the cell cap comes out as tabbed rows, counted, in bounded time", () => {
     const got = measure("over", MAX_TABLE_CELLS + 10);
     expect(got.tables, JSON.stringify(got)).toBe(0);
-    expect(got.asTabs).toBe(1);
-    expect(got.ms, JSON.stringify(got)).toBeLessThan(30_000);
+    const asTabs = got.asTabs;
+    expect(asTabs).toBe(1);
+    // CI: 1,809 ms for the whole test (44331878323), so 30 s is 16.6x; a
+    // hang ceiling, recording.
+    expectFasterThan("docx-table-over-cap", got.ms, 30_000, {
+      mode: "measure",
+      witness: "asTabs",
+    });
   }, 300_000);
 
   it("a block of 200,000 aligned bands does not overflow an argument list (the spreads before any cap)", () => {
@@ -103,16 +188,6 @@ describe("Word tables are bounded", () => {
    * node 22, throwaway container): wrap-off 582 ms / +43 MB, wrap 802 ms /
    * +55 MB, wrap-cut 1,266 ms / +54 MB, wrap-cell 79 ms / +4 MB.
    */
-  const withinBound = (got: Measured, control: Measured) => {
-    const slower = got.ms > 2 * control.ms && got.ms - control.ms > 5_000;
-    const heavier =
-      got.rssDeltaMb > 2 * control.rssDeltaMb &&
-      got.rssDeltaMb - control.rssDeltaMb > 300;
-    expect(
-      { slower, heavier },
-      `${JSON.stringify(got)} vs ${JSON.stringify(control)}`,
-    ).toEqual({ slower: false, heavier: false });
-  };
   /** The most 3-cell rows one table may hold: the wrap pages' size. */
   const WRAP_ROWS = Math.floor(MAX_TABLE_CELLS / 3);
 
@@ -123,10 +198,30 @@ describe("Word tables are bounded", () => {
     // the control read the same page as no Word table at all.
     expect(got.tables, JSON.stringify(got)).toBe(1);
     expect(got.cells).toBe(WRAP_ROWS * 3);
-    expect(got.wrapLines).toBe(WRAP_ROWS - 1);
+    const wrapLines = got.wrapLines;
+    expect(wrapLines).toBe(WRAP_ROWS - 1);
     expect(control.tables, JSON.stringify(control)).toBe(0);
     expect(control.wrapLines).toBe(0);
-    withinBound(got, control);
+    // CI: 4,280 ms for the whole test (43998624497). The writer is not
+    // absorption (wrap-off writes no Word table), so a writer mutant only
+    // shows this ratio CAN turn red; an absorption blowup's guard is the
+    // counted seam in flow-wraps.test.ts.
+    withinMemory(got, control);
+    const [gotMs, controlMs] = [best(got), best(control)];
+    expectRatioBelow("docx-table-wrap-ratio", gotMs, controlMs, 5, {
+      mode: "measure",
+      witness: "wrapLines",
+      detail: `${gotMs.toFixed(0)} ms vs control ${controlMs.toFixed(0)} ms`,
+    });
+    expectFasterThan(
+      "docx-table-wrap-excess",
+      Math.max(0, gotMs - controlMs),
+      5_000,
+      {
+        mode: "measure",
+        witness: "wrapLines",
+      },
+    );
   }, 300_000);
 
   it("the same table cut at every other continuation (the cut-and-rejudge worst case): within the bound of absorption off", () => {
@@ -138,15 +233,41 @@ describe("Word tables are bounded", () => {
     // needs.
     expect(got.tables, JSON.stringify(got)).toBe(1);
     expect(got.cells).toBe(9);
-    expect(got.wrapLines).toBe(1);
-    withinBound(got, control);
+    const wrapLines = got.wrapLines;
+    expect(wrapLines).toBe(1);
+    // CI: 4,531 ms for the whole test (ok-44321190257), the thinnest in the
+    // file. Its defect (an unbudgeted cut-and-rejudge, the square of the
+    // rows) is held whatever the runner by flow-wraps.test.ts's COUNTED
+    // test; never weaken that one on the strength of this.
+    withinMemory(got, control);
+    const [gotMs, controlMs] = [best(got), best(control)];
+    expectRatioBelow("docx-table-wrap-cut-ratio", gotMs, controlMs, 5, {
+      mode: "measure",
+      witness: "wrapLines",
+      detail: `${gotMs.toFixed(0)} ms vs control ${controlMs.toFixed(0)} ms`,
+    });
+    expectFasterThan(
+      "docx-table-wrap-cut-excess",
+      Math.max(0, gotMs - controlMs),
+      5_000,
+      {
+        mode: "measure",
+        witness: "wrapLines",
+      },
+    );
   }, 300_000);
 
   it("a cell of MAX_WRAP_LINES_PER_CELL + 1 lines: the run is cut at the cap, and the rows above keep exactly the cap", () => {
     const got = measure("wrap-cell", 0);
     expect(got.tables, JSON.stringify(got)).toBe(1);
     expect(got.cells).toBe(60 * 3);
-    expect(got.wrapLines).toBe(MAX_WRAP_LINES_PER_CELL);
-    expect(got.ms, JSON.stringify(got)).toBeLessThan(10_000);
+    const wrapLines = got.wrapLines;
+    expect(wrapLines).toBe(MAX_WRAP_LINES_PER_CELL);
+    // CI: 1,162 ms for the whole test (ok-44299285879), so 10 s is 8.6x; a
+    // hang ceiling, recording.
+    expectFasterThan("docx-table-wrap-cell", got.ms, 10_000, {
+      mode: "measure",
+      witness: "wrapLines",
+    });
   }, 120_000);
 });
