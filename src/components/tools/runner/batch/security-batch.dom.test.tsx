@@ -18,6 +18,7 @@
 import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -83,6 +84,19 @@ const OWNER = "Fz-owner-9T4r";
 const WAIT_MS = 3_000;
 /** The batch's end message, across uploads and jobs; already 10 s on main. */
 const BATCH_END_MS = 10_000;
+/** The stubbed limit's `Retry-After`, in seconds (the rate-limit test). */
+const RATE_LIMIT_RETRY_AFTER_S = 1;
+/**
+ * The end of a batch paused by that limit. The batch resumes at
+ * now + Retry-After x 1000 (`worker-batch.ts`, resumeAt), so the wait is
+ * the stub's pause plus ordinary work. CI: this wait took 1002, 1008 and
+ * 1018 ms (wait-headroom, the last in run 44917160721), i.e. the 1 s pause
+ * plus under 20 ms; 1 s + WAIT_MS = 4 s is 3.9x that, and below the test's
+ * 20 s. A literal, so the wait-headroom reporter can read it; the rate-limit
+ * test asserts it still leaves WAIT_MS beyond the stub's pause, so raising
+ * the stub's Retry-After without it goes red there, not as a timeout.
+ */
+const RESUMED_END_MS = 4_000;
 
 let events: RedactedEvent[] = [];
 let leave: () => void = () => {};
@@ -256,6 +270,25 @@ async function pressWhenReady(name: string) {
 }
 
 /**
+ * What still holds `secret`, refs included, once the effects of the commits
+ * so far have run. The end message renders in a commit, and the runner's
+ * `onEnd` (which empties `frozenRef`) runs in that commit's passive effect,
+ * so a findBy can resolve between the two: a full local run went red here
+ * (2026-11-21) with the password still in the ref the effect was about to
+ * empty. One effect flush closes that race and nothing is polled, so a ref
+ * emptied any later (a timer, a later render) is still red: "at once" means
+ * at once (review of lane 3, mutant D: onEnd emptying the ref 1.5 s late
+ * passed a 3 s poll in four tests).
+ */
+async function heldOnceEffectsRan(
+  container: HTMLElement,
+  secret: string,
+): Promise<string[]> {
+  await act(async () => {});
+  return secretsHeldByReact(container, secret, { includeRefs: true });
+}
+
+/**
  * Every string React holds for this tree that contains `secret`: each
  * fiber's props, and each hook's state — `useState`/`useReducer` (a hook
  * with an update queue) always; a ref (`{ current }`, no queue) only when
@@ -422,13 +455,7 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
     // The failed row says the processor's own sentence.
     expect(view.container.textContent).toContain(WRONG_PASSWORD_MESSAGE);
     // The batch ended: the page holds the password nowhere, refs included.
-    await waitFor(
-      () =>
-        expect(
-          secretsHeldByReact(view.container, FIRST, { includeRefs: true }),
-        ).toEqual([]),
-      { timeout: WAIT_MS },
-    );
+    expect(await heldOnceEffectsRan(view.container, FIRST)).toEqual([]);
     expect(leaks(view.container, FIRST)).toEqual([]);
 
     // Try another password, for the failed row only.
@@ -470,18 +497,11 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
     expectStorageUntouched("unlock-pdf");
     for (const secret of [FIRST, SECOND]) {
       expect(leaks(view.container, secret), secret).toEqual([]);
-      // Waited for, as after the first run above: the end message renders in
-      // a commit, and the runner's `onEnd` (which empties `frozenRef`) runs
-      // in the passive effect AFTER it, so a findBy can resolve between the
-      // two. Read at once, this went red in a full local run (2026-11-21)
-      // with SECOND still in the ref the effect was about to empty.
-      await waitFor(
-        () =>
-          expect(
-            secretsHeldByReact(view.container, secret, { includeRefs: true }),
-            secret,
-          ).toEqual([]),
-        { timeout: WAIT_MS },
+      // Read once the end commit's effects ran (`heldOnceEffectsRan`): a
+      // bare read went red in a full local run (2026-11-21) with SECOND still
+      // in the ref the passive effect was about to empty.
+      expect(await heldOnceEffectsRan(view.container, secret), secret).toEqual(
+        [],
       );
     }
   }, 20_000);
@@ -557,6 +577,10 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
       completed(net.jobBodies.length),
     );
     let reservations = 0;
+    // The end wait below is the stub's pause plus ordinary work.
+    expect(
+      RESUMED_END_MS - RATE_LIMIT_RETRY_AFTER_S * 1000,
+    ).toBeGreaterThanOrEqual(WAIT_MS);
     const served = wrapFetch(async (url, method, pass) => {
       if (url === "/api/uploads" && method === "POST") {
         reservations += 1;
@@ -569,7 +593,7 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
               status: 429,
               headers: {
                 "content-type": "application/json",
-                "Retry-After": "1",
+                "Retry-After": String(RATE_LIMIT_RETRY_AFTER_S),
               },
             },
           );
@@ -599,9 +623,7 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
     await screen.findByText(
       "Batch complete. 2 done, 0 failed.",
       {},
-      {
-        timeout: BATCH_END_MS,
-      },
+      { timeout: RESUMED_END_MS },
     );
     // The refused reservation was asked for again; both jobs carry it.
     expect(served.count("/api/uploads")).toBe(3);
@@ -610,13 +632,7 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
       { password: FIRST },
     ]);
     expect(view.container.textContent).not.toContain(NO_PASSWORD_FROZEN);
-    await waitFor(
-      () =>
-        expect(
-          secretsHeldByReact(view.container, FIRST, { includeRefs: true }),
-        ).toEqual([]),
-      { timeout: WAIT_MS },
-    );
+    expect(await heldOnceEffectsRan(view.container, FIRST)).toEqual([]);
     expect(leaks(view.container, FIRST)).toEqual([]);
   }, 20_000);
 
@@ -651,13 +667,7 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
     fireEvent.click(cancel);
     await screen.findByText("Batch canceled.", {}, { timeout: WAIT_MS });
     // Canceled is an end: no ref holds it, even with a file still in flight.
-    await waitFor(
-      () =>
-        expect(
-          secretsHeldByReact(view.container, FIRST, { includeRefs: true }),
-        ).toEqual([]),
-      { timeout: WAIT_MS },
-    );
+    expect(await heldOnceEffectsRan(view.container, FIRST)).toEqual([]);
     release();
     await waitFor(() => expect(net.uploads()).toBe(1), { timeout: WAIT_MS });
     // The queued second file never left the browser. A declared absence
@@ -786,16 +796,10 @@ describe("Protect PDF's batch (batch plan P4)", () => {
     expectStorageUntouched("protect-pdf");
     for (const secret of [FIRST, OWNER]) {
       expect(leaks(view.container, secret), secret).toEqual([]);
-      // Waited for: `onEnd` empties `frozenRef` in the passive effect after
-      // the commit that rendered the end message (Unlock's first test above
-      // has the red this race gave).
-      await waitFor(
-        () =>
-          expect(
-            secretsHeldByReact(view.container, secret, { includeRefs: true }),
-            secret,
-          ).toEqual([]),
-        { timeout: WAIT_MS },
+      // Read once the end commit's effects ran: `onEnd` empties `frozenRef`
+      // in the passive effect after the commit that rendered the end message.
+      expect(await heldOnceEffectsRan(view.container, secret), secret).toEqual(
+        [],
       );
     }
   }, 20_000);
