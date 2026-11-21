@@ -3,6 +3,7 @@
 import { useCallback, useLayoutEffect, useRef, type RefCallback } from "react";
 import type { DropBox } from "@/lib/intent/drop-engine";
 import type { DropVia } from "@/lib/intent/page-target";
+import { loadDropEngine } from "./drop-engine-load";
 
 /**
  * Make the element this returns a ref for a DROP BOX: a box that takes the
@@ -15,7 +16,8 @@ import type { DropVia } from "@/lib/intent/page-target";
  * renders what it is made of — what it takes, what a file landing on it
  * does, whether it is the page's target. Its drag states, its claim on a
  * release and its registration are `@/lib/intent/drop-engine`, attached as
- * the box mounts through the registry's own `import()` (`attachDropBox`) —
+ * the box mounts through the registry's own `import()` (`attachDropBox`, by
+ * `loadDropEngine`, which the tests' warm-up shares) —
  * the chunk the drop layer fetches on idle, so on any page the first box
  * fetches it at most once. As first merged, every box carried that itself:
  * 2.4 KB gz in the first load of every tool page, against the redesign's
@@ -67,7 +69,7 @@ export function useDropBox(box: DropBox): RefCallback<HTMLElement> {
       }
       let detach: (() => void) | undefined;
       let mounted = true;
-      import("@/lib/intent/page-target").then(
+      loadDropEngine().then(
         ({ attachDropBox }) => {
           if (mounted) detach = attachDropBox(root, latest);
         },

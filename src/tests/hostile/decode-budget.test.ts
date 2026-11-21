@@ -18,6 +18,7 @@ import { afterAll, describe, expect, test } from "vitest";
 import { DEFAULT_DECODE_BUDGET_BYTES } from "@/lib/pdf/decode-budget";
 import { EMBED_TOTAL_BYTES } from "@/lib/pdf/embed-budget";
 import { runBounded, type BoundedOutcome } from "./bounded";
+import { expectFasterThan, expectRatioBelow } from "../time-bound";
 import {
   chainedFlateBombPdf,
   imageBombAtCapPdf,
@@ -390,12 +391,23 @@ describe("PS-02 / STAMP-13: many pages sharing one content stream under the budg
       // vacuously, and the instrument must see its 64 MiB decoded.
       expect(c.growthMb, `${entry} control growth`).toBeGreaterThan(60);
       const said = `${entry}: refusal ${r.ms} ms, control ${c.ms} ms`;
-      // Printed on a pass too: CI logs showed this region only on a failure,
-      // so the spread the bound was set from could not be read back.
-      console.log(`[time-bound] ${said}`);
-      expect(c.ms, said).toBeGreaterThan(0);
-      expect(r.ms!, said).toBeLessThan(RATIO_TO_CONTROL * c.ms!);
-      expect(r.ms!, said).toBeLessThan(ENTRY_CEILING_MS);
+      // Printed and recorded on a pass too (src/tests/time-bound.ts): CI
+      // logs showed this region only on a failure, so the spread the bound
+      // was set from could not be read back. The helper refuses a control
+      // of 0 ms, the health check that was spelled out here.
+      expectRatioBelow(
+        "decode-budget-refusal-vs-control",
+        r.ms!,
+        c.ms!,
+        RATIO_TO_CONTROL,
+        { instance: entry, detail: said },
+      );
+      expectFasterThan(
+        "decode-budget-refusal-ceiling",
+        r.ms!,
+        ENTRY_CEILING_MS,
+        { instance: entry, detail: said },
+      );
     }, 300_000);
   }
 

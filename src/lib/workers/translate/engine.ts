@@ -1321,15 +1321,31 @@ function renderReadme(manifest: TranslationManifest): string {
   return lines.join("\n");
 }
 
-/** Package the translation + manifest + README into a real ZIP. */
+/**
+ * Package the translation + manifest + README into a real ZIP.
+ *
+ * Every entry is dated with the manifest's `createdAt` — the moment the
+ * README's "Generated:" line names — never JSZip's default `new Date()`.
+ * That default made the bytes a function of the packaging clock in 2-second
+ * DOS steps: two packages of one job differed across a tick, which failed
+ * main in CI run 43845278036 (`package-date.test.ts` holds it).
+ *
+ * The date is written as JSZip writes every date: DOS fields filled from
+ * the UTC getters (jszip 3.10.1 `ZipFileWorker`). JSZip reads them back as
+ * UTC; Info-ZIP `unzip` and Windows Explorer read DOS time as LOCAL time,
+ * so a reader east or west of UTC sees the entries offset from the README's
+ * "Generated: …Z" by their zone. Not new: `new Date()` was written the same
+ * way.
+ */
 async function buildPackage(
   translation: string,
   manifest: TranslationManifest,
 ): Promise<Uint8Array> {
   const zip = new JSZip();
-  zip.file("translation.md", renderMarkdown(translation, manifest));
-  zip.file("translation.txt", translation);
-  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
-  zip.file("README.txt", renderReadme(manifest));
+  const at = { date: new Date(manifest.createdAt) };
+  zip.file("translation.md", renderMarkdown(translation, manifest), at);
+  zip.file("translation.txt", translation, at);
+  zip.file("manifest.json", JSON.stringify(manifest, null, 2), at);
+  zip.file("README.txt", renderReadme(manifest), at);
   return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));
 }

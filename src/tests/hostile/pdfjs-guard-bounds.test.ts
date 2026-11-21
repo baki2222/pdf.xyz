@@ -7,6 +7,7 @@ import {
 } from "@/lib/pdf/pdfjs-guard";
 import { UNREADABLE_PDF_MESSAGE } from "@/lib/pdf/engine-errors";
 import { runBounded, type BoundedOutcome } from "./bounded";
+import { expectFasterThan, expectRatioBelow } from "../time-bound";
 
 // The hostile matrix's resource findings on pdf.js consumers, each run at the
 // entry point a tool calls (extractPdfText, rasterizePdf) in a child process
@@ -149,12 +150,24 @@ async function expectRefusedInBudgetTime(
     attempts.length === 1
       ? `${said}: ${describeTimed(judged)}`
       : `${said}: ${describeTimed(judged)} (lower of ${attempts.length}: ${attempts.map(describeTimed).join(" | ")})`;
-  // Printed on a pass too: CI logs showed this region only on a failure,
-  // so the spread the bound was set from could not be read back. A re-run
-  // prints both attempts, so the outlier it absorbed stays visible.
-  console.log(`[time-bound] ${detail}`);
-  expect(judged.reads, detail).toBeLessThan(BUDGET_READS_ALLOWED);
-  expect(judged.ms, detail).toBeLessThan(REFUSAL_CEILING_MS);
+  // Printed and recorded on a pass too (src/tests/time-bound.ts): CI logs
+  // showed this region only on a failure, so the spread the bound was set
+  // from could not be read back. A re-run prints both attempts (`detail`),
+  // so the outlier it absorbed stays visible. `reads` is ms / budgetReadMs,
+  // so the ratio below is the same comparison as before.
+  expectRatioBelow(
+    "pdfjs-guard-refusal-budget-reads",
+    judged.ms,
+    judged.budgetReadMs,
+    BUDGET_READS_ALLOWED,
+    { instance: said, detail },
+  );
+  expectFasterThan(
+    "pdfjs-guard-refusal-ceiling",
+    judged.ms,
+    REFUSAL_CEILING_MS,
+    { instance: said, detail },
+  );
 }
 
 describe("the res1 time bound's best of two", () => {

@@ -1,4 +1,8 @@
-import { defineConfig, devices } from "@playwright/test";
+import {
+  defineConfig,
+  devices,
+  type ReporterDescription,
+} from "@playwright/test";
 import { visualRequested } from "./e2e/visual-request";
 import { resolvePnpmInvocation } from "./src/lib/workers/exec-pnpm";
 import { shellQuote } from "./src/lib/workers/shell-quote";
@@ -12,6 +16,34 @@ import { shellQuote } from "./src/lib/workers/shell-quote";
 const PORT = Number(process.env.E2E_PORT ?? 3100);
 const baseURL = `http://127.0.0.1:${PORT}`;
 const isCI = !!process.env.CI;
+
+/**
+ * The suite's `expect` timeout, in one place: the headroom reporter holds
+ * every expect step to it, and the reporter API does not expose the config's
+ * own value, so it is handed the same constant (`e2e-config.test.ts` pins
+ * the two together).
+ */
+export const EXPECT_TIMEOUT_MS = 10_000;
+
+/**
+ * The reporters. On CI, `e2e/headroom-reporter.ts` joins them: it lists the
+ * tests, time bounds and expect steps that used more than half their
+ * timeout, the tests a retry turned green, and every fixed sleep that ran
+ * (it warns, never fails). Locally it runs only when asked
+ * (`E2E_HEADROOM=1`), so a served-build check can see the same blocks.
+ */
+export function e2eReporters(
+  ci: boolean,
+  headroom: boolean = ci,
+): ReporterDescription[] {
+  const headroomReporter: ReporterDescription = [
+    "./e2e/headroom-reporter.ts",
+    { expectTimeoutMs: EXPECT_TIMEOUT_MS },
+  ];
+  return ci
+    ? [["github"], ["html", { open: "never" }], ["list"], headroomReporter]
+    : [["list"], ...(headroom ? [headroomReporter] : [])];
+}
 
 // Playwright launches `webServer.command` through `/bin/sh` on POSIX but
 // through `cmd.exe` on Windows, so a bare `pnpm` 127s wherever pnpm isn't on
@@ -35,10 +67,8 @@ export default defineConfig({
   retries: isCI ? 2 : 0,
   workers: isCI ? 1 : undefined,
   timeout: 30_000,
-  expect: { timeout: 10_000 },
-  reporter: isCI
-    ? [["github"], ["html", { open: "never" }], ["list"]]
-    : [["list"]],
+  expect: { timeout: EXPECT_TIMEOUT_MS },
+  reporter: e2eReporters(isCI, isCI || process.env.E2E_HEADROOM === "1"),
   use: {
     baseURL,
     trace: "on-first-retry",
