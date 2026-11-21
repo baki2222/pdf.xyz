@@ -18,7 +18,16 @@ jobs:
   verify:
     name: Typecheck · Lint · Test · Build
     runs-on: ubuntu-latest
+    # 2x the longest of the last 38 completed runs (2,099 s, run
+    # 44242439721, 2026-11-18), rounded up: without it a synchronous hang
+    # ran to GitHub's 360-minute default.
+    timeout-minutes: 70
+    env:
+      JOB_TIMEOUT_MINUTES: "70"
     steps:
+      - name: Record job start
+        run: echo "JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -67,10 +76,33 @@ jobs:
       - name: Bundle budget
         run: pnpm test:bundle
 
+      # The timeout above is itself a wall-clock bound (critic P10), so each
+      # run prints its share of it, in the [time-bound] convention, to the
+      # log and to the step summary. JOB_STARTED_AT is taken in the job's
+      # first step, so runner setup before it is not counted.
+      - name: Job time against its timeout-minutes
+        if: ${{ always() }}
+        run: |
+          elapsed=$(( $(date +%s) - JOB_STARTED_AT ))
+          limit=$(( JOB_TIMEOUT_MINUTES * 60 ))
+          line="[time-bound] ci-job ${GITHUB_JOB}: ${elapsed} s of ${limit} s ($(( elapsed * 100 / limit ))%)"
+          echo "$line"
+          echo "$line" >> "$GITHUB_STEP_SUMMARY"
+
   e2e:
     name: Playwright smoke
     runs-on: ubuntu-latest
+    # 2x the longest of the last 38 completed runs (3,538 s, runs
+    # 44335184977 and 44418885729), rounded up to 120. The e2e step grew
+    # from 43 to 56 minutes across 2026-11-18, so the share line below is
+    # the number to watch.
+    timeout-minutes: 120
+    env:
+      JOB_TIMEOUT_MINUTES: "120"
     steps:
+      - name: Record job start
+        run: echo "JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -103,3 +135,16 @@ jobs:
           path: playwright-report/
           retention-days: 7
           if-no-files-found: ignore
+
+      # The timeout above is itself a wall-clock bound (critic P10), so each
+      # run prints its share of it, in the [time-bound] convention, to the
+      # log and to the step summary. JOB_STARTED_AT is taken in the job's
+      # first step, so runner setup before it is not counted.
+      - name: Job time against its timeout-minutes
+        if: ${{ always() }}
+        run: |
+          elapsed=$(( $(date +%s) - JOB_STARTED_AT ))
+          limit=$(( JOB_TIMEOUT_MINUTES * 60 ))
+          line="[time-bound] ci-job ${GITHUB_JOB}: ${elapsed} s of ${limit} s ($(( elapsed * 100 / limit ))%)"
+          echo "$line"
+          echo "$line" >> "$GITHUB_STEP_SUMMARY"
