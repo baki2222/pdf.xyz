@@ -11,6 +11,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -25,6 +26,13 @@ import { CSV_BOM } from "@/lib/workers/ooxml/csv";
 import { AiExtractResultBody } from "./ai-extract-worker-panel";
 
 const ZIP = extractionOutputName("invoice.pdf");
+
+// 4000 ms: the button sits behind a lazy chunk (ai-result-views) and a
+// JSZip read; the slowest CI run of this file's first test, package
+// building included, was 387 ms (run 44331878323, ci-durations.tsv, 12
+// passing runs of 11-18), so > 10x; and it stays under the 5 s test
+// timeout, so a missing button fails with the role message.
+const CSV_WAIT = { timeout: 4_000 } as const;
 
 async function realPackage(reply: unknown): Promise<Uint8Array> {
   const text = "Invoice INV-7, total 120.50.";
@@ -91,9 +99,7 @@ describe("AI Data Extraction result — Download CSV", () => {
       />,
     );
     fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Download CSV",
-      }),
+      await screen.findByRole("button", { name: "Download CSV" }, CSV_WAIT),
     );
     await waitFor(() => expect(blobs).toHaveLength(1));
     expect(names).toEqual(["invoice-extraction.csv"]);
@@ -121,7 +127,7 @@ describe("AI Data Extraction result — Download CSV", () => {
         filename={longZip}
       />,
     );
-    await screen.findByRole("button", { name: "Download CSV" });
+    await screen.findByRole("button", { name: "Download CSV" }, CSV_WAIT);
     const nowrap = [...container.querySelectorAll<HTMLElement>("*")].filter(
       (el) => /(^|\s)whitespace-nowrap(\s|$)/.test(el.className),
     );
@@ -134,12 +140,40 @@ describe("AI Data Extraction result — Download CSV", () => {
     ).not.toMatch(/whitespace-nowrap/);
   });
 
+  /**
+   * The read the body starts on mount, run again by the test on the same
+   * bytes, AFTER the body's: the body's import and read were queued first,
+   * so they settle first — through any macrotask a future read adds, since
+   * the test's copy waits on the same one queued behind it. One act flush
+   * then draws what the body read. A FIFO barrier, not a sleep: until
+   * 2026-11-21 a 20 ms sleep stood here, blind whenever the read took one
+   * macrotask longer (or the test ran alone, cold).
+   */
+  async function afterTheBodysRead(bytes: Uint8Array) {
+    const views = await import("./ai-result-views");
+    const read = await views.readExtraction(bytes);
+    await act(async () => {});
+    return read;
+  }
+
   it("bytes with no extraction.json offer the ZIP only, and no CSV", async () => {
-    render(
-      <AiExtractResultBody output={new Uint8Array([9, 9, 9])} filename={ZIP} />,
-    );
-    await screen.findByRole("button", { name: `Download ${ZIP}` });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    const bytes = new Uint8Array([9, 9, 9]);
+    render(<AiExtractResultBody output={bytes} filename={ZIP} />);
+    screen.getByRole("button", { name: `Download ${ZIP}` });
+    const read = await afterTheBodysRead(bytes);
     expect(screen.queryByRole("button", { name: /Download CSV/ })).toBeNull();
+    // Health: the read really found nothing, so no CSV is the answer.
+    expect(read).toBeNull();
+  });
+
+  it("control: after the same barrier, a readable package's CSV is already drawn", async () => {
+    // The barrier is long enough: with no wait of its own after it, the
+    // body has read a real package and drawn its one CSV button.
+    const bytes = await realPackage({ invoice_number: "INV-7", total: 120.5 });
+    render(<AiExtractResultBody output={bytes} filename={ZIP} />);
+    expect(await afterTheBodysRead(bytes)).not.toBeNull();
+    expect(
+      screen.getAllByRole("button", { name: "Download CSV" }),
+    ).toHaveLength(1);
   });
 });

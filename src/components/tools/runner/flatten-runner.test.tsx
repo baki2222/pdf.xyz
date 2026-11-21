@@ -11,6 +11,7 @@ import {
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import { DYNAMIC_XFA_MESSAGE } from "@/lib/pdf/flatten";
 import { FlattenEditor, SIGNED_PDF_WARNING } from "./flatten-runner";
+import { ENDING_WAIT_MS } from "./runner-kit";
 import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 import { getToolBySlug } from "@/lib/tools";
 import { pageFaq, pageIntro, pageSteps, stepText } from "@/lib/tools/page-copy";
@@ -174,19 +175,47 @@ function expectServedNames(labels: readonly string[]) {
   }
 }
 
+// Every wait in this file: the inspection (pdf-lib and loadPdf's guard
+// imports, cold in this worker on first use), then a run whose result is
+// held for the result-ending chunk for up to ENDING_WAIT_MS by design. The
+// 1 s default left ~2.1x against the slowest CI run of a whole test here
+// (467 ms across the audit's logs; 448 ms in ci-durations.tsv, run
+// 44299285879, 12 passing runs of 11-18), and the cap alone could reach
+// it. This grows with the cap: 2800 ms today, 6x the CI max and 2.2x the
+// designed worst case (cap plus run), under the 5 s test timeout.
+const UI = { timeout: ENDING_WAIT_MS + 2_000 } as const;
+
 /** Wait for the inspection to finish, then press the one primary action. */
 async function runTool(action: RegExp) {
-  const button = await screen.findByRole("button", { name: action });
+  const button = await screen.findByRole("button", { name: action }, UI);
   fireEvent.click(button);
 }
 
 describe("Flatten PDF runner — what the user is told and handed", () => {
   it("a PDF with no form fields is re-saved under a neutral panel and a name that does not say 'flattened'", async () => {
     mount(await blankPdf(), "contract.pdf");
-    await screen.findByText(/no fillable acroform fields were detected/i);
-    await runTool(/^re-save pdf$/i);
+    await screen.findByText(
+      /no fillable acroform fields were detected/i,
+      undefined,
+      UI,
+    );
+    const run = await screen.findByRole(
+      "button",
+      { name: /^re-save pdf$/i },
+      UI,
+    );
+    fireEvent.click(run);
+    // Positive control for the XFA test's probe: a press that runs is busy
+    // INSIDE the click (setBusy precedes the task's first await), so the
+    // probe there, read at the same moment, is not blind.
+    expect(run).toHaveAttribute("aria-busy", "true");
+    expect(run).toHaveTextContent(/^saving\u2026$/i);
 
-    const panel = await screen.findByRole("group", { name: /pdf re-saved/i });
+    const panel = await screen.findByRole(
+      "group",
+      { name: /pdf re-saved/i },
+      UI,
+    );
     expect(panel).toHaveAttribute("data-tone", "neutral");
     expect(
       screen.queryByRole("button", { name: /download flattened pdf/i }),
@@ -203,12 +232,14 @@ describe("Flatten PDF runner — what the user is told and handed", () => {
 
   it("control: a real form is flattened under a success panel and downloads as '-flattened'", async () => {
     mount(await formPdf(), "form.pdf");
-    await screen.findByText(/found 2 fillable form fields/i);
+    await screen.findByText(/found 2 fillable form fields/i, undefined, UI);
     await runTool(/flatten form fields/i);
 
-    const panel = await screen.findByRole("group", {
-      name: /form fields flattened/i,
-    });
+    const panel = await screen.findByRole(
+      "group",
+      { name: /form fields flattened/i },
+      UI,
+    );
     expect(panel).toHaveAttribute("data-tone", "ok");
     const button = screen.getByRole("button", {
       name: /download flattened pdf/i,
@@ -224,14 +255,14 @@ describe("Flatten PDF runner — what the user is told and handed", () => {
 
   it("a signed PDF is warned about before the run, and its signature field is reported as left as-is", async () => {
     mount(await signedFormPdf(), "signed.pdf");
-    await screen.findByText(/found 1 fillable form field\./i);
+    await screen.findByText(/found 1 fillable form field\./i, undefined, UI);
     expect(
       screen.getByText(/1 signature field\s*will be left\s*as-is/i),
     ).toBeInTheDocument();
     expect(screen.getByText(SIGNED_PDF_WARNING)).toBeInTheDocument();
     await runTool(/flatten form fields/i);
 
-    await screen.findByRole("group", { name: /form fields flattened/i });
+    await screen.findByRole("group", { name: /form fields flattened/i }, UI);
     const partial = screen.getByText(/flattened 1 of 2 form fields/i);
     expect(partial).toBeVisible();
     const leftAsIs = screen.getByText(/left as-is, still interactive/i);
@@ -275,7 +306,7 @@ describe("Flatten PDF runner — what the user is told and handed", () => {
     mount(await doc.save(), "dupes.pdf");
     await runTool(/flatten form fields/i);
 
-    await screen.findByRole("group", { name: /form fields flattened/i });
+    await screen.findByRole("group", { name: /form fields flattened/i }, UI);
     expect(screen.getAllByText(/^Signature1 \(/)).toHaveLength(2);
     const keyWarnings = errors.mock.calls.filter((args) =>
       args.some((arg) => /same key/i.test(String(arg))),
@@ -285,12 +316,18 @@ describe("Flatten PDF runner — what the user is told and handed", () => {
 
   it("a dynamic XFA form is explained and cannot be run", async () => {
     mount(await dynamicXfaPdf(), "tax-form.pdf");
-    await screen.findByText(DYNAMIC_XFA_MESSAGE);
+    await screen.findByText(DYNAMIC_XFA_MESSAGE, undefined, UI);
     const button = screen.getByRole("button", { name: /re-save pdf/i });
     expect(button).toHaveAttribute("aria-disabled", "true");
     fireEvent.click(button);
+    // Nothing started, read at the moment a press that runs is already busy
+    // (test 1 proves that moment): until 2026-11-21 this waited 50 ms, and a
+    // blocked press that ran anyway ended in an alert, never a group, so it
+    // stayed green at any speed. "false", not "not true": a button that
+    // stopped saying aria-busy would turn this blind, and red is better.
+    expect(button).toHaveAttribute("aria-busy", "false");
+    expect(screen.queryByText(/saving\u2026|flattening\u2026/i)).toBeNull();
     // Nothing ran: no result panel, nothing to download.
-    await new Promise((resolve) => setTimeout(resolve, 50));
     expect(screen.queryByRole("group", { name: /re-saved|flattened/i })).toBe(
       null,
     );
