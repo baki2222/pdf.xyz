@@ -1756,25 +1756,36 @@ describe("cost of the new shapes stays linear in the page's rows", () => {
   };
   const K = 8;
   const SMALL = 1500;
+  // Each test below classifies the small page 4 times and the large page 3
+  // times, so the whole test takes far longer than either timed call. On CI
+  // the box page took 2,784 ms (run 44906035454) and then 4,438 ms (main run
+  // 44931945692, a slower runner), and the shapes page 3,401 ms on that same
+  // run. Against vitest's 5 s default that is 89%. 12 s is 2.7x the worst
+  // CI reading. This timeout is not the cost check; the ratio is.
+  const RATIO_TEST_TIMEOUT_MS = 12_000;
 
-  it("8x the rows cost under 18x the time (same run, interleaved best of 3)", () => {
-    const small = page(SMALL);
-    const large = page(SMALL * K);
-    const [a, b] = interleavedBest([
-      () => classifyPage(small),
-      () => classifyPage(large),
-    ]);
-    // Health: both sizes classify as the shapes they are (4 a row, the
-    // per-page cap counted, nothing excluded).
-    for (const [r, rows] of [
-      [a!.got, SMALL],
-      [b!.got, SMALL * K],
-    ] as const) {
-      expect(r.proposals.length + r.counts.capped).toBe(4 * rows);
-      expect(r.excluded).toEqual([]);
-    }
-    expectRatioUnder("S3 shapes", b!.ms, a!.ms, 18);
-  });
+  it(
+    "8x the rows cost under 18x the time (same run, interleaved best of 3)",
+    () => {
+      const small = page(SMALL);
+      const large = page(SMALL * K);
+      const [a, b] = interleavedBest([
+        () => classifyPage(small),
+        () => classifyPage(large),
+      ]);
+      // Health: both sizes classify as the shapes they are (4 a row, the
+      // per-page cap counted, nothing excluded).
+      for (const [r, rows] of [
+        [a!.got, SMALL],
+        [b!.got, SMALL * K],
+      ] as const) {
+        expect(r.proposals.length + r.counts.capped).toBe(4 * rows);
+        expect(r.excluded).toEqual([]);
+      }
+      expectRatioUnder("S3 shapes", b!.ms, a!.ms, 18);
+    },
+    RATIO_TEST_TIMEOUT_MS,
+  );
 
   // Review round 1 (finding 15): on the page above, the box label search
   // filtering every item read 16.1, 18.2 and 18.9 against 18 (red 2 runs of
@@ -1796,21 +1807,25 @@ describe("cost of the new shapes stays linear in the page's rows", () => {
     return pg({ height: 200 + 16 * rows, text });
   };
 
-  it("box symbols alone: 8x the rows cost under 18x the time (same run, interleaved best of 3)", () => {
-    const small = boxPage(SMALL);
-    const large = boxPage(SMALL * K);
-    const [a, b] = interleavedBest([
-      () => classifyPage(small),
-      () => classifyPage(large),
-    ]);
-    for (const [r, rows] of [
-      [a!.got, SMALL],
-      [b!.got, SMALL * K],
-    ] as const) {
-      expect(r.proposals.length + r.counts.capped).toBe(6 * rows);
-      expect(r.proposals.every((x) => x.rule === "box-glyph")).toBe(true);
-      expect(r.excluded).toEqual([]);
-    }
-    expectRatioUnder("S3 box symbols", b!.ms, a!.ms, 18);
-  });
+  it(
+    "box symbols alone: 8x the rows cost under 18x the time (same run, interleaved best of 3)",
+    () => {
+      const small = boxPage(SMALL);
+      const large = boxPage(SMALL * K);
+      const [a, b] = interleavedBest([
+        () => classifyPage(small),
+        () => classifyPage(large),
+      ]);
+      for (const [r, rows] of [
+        [a!.got, SMALL],
+        [b!.got, SMALL * K],
+      ] as const) {
+        expect(r.proposals.length + r.counts.capped).toBe(6 * rows);
+        expect(r.proposals.every((x) => x.rule === "box-glyph")).toBe(true);
+        expect(r.excluded).toEqual([]);
+      }
+      expectRatioUnder("S3 box symbols", b!.ms, a!.ms, 18);
+    },
+    RATIO_TEST_TIMEOUT_MS,
+  );
 });
