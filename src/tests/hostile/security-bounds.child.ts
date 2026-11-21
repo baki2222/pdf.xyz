@@ -91,6 +91,15 @@ const FIXTURES: Record<string, () => Uint8Array | Promise<Uint8Array>> = {
       pack: [5],
       objStmN: "999999999",
     }),
+  // SIB-01 at 2^52 (CI-flake audit lane 2, security-bounds L72): below
+  // MAX_SAFE_INTEGER, so pdf-lib parses it. A member loop that only skipped
+  // out-of-range pairs would spin 4.5e15 times and be killed on ANY runner,
+  // where at 1e9 such a loop costs 1-5 s, which only a time bound could see.
+  "objstm-n-2e52": () =>
+    ownerOnlyEncrypted([...ONE_PAGE, "<< /Unrelated true >>"], {
+      pack: [5],
+      objStmN: "4503599627370496",
+    }),
   // Its honest twin (/N 1): the positive control.
   "objstm-n-honest": () =>
     ownerOnlyEncrypted([...ONE_PAGE, "<< /Unrelated true >>"], { pack: [5] }),
@@ -225,8 +234,20 @@ const ENTRIES: Record<string, (bytes: Uint8Array) => Promise<unknown>> = {
     return { settled: "opened", pages: doc.getPageCount() };
   },
   async classify(bytes) {
+    // pdf.js asked, counted (CI-flake audit lane 2, security-bounds L301):
+    // "unreadable without asking pdf.js" is a count, not a time.
+    const lib = await legacyPdfjs();
+    let pdfjsCalls = 0;
+    const counted: PdfjsForAccess = {
+      ...lib,
+      getDocument: ((...args: Parameters<PdfjsForAccess["getDocument"]>) => {
+        pdfjsCalls += 1;
+        return lib.getDocument(...args);
+      }) as PdfjsForAccess["getDocument"],
+    };
     return {
-      settled: (await classifyPdfAccess(bytes, await legacyPdfjs())).kind,
+      settled: (await classifyPdfAccess(bytes, counted)).kind,
+      pdfjsCalls,
     };
   },
   // pdf.js alone, no pre-scan: what it costs to be asked.
@@ -262,6 +283,9 @@ const ENTRIES: Record<string, (bytes: Uint8Array) => Promise<unknown>> = {
     return {
       settled: scan.unbounded ? "refused" : "passed",
       size: bytes.length,
+      // The bytes it lexed (CI-flake audit lane 2, security-bounds L241):
+      // the cost shape as a count, which no runner speed moves.
+      lexed: scan.lexed,
     };
   },
   async probe(bytes) {

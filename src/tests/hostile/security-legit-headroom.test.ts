@@ -17,6 +17,7 @@ import {
 } from "@/lib/pdf/security/document";
 import { openProtectedPdf } from "@/lib/pdf/security/protected-pdf";
 import { encryptPdf } from "@/tests/encrypted-pdf";
+import { measureTime } from "../time-bound";
 
 // The positive control for lane l02's bounds (`security/document.ts` and
 // `pdf-access-guard.ts`): every real-producer file, encrypted owner-only in
@@ -107,6 +108,21 @@ describe("lane l02 bounds against the real-producer corpus", () => {
       `every file encrypted owner-only (${layout}) opens with every page, and classifies restricted`,
       async () => {
         const lib = await pdfjs();
+        // The deadline's headroom over a real file (CI-flake audit lane 2).
+        // It WAS one window per file, each under ACCESS_DEADLINE_MS / 100,
+        // the first of them carrying pdf.js's first document in this fork:
+        // the repo's own figure for the window is 14-160 ms in Node
+        // (pdf-access-guard.ts), so 300 ms was under 2x before CI's slower
+        // runner. Now two bounds, each derived from the constant: the
+        // FIRST classify of the layout, cold, against ACCESS_DEADLINE_MS /
+        // 20 (the deadline guards a tab's first open, so no untimed warm-up
+        // is added), and every later file's best of 3 against
+        // ACCESS_DEADLINE_MS / 100, the "two orders" claim. Measure mode
+        // until CI harvests show 2x at both; the verdicts are asserted on
+        // every pass.
+        const verdicts: string[] = [];
+        let coldMs = -1;
+        let worstWarmMs = 0;
         for (const name of FILES) {
           const source = new Uint8Array(readFileSync(path.join(DIR, name)));
           const pages = (await PDFDocument.load(source)).getPageCount();
@@ -120,14 +136,40 @@ describe("lane l02 bounds against the real-producer corpus", () => {
           if (opened.kind !== "opened") continue;
           const plain = await PDFDocument.load(opened.pdf.plain);
           expect(plain.getPageCount(), name).toBe(pages);
-          const t0 = Date.now();
-          expect(await classifyPdfAccess(bytes, lib), name).toEqual({
-            kind: "restricted",
-            pageCount: pages,
-          });
-          // The deadline is 30 s; a real file must sit two orders below it.
-          expect(Date.now() - t0, name).toBeLessThan(ACCESS_DEADLINE_MS / 100);
+          const passes = coldMs < 0 ? 1 : 3;
+          let best = Infinity;
+          for (let k = 0; k < passes; k += 1) {
+            // A fresh copy per pass, taken before the clock: the preflight
+            // keeps its answer per Uint8Array, so a repeat on the same
+            // array timed a cache hit (about 1 ms).
+            const fresh = bytes.slice();
+            const t0 = performance.now();
+            const access = await classifyPdfAccess(fresh, lib);
+            best = Math.min(best, performance.now() - t0);
+            expect(access, name).toEqual({
+              kind: "restricted",
+              pageCount: pages,
+            });
+          }
+          verdicts.push("restricted");
+          if (coldMs < 0) coldMs = best;
+          else worstWarmMs = Math.max(worstWarmMs, best);
         }
+        // Health: every file was classified (the `continue` above can skip
+        // one), and both windows measured something.
+        expect(verdicts).toEqual(FILES.map(() => "restricted"));
+        expect(coldMs).toBeGreaterThan(0);
+        expect(worstWarmMs).toBeGreaterThan(0);
+        measureTime("legit-classify-cold", coldMs, ACCESS_DEADLINE_MS / 20, {
+          instance: layout,
+          witness: "verdicts",
+        });
+        measureTime(
+          "legit-classify-warm-worst",
+          worstWarmMs,
+          ACCESS_DEADLINE_MS / 100,
+          { instance: layout, witness: "verdicts" },
+        );
       },
       T,
     );

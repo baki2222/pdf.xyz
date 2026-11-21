@@ -9,6 +9,7 @@ import { classifyPdfAccess, type PdfjsForAccess } from "@/lib/pdf/encryption";
 import { loadPdfLib } from "@/lib/pdf/pdf-lib";
 import { readXref } from "@/lib/pdf/security/document";
 import { openProtectedPdf } from "@/lib/pdf/security/protected-pdf";
+import { measureTime } from "../time-bound";
 import { objectOffsets } from "./security-bounds.fixtures";
 import {
   ONE_PAGE,
@@ -362,7 +363,7 @@ describe("SIB-03 / SIB-06: the pdf.js open has a deadline", () => {
     "SIB-03: an open that never settles is unreadable at the deadline, and the task is destroyed",
     async () => {
       const { lib, state } = stuckPdfjs();
-      const t0 = Date.now();
+      const t0 = performance.now();
       const access = await classifyPdfAccess(
         ownerOnlyEncrypted(ONE_PAGE),
         lib,
@@ -372,7 +373,13 @@ describe("SIB-03 / SIB-06: the pdf.js open has a deadline", () => {
       );
       expect(access).toEqual({ kind: "unreadable" });
       expect(state.destroyed).toBeGreaterThan(0);
-      expect(Date.now() - t0).toBeLessThan(5_000);
+      // An open that ignored the deadline never settles (the test's own
+      // timeout reds it); the time is measured beside the verdict (CI-flake
+      // audit lane 2: absent from CI's >300 ms list in 12 runs, so 5 s is
+      // over 16x).
+      measureTime("access-stuck-open-deadline", performance.now() - t0, 5_000, {
+        witness: "access",
+      });
     },
     T,
   );

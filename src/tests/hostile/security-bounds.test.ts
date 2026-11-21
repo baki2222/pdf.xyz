@@ -1,4 +1,6 @@
 import { describe, expect, test } from "vitest";
+import { scanBudget } from "@/lib/pdf/xref-prescan";
+import { measureTime } from "../time-bound";
 import { runBounded, type BoundedOutcome } from "./bounded";
 import { filterSpellings } from "./xref-rows.fixtures";
 
@@ -66,12 +68,23 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
     async () => {
       const v = settled(await run("objstm-n-1e9", "open"));
       expect(v).toMatchObject({ settled: "opened", pages: 1 });
-      // The loop runs to the header's pairs (1), not to /N: the open costs
-      // what the honest twin costs (about 70 ms), far under a second. A loop
-      // to /N that merely skipped bad pairs would still spin 10^9 times.
-      expect(v.ms as number).toBeLessThan(1_000);
+      // The loop runs to the header's pairs (1), not to /N. A loop to /N
+      // that merely skipped bad pairs would still spin 10^9 times: about
+      // 1-5 s at 1-5 ns a pass, which only a time bound sees. So the same
+      // file at /N 2^52 (CI-flake audit lane 2): there such a loop spins
+      // 4.5e15 times and is killed at BOUND_MS on ANY runner, while the
+      // header-capped loop opens it like its twin.
+      const huge = settled(await run("objstm-n-2e52", "open"));
+      const opened = [v.settled, v.pages, huge.settled, huge.pages];
+      expect(opened).toEqual(["opened", 1, "opened", 1]);
+      // The open's own time, in the child: about 70 ms for the honest twin
+      // on Windows, unmeasured on CI (test max 3,054 ms in 43998624497,
+      // spawn and fixture included). Measure mode until harvested.
+      measureTime("sib01-objstm-n-open", v.ms as number, 1_000, {
+        witness: "opened",
+      });
     },
-    T,
+    2 * T,
   );
 
   test(
@@ -139,13 +152,22 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
       const six = settled(await run("xref-w0-six", "pdfjs"));
       const atLimit = settled(await run("xref-w0-at-limit", "pdfjs"));
       expect(atLimit).toMatchObject({ settled: "opened", pages: 1 });
-      expect(
+      // The memory arm sees a raised ZERO_WIDTH_ROW_LIMIT (about +180 MB at
+      // 2^20 rows); the time arm below is a backstop.
+      const addedMb = Math.ceil(
         (atLimit.growthMb as number) - (six.growthMb as number),
-      ).toBeLessThan(64);
+      );
+      const overMb = Math.max(0, addedMb - 63);
+      expect(overMb, `added ${addedMb} MB`).toBe(0);
       // Time against the same machine's six-row run (a full parallel suite
-      // slows both; it failed a fixed 3 s once that way).
-      expect(atLimit.ms as number).toBeLessThan(
+      // slows both; it failed a fixed 3 s once that way). Measure mode until
+      // harvested (CI-flake audit lane 2): the test's CI max is 4,856 ms
+      // for both children (12 runs of 2026-11-18).
+      measureTime(
+        "sib03-zero-width-at-limit",
+        atLimit.ms as number,
         Math.max(3_000, 4 * (six.ms as number)),
+        { detail: `six rows ${six.ms} ms`, witness: "overMb" },
       );
     },
     2 * T,
@@ -182,7 +204,11 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
         "prev-indirect-int-6",
       ]) {
         const v = settled(await run(fixture, "classify"));
-        expect(v, fixture).toMatchObject({ settled: "unencrypted" });
+        // pdfjsCalls 1: the positive control for SIB-06's count of 0.
+        expect(v, fixture).toMatchObject({
+          settled: "unencrypted",
+          pdfjsCalls: 1,
+        });
       }
     },
     3 * T,
@@ -238,7 +264,30 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
       ]) {
         const r = await run(fixture, "prescan");
         const v = settled(r);
-        expect(v.ms as number, fixture).toBeLessThan(1_000);
+        // The cost shape as a count (CI-flake audit lane 2): the bytes the
+        // pre-scan lexed, which no runner speed moves. Positive control: the
+        // region is a full budget burn (refused after 98-99% of scanBudget),
+        // so a fixture that stopped reaching the budget cannot make the
+        // bound below vacuous.
+        expect(v.settled, fixture).toBe("refused");
+        const size = v.size as number;
+        const lexed = v.lexed as number;
+        expect(lexed, fixture).toBeGreaterThanOrEqual(0.9 * scanBudget(size));
+        // A second, independently typed bound: 9 x size + 9 MiB against
+        // scanBudget's 8 x size + 8 MiB. Today 16.38M of 18.65M (64k). A
+        // budget multiplier raised 8 -> 64 lexes 73.9M and is red on any
+        // runner; the old `ms < 1_000` caught it only on a slow one.
+        const overLexed = Math.max(0, lexed - (9 * size + 9 * 2 ** 20));
+        expect(overLexed, `${fixture}: lexed ${lexed} of ${size}`).toBe(0);
+        // Time is a backstop, never what catches the multiplier. `< 1_000`
+        // had about 1.05-1.4x on slow CI runners (test max 9,251 ms in
+        // 43636213581 for three children). Measure mode until harvested,
+        // with a floor of 3 s.
+        measureTime("sib03-prescan-unclosed", v.ms as number, 3_000, {
+          instance: fixture,
+          detail: `lexed ${lexed} bytes`,
+          witness: "overLexed",
+        });
       }
     },
     3 * T,
@@ -249,12 +298,21 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
     async () => {
       const six = settled(await run("flate-rows-6", "pdfjs"));
       const atFloor = settled(await run("flate-rows-at-floor", "pdfjs"));
-      expect(atFloor.ms as number).toBeLessThan(
-        Math.max(5_000, 4 * (six.ms as number)),
-      );
-      expect(
+      // The memory arm, on the FIRST hostile open in a fresh child, sees a
+      // doubled XREF_ENTRY_FLOOR; the time arm below is a backstop.
+      const addedMb = Math.ceil(
         (atFloor.growthMb as number) - (six.growthMb as number),
-      ).toBeLessThan(ENTRY_FLOOR_MB);
+      );
+      const overMb = Math.max(0, addedMb - (ENTRY_FLOOR_MB - 1));
+      expect(overMb, `added ${addedMb} MB`).toBe(0);
+      // Measure mode until harvested (CI-flake audit lane 2): the test's CI
+      // max is 5,091 ms for both children (12 runs of 2026-11-18).
+      measureTime(
+        "sib03-entry-floor-at-floor",
+        atFloor.ms as number,
+        Math.max(5_000, 4 * (six.ms as number)),
+        { detail: `six rows ${six.ms} ms`, witness: "overMb" },
+      );
     },
     2 * T,
   );
@@ -298,7 +356,16 @@ describe("lane l02: hostile structure is read in bounded time and memory", () =>
     async () => {
       const v = settled(await run("encrypt-length-1e9", "classify"));
       expect(v).toMatchObject({ settled: "unreadable" });
-      expect(v.ms as number).toBeLessThan(5_000);
+      // "Without asking pdf.js" is a count (CI-flake audit lane 2): the
+      // child wraps getDocument. The review-2 controls read 1, so the
+      // counter is seen to count.
+      const pdfjsCalls = v.pdfjsCalls;
+      expect(pdfjsCalls).toBe(0);
+      // A backstop with a 5 s floor; measure mode until harvested (test CI
+      // max 2,638 ms, spawn and fixture included, 12 runs of 2026-11-18).
+      measureTime("sib06-encrypt-length", v.ms as number, 5_000, {
+        witness: "pdfjsCalls",
+      });
     },
     T,
   );
