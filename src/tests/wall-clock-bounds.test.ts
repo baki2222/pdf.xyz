@@ -363,7 +363,12 @@ describe.skipIf(MODE)(
         `routed ${audit.routed.length}, debt ${parseDebt(WALL_CLOCK_DEBT_TSV).length}, exempt ${WALL_CLOCK_EXEMPT.length}, comparisons ${audit.comparisons.length}`,
       );
       within("routedDebtExempt", total);
-      within("comparisons", audit.comparisons.length);
+      // Raw comparisons AND routed calls: routing a comparison moves it from
+      // the first set to the second, so a lane that fixes its debt shrinks
+      // the raw count by design (lane 1b took it from 102 to 79 on
+      // 2026-11-22) and the raw count alone would read that as blindness.
+      // The raw recognizer's own sight is held by wall-clock-detector.test.ts.
+      within("comparisons", audit.comparisons.length + audit.routed.length);
     });
 
     it("every rule catches a real member, or says what it is waiting for (rule 1, both directions)", () => {

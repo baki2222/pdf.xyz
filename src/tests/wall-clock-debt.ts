@@ -10,7 +10,7 @@
  * shrink, and only by code that changed. Keys are token streams, so a
  * reformat keeps them. The list ends when it is empty; the guard does not.
  */
-export const WALL_CLOCK_DEBT_CEILING = 98;
+export const WALL_CLOCK_DEBT_CEILING = 75;
 
 /** lane, kind, file, occurrence index, collapsed snippet — one per line. */
 export const WALL_CLOCK_DEBT_TSV = `
@@ -28,7 +28,6 @@ export const WALL_CLOCK_DEBT_TSV = `
 5	raw	e2e/scan-to-pdf-responsive.spec.ts	0	expect(idleMs).toBeLessThanOrEqual(2 * share)
 5	raw	e2e/scan-to-pdf-responsive.spec.ts	0	performance.now() - t < 300
 5	raw	e2e/worker-panels.spec.ts	0	expect(visibleAfter).toBeLessThan(500 + 1000)
-1b	raw	src/components/tools/ai-markdown.test.tsx	0	expect(took, name).toBeLessThan(1_500)
 3	raw	src/components/tools/runner/batch/settings-batch-behaviour.dom.test.tsx	0	expect(performance.now() - typedAt).toBeLessThan(500)
 1b	seed	src/components/tools/runner/batch/worker-batch.test.ts	0	expect(at).toBeGreaterThanOrEqual(now + 30_000)
 1b	seed	src/components/tools/runner/batch/worker-batch.test.ts	0	expect(at).toBeLessThan(now + 31_000)
@@ -36,35 +35,13 @@ export const WALL_CLOCK_DEBT_TSV = `
 1b	seed	src/components/tools/runner/batch/worker-batch.test.ts	0	expect(result.current.resumeAt).toBeLessThan(before + 1000 + 2000)
 1b	seed	src/lib/pdf/form-detect-precision.test.ts	0	expect(num / den, said).toBeLessThan(bound)
 1b	seed	src/lib/pdf/form-detect.test.ts	0	expect(ratio, said).toBeLessThan(bound)
-1b	raw	src/lib/pdf/markdown-to-pdf.test.ts	0	expect(elapsed).toBeLessThan(5_000)
-1b	raw	src/lib/pdf/markdown-to-pdf.test.ts	1	expect(elapsed).toBeLessThan(5_000)
-1b	raw	src/lib/pdf/markdown-to-pdf.test.ts	0	expect(result.ms).toBeLessThan(30_000)
-1b	raw	src/lib/pdf/markdown-to-pdf.test.ts	0	expect(result.ms).toBeLessThan(run.flatMs * 6 + 2_000)
-1b	raw	src/lib/pdf/markdown-to-pdf.test.ts	0	expect(run.ms).toBeLessThan(baseline.ms * 10 + 250)
-1b	raw	src/lib/pdf/pdf-page-images.test.ts	0	expect(Date.now() - t0).toBeLessThan(3_000)
-1b	raw	src/lib/pdf/pdf-page-images.test.ts	0	expect(ms).toBeLessThan(2_000)
-1b	raw	src/lib/pdf/pdf-page-images.test.ts	0	expect(ms).toBeLessThan(3_000)
-1b	raw	src/lib/pdf/pdf-page-images.test.ts	0	expect(ms).toBeLessThan(4_000)
-1b	raw	src/lib/pdf/pdf-page-images.test.ts	0	expect(ms).toBeLessThan(5_000)
-1b	raw	src/lib/pdf/pdf-page-images.test.ts	1	expect(ms).toBeLessThan(5_000)
-1b	raw	src/lib/pdf/pdf-page-images.test.ts	2	expect(ms).toBeLessThan(5_000)
-1b	raw	src/lib/pdf/pdf-page-images.test.ts	3	expect(ms).toBeLessThan(5_000)
 1b	raw	src/lib/pdf/remove-annotations.test.ts	0	expect(Date.now() - started).toBeLessThan(10_000)
 1b	raw	src/lib/pdf/tiff.test.ts	0	expect(Date.now() - started).toBeLessThan(2000)
-1b	raw	src/lib/tools/tools.test.ts	0	expect(perQuery).toBeLessThan(2)
 1a	raw	src/lib/workers/engines-honour-abort.test.ts	0	expect(elapsed).toBeLessThan(ABORT_BOUND_MS)
 1b	raw	src/lib/workers/executor/executor.abort-chain.test.ts	0	expect(Date.now() - stolenAt).toBeLessThan(5_000)
 1b	raw	src/lib/workers/office-conversion/errors.test.ts	0	expect(Date.now() - started).toBeLessThan(2_000)
-1b	raw	src/lib/workers/pdf-office-export/docx-run-style.cap.test.ts	0	expect(got.ms, JSON.stringify(got)).toBeLessThan(10_000)
-1b	raw	src/lib/workers/pdf-office-export/docx-run-style.cap.test.ts	0	expect(got.ms, JSON.stringify(got)).toBeLessThan(60_000)
-1b	raw	src/lib/workers/pdf-office-export/docx-run-style.cap.test.ts	0	expect(got.readBackMs, JSON.stringify(got)).toBeLessThan(3_000)
-1b	raw	src/lib/workers/pdf-office-export/docx-table.cap.test.ts	0	expect(got.ms, JSON.stringify(got)).toBeLessThan(10_000)
-1b	raw	src/lib/workers/pdf-office-export/docx-table.cap.test.ts	1	expect(got.ms, JSON.stringify(got)).toBeLessThan(10_000)
-1b	raw	src/lib/workers/pdf-office-export/docx-table.cap.test.ts	0	expect(got.ms, JSON.stringify(got)).toBeLessThan(30_000)
-1b	raw	src/lib/workers/pdf-office-export/docx-table.cap.test.ts	0	expect(got.ms, JSON.stringify(got)).toBeLessThan(5_000)
 1b	raw	src/lib/workers/pdf-office-export/faithful.test.ts	0	expect(elapsed, \`took \${elapsed} ms\`).toBeLessThan(8_000)
 1b	raw	src/lib/workers/pdf-text/flow-wraps.test.ts	0	expect(ms).toBeLessThan(2500)
-1b	raw	src/lib/workers/pdf-text/table-grid.test.ts	0	expect(ms).toBeLessThan(50 * Math.max(control, 1))
 1b	raw	src/lib/workers/request-signatures/labels-capability.test.ts	0	expect(Date.now() - started).toBeLessThan(5_000)
 1b	raw	src/lib/workers/translate/capability.test.ts	0	expect(Date.now() - before).toBeLessThan(5_000)
 1b	raw	src/lib/workers/translate/pdf-capability.chromium.test.ts	0	expect(run.ms).toBeLessThan(TRANSLATE_PDF_RENDER_TIMEOUT_MS)
