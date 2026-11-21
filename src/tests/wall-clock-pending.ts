@@ -23,12 +23,12 @@ export const WALL_CLOCK_PENDING: readonly PendingEntry[] = [
     id: "S4 entry boxes",
     file: "src/lib/pdf/form-detect-boxes-cost.test.ts",
     reason:
-      "Find fields' entry-box detection must stay linear in the page's boxes, and only this ratio sees a quadratic step. The test's health checks cover what is found, not what it costs. Back to assert once 5 CI runs calibrate the id (bound 45 against 16.7 to 21.6 measured; mutants 74 to 232).",
+      "Create Forms' entry-box reading must stay linear in the page's boxes, and only this ratio sees a quadratic step. The test's health checks cover what is found, not what it costs. Back to assert once 5 CI runs calibrate the id (bound 45 against 16.7 to 21.6 measured; mutants 74 to 232).",
   },
   {
     id: "S4 stacks",
     file: "src/lib/pdf/form-detect-boxes-cost.test.ts",
     reason:
-      "Find fields' stacked-line detection must stay linear in the page's stacks, and only this ratio sees a quadratic step. The test's health checks cover what is found, not what it costs. Back to assert once 5 CI runs calibrate the id (bound 45 against 17.1 to 20.5 measured; mutants 74 to 94).",
+      "Create Forms' stacked-line reading must stay linear in the page's stacks, and only this ratio sees a quadratic step. The test's health checks cover what is found, not what it costs. Back to assert once 5 CI runs calibrate the id (bound 45 against 17.1 to 20.5 measured; mutants 74 to 94).",
   },
 ];

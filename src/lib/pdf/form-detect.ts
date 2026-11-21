@@ -7,8 +7,10 @@ import type { Rect, Seg } from "./form-detect-paths";
  * propose where a fillable field might go, and say why each other shape was
  * passed over.
  *
- * LIMITS, in plain words. It looks at seven shapes only (slice S4 added
- * the seventh, and one field over stacked lines; see {@link DETECT_BOXES}):
+ * LIMITS, in plain words. It looks at eight shapes only (slice S4 added
+ * the seventh, and one field over stacked lines; see {@link DETECT_BOXES};
+ * slice S5 the eighth, the empty cells of a ruled table under a header
+ * row, see {@link DETECT_TABLES}):
  * an empty outlined box with a label, its field filling it, and three or
  * more equal blank lines under one caption, one field over them all; a run of
  * underscores typed in the text (labelled beside it, or, alone in a ruled
@@ -55,6 +57,7 @@ export const DETECTION_RULES = [
   { id: "dot-leader", plain: "dotted lines after a label" },
   { id: "box-glyph", plain: "box symbols in the text" },
   { id: "entry-box", plain: "larger empty boxes to write in" },
+  { id: "header-cell", plain: "empty table cells under a heading" },
 ] as const;
 
 /** Why a shape was passed over, in the order they are decided (mostly). */
@@ -63,6 +66,8 @@ export const EXCLUSION_RULES = [
   { id: "full-width-divider" },
   { id: "page-band" },
   { id: "table-grid" },
+  { id: "filled-cells" },
+  { id: "large-table" },
   { id: "filled-box" },
   { id: "comb" },
   { id: "bullet" },
@@ -463,6 +468,28 @@ export const DETECT_BOXES = {
   PAINT_CELL: 50,
 } as const;
 
+/**
+ * The thresholds of slice S5 (tables: empty ruled cells), kept apart as
+ * S4's are; this one's literal table, and each value's boundary test, are
+ * in form-detect-tables.test.ts. Row heights reuse DETECT_BOXES' entry-box
+ * bounds (a cell is a field's room), and a head over a grid reuses
+ * DETECT.CAPTION_MAX; see {@link tables}.
+ */
+export const DETECT_TABLES = {
+  /**
+   * A table with more empty cells than this to suggest is not expanded:
+   * it is one `large-table` entry, said in ONE summary line, so a sign-up
+   * sheet does not flood the review list (200 is expanded, 201 is not).
+   */
+  TABLE_MAX_CELLS: 200,
+  /**
+   * A grid of ONE row is read only as an address strip: this many touching
+   * boxes, each captioned (City | State | ZIP). More is a table's band.
+   */
+  STRIP_MIN_CELLS: 2,
+  STRIP_MAX_CELLS: 4,
+} as const;
+
 /** Box symbols, empty: a ballot box and a white square. */
 export const EMPTY_BOXES: readonly string[] = [cp(0x2610), cp(0x25a1)];
 /** Box symbols already answered: with a tick, with a cross (`ticked-box`). */
@@ -559,6 +586,8 @@ export interface DetectCounts {
   capped: number;
   /** Pages not searched (too complex, or past the page cap). */
   pagesNotSearched: number;
+  /** Tables of over DETECT_TABLES.TABLE_MAX_CELLS empty cells, not expanded. */
+  largeTables: number;
 }
 
 export interface Excluded {
@@ -595,6 +624,7 @@ export function emptyCounts(): DetectCounts {
     invalid: 0,
     capped: 0,
     pagesNotSearched: 0,
+    largeTables: 0,
   };
 }
 
@@ -986,6 +1016,55 @@ function joinSquares(
   return { rects, used };
 }
 
+/**
+ * Outlined boxes with a box drawn again within GRID_TOUCH_EPS of it on
+ * every side (a doubled bold border, slice S5) kept once, the larger: two
+ * copies 1 pt apart touched each other's plumb lines and passed the box
+ * over as a table's (`table-grid`). Copies further apart stay two boxes,
+ * one a `duplicate` (S4). Filled boxes are left as they are (a fill under
+ * an outline is the box's fill). Each box is looked up by its lower-left
+ * corner, and a corner crowded past DETECT.JOIN_CROWD is not looked through,
+ * so the cost stays linear in the page's boxes.
+ */
+function onceEach(rects: CardRect[]): CardRect[] {
+  const eps = DETECT.GRID_TOUCH_EPS;
+  const key = (x: number, y: number) => `${Math.round(x)}|${Math.round(y)}`;
+  const byCorner = new Map<string, number[]>();
+  const kept: CardRect[] = [];
+  const same = (a: CardRect, b: CardRect) =>
+    Math.abs(a.x0 - b.x0) <= eps &&
+    Math.abs(a.y0 - b.y0) <= eps &&
+    Math.abs(a.x1 - b.x1) <= eps &&
+    Math.abs(a.y1 - b.y1) <= eps;
+  for (const r of rects) {
+    if (!r.stroked || r.filled) {
+      kept.push(r);
+      continue;
+    }
+    let hit = -1;
+    let n = 0;
+    for (const dx of [-1, 0, 1])
+      for (const dy of [-1, 0, 1]) {
+        const list = byCorner.get(key(r.x0 + dx, r.y0 + dy)) ?? [];
+        n += list.length;
+        if (n <= DETECT.JOIN_CROWD)
+          for (const i of list) if (hit < 0 && same(kept[i]!, r)) hit = i;
+      }
+    if (hit >= 0) {
+      const o = kept[hit]!;
+      if ((r.x1 - r.x0) * (r.y1 - r.y0) > (o.x1 - o.x0) * (o.y1 - o.y0))
+        kept[hit] = r;
+      continue;
+    }
+    const k = key(r.x0, r.y0);
+    const list = byCorner.get(k);
+    if (list) list.push(kept.length);
+    else byCorner.set(k, [kept.length]);
+    kept.push(r);
+  }
+  return kept;
+}
+
 /** The page's level rules, plumb lines and squares. */
 function readLines(p: CardPage): PageLines {
   const raw: Line[] = [];
@@ -1012,7 +1091,7 @@ function readLines(p: CardPage): PageLines {
       });
     }
   }
-  for (const r of [...p.rects, ...joined.rects]) {
+  for (const r of onceEach([...p.rects, ...joined.rects])) {
     const w = r.x1 - r.x0;
     const h = r.y1 - r.y0;
     if (isSquare(r)) {
@@ -3399,17 +3478,23 @@ function cellLabel(ix: TextIndex, c: Edges): string | null {
 }
 
 /**
- * The fields of LABEL TABLES ({@link DETECT.CELL_ROWS_MIN}): stacks of
- * rules whose ends line up (within {@link DETECT.GRID_ROW_EPS}), split
- * wherever the outer plumb lines break (two tables at one margin), with
- * exactly three plumb lines inside, at the two ends and one between, each
- * running the stack's whole height, and no other line inside. Every row's
- * left cell must hold one label line ({@link cellLabel}) and every right
- * cell nothing at all: no text (an underscore run included), no square. A
- * header row, a value column, a third column, or a left cell of two lines
- * or none leaves the whole grid to `table-grid` (corpus N4, N39).
+ * A RULED GRID: a stack of rules whose ends line up (within
+ * {@link DETECT.GRID_ROW_EPS}), split wherever the outer plumb lines break
+ * (two tables at one margin), with plumb lines at both ends and at every
+ * column line between, each running the stack's whole height (within
+ * {@link DETECT.GRID_TOUCH_EPS}, as one line or as pieces), and no other
+ * line inside. `xs` are its column lines, `ys` its rules, both ascending.
+ * One finder for every kind of table the finder reads: the label table
+ * ({@link tableCells}), the headed table and the single row of captioned
+ * boxes ({@link headedCells}). A stack of one rule, or a grid of one
+ * column, is none.
  */
-function tableCells(ix: TextIndex, lines: PageLines): Candidate[] {
+interface Grid {
+  xs: number[];
+  ys: number[];
+}
+
+function ruledGrids(lines: PageLines): Grid[] {
   const eps = DETECT.GRID_ROW_EPS;
   const tEps = DETECT.GRID_TOUCH_EPS;
   const long = lines.rules
@@ -3430,7 +3515,7 @@ function tableCells(ix: TextIndex, lines: PageLines): Candidate[] {
     else ends.set(k, [r]);
   }
   const seen = new Set<Line>();
-  const out: Candidate[] = [];
+  const out: Grid[] = [];
   for (const seed of long) {
     if (seen.has(seed)) continue;
     const near: Line[] = [];
@@ -3462,25 +3547,24 @@ function tableCells(ix: TextIndex, lines: PageLines): Candidate[] {
       else parts.push([b]);
     }
     for (const part of parts) {
-      if (part.length - 1 < DETECT.CELL_ROWS_MIN) continue;
+      if (part.length < 2) continue;
       const lo = part[0]!.y;
       const hi = part[part.length - 1]!.y;
+      const inside = lines.verticals.filter(
+        (v) =>
+          v.x >= seed.x0 - tEps &&
+          v.x <= seed.x1 + tEps &&
+          v.y1 > lo + tEps &&
+          v.y0 < hi - tEps,
+      );
       const xs: number[] = [];
-      for (const v of lines.verticals
-        .filter(
-          (v) =>
-            v.x >= seed.x0 - tEps &&
-            v.x <= seed.x1 + tEps &&
-            v.y1 > lo + tEps &&
-            v.y0 < hi - tEps,
-        )
-        .sort((a, b) => a.x - b.x))
+      for (const v of [...inside].sort((a, b) => a.x - b.x))
         if (xs.length === 0 || v.x - xs[xs.length - 1]! > tEps) xs.push(v.x);
       // The part's outer plumb lines are among them (it was split where
-      // they break), so three are the two ends and one column line.
-      if (xs.length !== 3) continue;
-      const mid = xs[1]!;
-      if (!plumbCovers(lines.verticals, mid, lo, hi)) continue;
+      // they break); every column line between must run its whole height.
+      if (xs.length < 3) continue;
+      if (xs.slice(1, -1).some((x) => !plumbCovers(inside, x, lo, hi)))
+        continue;
       const stray = lines.rules.some(
         (r) =>
           !part.includes(r) &&
@@ -3489,42 +3573,297 @@ function tableCells(ix: TextIndex, lines: PageLines): Candidate[] {
           overlap(r.x0, r.x1, seed.x0, seed.x1) > tEps,
       );
       if (stray) continue;
-      const rows: Candidate[] = [];
-      for (let i = 1; i < part.length; i++) {
-        const y0 = part[i - 1]!.y;
-        const y1 = part[i]!.y;
-        const label = cellLabel(ix, { x0: seed.x0, x1: mid, y0, y1 });
-        const cell = { x0: mid, x1: seed.x1, y0, y1 };
-        const empty =
-          textIn(ix, cell).length === 0 &&
-          !lines.squares.some(
-            (s) =>
-              overlap(s.x0, s.x1, mid, seed.x1) > 0 && s.y1 > y0 && s.y0 < y1,
-          );
-        if (!label || !empty) break;
-        const inset = DETECT.FIELD_INSET;
-        rows.push({
-          rule: "table-cell",
-          type: "text",
-          box: {
-            x0: mid + inset,
-            x1: seed.x1 - inset,
-            y0: y0 + inset,
-            y1: y1 - inset,
-          },
-          line: null,
-          square: null,
-          label,
-          labelState: "found",
-          leftLabel: true,
-          ownPiece: null,
-          order: 0,
-        });
-      }
-      if (rows.length === part.length - 1) out.push(...rows);
+      out.push({ xs, ys: part.map((r) => r.y) });
     }
   }
   return out;
+}
+
+/** Whether a cell holds anything: text (an underscore run too) or a square. */
+function cellEmpty(ix: TextIndex, lines: PageLines, c: Edges): boolean {
+  return (
+    textIn(ix, c).length === 0 &&
+    !lines.squares.some(
+      (s) => overlap(s.x0, s.x1, c.x0, c.x1) > 0 && s.y1 > c.y0 && s.y0 < c.y1,
+    )
+  );
+}
+
+const cellField = (c: Edges): Edges => {
+  const e = DETECT.FIELD_INSET;
+  return { x0: c.x0 + e, y0: c.y0 + e, x1: c.x1 - e, y1: c.y1 - e };
+};
+
+const textCell = (box: Edges, label: string): Candidate => ({
+  rule: "table-cell",
+  type: "text",
+  box,
+  line: null,
+  square: null,
+  label,
+  labelState: "found",
+  leftLabel: true,
+  ownPiece: null,
+  order: 0,
+});
+
+/**
+ * The fields of a LABEL TABLE ({@link DETECT.CELL_ROWS_MIN}): a ruled grid
+ * of exactly two columns. Every row's left cell must hold one label line
+ * ({@link cellLabel}) and every right cell nothing at all: no text (an
+ * underscore run included), no square. Null for anything else (a header
+ * row, a value column, a left cell of two lines or none), which
+ * {@link headedCells} may read instead or leave to `table-grid` (corpus
+ * N4; N39 has a header row).
+ */
+function labelTable(
+  ix: TextIndex,
+  lines: PageLines,
+  g: Grid,
+): Candidate[] | null {
+  if (g.xs.length !== 3 || g.ys.length - 1 < DETECT.CELL_ROWS_MIN) return null;
+  const [x0, mid, x1] = g.xs as [number, number, number];
+  const rows: Candidate[] = [];
+  for (let i = 1; i < g.ys.length; i++) {
+    const y0 = g.ys[i - 1]!;
+    const y1 = g.ys[i]!;
+    const label = cellLabel(ix, { x0, x1: mid, y0, y1 });
+    const cell = { x0: mid, x1, y0, y1 };
+    if (!label || !cellEmpty(ix, lines, cell)) return null;
+    rows.push(textCell(cellField(cell), label));
+  }
+  return rows;
+}
+
+/**
+ * The words a cell holds, in reading order (top line first, each line left
+ * to right), read with `cleanLabel`: null when it holds none, any that is
+ * not upright or reaches past its borders (within 1 pt: text across two
+ * cells is neither one's heading), or more than
+ * {@link DETECT.CELL_LABEL_MAX} characters.
+ */
+function cellWords(ix: TextIndex, c: Edges): string | null {
+  const items = textIn(ix, c);
+  const inside = (t: CardText) =>
+    t.upright && t.x >= c.x0 - 1 && t.x + Math.max(0, t.width) <= c.x1 + 1;
+  if (items.length === 0 || !items.every(inside)) return null;
+  items.sort((a, b) =>
+    Math.abs(a.y - b.y) > DETECT.GRID_ROW_EPS ? b.y - a.y : a.x - b.x,
+  );
+  const s = cleanLabel(items.map((t) => t.str).join(" "));
+  return s && Array.from(s).length <= DETECT.CELL_LABEL_MAX ? s : null;
+}
+
+/**
+ * The column heads printed just OVER a grid's top rule, one a column: each
+ * column's upright text whose descent is 0 to {@link DETECT.CAPTION_MAX}
+ * over the rule and which lies inside the column (within 1 pt of its
+ * lines). Null when a column but the first has none, or when any upright
+ * text in that band crosses a column line (a title over the whole grid).
+ */
+function headsOver(ix: TextIndex, g: Grid): (string | null)[] | null {
+  const top = g.ys[g.ys.length - 1]!;
+  const n = g.xs.length - 1;
+  const words: CardText[][] = Array.from({ length: n }, () => []);
+  for (const t of textBand(
+    ix,
+    top + DETECT.TEXT_DESCENT_EMS * ix.minSize,
+    top + DETECT.CAPTION_MAX + DETECT.TEXT_DESCENT_EMS * ix.maxSize,
+  )) {
+    const gap = t.y - DETECT.TEXT_DESCENT_EMS * t.size - top;
+    if (!t.upright || t.str.trim() === "" || gap < 0) continue;
+    if (gap > DETECT.CAPTION_MAX) continue;
+    const x1 = t.x + Math.max(0, t.width);
+    if (x1 <= g.xs[0]! || t.x >= g.xs[n]!) continue;
+    const k = g.xs.findIndex(
+      (x, i) => i < n && t.x >= x - 1 && x1 <= g.xs[i + 1]! + 1,
+    );
+    if (k < 0) return null;
+    words[k]!.push(t);
+  }
+  const heads = words.map((ts) => {
+    const s = cleanLabel(ts.map((t) => t.str).join(" "));
+    return s && Array.from(s).length <= DETECT.CELL_LABEL_MAX ? s : null;
+  });
+  return heads.slice(1).every((h) => h !== null) ? heads : null;
+}
+
+/** What the headed-table read leaves for `classifyPage` to record. */
+interface TableRead {
+  cells: Candidate[];
+  /** Empty cells of rows that hold other text (`filled-cells`). */
+  filled: Edges[];
+  /** Tables of more than TABLE_MAX_CELLS empty cells (`large-table`). */
+  large: Edges[];
+}
+
+/**
+ * The tables a page's ruled grids make ({@link DETECT_TABLES}), each grid
+ * read by the first that takes it:
+ *
+ *  1. a LABEL TABLE ({@link labelTable}): `table-cell`, as before S5;
+ *  2. a SINGLE ROW of STRIP_MIN_CELLS to STRIP_MAX_CELLS touching boxes
+ *     (an address's City | State | ZIP), each holding one caption in its
+ *     top-left with room under it (the test an outlined box's caption
+ *     has, {@link boxCaption}): a field along each box's foot under its
+ *     caption, `labelled-rule`, as one such box alone has;
+ *  3. a HEADED TABLE: the top row's every cell holds a heading
+ *     ({@link cellWords}), a blank top-left corner allowed (over a column
+ *     of row labels), or, when the top row is no header, every column but
+ *     the first has a head printed just over the grid ({@link headsOver}).
+ *     A grid of one body row is read only as a strip, 2 to 4 cells. Then
+ *     each body row is EMPTY (every cell), LABELLED (only its first cell
+ *     holds text, words with a letter in them: "Monday", not a day number)
+ *     or FILLED (anything else), and a filled row is passed over whole: its
+ *     empty cells are `filled-cells`, since a gap in a data table is no
+ *     blank to fill in. Each empty cell under a head in an empty or
+ *     labelled row is a `header-cell` field filling it (inset
+ *     DETECT.FIELD_INSET, multiline when the row is as tall as an entry
+ *     box's for its head's size), labelled "<head> row <n>" (n its printed
+ *     row under the header), "<row label> <head>" in a labelled row, the
+ *     row label alone in a table of two columns, and the head alone in a
+ *     table of one body row. Over TABLE_MAX_CELLS such cells, none is
+ *     proposed: the table is one `large-table` entry for the summary.
+ *
+ * Every row must be DETECT_BOXES.ENTRY_MIN_H to ENTRY_MAX_H tall (a field's
+ * room, not a page layout's boxes). Any other grid is left to `table-grid`,
+ * which passes over the rules of every grid, read or not.
+ */
+function tables(
+  ix: TextIndex,
+  lines: PageLines,
+  on: (id: ExclusionRuleId) => boolean,
+): TableRead {
+  const read: TableRead = { cells: [], filled: [], large: [] };
+  for (const g of ruledGrids(lines)) {
+    const label = labelTable(ix, lines, g);
+    if (label) {
+      read.cells.push(...label);
+      continue;
+    }
+    headedCells(ix, lines, g, on, read);
+  }
+  return read;
+}
+
+function headedCells(
+  ix: TextIndex,
+  lines: PageLines,
+  g: Grid,
+  on: (id: ExclusionRuleId) => boolean,
+  read: TableRead,
+): void {
+  const { xs, ys } = g;
+  const cols = xs.length - 1;
+  const rows = ys.length - 1;
+  for (let i = 1; i <= rows; i++) {
+    const h = ys[i]! - ys[i - 1]!;
+    if (h < DETECT_BOXES.ENTRY_MIN_H || h > DETECT_BOXES.ENTRY_MAX_H) return;
+  }
+  const cell = (r: number, k: number): Edges => ({
+    x0: xs[k]!,
+    x1: xs[k + 1]!,
+    y0: ys[rows - r - 1]!,
+    y1: ys[rows - r]!,
+  });
+  const strip =
+    cols >= DETECT_TABLES.STRIP_MIN_CELLS &&
+    cols <= DETECT_TABLES.STRIP_MAX_CELLS;
+  // 2. One row of captioned boxes.
+  if (rows === 1 && strip) {
+    const caps = Array.from({ length: cols }, (_, k) => {
+      const c = cell(0, k);
+      const hit = boxCaption(ix, { x0: c.x0, x1: c.x1, y: c.y0 }, c.y1);
+      return hit && hit.text.y < c.y1 ? hit : null;
+    });
+    if (caps.every((c) => c !== null)) {
+      caps.forEach((cap, k) => {
+        const c = cell(0, k);
+        const e = DETECT.FIELD_INSET;
+        read.cells.push({
+          ...textCell(
+            {
+              x0: c.x0 + e,
+              x1: c.x1 - e,
+              y0: c.y0 + DETECT.RULE_BOTTOM_GAP,
+              y1:
+                c.y0 +
+                DETECT.RULE_BOTTOM_GAP +
+                textHeight(cap!.text.size, DETECT.TEXT_H_RULE),
+            },
+            cap!.str,
+          ),
+          rule: "labelled-rule",
+          leftLabel: false,
+        });
+      });
+      return;
+    }
+  }
+  // 3. A headed table.
+  const sizes: number[] = [];
+  let heads: (string | null)[] | null = Array.from({ length: cols }, (_, k) => {
+    const s = cellWords(ix, cell(0, k));
+    sizes[k] = textIn(ix, cell(0, k))[0]?.size ?? DETECT.DEFAULT_SIZE;
+    return s;
+  });
+  let first = 1;
+  if (!heads.slice(1).every((s) => s !== null)) {
+    heads = headsOver(ix, g);
+    first = 0;
+  }
+  // A heading has a letter in it: a top row of numbers is data.
+  if (!heads || heads.some((h) => h !== null && !LETTER.test(h))) return;
+  const body = rows - first;
+  if (body < 1 || (first === 0 && body === 1 && !strip)) return;
+  const want: { box: Edges; label: string; tall: boolean }[] = [];
+  const gaps: Edges[] = [];
+  for (let r = first; r < rows; r++) {
+    const n = r - first + 1;
+    const own = Array.from({ length: cols }, (_, k) => cell(r, k));
+    const empty = own.map((c) => cellEmpty(ix, lines, c));
+    const rowLabel = empty[0] ? null : cellWords(ix, own[0]!);
+    const labelled =
+      rowLabel !== null &&
+      LETTER.test(rowLabel) &&
+      empty.slice(1).every(Boolean);
+    const filled = !labelled && !empty.every(Boolean);
+    for (let k = 0; k < cols; k++) {
+      const head = heads[k];
+      if (!empty[k] || !head) continue;
+      if (filled && on("filled-cells")) {
+        gaps.push(cellField(own[k]!));
+        continue;
+      }
+      const label = labelled
+        ? cols === 2
+          ? rowLabel!
+          : `${rowLabel} ${head}`
+        : body === 1
+          ? head
+          : `${head} row ${n}`;
+      const c = own[k]!;
+      const tall =
+        c.y1 - c.y0 >=
+        Math.max(
+          DETECT_BOXES.MULTILINE_MIN_H,
+          DETECT_BOXES.MULTILINE_EMS * (sizes[k] ?? DETECT.DEFAULT_SIZE),
+        );
+      want.push({ box: cellField(c), label, tall });
+    }
+  }
+  if (want.length > DETECT_TABLES.TABLE_MAX_CELLS && on("large-table")) {
+    read.large.push({ x0: xs[0]!, y0: ys[0]!, x1: xs[cols]!, y1: ys[rows]! });
+    return;
+  }
+  read.filled.push(...gaps);
+  for (const w of want)
+    read.cells.push({
+      ...textCell(w.box, w.label),
+      rule: "header-cell",
+      leftLabel: false,
+      ...(w.tall ? { multiline: true } : {}),
+    });
 }
 
 /**
@@ -3945,6 +4284,8 @@ function roundEdges(e: Edges): Edges {
  *  1. the shape itself (`short-run`)
  *  2. the label search
  *  3. `signature`
+ *  0. what the table read passed over (`large-table`, `filled-cells`:
+ *     see {@link tables}), recorded before any candidate
  *  4. `toc-leader` (rows of dots), `ticked-box`, `comb` and `bullet` (box
  *     symbols), then `underline`, `full-width-divider`, `page-band`,
  *     `table-grid`, `comb`, `bullet`, then `unlabelled` / `rotated-label`
@@ -3983,6 +4324,15 @@ export function classifyPage(
   const tix = textIndex(p.text);
   const runs = runCandidates(p, all, tix);
   cellRunLabels(tix, lines, pix, runs.cands);
+  // Tables (slice S5): their cells are read before the loop, and what the
+  // read passes over is recorded first, so the cell it was about is
+  // decided by it, not by the strip of a rule drawn under that cell.
+  const tableRead = tables(tix, lines, on);
+  for (const box of tableRead.large) {
+    exclude("large-table", box);
+    counts.largeTables++;
+  }
+  for (const box of tableRead.filled) exclude("filled-cells", box);
   // The shapes typed in the text (slice S3), after the others, so the
   // others keep their order (`duplicate` keeps the first).
   const byItem = piecesByItem(all);
@@ -4005,7 +4355,7 @@ export function classifyPage(
     ...ruleCandidates(p, lines, rowTable),
     ...runs.cands,
     ...squareCandidates(p, lines),
-    ...tableCells(tix, lines),
+    ...tableRead.cells,
     ...leaders.cands,
     ...boxCandidates(p, byItem, tix),
   ];
