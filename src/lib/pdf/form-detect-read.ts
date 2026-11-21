@@ -12,6 +12,13 @@ import {
   type FieldProposal,
   type Placement,
 } from "./form-detect";
+import {
+  glyphTable,
+  itemCharSpacing,
+  itemAdvances,
+  type GlyphOps,
+  type GlyphTable,
+} from "./form-detect-glyphs";
 import { scanPaths, type ImageBox, type OpsLike } from "./form-detect-paths";
 import { awaitPdfjsDocument, loadPdfjs } from "./pdfjs";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
@@ -86,7 +93,7 @@ export interface DetectReport {
 
 /** The part of pdf.js the reader uses. */
 export type PdfjsLike = Pick<typeof import("pdfjs-dist"), "getDocument"> & {
-  OPS: OpsLike;
+  OPS: OpsLike & GlyphOps;
   AnnotationMode?: { DISABLE: number };
 };
 
@@ -159,11 +166,16 @@ const FAMILIES = new Set(["serif", "sans-serif", "monospace"]);
  * origin). Upright only when b = c = 0, a > 0, d > 0 and not vertical
  * writing: the refusal in text.ts `itemBox`. Other items keep their bounding
  * box and can never be a label.
+ *
+ * With the page's {@link glyphTable}, an upright item whose every character
+ * its font's table holds carries each character's advance (`advances`), so
+ * a run, a row of dots or a box symbol is placed where it is drawn.
  */
 export function textItemToCard(
   item: RawTextItem,
   origin: [number, number],
   styles: Record<string, { fontFamily?: string } | undefined> = {},
+  glyphs?: GlyphTable,
 ): CardText | null {
   if (typeof item.str !== "string" || item.str.trim() === "") return null;
   const t = item.transform;
@@ -181,8 +193,30 @@ export function textItemToCard(
     style?.fontFamily && FAMILIES.has(style.fontFamily)
       ? (style.fontFamily as CardText["family"])
       : undefined;
+  // Read for every item, upright or not, so each font's queue stays in
+  // step with its items (./form-detect-glyphs `itemCharSpacing`). When the
+  // item is not found there: the font's one Tc if it had one; if it had
+  // several, the Tc is unknown and no advance is placed by guessing 0
+  // (review round 2 of slice S3: a heading at another Tc put every run
+  // below it 11 pt late).
+  const font = typeof item.fontName === "string" ? item.fontName : null;
+  const tcs =
+    glyphs && font !== null
+      ? (itemCharSpacing(glyphs, font, item.str) ??
+        (glyphs.charSpacing.has(font)
+          ? (glyphs.charSpacing.get(font) ?? undefined)
+          : 0))
+      : undefined;
   const upright = b === 0 && c === 0 && a! > 0 && d! > 0 && item.dir !== "ttb";
   if (upright) {
+    const advances =
+      glyphs && font !== null && tcs !== undefined
+        ? itemAdvances(item.str, width, d!, glyphs.get(font), {
+            charSpacingEms: tcs,
+            // pdf.js scales the font size by Tz along x only.
+            hScale: a! / d!,
+          })
+        : undefined;
     return {
       str: item.str,
       x: e! - origin[0],
@@ -191,6 +225,7 @@ export function textItemToCard(
       size: d!,
       upright: true,
       ...(family ? { family } : {}),
+      ...(advances ? { advances } : {}),
     };
   }
   const run = Math.hypot(a!, b!) || 1;
@@ -376,9 +411,6 @@ export async function detectFormFields(
           { fontFamily?: string }
         >;
         const items = content.items as RawTextItem[];
-        const text = items
-          .map((it) => textItemToCard(itemOnScreen(it, m), [0, 0], styles))
-          .filter((t): t is CardText => t !== null);
         const turned = items.filter((it) => turnedOnScreen(it, m)).length;
         // Page content only: existing widgets are read from the annotations
         // below, and their appearance streams are not lines on the page.
@@ -387,6 +419,14 @@ export async function detectFormFields(
             ? { annotationMode: pdfjs.AnnotationMode.DISABLE }
             : {},
         );
+        // Read after the operator list: its glyphs give each character's
+        // advance (./form-detect-glyphs).
+        const glyphs = glyphTable(ops.fnArray, ops.argsArray, pdfjs.OPS);
+        const text = items
+          .map((it) =>
+            textItemToCard(itemOnScreen(it, m), [0, 0], styles, glyphs),
+          )
+          .filter((t): t is CardText => t !== null);
         const scan = scanPaths(ops.fnArray, ops.argsArray, pdfjs.OPS);
         if (scan.capped) {
           outcome.set(n, {

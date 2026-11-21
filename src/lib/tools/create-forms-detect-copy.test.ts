@@ -482,10 +482,28 @@ describe(
       // Health: the tool page and the panel both say it.
       expect(lists.some((l) => l.source === "content")).toBe(true);
       expect(lists.some((l) => l.source === "panel")).toBe(true);
+      // As lists, not sets (review round 1 of slice S3, finding 8): a set
+      // let a doubled or an empty plain word through.
+      const sorted = (xs: readonly string[]) => [...xs].sort();
       for (const l of lists)
-        expect(new Set(l.items), `${l.source}: ${l.text}`).toEqual(
-          new Set(PLAIN),
+        expect(sorted(l.items), `${l.source}: ${l.text}`).toEqual(
+          sorted(PLAIN),
         );
+    });
+
+    it("every plain word is words, and no two rules share one (an empty or doubled plain breaks the listing)", () => {
+      // Health: the table is the size DETECTION_RULES is.
+      expect(PLAIN.length).toBe(DETECTION_RULES.length);
+      expect(PLAIN.length).toBeGreaterThanOrEqual(6);
+      for (const plain of PLAIN) {
+        expect(plain, JSON.stringify(plain)).toBe(plain.trim());
+        expect(plain, JSON.stringify(plain)).toMatch(/^\p{L}+(?: \p{L}+)+$/u);
+      }
+      const lower = PLAIN.map((x) => x.toLowerCase());
+      expect(new Set(lower).size, lower.join(" | ")).toBe(lower.length);
+      // Positive control: the predicate sees both defects.
+      expect(new Set(["a b", "a b"]).size).toBe(1);
+      expect(/^\p{L}+(?: \p{L}+)+$/u.test("")).toBe(false);
     });
   },
 );

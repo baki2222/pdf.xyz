@@ -234,13 +234,24 @@ export const AI_CHARACTER_ALLOWANCE = Math.floor(
 );
 
 /**
- * Where the figure came from, and since when it has been provisional.
- * `provisionalSince` is the commit that introduced it (3f17b0d). The age limit
- * is enforced by `provisional-age.test.ts`, not by this comment.
+ * Where the figure came from, and since when it has been provisional. It first
+ * became provisional in the commit that introduced it (3f17b0d, 2026-08-21).
+ * The age limit is enforced by `provisional-age.test.ts`, not by this comment.
  */
 export const AI_CHARACTER_ALLOWANCE_BASIS = {
   measuredOn: "provisional",
-  provisionalSince: "2026-08-21",
+  /**
+   * RENEWED 2026-11-21, NOT re-measured. The age limit expired on day 92 and
+   * turned every CI run red, which is the guard doing its job. The figure is
+   * unchanged: neither input (`TRANSLATE_MAX_INPUT_CHARS`,
+   * `aiRunsPerDayPerClient: 3`) has changed since 3f17b0d, and the live translate
+   * page still publishes 30,774 characters that day. Re-measuring needs
+   * evidence of how real visitors use the allowance (`results.ai.usage` rows
+   * and limiter hits). The spend ceiling's renewal on 2026-11-10 says the same:
+   * traffic, not effort, supplies that, and no such corpus exists yet. The
+   * next decision is due when this date expires again.
+   */
+  provisionalSince: "2026-11-21",
   /** The PUBLISHED figure. The bucket is this times the extractor headroom. */
   derivedFrom: "TRANSLATE_MAX_INPUT_CHARS × aiRunsPerDayPerClient",
   /** Why pages lost: the measured density spread this budget maps onto. */

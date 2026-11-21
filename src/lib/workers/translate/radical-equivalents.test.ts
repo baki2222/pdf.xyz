@@ -355,17 +355,30 @@ describe("the per-face rewrite table, against measured cmap facts", () => {
     const seen = new Map<string, number>();
     let kept = 0;
     let targetKept = 0;
-    for (const face of faces)
+    // COST, not detection (CI run 44171428723: 3735 ms of a 5 s default).
+    // Every assertion below reads the same `radicalRewritesFor` results as
+    // before; they are computed once per face (the full table, which this
+    // loop rebuilt for EVERY source) and once per face and kept code point
+    // (a code point shares glyphs with several sources), instead of once
+    // per pair.
+    for (const face of faces) {
+      const full = radicalRewritesFor(face);
+      const keeping = new Map<number, ReadonlyMap<number, number>>();
+      const keepingOnly = (k: number) => {
+        let t = keeping.get(k);
+        if (!t) keeping.set(k, (t = radicalRewritesFor(face, new Set([k]))));
+        return t;
+      };
       for (const r of Object.keys(RADICAL_GLYPH_FACTS.faces[face]!)) {
         const source = parseInt(r, 16);
         const others = sharers(face, source).filter(
           (cp) => isRadical(cp) || isExtensionA(cp),
         );
-        const target = radicalRewritesFor(face).get(source);
+        const target = full.get(source);
         for (const k of others) {
           const key = `${r}~${k.toString(16)}`;
           seen.set(key, (seen.get(key) ?? 0) + 1);
-          const t = radicalRewritesFor(face, new Set([k]));
+          const t = keepingOnly(k);
           if (k === target) {
             // A kept TARGET (an Extension A sharer) is what pdf.js should read.
             targetKept += 1;
@@ -376,6 +389,7 @@ describe("the per-face rewrite table, against measured cmap facts", () => {
           }
         }
       }
+    }
     // Health and positive control: the review's named members are among them.
     for (const key of [
       "2edd~2fb7", // SC ⻝ when the job wrote ⾷
@@ -399,7 +413,14 @@ describe("the per-face rewrite table, against measured cmap facts", () => {
     expect(radicalRewritesFor("NotoSansCJKsc-Regular").get(0x2edd)).toBe(
       0x98df,
     );
-  });
+    // 7.5 s: twice the CI maximum on record, 3735 ms (run 44171428723, the
+    // pre-hoist loop; 2.008x. n=58: every CI run 44148328648..44428026069
+    // that printed this test, failed and cancelled included, 1571-3735 ms —
+    // one loop, 2.38x apart by runner alone). The hoist above took it
+    // from 1014 ms to about 70 ms on the developer machine, so that CI
+    // figure is an upper bound. Tightening waits for CI figures of the
+    // hoisted loop: a local 70 ms is not a CI number.
+  }, 7_500);
 
   /**
    * The Supplement's second bound, as MEMBERS (rule 1: a list nothing
