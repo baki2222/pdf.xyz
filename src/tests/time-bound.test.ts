@@ -443,11 +443,11 @@ describe("the wait recorder", () => {
       });
     // A Windows path with a space, parenthesised and bare.
     for (const f of [
-      "    at fn (C:/My Repo/src/tests/b.test.ts:7:3)",
-      "    at C:/My Repo/src/tests/b.test.ts:7:3",
+      "    at fn (C:/My Repo/src/tests/b-helper.ts:7:3)",
+      "    at C:/My Repo/src/tests/b-helper.ts:7:3",
     ])
       expect(waitCallSite(`Error\n${f}`), f).toEqual({
-        file: "C:/My Repo/src/tests/b.test.ts",
+        file: "C:/My Repo/src/tests/b-helper.ts",
         line: 7,
         column: 3,
       });
