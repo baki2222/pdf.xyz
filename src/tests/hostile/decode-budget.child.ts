@@ -5,6 +5,7 @@
 //
 // argv: <entry> <fixture path>
 import { readFileSync } from "node:fs";
+import { PDFPageEmbedder } from "pdf-lib";
 import { startMemoryMeter } from "./memory";
 import { reportResult } from "./report";
 import { partnerPdf } from "./stamping.fixtures";
@@ -14,6 +15,25 @@ const bytes = new Uint8Array(readFileSync(file!));
 // Started here, after the imports and the fixture read: the growth is the
 // entry point's alone (see ./memory.ts for why not maxRSS - before).
 const meter = startMemoryMeter();
+
+// The page content every embed DECODED, summed outside the ledger (CI-flake
+// audit lane 2, decode-budget L397/L398): the bytes each completed
+// decodeContents call returned. The patched ledger reports its own
+// `requested`/`limit`, which under-report exactly when it under-charges, so
+// this count is taken where the bytes come out, in the same pdf-lib instance
+// n-up and overlay load ("pdf-lib" resolves to cjs/index.js for both). A
+// refused page throws inside decodeContents and adds nothing.
+let decoded = 0;
+type DecodeContents = (this: unknown, ...args: unknown[]) => Uint8Array;
+const proto = PDFPageEmbedder.prototype as unknown as {
+  decodeContents: DecodeContents;
+};
+const decodeContents = proto.decodeContents;
+proto.decodeContents = function (this: unknown, ...args: unknown[]) {
+  const out = decodeContents.apply(this, args);
+  decoded += out.length;
+  return out;
+};
 
 function describe(err: unknown) {
   const e = err as { name?: string; message?: string; kind?: string };
@@ -117,6 +137,7 @@ run().then(
   (value) =>
     reportResult({
       ok: value,
+      decoded,
       ms: ms(),
       growthMb: meter.growthMb(),
       meter: meter.method,
@@ -124,6 +145,7 @@ run().then(
   (err) =>
     reportResult({
       ...describe(err),
+      decoded,
       ms: ms(),
       growthMb: meter.growthMb(),
       meter: meter.method,
