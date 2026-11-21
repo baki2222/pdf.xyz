@@ -12,6 +12,7 @@ import {
   wordTableDoubt,
   type GridCellInput,
 } from "./table-grid";
+import { expectRatioBelow } from "@/tests/time-bound";
 
 /**
  * #28 slice 2 (tables): the grid a recognised table is written on. Each
@@ -20,6 +21,49 @@ import {
  * falls in.
  */
 const cell = (xMin: number, xMax: number): GridCellInput => ({ xMin, xMax });
+/** A cell whose every read of its x-range is counted: work, not time. */
+const countedCell = (
+  xMin: number,
+  xMax: number,
+  read: () => void,
+): GridCellInput => ({
+  get xMin() {
+    read();
+    return xMin;
+  },
+  get xMax() {
+    read();
+    return xMax;
+  },
+});
+
+/** One time-boxed sample lasts at least this long, so a timer tick is noise. */
+const SAMPLE_MS = 100;
+
+/**
+ * Each function's best time per call over `reps` rounds, the functions
+ * interleaved inside every round (so a load change reaches all sides), each
+ * sample looping until SAMPLE_MS has passed. Each function runs once
+ * before, to pay what a first call pays.
+ */
+function interleavedBest(fns: readonly (() => unknown)[], reps = 5): number[] {
+  for (const fn of fns) fn();
+  const best = fns.map(() => Infinity);
+  for (let k = 0; k < reps; k++)
+    fns.forEach((fn, i) => {
+      let calls = 0;
+      let spent = 0;
+      const t0 = performance.now();
+      do {
+        fn();
+        calls += 1;
+        spent = performance.now() - t0;
+      } while (spent < SAMPLE_MS);
+      best[i] = Math.min(best[i]!, spent / calls);
+    });
+  return best;
+}
+
 const PAGE = {
   cells: MAX_TABLE_CELLS_PER_PAGE,
   slots: MAX_TABLE_SLOTS_PER_PAGE,
@@ -120,21 +164,98 @@ describe("tableGrid", () => {
     ).toBe("order");
   });
 
+  /**
+   * WAS `ms < 50 * max(control, 1)`: one cold tableGrid sample against one
+   * warm chainColumns sample of the same cells (ci-flake audit 2026-11-19,
+   * table-grid.test.ts:136). It passed both O(n^2) mutants the audit built —
+   * a column lookup by scan in tableGrid (ratio 7.7-9.4 against 50) and a
+   * copying push in chainColumns (1.1-1.2: the control slows down with the
+   * subject) — and its 50 ms floor sat under a stall CI had already shown.
+   *
+   * Now, speed-independent first: the work counted as reads of the cells'
+   * x-ranges, at 10,000 cells against 1,250. The sort and the chaining read
+   * them a near-linear number of times (8.06x for the 8x step, counted on
+   * this input); an insertion sort reads them per pair, about 64x. 23 is the
+   * geometric mean, so either side has about 2.8x before it crosses, at any
+   * runner speed. The count cannot see work that never reads a cell (the
+   * scan mutant compares identities); the chainColumns test below and the
+   * chunked ratio here carry that, in measure mode until CI calibrates them.
+   */
   it("a 10,000-cell table is gridded in bounded time", () => {
-    const rows = Array.from({ length: 5_000 }, () => [
-      cell(0, 5),
-      cell(10, 15),
+    const rowsOf = (n: number, read: () => void = () => {}) =>
+      Array.from({ length: n }, () => [
+        countedCell(0, 5, read),
+        countedCell(10, 15, read),
+      ]);
+    const readsAt = (n: number) => {
+      let reads = 0;
+      const grid = tableGrid(
+        rowsOf(n, () => (reads += 1)),
+        PAGE,
+      );
+      return { reads, grid };
+    };
+    const full = readsAt(5_000);
+    const eighth = readsAt(625);
+    const columns =
+      typeof full.grid === "string" ? full.grid : full.grid.col.length;
+    expect(columns).toBe(5_000);
+    // Health: the counter saw the work (a dead getter reads 0, ratio NaN).
+    expect(eighth.reads).toBeGreaterThan(625 * 2);
+    const readGrowth = full.reads / eighth.reads;
+    const nearLinear = readGrowth < 23;
+    expect(nearLinear, `reads ${full.reads} / ${eighth.reads}`).toBe(true);
+
+    // The time: the whole table against the same cells in 16 chunks of a
+    // sixteenth, interleaved, time-boxed samples, best per call. Same
+    // volume, so a uniform slowdown cancels; at the cap the separation is
+    // capped near 12x (fixed 1.13-1.35, scan mutant 6.5-7.3 on the dev
+    // host), which is why it only records until CI shows its spread.
+    const rows = rowsOf(16 * 312);
+    const chunks = Array.from({ length: 16 }, (_, i) =>
+      rows.slice(i * 312, (i + 1) * 312),
+    );
+    const [whole, parts] = interleavedBest([
+      () => tableGrid(rows, PAGE),
+      () => {
+        for (const part of chunks) tableGrid(part, PAGE);
+      },
     ]);
-    const t0 = performance.now();
-    const grid = tableGrid(rows, PAGE);
-    const ms = performance.now() - t0;
-    expect(typeof grid === "string" ? grid : grid.col.length).toBe(5_000);
-    // A control-relative bound: chaining the same cells by hand.
-    const c0 = performance.now();
-    chainColumns(rows.flat());
-    const control = performance.now() - c0;
-    expect(ms).toBeLessThan(50 * Math.max(control, 1));
+    expectRatioBelow("table-grid-whole-vs-chunked", whole!, parts!, 3, {
+      mode: "measure",
+      witness: "columns",
+    });
   });
+
+  /**
+   * chainColumns has no cell cap, so its cost shape is timed beyond the
+   * table's: 40,000 cells in one call against the same 40,000 in 16 calls of
+   * 2,500. Dev host (busy): fixed 1.16-1.30; a copying push (`[...group,
+   * c]`) 7.0-9.0 at 10-20k and 33 at 40k. Bound 4: measure mode until CI
+   * prints its own spread (rule: bound >= 2x the CI max). The 30 s timeout
+   * is for a quadratic mutant (about 1.4 s a call) to end on this ratio,
+   * not on the 5 s default.
+   */
+  it("chainColumns stays near-linear past the table cap", () => {
+    const cellsOf = (n: number) =>
+      Array.from({ length: n }, (_, i) => (i % 2 ? cell(10, 15) : cell(0, 5)));
+    const large = cellsOf(40_000);
+    const chunks = Array.from({ length: 16 }, () => cellsOf(2_500));
+    const volume = chunks.reduce((k, c) => k + c.length, 0);
+    expect(volume).toBe(large.length);
+    const spans = chainColumns(large).spans.length;
+    expect(spans).toBe(2);
+    const [one, sixteen] = interleavedBest([
+      () => chainColumns(large),
+      () => {
+        for (const c of chunks) chainColumns(c);
+      },
+    ]);
+    expectRatioBelow("chain-columns-one-vs-chunked", one!, sixteen!, 4, {
+      mode: "measure",
+      witness: "spans",
+    });
+  }, 30_000);
 
   it("holds Word's limit equal to the reader's", () => {
     expect(MAX_TABLE_COLUMNS).toBe(MAX_GRID_COLUMNS);
