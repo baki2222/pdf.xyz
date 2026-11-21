@@ -99,10 +99,21 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** The card's `data-summary-read`: pending, shown or unavailable. */
+const readState = (container: HTMLElement) =>
+  container
+    .querySelector("[data-summary-read]")
+    ?.getAttribute("data-summary-read");
+
 describe("Summarize PDF result — the summary is on the page", () => {
   it("shows the model's summary text, read from the worker's own package", async () => {
-    render(<SummaryResultBody output={await realPackage()} filename={ZIP} />);
+    const { container } = render(
+      <SummaryResultBody output={await realPackage()} filename={ZIP} />,
+    );
     const region = await screen.findByRole("region", { name: "Summary" });
+    // The other value of the read's vocabulary (the fallback test waits on
+    // "unavailable"): both directions are exercised.
+    expect(readState(container)).toBe("shown");
     // Health check: the region holds THE summary, not merely some text.
     // INVERTED 2026-11-17 (competitor audit #4): this asserted
     // `textContent === SUMMARY`, the Markdown source, which pinned the defect
@@ -277,13 +288,21 @@ describe("Summarize PDF result — the summary is on the page", () => {
   });
 
   it("bytes that are not a summary package fall back to the ZIP alone, claiming no summary", async () => {
-    render(
+    const { container } = render(
       <SummaryResultBody output={new Uint8Array([9, 9, 9])} filename={ZIP} />,
     );
-    // Positive control for the fallback: the ZIP button is there...
-    await screen.findByRole("button", { name: `Download ${ZIP}` });
-    // ...and give the reader a tick to settle before asserting absence.
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // The ZIP button is there — from the first render, read or not, so it
+    // says nothing about the read having settled.
+    screen.getByRole("button", { name: `Download ${ZIP}` });
+    // The read's own outcome, not a sleep: until 2026-11-21 a 20 ms tick
+    // stood here, and a reader that claimed a summary 50 ms later stayed
+    // green at any speed. 3000 ms: this file's slowest CI test, a real
+    // package read included, took 310 ms (run 44299285879, ci-durations.tsv,
+    // 12 passing runs of 11-18), so > 9x; under the 5 s test timeout, so
+    // the wait's own message wins.
+    await waitFor(() => expect(readState(container)).toBe("unavailable"), {
+      timeout: 3_000,
+    });
     expect(screen.queryByRole("region", { name: "Summary" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Copy summary" })).toBeNull();
     expect(screen.queryByText(/read it below/)).toBeNull();
