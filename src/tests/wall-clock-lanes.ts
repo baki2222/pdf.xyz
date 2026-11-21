@@ -39,6 +39,7 @@ const NAMED: [Lane, readonly string[]][] = [
     "1b",
     [
       "lib/pdf/form-detect.test.ts",
+      "lib/pdf/form-detect-precision.test.ts",
       "components/tools/ai-markdown.test.tsx",
       "lib/pdf/markdown-to-pdf.test.ts",
       "lib/pdf/pdf-page-images.test.ts",

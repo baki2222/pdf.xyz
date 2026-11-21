@@ -10,7 +10,7 @@
  * shrink, and only by code that changed. Keys are token streams, so a
  * reformat keeps them. The list ends when it is empty; the guard does not.
  */
-export const WALL_CLOCK_DEBT_CEILING = 111;
+export const WALL_CLOCK_DEBT_CEILING = 98;
 
 /** lane, kind, file, occurrence index, collapsed snippet — one per line. */
 export const WALL_CLOCK_DEBT_TSV = `
@@ -34,21 +34,8 @@ export const WALL_CLOCK_DEBT_TSV = `
 1b	seed	src/components/tools/runner/batch/worker-batch.test.ts	0	expect(at).toBeLessThan(now + 31_000)
 1b	seed	src/components/tools/runner/batch/worker-batch.test.ts	0	expect(result.current.resumeAt).toBeGreaterThanOrEqual(before + 1000)
 1b	seed	src/components/tools/runner/batch/worker-batch.test.ts	0	expect(result.current.resumeAt).toBeLessThan(before + 1000 + 2000)
-1b	raw	src/lib/pdf/form-detect.test.ts	0	expect(best).toBeLessThan(1100)
-1b	raw	src/lib/pdf/form-detect.test.ts	0	expect(both.ms).toBeLessThan(2 * (boxes.ms + words.ms) + 50)
-1b	raw	src/lib/pdf/form-detect.test.ts	0	expect(both.ms).toBeLessThan(2 * (rows.ms + words.ms) + 50)
-1b	raw	src/lib/pdf/form-detect.test.ts	0	expect(largeMs / smallMs).toBeLessThan(16)
-1b	raw	src/lib/pdf/form-detect.test.ts	0	expect(last.ms).toBeLessThan(3 * first.ms + 20)
-1b	raw	src/lib/pdf/form-detect.test.ts	0	expect(ms).toBeLessThan(250)
-1b	raw	src/lib/pdf/form-detect.test.ts	0	expect(ms).toBeLessThan(300)
-1b	raw	src/lib/pdf/form-detect.test.ts	0	expect(ms).toBeLessThan(400)
-1b	raw	src/lib/pdf/form-detect.test.ts	0	expect(ms).toBeLessThan(800)
-1b	raw	src/lib/pdf/form-detect.test.ts	1	expect(ms).toBeLessThan(800)
-1b	raw	src/lib/pdf/form-detect.test.ts	0	expect(performance.now() - t0).toBeLessThan(100)
-1b	raw	src/lib/pdf/form-detect.test.ts	0	expect(performance.now() - t0).toBeLessThan(250)
-1b	raw	src/lib/pdf/form-detect.test.ts	1	expect(performance.now() - t0).toBeLessThan(250)
-1b	raw	src/lib/pdf/form-detect.test.ts	2	expect(performance.now() - t0).toBeLessThan(250)
-1b	raw	src/lib/pdf/form-detect.test.ts	0	expect(stacked.ms).toBeLessThan(unstacked.ms + 50)
+1b	seed	src/lib/pdf/form-detect-precision.test.ts	0	expect(num / den, said).toBeLessThan(bound)
+1b	seed	src/lib/pdf/form-detect.test.ts	0	expect(ratio, said).toBeLessThan(bound)
 1b	raw	src/lib/pdf/markdown-to-pdf.test.ts	0	expect(elapsed).toBeLessThan(5_000)
 1b	raw	src/lib/pdf/markdown-to-pdf.test.ts	1	expect(elapsed).toBeLessThan(5_000)
 1b	raw	src/lib/pdf/markdown-to-pdf.test.ts	0	expect(result.ms).toBeLessThan(30_000)

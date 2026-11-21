@@ -53,60 +53,23 @@ export const WALL_CLOCK_SEED: readonly SeedEntry[] = [
     code: "expect(run.ms).toBeGreaterThanOrEqual(150)",
     auditLine: 169,
   },
+  // HISTORY: the eleven audit sites of form-detect.test.ts (audit lines
+  // 979 to 5576: `expect(ms).toBeLessThan(800)` and its kin) were replaced
+  // by #386 (merged 2026-11-21) with same-run ratios through the file's own
+  // `expectRatioUnder`, whose one assertion the detector cannot see: the
+  // ratio arrives through a parameter. Still timing checks a slow runner
+  // can fail, so they are held by their assertion's text instead
+  // (auditLine 0: the shape landed after the audit). The same for #387's
+  // ratio helper in form-detect-precision.test.ts.
   {
     file: "src/lib/pdf/form-detect.test.ts",
-    code: "expect(performance.now() - t0).toBeLessThan(250)",
-    auditLine: 979,
+    code: "expect(ratio, said).toBeLessThan(bound)",
+    auditLine: 0,
   },
   {
-    file: "src/lib/pdf/form-detect.test.ts",
-    code: "expect(last.ms).toBeLessThan(3 * first.ms + 20)",
-    auditLine: 1047,
-  },
-  {
-    file: "src/lib/pdf/form-detect.test.ts",
-    code: "expect(ms).toBeLessThan(800)",
-    auditLine: 1850,
-  },
-  {
-    file: "src/lib/pdf/form-detect.test.ts",
-    code: "expect(both.ms).toBeLessThan(2 * (boxes.ms + words.ms) + 50)",
-    auditLine: 1895,
-  },
-  {
-    file: "src/lib/pdf/form-detect.test.ts",
-    code: "expect(both.ms).toBeLessThan(2 * (rows.ms + words.ms) + 50)",
-    auditLine: 2680,
-  },
-  {
-    file: "src/lib/pdf/form-detect.test.ts",
-    code: "expect(stacked.ms).toBeLessThan(unstacked.ms + 50)",
-    auditLine: 2900,
-  },
-  {
-    file: "src/lib/pdf/form-detect.test.ts",
-    code: "expect(ms).toBeLessThan(300)",
-    auditLine: 3292,
-  },
-  {
-    file: "src/lib/pdf/form-detect.test.ts",
-    code: "expect(ms).toBeLessThan(250)",
-    auditLine: 4790,
-  },
-  {
-    file: "src/lib/pdf/form-detect.test.ts",
-    code: "expect(best).toBeLessThan(1100)",
-    auditLine: 4919,
-  },
-  {
-    file: "src/lib/pdf/form-detect.test.ts",
-    code: "expect(ms).toBeLessThan(400)",
-    auditLine: 5335,
-  },
-  {
-    file: "src/lib/pdf/form-detect.test.ts",
-    code: "expect(performance.now() - t0).toBeLessThan(100)",
-    auditLine: 5576,
+    file: "src/lib/pdf/form-detect-precision.test.ts",
+    code: "expect(num / den, said).toBeLessThan(bound)",
+    auditLine: 0,
   },
   {
     file: "src/lib/pdf/markdown-to-pdf.test.ts",
