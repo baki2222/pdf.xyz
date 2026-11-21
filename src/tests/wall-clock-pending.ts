@@ -35,6 +35,6 @@ export const WALL_CLOCK_PENDING: readonly PendingEntry[] = [
     id: "S5 tables",
     file: "src/lib/pdf/form-detect-tables-cost.test.ts",
     reason:
-      "Create Forms' table reading must stay linear in the page's tables, and only this ratio sees a quadratic step. The test's health checks cover what the page yields, not what it costs. Back to assert once 5 CI runs calibrate the id (see the bound's readings in the test file).",
+      "Create Forms' table reading must stay linear in the page's tables. This ratio sees a quadratic read of each cell's words, but NOT any one of the three band lookups S5 added put back alone (each reads under the bound at 16x; all three together read over it), so those rest on review and the before-and-after readings. The test's health checks cover what the page yields, not what it costs. Back to assert once 5 CI runs calibrate the id (readings in the test file).",
   },
 ];

@@ -170,6 +170,9 @@ describe("cost of reading tables stays linear in the page's size", () => {
  * 23.96, 25.79. All three together are the 55 above. Those lookups are
  * pinned by review and by the before-and-after readings only.
  *
+ * Review round 1 (each cell's paint asked of a page index built once):
+ * 16.69, unchanged.
+ *
  * MEASURE MODE: #390 holds a new bound to a CI calibration that does
  * not exist yet, so this one records and does not fail. It is listed in
  * src/tests/wall-clock-pending.ts and names NO witness: the health checks
