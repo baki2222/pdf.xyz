@@ -474,7 +474,10 @@ describe("the inline tokenizer stays linear up to the source cap", () => {
   // until CI prints the ratio: depth 32 is O(32n), still linear, about 5-9x
   // the current time by the audit's cost model, so the mutant that proves
   // this ratio is depth 128 (`MAX_LABEL_DEPTH` 3 -> 128), roughly 15-60x.
-  // 30 s holds four samples at today's CI maximum with 2.5x to spare.
+  // The test's timeout is the asserting time check while the records only
+  // record: four samples took 5,904 ms (images) and 5,163 ms (links) on PR
+  // #393's run 44957052119, so 15 s (WAS 30 s) is 2.5x. The ceiling record:
+  // 1,934 ms best there, 2,998 ms one sample in the audit, so 6 s is 2x.
   it.each(NESTED_OPENERS)(
     "nested %s",
     (label, open) => {
@@ -496,13 +499,13 @@ describe("the inline tokenizer stays linear up to the source cap", () => {
         witness: "levels",
         instance: label,
       });
-      expectFasterThan("md-nested-ceiling", nested, 20_000, {
+      expectFasterThan("md-nested-ceiling", nested, 6_000, {
         mode: "measure",
         witness: "levels",
         instance: label,
       });
     },
-    30_000,
+    15_000,
   );
 });
 

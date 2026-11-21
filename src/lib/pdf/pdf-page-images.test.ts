@@ -969,12 +969,19 @@ describe("the map's work is bounded on the main thread", () => {
     }
   }, 60_000);
 
-  it.each([
+  // Each row has its own timeout, the asserting time check here while the
+  // two records below only record (verify 2026-11-22: a 6 s busy-wait in
+  // `PageImages.map` passed both rows under the shared 90 s). The whole
+  // test, yardstick and counted map included, on PR #393's run
+  // 44957052119: 1,827 ms (paint steps) and 5,863 ms (content work), so
+  // 5 s and 15 s are 2.7x and 2.6x. WAS one 30 s on main, then 90 s.
+  for (const [bound, text, firstOnly, timeout] of [
     // 12,000 distinct names a page, each a lookup: 2.4 million steps.
     [
       "paint steps",
       Array.from({ length: 12_000 }, (_, i) => `/N${i} Do`).join("\n"),
       false,
+      5_000,
     ],
     // 120,000 distinct names a page, looked up only where there is an
     // /XObject (the first page): 24 million entries walked. (The scan
@@ -983,48 +990,53 @@ describe("the map's work is bounded on the main thread", () => {
       "content work",
       `/A Do\n${Array.from({ length: 120_000 }, (_, i) => `/N${i} Do`).join("\n")}`,
       true,
+      15_000,
     ],
-  ] as const)(
-    "...but what does paint is walked per page, and the walk stops at its bound (%s) with every page failing safe",
-    async (bound, text, firstOnly) => {
-      const bytes = await sharedOps(200, true, text, firstOnly);
-      // The yardstick is measured just before, on this runner at this
-      // moment: inflate-and-scan of 16 MiB, median of 5.
-      const y = await inflateScanYardstick(16, 5);
-      const t0 = Date.now();
-      const pre = await preflightPdfjsBytes(bytes);
-      const ms = Date.now() - t0;
-      expect(pre.pages!.incomplete).toBe(bound);
-      expect(pageImageVerdict(pre, { num: 6 })).toBe(PAGE_IMAGES_UNKNOWN_NOTE);
-      // Content the scan does not count is decoded by the map itself, ONCE:
-      // one summary for the 200 pages that name it. Dropping the summary
-      // cache makes it a decode a page until the walk's bound ends the map;
-      // a count sees that on any runner (ci-flake audit 2026-11-19, 950).
-      const decodes = (await mapWith(bytes, true)).decodes;
-      expect(decodes).toBe(DECODES_TO_THE_BOUND[bound]);
-      // WAS `ms < 5_000`: 2,778 ms on CI (ci-flake audit 2026-11-19), 1.80x.
-      // Now against the same-run yardstick. The 4x per-visit mutant is BELOW
-      // what this ratio can resolve (single yardstick readings differ
-      // 1.6-2.8x within one CI run); it guards a slowdown of roughly 8-12x
-      // or more. K = 72 is the audit's provisional 18 for a 64 MiB yardstick,
-      // scaled to 16 MiB; it and the 25 s ceiling record until CI prints its
-      // own spread (bound >= 2x the CI maximum), and `decodes` is what fails
-      // meanwhile.
-      expectRatioBelow("ppi-walk-bound-vs-yardstick", ms, y.ms, 72, {
-        mode: "measure",
-        witness: "decodes",
-        instance: bound,
-      });
-      expectFasterThan("ppi-walk-bound-ceiling", ms, 25_000, {
-        mode: "measure",
-        witness: "decodes",
-        instance: bound,
-      });
-    },
-    // WAS 30 s: room now for the yardstick, a ceiling-length preflight and
-    // the counted map after it.
-    90_000,
-  );
+  ] as const)
+    it(
+      `...but what does paint is walked per page, and the walk stops at its bound (${bound}) with every page failing safe`,
+      async () => {
+        const bytes = await sharedOps(200, true, text, firstOnly);
+        // The yardstick is measured just before, on this runner at this
+        // moment: inflate-and-scan of 16 MiB, median of 5.
+        const y = await inflateScanYardstick(16, 5);
+        const t0 = Date.now();
+        const pre = await preflightPdfjsBytes(bytes);
+        const ms = Date.now() - t0;
+        expect(pre.pages!.incomplete).toBe(bound);
+        expect(pageImageVerdict(pre, { num: 6 })).toBe(
+          PAGE_IMAGES_UNKNOWN_NOTE,
+        );
+        // Content the scan does not count is decoded by the map itself, ONCE:
+        // one summary for the 200 pages that name it. Dropping the summary
+        // cache makes it a decode a page until the walk's bound ends the map;
+        // a count sees that on any runner (ci-flake audit 2026-11-19, 950).
+        const decodes = (await mapWith(bytes, true)).decodes;
+        expect(decodes).toBe(DECODES_TO_THE_BOUND[bound]);
+        // WAS `ms < 5_000`: 2,778 ms on CI (ci-flake audit 2026-11-19), 1.80x.
+        // Now against the same-run yardstick. The 4x per-visit mutant is BELOW
+        // what this ratio can resolve (single yardstick readings differ
+        // 1.6-2.8x within one CI run); it guards a slowdown of roughly 8-12x
+        // or more. K = 72 is the audit's provisional 18 for a 64 MiB yardstick,
+        // scaled to 16 MiB; it and the 6 s ceiling record until CI prints its
+        // own spread (bound >= 2x the CI maximum), and `decodes` is what fails
+        // meanwhile. The ceiling: 2,838 ms on PR #393's run 44957052119 and
+        // 2,778 ms in the audit, so 6 s is 2.1x. What a uniform slowdown meets
+        // first is the row's timeout above (verify 2026-11-22: under a 6 s
+        // busy-wait in `PageImages.map` both rows passed at 90 s).
+        expectRatioBelow("ppi-walk-bound-vs-yardstick", ms, y.ms, 72, {
+          mode: "measure",
+          witness: "decodes",
+          instance: bound,
+        });
+        expectFasterThan("ppi-walk-bound-ceiling", ms, 6_000, {
+          mode: "measure",
+          witness: "decodes",
+          instance: bound,
+        });
+      },
+      timeout,
+    );
 });
 
 /** A JPEG 2000 codestream's first bytes: SOC, then SIZ for `w` x `h`, 3 components. */
@@ -1849,7 +1861,8 @@ describe("review r3 (2026-11-14): never worse than main", () => {
    * per-row allocation put back in the unpredictor slows the subject alone.
    * Control and subject alternate, best of two each, after a warm-up of
    * both. K = 16 is the audit's provisional figure, not a CI one; it and the
-   * 20 s ceiling record until CI prints the ratio. What fails meanwhile is
+   * 6 s ceiling (2.2x the audit's 2,682 ms; 1,373 ms best on PR #393's run
+   * 44957052119) record until CI prints the ratio. What fails meanwhile is
    * `allocationFree`, the collections the read triggers counted against
    * the control's (review 2026-11-22: the earlier witness, `weight`, could
    * not see the allocation, and the mutant passed at 79.8x).
@@ -1917,13 +1930,18 @@ describe("review r3 (2026-11-14): never worse than main", () => {
       mode: "measure",
       witness: "allocationFree",
     });
-    expectFasterThan("ppi-predictor-columns-1-ceiling", subject, 20_000, {
+    expectFasterThan("ppi-predictor-columns-1-ceiling", subject, 6_000, {
       mode: "measure",
       witness: "allocationFree",
     });
-    // WAS 60 s: four 64 MiB preflights and a warm-up now, at today's CI
-    // maximum about 12 s; 120 s keeps the ceiling's two attempts inside it.
-  }, 120_000);
+    // WAS 60 s on main, then 120 s. Five 64 MiB preflights (a warm-up and
+    // two of each) took 6,009 ms on PR #393's run 44957052119; one predictor
+    // preflight read 2,682 ms in the audit against 1,373 ms best there, so a
+    // slow runner may take about 12 s. 25 s is 2.1x that and 4.2x the run
+    // read, and it is the asserting time check here while the two records
+    // above only record (verify 2026-11-22: a 6 s busy-wait in
+    // `PageImages.map` passed at 120 s).
+  }, 25_000);
 
   it("a form painted 120,000 times a page is looked up once a page: a 20-page map completes, every page measured", async () => {
     // History (legit-corpus review r3): every `Do` was a step of the map's
