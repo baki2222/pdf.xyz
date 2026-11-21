@@ -242,6 +242,15 @@ async function printOrExplain(
 const WARM_UP_TIMEOUT_MS = 150_000;
 
 /**
+ * The warm-up hook's own timeout: above WARM_UP_TIMEOUT_MS, so the kill's
+ * message, which names the cause, fires first (held by a test below). A
+ * literal, so the headroom reporter, which reads a same-file numeric const
+ * and nothing else, sees it: as `WARM_UP_TIMEOUT_MS + 30_000` it read the
+ * 10 s default (run 44959221148, where the warm-up took 14,336 ms).
+ */
+const WARM_UP_HOOK_TIMEOUT_MS = 180_000;
+
+/**
  * One throwaway print of an empty page, before any control: the machine's
  * first Chromium launch (binary, font and GPU caches read cold) is paid
  * here, under its own timeout, instead of inside the first control's 60 s
@@ -389,14 +398,16 @@ describe("how a Chromium run that wrote no PDF is reported", () => {
       ),
     ).toBe("exited: boom");
   });
+
+  it("the warm-up hook outlasts the warm-up's own kill, so the kill speaks", () => {
+    expect(WARM_UP_HOOK_TIMEOUT_MS).toBeGreaterThan(WARM_UP_TIMEOUT_MS);
+  });
 });
 
 describe.skipIf(!BIN)(
   `real Chromium isolation (${BIN ?? "no Chromium found"})`,
   () => {
-    // The hook's timeout is above WARM_UP_TIMEOUT_MS, so the kill's message,
-    // which names the cause, is the one that fires.
-    beforeAll(warmUp, WARM_UP_TIMEOUT_MS + 30_000);
+    beforeAll(warmUp, WARM_UP_HOOK_TIMEOUT_MS);
 
     /*
      * POSITIVE CONTROL. The argv this module used until 2026-09, run on the
