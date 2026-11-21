@@ -26,6 +26,7 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import { describe, expect, it } from "vitest";
 import { createVitest } from "vitest/node";
 
@@ -59,18 +60,42 @@ function runProbe(mode: "subject" | "inline") {
       env: { ...env, TS_EXTERNAL_CONTROL: mode },
     },
   );
-  const output = `${run.stdout ?? ""}\n${run.stderr ?? ""}`;
+  const output = childText(run.stdout, run.stderr);
   // Health first: the probe ran and passed, or a count of 0 means nothing.
   expect(
     run.error,
     `${mode} child: ${String(run.error)}\n${output.slice(-3000)}`,
   ).toBeUndefined();
   expect(run.status, `${mode} child:\n${output.slice(-3000)}`).toBe(0);
-  expect(output, `${mode} child ran the probe`).toMatch(/Tests\s+1 passed/);
+  expect(output, `${mode} child ran the probe`).toMatch(PASSED);
   return output.match(MISS) ?? [];
 }
 
+const PASSED = /Tests\s+1 passed/;
+
+/** The child's output as the predicates read it: colour codes removed. */
+function childText(stdout: string | null, stderr: string | null): string {
+  return stripVTControlCharacters(`${stdout ?? ""}\n${stderr ?? ""}`);
+}
+
 describe("the TypeScript compiler is handed to Node, never inlined", () => {
+  it("reads a child's output the same with or without colour", () => {
+    // On CI (the `CI` variable) the child colours its summary, and the first
+    // CI run (44959221148) failed the health check on a passing child:
+    // "subject child ran the probe: expected '\n\u001b[1m\u001b[30m\u001b[46m
+    // RUN ..." to match /Tests\s+1 passed/. This machine's child never
+    // colours, so this is the only place the CI shape runs here. Built from
+    // char codes so no escape byte passes through the tool layer.
+    const esc = String.fromCharCode(27);
+    const sgr = (code: string, text: string) =>
+      `${esc}[${code}m${text}${esc}[0m`;
+    const summary = `${sgr("2", "      Tests ")} ${sgr("1;32", "1 passed")}${sgr("90", " (1)")}`;
+    const miss = `${sgr("33", "Failed to load source map for")} /x/node_modules/typescript/lib/typescript.js`;
+    const text = childText(`${summary}\n${miss}\n`, "");
+    expect(text).toMatch(PASSED);
+    expect(text.match(MISS) ?? []).toHaveLength(1);
+  });
+
   it("both suite projects carry the shared options' external list", async () => {
     // The child below runs `sharedTestOptions`; this holds that both real
     // projects run it too, so the child answers for the suite.
