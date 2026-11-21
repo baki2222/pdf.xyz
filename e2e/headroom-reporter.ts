@@ -34,11 +34,16 @@ import {
  *     web-first expect with no edit to any spec;
  *  4. retries masked — tests whose outcome is "flaky", with the first
  *     failing attempt's first error line;
- *  5. sleeps executed — every "Wait for timeout" step as it actually ran.
+ *  5. sleeps executed — every "Wait for timeout" step as it actually ran,
+ *     summed per call site (total, count, longest), the worst
+ *     {@link SLEEP_SITES} listed and the rest summed.
  *
  * `src/tests/e2e-headroom-chain.test.ts` runs it in a child Playwright
  * (no browser) and reads the blocks back.
  */
+
+/** How many sleep call sites the "sleeps executed" block lists by name. */
+export const SLEEP_SITES = 25;
 
 export interface HeadroomReporterOptions {
   /** The suite's `expect.timeout`; the reporter API does not expose it. */
@@ -251,14 +256,43 @@ export default class HeadroomReporter implements Reporter {
         `        (${flaky.length - ANNOTATIONS_PER_BLOCK} more are not annotated: GitHub shows at most 10 annotations per step)`,
       );
 
-    // 5. Sleeps executed.
+    // 5. Sleeps executed, one line per call site (a site runs once per
+    // page or per test: CI printed 4,391 single-step lines on run
+    // 44917160721). The first SLEEP_SITES by total are listed and the rest
+    // summed, so every sleep stays in the totals.
     const sleptMs = this.sleeps.reduce((n, s) => n + s.ms, 0);
+    const sites = new Map<
+      string,
+      { total: number; count: number; longest: ExpectStep; tests: Set<string> }
+    >();
+    for (const s of this.sleeps) {
+      const key = `${this.rel(s.file)}:${s.line}`;
+      const site = sites.get(key) ?? {
+        total: 0,
+        count: 0,
+        longest: s,
+        tests: new Set<string>(),
+      };
+      site.total += s.ms;
+      site.count++;
+      if (s.ms > site.longest.ms) site.longest = s;
+      site.tests.add(s.test);
+      sites.set(key, site);
+    }
+    const ranked = [...sites.entries()].sort((a, b) => b[1].total - a[1].total);
     lines.push(
-      `sleeps executed: ${this.sleeps.length} fixed waits ran, ${Math.round(sleptMs)} ms in all`,
+      `sleeps executed: ${this.sleeps.length} fixed waits ran, ${Math.round(sleptMs)} ms in all, at ${sites.size} call sites`,
     );
-    for (const s of [...this.sleeps].sort((a, b) => b.ms - a.ms))
+    for (const [key, site] of ranked.slice(0, SLEEP_SITES)) {
+      const more = site.tests.size - 1;
       lines.push(
-        `  ${String(Math.round(s.ms)).padStart(6)} ms  ${this.rel(s.file)}:${s.line} > ${s.test}: ${s.title}`,
+        `  ${String(Math.round(site.total)).padStart(6)} ms in ${site.count} (longest ${Math.round(site.longest.ms)} ms)  ${key} > ${site.longest.test}${more > 0 ? ` (+${more} more test${more === 1 ? "" : "s"})` : ""}`,
+      );
+    }
+    const rest = ranked.slice(SLEEP_SITES);
+    if (rest.length > 0)
+      lines.push(
+        `        (${rest.length} more call sites: ${rest.reduce((n, [, s]) => n + s.count, 0)} waits, ${Math.round(rest.reduce((n, [, s]) => n + s.total, 0))} ms)`,
       );
 
     return lines;

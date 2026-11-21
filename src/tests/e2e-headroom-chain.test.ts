@@ -34,7 +34,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { TestCase, TestResult, TestStep } from "@playwright/test/reporter";
-import HeadroomReporter from "../../e2e/headroom-reporter";
+import HeadroomReporter, { SLEEP_SITES } from "../../e2e/headroom-reporter";
 import { chainScratchDir } from "./chain-scratch";
 
 const ROOT = join(__dirname, "..", "..");
@@ -181,10 +181,17 @@ describe("the e2e headroom reporter, end to end through a child Playwright", () 
 });
 
 describe("sleeps executed (synthetic steps: the chain has no page)", () => {
-  it("lists every Wait for timeout step with its duration, longest first, and nothing else", () => {
-    const reporter = new HeadroomReporter({ github: false });
-    const test = {
-      title: "a spec that sleeps",
+  // HISTORY: this test was titled "lists every Wait for timeout step with
+  // its duration, longest first, and nothing else", and pinned one line per
+  // step. On CI (run 44917160721) that printed 4,391 lines, 634,005 ms in
+  // all, mostly the same few call sites run once per page: a block nobody
+  // can read, written whole into the step summary. It is inverted, not
+  // deleted: each CALL SITE is one line with its total, count and longest,
+  // worst total first, the first SLEEP_SITES of them listed and the rest
+  // summed, so no sleep leaves the totals.
+  const test = (title: string) =>
+    ({
+      title,
       location: {
         file: join(ROOT, "e2e", "smoke.spec.ts"),
         line: 3,
@@ -192,33 +199,55 @@ describe("sleeps executed (synthetic steps: the chain has no page)", () => {
       },
       timeout: 30_000,
       outcome: () => "expected",
-    } as unknown as TestCase;
-    const step = (title: string, category: string, ms: number, line: number) =>
-      ({
-        title,
-        category,
-        duration: ms,
-        location: { file: join(ROOT, "e2e", "smoke.spec.ts"), line, column: 5 },
-      }) as unknown as TestStep;
-    const result = { duration: 900, annotations: [] } as unknown as TestResult;
-    reporter.onStepEnd(
-      test,
-      result,
-      step("Wait for timeout", "pw:api", 300, 7),
-    );
-    reporter.onStepEnd(
-      test,
-      result,
-      step("Wait for timeout", "pw:api", 500, 9),
-    );
-    reporter.onStepEnd(test, result, step("Click button", "pw:api", 800, 11));
-    reporter.onTestEnd(test, result);
+    }) as unknown as TestCase;
+  const step = (title: string, category: string, ms: number, line: number) =>
+    ({
+      title,
+      category,
+      duration: ms,
+      location: { file: join(ROOT, "e2e", "smoke.spec.ts"), line, column: 5 },
+    }) as unknown as TestStep;
+  const result = { duration: 900, annotations: [] } as unknown as TestResult;
+
+  it("one line per call site, with total, count and longest, worst total first, nothing but waits", () => {
+    const reporter = new HeadroomReporter({ github: false });
+    const a = test("a spec that sleeps");
+    const b = test("another spec");
+    reporter.onStepEnd(a, result, step("Wait for timeout", "pw:api", 300, 7));
+    reporter.onStepEnd(a, result, step("Wait for timeout", "pw:api", 500, 9));
+    reporter.onStepEnd(b, result, step("Wait for timeout", "pw:api", 200, 7));
+    reporter.onStepEnd(b, result, step("Wait for timeout", "pw:api", 250, 7));
+    reporter.onStepEnd(a, result, step("Click button", "pw:api", 800, 11));
+    reporter.onTestEnd(a, result);
+    reporter.onTestEnd(b, result);
     const lines = reporter.report();
     const at = lines.findIndex((l) => l.startsWith("sleeps executed:"));
-    expect(lines[at]).toBe("sleeps executed: 2 fixed waits ran, 800 ms in all");
-    expect(lines.slice(at + 1, at + 3)).toEqual([
-      "     500 ms  e2e/smoke.spec.ts:9 > a spec that sleeps: Wait for timeout",
-      "     300 ms  e2e/smoke.spec.ts:7 > a spec that sleeps: Wait for timeout",
+    expect(lines[at]).toBe(
+      "sleeps executed: 4 fixed waits ran, 1250 ms in all, at 2 call sites",
+    );
+    expect(lines.slice(at + 1)).toEqual([
+      "     750 ms in 3 (longest 300 ms)  e2e/smoke.spec.ts:7 > a spec that sleeps (+1 more test)",
+      "     500 ms in 1 (longest 500 ms)  e2e/smoke.spec.ts:9 > a spec that sleeps",
     ]);
+  });
+
+  it("lists the worst SLEEP_SITES sites and sums the rest, so the totals still hold every sleep", () => {
+    const reporter = new HeadroomReporter({ github: false });
+    const a = test("many sites");
+    for (let i = 0; i < SLEEP_SITES + 3; i++)
+      reporter.onStepEnd(
+        a,
+        result,
+        step("Wait for timeout", "pw:api", 1000 + i, 100 + i),
+      );
+    reporter.onTestEnd(a, result);
+    const lines = reporter.report();
+    const at = lines.findIndex((l) => l.startsWith("sleeps executed:"));
+    const listed = lines.slice(at + 1);
+    expect(listed).toHaveLength(SLEEP_SITES + 1);
+    expect(listed[0]).toContain(`e2e/smoke.spec.ts:${100 + SLEEP_SITES + 2}`);
+    expect(listed.at(-1)).toBe(
+      `        (3 more call sites: 3 waits, ${1000 + 0 + 1000 + 1 + 1000 + 2} ms)`,
+    );
   });
 });
