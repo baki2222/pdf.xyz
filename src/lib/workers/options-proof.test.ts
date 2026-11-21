@@ -66,9 +66,19 @@ const MEASURED_KB: Record<number, number> = {
   72: 140,
 };
 
-/** The rotation fixture is the only proof input with a /Rotate in it. */
+/**
+ * The rotation fixture is the only proof input with a /Rotate in it.
+ *
+ * A byte search, not a decode: until 2026-11-21 this decoded every input
+ * (two 1380 px photos per run included) to a string first, which was most of
+ * what the photo controls cost on CI. For an ASCII needle the answer is the
+ * same, and the first test below is its two-way control: a false negative
+ * turns the rotation checks red, a false positive the target-rung check.
+ */
 const isRotationFixture = (bytes: Uint8Array) =>
-  new TextDecoder("latin1").decode(bytes).includes("/Rotate");
+  Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).includes(
+    "/Rotate",
+  );
 
 /**
  * Ghostscript on the rotation fixture, played (2026-11-06, audit #21): the
@@ -227,8 +237,11 @@ function deps(over: Partial<OptionsProofDeps> = {}): OptionsProofDeps {
 }
 
 // Each run builds two 1380 px photos (target size, 2026-10-31) and the
-// controls below run the proof twice: 5 s was 159% used on CI's runner.
-describe("runWorkerOptionsProof", { timeout: 30_000 }, () => {
+// controls below run the proof twice. CI max 18,145 ms over 31 runs
+// (43632313634, 11-14), 15,219 ms in the 11 runs of 11-21 (44891504062): 51-60%
+// of the old 30 s. 60 s is 3.3x that max, before the byte-search fix above
+// lowers it; the time is the hang backstop, every check here is a value.
+describe("runWorkerOptionsProof", { timeout: 60_000 }, () => {
   it("passes engines that do what they are asked", async () => {
     const lines: string[] = [];
     expect(
