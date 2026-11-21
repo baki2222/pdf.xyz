@@ -38,6 +38,18 @@ import {
   TranslateWorkerPanel,
 } from "./translate-worker-panel";
 
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ *
+ * CI: the slowest test here took 410 ms (run 44321190257, "offers the PDF
+ * first, then the package"; 19 passing runs, 11-18 to 11-21). A wait cannot
+ * outlast its test, so 3 s is at least 7.3x any wait in it, and it stays below
+ * the test's own timeout, so a wait that times out fails with its DOM dump.
+ */
+const WAIT_MS = 3_000;
+
 const translateTool = getToolBySlug("translate-pdf")!;
 
 const legacy = async () =>
@@ -100,7 +112,11 @@ async function renderPanel(
       <TranslateWorkerPanel tool={translateTool} extractText={realExtract} />
     </InToolPage>,
   );
-  return screen.findByRole("button", { name: /translate pdf/i });
+  return screen.findByRole(
+    "button",
+    { name: /translate pdf/i },
+    { timeout: WAIT_MS },
+  );
 }
 
 async function runOnce(run: HTMLElement) {
@@ -116,8 +132,9 @@ async function runOnce(run: HTMLElement) {
       ],
     },
   });
-  await waitFor(() =>
-    expect(run.getAttribute("aria-disabled")).not.toBe("true"),
+  await waitFor(
+    () => expect(run.getAttribute("aria-disabled")).not.toBe("true"),
+    { timeout: WAIT_MS },
   );
   fireEvent.click(run);
 }
@@ -139,12 +156,18 @@ describe("the You get row follows the worker's proven languages", () => {
     // The default target is English.
     await renderPanel(status(["en", "es"]));
     expect(
-      await screen.findByText(TRANSLATE_OUTPUT_WITH_PDF),
+      await screen.findByText(
+        TRANSLATE_OUTPUT_WITH_PDF,
+        {},
+        { timeout: WAIT_MS },
+      ),
     ).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Translate into"), {
       target: { value: "de" },
     });
-    expect(await screen.findByText(TRANSLATE_OUTPUT_ZIP)).toBeInTheDocument();
+    expect(
+      await screen.findByText(TRANSLATE_OUTPUT_ZIP, {}, { timeout: WAIT_MS }),
+    ).toBeInTheDocument();
     expect(screen.queryByText(TRANSLATE_OUTPUT_WITH_PDF)).toBeNull();
   });
 
@@ -152,7 +175,9 @@ describe("the You get row follows the worker's proven languages", () => {
     const { translatePdfLanguages: _drop, ...old } = status([]);
     void _drop;
     await renderPanel(old as WorkerStatus);
-    expect(await screen.findByText(TRANSLATE_OUTPUT_ZIP)).toBeInTheDocument();
+    expect(
+      await screen.findByText(TRANSLATE_OUTPUT_ZIP, {}, { timeout: WAIT_MS }),
+    ).toBeInTheDocument();
     expect(screen.queryByText(TRANSLATE_OUTPUT_WITH_PDF)).toBeNull();
   });
 });
@@ -170,7 +195,9 @@ describe("the result card", () => {
       results: results({ rendered: true, pages: 1, bytes: 4 }),
     }));
     await runOnce(run);
-    await waitFor(() => expect(downloads()).toHaveLength(2));
+    await waitFor(() => expect(downloads()).toHaveLength(2), {
+      timeout: WAIT_MS,
+    });
     expect(downloads()).toEqual([
       "statement-translated.pdf",
       "statement-translation.zip",
@@ -185,7 +212,9 @@ describe("the result card", () => {
       results: results({ rendered: false, reason: "render_failed" }),
     }));
     await runOnce(run);
-    await waitFor(() => expect(downloads()).toHaveLength(1));
+    await waitFor(() => expect(downloads()).toHaveLength(1), {
+      timeout: WAIT_MS,
+    });
     expect(downloads()).toEqual(["statement-translation.zip"]);
     expect(screen.getByText(TRANSLATE_PDF_NOT_DRAWN)).toBeInTheDocument();
   });
@@ -197,7 +226,9 @@ describe("the result card", () => {
       results: results({ rendered: false, reason: "unproven_language" }),
     }));
     await runOnce(run);
-    await waitFor(() => expect(downloads()).toHaveLength(1));
+    await waitFor(() => expect(downloads()).toHaveLength(1), {
+      timeout: WAIT_MS,
+    });
     expect(screen.queryByText(TRANSLATE_PDF_NOT_DRAWN)).toBeNull();
   });
 });

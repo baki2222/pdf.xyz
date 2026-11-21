@@ -34,6 +34,19 @@ import { NO_CROP, type CropMargins } from "@/lib/pdf/crop";
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { CropRunner } from "./crop-runner";
 
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ *
+ * CI: the slowest test here took 729 ms (run 44299285879, "positive control:
+ * Per side values reach the download unequal"; 19 passing runs, 11-18 to
+ * 11-21). A wait cannot outlast its test, so 3 s is at least 4.1x any wait in
+ * it, and it stays below the test's own timeout, so a wait that times out fails
+ * with its DOM dump.
+ */
+const WAIT_MS = 3_000;
+
 /** The edges a user can set, derived from the type's own zero value. */
 const EDGES = Object.keys(NO_CROP) as (keyof CropMargins)[];
 
@@ -79,7 +92,11 @@ async function openRunner(rotation = 0) {
   fireEvent.drop(input!.closest("label")!, {
     dataTransfer: { files: [await samplePdf(rotation)] },
   });
-  await screen.findByRole("radiogroup", { name: "Crop mode" });
+  await screen.findByRole(
+    "radiogroup",
+    { name: "Crop mode" },
+    { timeout: WAIT_MS },
+  );
   return view;
 }
 
@@ -134,7 +151,7 @@ async function cropAndDownload(): Promise<CropMargins> {
     { timeout: 5000 },
   );
   fireEvent.click(download);
-  await waitFor(() => expect(blobs).toHaveLength(1));
+  await waitFor(() => expect(blobs).toHaveLength(1), { timeout: WAIT_MS });
   click.mockRestore();
 
   const out = await PDFDocument.load(
@@ -181,7 +198,7 @@ describe("CropRunner mode switch", () => {
         6,
       );
     }
-  });
+  }, 20_000);
 
   it("back to Uniform: every edge of the download loses what 'All sides' shows", async () => {
     await openRunner();
@@ -197,7 +214,7 @@ describe("CropRunner mode switch", () => {
         `Uniform reads "All sides ${allSides} pt" but the ${edge} lost ${lost[edge]} pt`,
       ).toBeCloseTo(allSides, 6);
     }
-  });
+  }, 20_000);
 
   it("the preview has the shape the reader sees: a /Rotate 90 portrait page is drawn landscape", async () => {
     // The composed chain behind the preview: getPageSizes → the schematic's
@@ -206,13 +223,16 @@ describe("CropRunner mode switch", () => {
     const view = await openRunner(90);
     chooseMode("Per side");
     setSlider("Top", 100);
-    const frame = await waitFor(() => {
-      const el = view.container.querySelector<HTMLElement>(
-        '[style*="aspect-ratio"]',
-      );
-      expect(el, "the preview has rendered").not.toBeNull();
-      return el!;
-    });
+    const frame = await waitFor(
+      () => {
+        const el = view.container.querySelector<HTMLElement>(
+          '[style*="aspect-ratio"]',
+        );
+        expect(el, "the preview has rendered").not.toBeNull();
+        return el!;
+      },
+      { timeout: WAIT_MS },
+    );
     const [w, h] = frame.style.aspectRatio.split("/").map(Number);
     expect(w! / h!, "a landscape preview").toBeCloseTo(600 / 400, 6);
     // The Top inset is a share of the DISPLAYED height: 100 of 400 pt.
@@ -256,7 +276,11 @@ describe("CropRunner Auto: the whole chain, pdf.js render to downloaded file", (
     fireEvent.drop(input!.closest("label")!, {
       dataTransfer: { files: [await inkedAndBlankPdf()] },
     });
-    await screen.findByRole("radiogroup", { name: "Crop mode" });
+    await screen.findByRole(
+      "radiogroup",
+      { name: "Crop mode" },
+      { timeout: WAIT_MS },
+    );
     fireEvent.click(
       within(screen.getByRole("radiogroup", { name: "Crop mode" })).getByRole(
         "radio",
@@ -271,9 +295,11 @@ describe("CropRunner Auto: the whole chain, pdf.js render to downloaded file", (
     fireEvent.click(
       screen.getByRole("button", { name: /find white margins/i }),
     );
-    await screen.findByText(/found the content on 1 of 2 pages/i, undefined, {
-      timeout: 15_000,
-    });
+    await screen.findByText(
+      /found the content on 1 of 2 pages/i,
+      {},
+      { timeout: 15_000 },
+    );
     expect(
       screen.getByText(/page 2 looks blank and is left uncropped/i),
     ).toBeTruthy();
@@ -302,7 +328,7 @@ describe("CropRunner Auto: the whole chain, pdf.js render to downloaded file", (
       ),
     );
     expect(screen.getByText(/cropped 1 page ·/i)).toBeTruthy();
-    await waitFor(() => expect(blobs).toHaveLength(1));
+    await waitFor(() => expect(blobs).toHaveLength(1), { timeout: WAIT_MS });
     const [first, second] = await lostPerPage(blobs[0]!);
     // The ink sits 80 pt from the left, 120 from the right, 150 from the
     // top and bottom. The crop stays outside it and takes most of the white.
@@ -332,5 +358,5 @@ describe("CropRunner units", () => {
     expect(screen.getByText("25.4 mm")).toBeTruthy();
     const lost = await cropAndDownload();
     for (const edge of EDGES) expect(lost[edge], edge).toBeCloseTo(72, 6);
-  });
+  }, 20_000);
 });

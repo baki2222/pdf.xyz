@@ -21,6 +21,19 @@ import { PageTile } from "./page-tile";
 import { runnerMounted } from "@/tests/runner-mounted";
 
 /**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ *
+ * CI: the slowest test here took 1283 ms (run 44910288854, "rotates every page
+ * and keeps every document-level member…"; 19 passing runs, 11-18 to 11-21). A
+ * wait cannot outlast its test, so 3 s is at least 2.3x any wait in it, and it
+ * stays below the test's own timeout, so a wait that times out fails with its
+ * DOM dump.
+ */
+const WAIT_MS = 3_000;
+
+/**
  * The rotate tool, driven the way a visitor drives it, with the verdict read
  * off the bytes the Download button hands the browser.
  *
@@ -114,12 +127,12 @@ async function rotateThroughTheUi(
   });
   fireEvent.change(input!, { target: { files: [file] } });
 
-  await screen.findByRole("button", { name: /^right$/i });
+  await screen.findByRole("button", { name: /^right$/i }, { timeout: WAIT_MS });
   for (const name of presses) {
     fireEvent.click(screen.getByRole("button", { name }));
   }
   const apply = screen.getByRole("button", { name: /apply rotation/i });
-  await waitFor(() => expect(apply).toBeEnabled());
+  await waitFor(() => expect(apply).toBeEnabled(), { timeout: WAIT_MS });
   fireEvent.click(apply);
 
   const download = await screen.findByRole(
@@ -264,7 +277,11 @@ async function mountWithPdf(pages: number): Promise<HTMLElement> {
       ],
     },
   });
-  await screen.findByRole("button", { name: `Rotate page ${pages} right` });
+  await screen.findByRole(
+    "button",
+    { name: `Rotate page ${pages} right` },
+    { timeout: WAIT_MS },
+  );
   return container;
 }
 

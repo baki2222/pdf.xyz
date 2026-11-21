@@ -40,6 +40,19 @@ import { pageImageName } from "@/lib/pdf/pdf-to-image";
 import { withAppRouter } from "@/tests/app-router";
 import { PdfToImageRunner } from "./pdf-to-image-runner";
 
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ *
+ * CI: the slowest test here took 967 ms (run 44299285879, "a press on a page
+ * writes the box, and typing redraws the…"; 19 passing runs, 11-18 to 11-21). A
+ * wait cannot outlast its test, so 3 s is at least 3.1x any wait in it, and it
+ * stays below the test's own timeout, so a wait that times out fails with its
+ * DOM dump.
+ */
+const WAIT_MS = 3_000;
+
 vi.mock("pdfjs-dist", async () => import("pdfjs-dist/legacy/build/pdf.mjs"));
 
 type Legacy = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -224,7 +237,9 @@ describe("PDF to PNG · pick the pages on their thumbnails", () => {
         { timeout: 20_000 },
       ),
     );
-    await waitFor(() => expect(downloads).toHaveLength(1));
+    await waitFor(() => expect(downloads).toHaveLength(1), {
+      timeout: WAIT_MS,
+    });
     const zip = await JSZip.loadAsync(await downloads[0]!.blob!.arrayBuffer());
     expect(Object.keys(zip.files).sort()).toEqual(
       [1, 3].map((i) => pageImageName(NAME, i, 4, "png")),

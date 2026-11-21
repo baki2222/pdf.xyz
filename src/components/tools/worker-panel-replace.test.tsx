@@ -54,6 +54,19 @@ import {
   panelDispatchArms,
 } from "@/tests/worker-panel-dispatch";
 
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ *
+ * CI: the slowest test here took 1000 ms (run 44299285879, "with a file chosen,
+ * a file dropped anywhere replaces it a…"; 19 passing runs, 11-18 to 11-21). A
+ * wait cannot outlast its test, so 3 s is at least 3.0x any wait in it, and it
+ * stays below the test's own timeout, so a wait that times out fails with its
+ * DOM dump.
+ */
+const WAIT_MS = 3_000;
+
 const SUBJECTS = panelDispatchArms().flatMap((arm) => {
   const tool = arm.slugs
     .map(catalogTool)
@@ -145,12 +158,15 @@ describe.each(SUBJECTS)("$name", { timeout: 30_000 }, ({ arm, tool }) => {
         </>,
       ),
     );
-    const input = await waitFor(() => {
-      const found =
-        container.querySelector<HTMLInputElement>('input[type="file"]');
-      if (!found) throw new Error(`${tool.slug} shows no file picker`);
-      return found;
-    });
+    const input = await waitFor(
+      () => {
+        const found =
+          container.querySelector<HTMLInputElement>('input[type="file"]');
+        if (!found) throw new Error(`${tool.slug} shows no file picker`);
+        return found;
+      },
+      { timeout: WAIT_MS },
+    );
     const first = fileFor(tool, "alpha");
     fireEvent.change(input, { target: { files: [first] } });
     // The name is drawn as soon as the drop zone hands the file over, but
@@ -185,7 +201,7 @@ describe.each(SUBJECTS)("$name", { timeout: 30_000 }, ({ arm, tool }) => {
     // Routed through the layer and the registry, a turn or two apiece: the
     // same allowance as the chip's own arrival under a loaded run.
     expect(
-      await screen.findByText(second.name, undefined, { timeout: 10_000 }),
+      await screen.findByText(second.name, {}, { timeout: 10_000 }),
     ).toBeInTheDocument();
     expect(screen.queryByText(first.name)).toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -201,10 +217,8 @@ describe.each(SUBJECTS)("$name", { timeout: 30_000 }, ({ arm, tool }) => {
     const ceiling = toolFileCeilingBytes(tool)!;
     const big = fileFor(tool, "huge", ceiling + 1);
     dropOn(heading, [big]);
-    const alert = await screen.findByRole("alert", undefined, {
-      timeout: 10_000,
-    });
+    const alert = await screen.findByRole("alert", {}, { timeout: 10_000 });
     expect(alert).toHaveTextContent(fileOverCeilingMessage(tool, ceiling + 1)!);
     expect(screen.getByText(second.name)).toBeInTheDocument();
-  });
+  }, 30_000);
 });

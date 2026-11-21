@@ -32,6 +32,19 @@ import { stubJobNetwork } from "@/tests/stub-job-network";
 import { AI_EXTRACT_SCHEMAS_CHUNK } from "./ai-extract-schemas-chunk";
 import { AiExtractWorkerPanel } from "./ai-extract-worker-panel";
 
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ *
+ * CI: the slowest test here took 1323 ms (run 44899669004, "save three fields,
+ * leave, come back, load them, run: the…"; 19 passing runs, 11-18 to 11-21). A
+ * wait cannot outlast its test, so 3 s is at least 2.3x any wait in it, and it
+ * stays below the test's own timeout, so a wait that times out fails with its
+ * DOM dump.
+ */
+const WAIT_MS = 3_000;
+
 const tool = getToolBySlug("ai-extract")!;
 const LQ = String.fromCodePoint(0x201c);
 const RQ = String.fromCodePoint(0x201d);
@@ -72,7 +85,11 @@ const typeBox = (i: number) =>
   }) as HTMLSelectElement;
 
 async function fillThree() {
-  await screen.findByRole("textbox", { name: "Field 1 name" });
+  await screen.findByRole(
+    "textbox",
+    { name: "Field 1 name" },
+    { timeout: WAIT_MS },
+  );
   const add = screen.getByRole("button", { name: "Add field" });
   fireEvent.click(add);
   fireEvent.click(add);
@@ -88,9 +105,13 @@ async function fillThree() {
 
 async function openSaved() {
   fireEvent.click(screen.getByRole("button", { name: "Saved schemas" }));
-  return (await screen.findByRole("textbox", {
-    name: "Schema name",
-  })) as HTMLInputElement;
+  return (await screen.findByRole(
+    "textbox",
+    {
+      name: "Schema name",
+    },
+    { timeout: WAIT_MS },
+  )) as HTMLInputElement;
 }
 
 const status = () =>
@@ -128,8 +149,9 @@ async function runAndReadSchema(container: HTMLElement) {
     },
   });
   const button = screen.getByRole("button", { name: /extract data/i });
-  await waitFor(() =>
-    expect(button).not.toHaveAttribute("aria-disabled", "true"),
+  await waitFor(
+    () => expect(button).not.toHaveAttribute("aria-disabled", "true"),
+    { timeout: WAIT_MS },
   );
   fireEvent.click(button);
   await waitFor(() => expect(network.jobBodies).toHaveLength(1), {
@@ -185,7 +207,11 @@ describe("AI Data Extraction: saved schemas", () => {
     cleanup();
     vi.unstubAllGlobals();
     const { container } = mount();
-    await screen.findByRole("textbox", { name: "Field 1 name" });
+    await screen.findByRole(
+      "textbox",
+      { name: "Field 1 name" },
+      { timeout: WAIT_MS },
+    );
     expect(shownFields()).toEqual([{ name: "", type: "string", hint: "" }]);
     await openSaved();
     const list = screen.getByRole("list", { name: "Saved schemas" });
@@ -215,7 +241,11 @@ describe("AI Data Extraction: saved schemas", () => {
     );
     const { container } = mount();
     fireEvent.change(
-      await screen.findByRole("textbox", { name: "Field 1 name" }),
+      await screen.findByRole(
+        "textbox",
+        { name: "Field 1 name" },
+        { timeout: WAIT_MS },
+      ),
       { target: { value: "only" } },
     );
     expect(await runAndReadSchema(container)).toEqual({
@@ -247,14 +277,18 @@ describe("AI Data Extraction: saved schemas", () => {
     expect(names()).toEqual(["Second"]);
     expect(status()).toContain(`Deleted ${LQ}First${RQ}.`);
     const undo = screen.getByRole("button", { name: "Undo" });
-    await waitFor(() => expect(document.activeElement).toBe(undo));
+    await waitFor(() => expect(document.activeElement).toBe(undo), {
+      timeout: WAIT_MS,
+    });
     fireEvent.click(undo);
     expect(names()).toEqual(["Second", "First"]);
     // Undo leaves the page too: focus goes to the row it brought back.
-    await waitFor(() =>
-      expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: "Delete First" }),
-      ),
+    await waitFor(
+      () =>
+        expect(document.activeElement).toBe(
+          screen.getByRole("button", { name: "Delete First" }),
+        ),
+      { timeout: WAIT_MS },
     );
 
     // Replace "First" with one field, then undo the replace.
@@ -308,7 +342,9 @@ describe("AI Data Extraction: saved schemas", () => {
     fireEvent.change(nameBox(1), { target: { value: "other" } });
     fireEvent.change(name, { target: { value: "" } });
     importFile(text);
-    await waitFor(() => expect(shownFields()).toHaveLength(3));
+    await waitFor(() => expect(shownFields()).toHaveLength(3), {
+      timeout: WAIT_MS,
+    });
     expect(shownFields().map((f) => f.name)).toEqual(THREE.map((f) => f.name));
     expect(name.value).toBe("Supplier invoice");
     expect(status()).toContain("Press Save schema to keep it in this browser.");
@@ -343,7 +379,9 @@ describe("AI Data Extraction: saved schemas", () => {
     ] as const;
     for (const [text, says] of hostile) {
       importFile(text);
-      await waitFor(() => expect(status()).toContain(says));
+      await waitFor(() => expect(status()).toContain(says), {
+        timeout: WAIT_MS,
+      });
       expect(status()).toContain("Nothing was changed.");
       expect(shownFields()).toEqual(before);
       expect(name.value).toBe("Mine");
@@ -361,19 +399,23 @@ describe("AI Data Extraction: saved schemas", () => {
     const latin1 = valid.slice();
     latin1[latin1.indexOf(0x5f)] = 0xe9;
     importFile(latin1);
-    await waitFor(() =>
-      expect(status()).toContain("could not be read as a schema file"),
+    await waitFor(
+      () => expect(status()).toContain("could not be read as a schema file"),
+      { timeout: WAIT_MS },
     );
     expect(shownFields()).toEqual(before);
     // Too large: refused from its size alone.
     importFile("x".repeat(128 * 1024 + 1));
-    await waitFor(() =>
-      expect(status()).toContain("larger than a schema file"),
+    await waitFor(
+      () => expect(status()).toContain("larger than a schema file"),
+      { timeout: WAIT_MS },
     );
     expect(shownFields()).toEqual(before);
     // CONTROL: the same bytes with the ASCII byte back are opened.
     importFile(valid);
-    await waitFor(() => expect(status()).toContain("from the file: 1 field."));
+    await waitFor(() => expect(status()).toContain("from the file: 1 field."), {
+      timeout: WAIT_MS,
+    });
   }, 40_000);
 
   it("storage blocked: saving is off and says why, the list is not shown, and a job still runs", async () => {

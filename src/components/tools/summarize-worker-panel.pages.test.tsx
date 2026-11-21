@@ -58,6 +58,20 @@ import {
   SelectionNotice,
   SummarizeWorkerPanel,
 } from "./summarize-worker-panel";
+import { observeFor } from "@/tests/time-bound";
+
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ *
+ * CI: the slowest test here took 733 ms (run 44321190257, "resets the choice to
+ * the whole document and drops a late…"; 19 passing runs, 11-18 to 11-21). A
+ * wait cannot outlast its test, so 3 s is at least 4.1x any wait in it, and it
+ * stays below the test's own timeout, so a wait that times out fails with its
+ * DOM dump.
+ */
+const WAIT_MS = 3_000;
 
 /** Non-ASCII built from code points (house rule). */
 const EN = String.fromCharCode(0x2013);
@@ -248,11 +262,14 @@ async function mount(bytes: Uint8Array = new Uint8Array([0x25, 0x50])) {
       <SummarizeWorkerPanel tool={tool} />
     </InToolPage>,
   );
-  const input = await waitFor(() => {
-    const found = document.querySelector('input[type="file"]');
-    if (!found) throw new Error("no input");
-    return found;
-  });
+  const input = await waitFor(
+    () => {
+      const found = document.querySelector('input[type="file"]');
+      if (!found) throw new Error("no input");
+      return found;
+    },
+    { timeout: WAIT_MS },
+  );
   const file = new CountingFile([bytes as BlobPart], "doc.pdf", {
     type: "application/pdf",
   });
@@ -262,20 +279,25 @@ async function mount(bytes: Uint8Array = new Uint8Array([0x25, 0x50])) {
 
 /** Wait until the status answered (Run is enabled). */
 async function ready() {
-  await waitFor(() =>
-    expect(
-      screen.getByRole("button", { name: /summarize pdf/i }),
-    ).not.toBeDisabled(),
+  await waitFor(
+    () =>
+      expect(
+        screen.getByRole("button", { name: /summarize pdf/i }),
+      ).not.toBeDisabled(),
+    { timeout: WAIT_MS },
   );
 }
 
 /** The one job body this Run posted; fails naming the alert if none. */
 async function posted(net: Net): Promise<Record<string, unknown>> {
-  await waitFor(() => {
-    if (net.bodies.length > 0) return;
-    const alert = screen.queryByRole("alert");
-    throw new Error(`no job posted; alert: ${alert?.textContent ?? "none"}`);
-  });
+  await waitFor(
+    () => {
+      if (net.bodies.length > 0) return;
+      const alert = screen.queryByRole("alert");
+      throw new Error(`no job posted; alert: ${alert?.textContent ?? "none"}`);
+    },
+    { timeout: WAIT_MS },
+  );
   expect(net.bodies).toHaveLength(1);
   return net.bodies[0]!;
 }
@@ -355,9 +377,13 @@ describe("Summarize panel: chosen pages reach the wire", () => {
     const net = network(OFFERED, FAILED);
     await mount(await outlinedPdf());
     await ready();
-    const option = await screen.findByRole("option", {
-      name: `Findings (pages 3${EN}4)`,
-    });
+    const option = await screen.findByRole(
+      "option",
+      {
+        name: `Findings (pages 3${EN}4)`,
+      },
+      { timeout: WAIT_MS },
+    );
     expect(
       screen.getByRole("option", { name: `Opening (pages 1${EN}2)` }),
     ).toBeInTheDocument();
@@ -379,7 +405,7 @@ describe("Summarize panel: chosen pages reach the wire", () => {
       target: { value: "9" },
     });
     press();
-    const alert = await screen.findByRole("alert");
+    const alert = await screen.findByRole("alert", {}, { timeout: WAIT_MS });
     expect(alert).toHaveTextContent(/This PDF has 4 pages/);
     expect(alert).toHaveTextContent(/Nothing was uploaded\.$/);
     expect(net.urls).not.toContain("/api/uploads");
@@ -403,7 +429,9 @@ describe("Summarize panel: chosen pages reach the wire", () => {
       target: { value: "3" },
     });
     press();
-    expect(await screen.findByRole("alert")).toHaveTextContent(
+    expect(
+      await screen.findByRole("alert", {}, { timeout: WAIT_MS }),
+    ).toHaveTextContent(
       `${NO_TEXT_IN_CHOSEN_PAGES_MESSAGE["summarize-pdf"]} Nothing was uploaded.`,
     );
     expect(net.urls).not.toContain("/api/uploads");
@@ -434,7 +462,9 @@ describe("Summarize panel: chosen pages reach the wire", () => {
       target: { value: odd },
     });
     press();
-    expect(await screen.findByRole("alert")).toHaveTextContent(
+    expect(
+      await screen.findByRole("alert", {}, { timeout: WAIT_MS }),
+    ).toHaveTextContent(
       "Choose at most 20 separate page ranges. Nothing was uploaded.",
     );
     expect(net.urls).not.toContain("/api/uploads");
@@ -452,7 +482,11 @@ describe("Summarize panel: the result names the pages, or warns", () => {
       target: { value: "3-4" },
     });
     press();
-    await screen.findByText(/summary package is ready/i);
+    await screen.findByText(
+      /summary package is ready/i,
+      {},
+      { timeout: WAIT_MS },
+    );
   }
 
   it("a result that echoes the chosen pages shows the selection sentence, and no warning", async () => {
@@ -486,7 +520,11 @@ describe("Summarize panel: the result names the pages, or warns", () => {
     await mount();
     await ready();
     press();
-    await screen.findByText(/summary package is ready/i);
+    await screen.findByText(
+      /summary package is ready/i,
+      {},
+      { timeout: WAIT_MS },
+    );
     expect(screen.queryByText(SUMMARIZE_PAGES_UNCONFIRMED_MESSAGE)).toBeNull();
     expect(screen.queryByText(/This summary covers/)).toBeNull();
   });
@@ -529,11 +567,14 @@ describe("Summarize panel: a file swap starts over", () => {
         <SummarizeWorkerPanel tool={tool} />
       </InToolPage>,
     );
-    const input = await waitFor(() => {
-      const found = document.querySelector('input[type="file"]');
-      if (!found) throw new Error("no input");
-      return found;
-    });
+    const input = await waitFor(
+      () => {
+        const found = document.querySelector('input[type="file"]');
+        if (!found) throw new Error("no input");
+        return found;
+      },
+      { timeout: WAIT_MS },
+    );
     fireEvent.change(input, {
       target: {
         files: [
@@ -547,7 +588,11 @@ describe("Summarize panel: a file swap starts over", () => {
     expect(screen.queryByRole("option", { name: /Findings/ })).toBeNull();
     await act(async () => {
       release();
-      await new Promise((r) => setTimeout(r, LATE_WINDOW_MS));
+      await observeFor(
+        "summarize-late-outline-window",
+        LATE_WINDOW_MS,
+        "the positive control: an unswapped held outline arrives inside the window",
+      );
     });
     expect(
       screen.getByRole("option", { name: `Findings (pages 3${EN}4)` }),
@@ -573,11 +618,14 @@ describe("Summarize panel: a file swap starts over", () => {
         <SummarizeWorkerPanel tool={tool} />
       </InToolPage>,
     );
-    const input = await waitFor(() => {
-      const found = document.querySelector('input[type="file"]');
-      if (!found) throw new Error("no input");
-      return found;
-    });
+    const input = await waitFor(
+      () => {
+        const found = document.querySelector('input[type="file"]');
+        if (!found) throw new Error("no input");
+        return found;
+      },
+      { timeout: WAIT_MS },
+    );
     const outlined = await outlinedPdf();
     fireEvent.change(input, {
       target: {
@@ -593,11 +641,14 @@ describe("Summarize panel: a file swap starts over", () => {
     expect(screen.getByLabelText("Pages")).toBeInTheDocument();
     // Swap to a PDF with no outline (through the Remove + add path).
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-    const again = await waitFor(() => {
-      const found = document.querySelector('input[type="file"]');
-      if (!found) throw new Error("no input");
-      return found;
-    });
+    const again = await waitFor(
+      () => {
+        const found = document.querySelector('input[type="file"]');
+        if (!found) throw new Error("no input");
+        return found;
+      },
+      { timeout: WAIT_MS },
+    );
     fireEvent.change(again, {
       target: {
         files: [
@@ -617,7 +668,11 @@ describe("Summarize panel: a file swap starts over", () => {
     // Now the first file's outline arrives: it must not appear.
     await act(async () => {
       release();
-      await new Promise((r) => setTimeout(r, LATE_WINDOW_MS));
+      await observeFor(
+        "summarize-late-outline-window",
+        LATE_WINDOW_MS,
+        "a swapped-away file's late outline is dropped",
+      );
     });
     expect(screen.queryByRole("option", { name: /Findings/ })).toBeNull();
     expect(
@@ -660,7 +715,7 @@ describe("Summarize panel: the worker's page refusals never claim nothing was ch
       target: { value: "3" },
     });
     press();
-    const alert = await screen.findByRole("alert");
+    const alert = await screen.findByRole("alert", {}, { timeout: WAIT_MS });
     // Health: the panel rendered the worker's own sentence.
     expect(alert).toHaveTextContent(message);
     expect(document.body.textContent ?? "").not.toMatch(CHARGE_CLAIM);

@@ -59,6 +59,20 @@ import {
   panelDispatchArms,
   type PanelArm,
 } from "@/tests/worker-panel-dispatch";
+import { observeFor } from "@/tests/time-bound";
+
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ *
+ * CI: the slowest test here took 1129 ms (run 44321190257, "a paste over its
+ * finished result asks first, a no keeps i…"; 19 passing runs, 11-18 to 11-21).
+ * A wait cannot outlast its test, so 3 s is at least 2.7x any wait in it, and
+ * it stays below the test's own timeout, so a wait that times out fails with
+ * its DOM dump.
+ */
+const WAIT_MS = 3_000;
 
 /** A panel whose finished run is drawn as a `ResultCard`, read from its module. */
 const drawsResultCard = (arm: PanelArm) =>
@@ -79,13 +93,23 @@ const DRIVERS: Record<
   PdfSecurityWorkerPanel: {
     slug: "protect-pdf",
     prepare: async () => {
-      fireEvent.change(await screen.findByLabelText("New password"), {
-        target: { value: "correct horse" },
-      });
+      fireEvent.change(
+        await screen.findByLabelText("New password", {}, { timeout: WAIT_MS }),
+        {
+          target: { value: "correct horse" },
+        },
+      );
       // Protect asks twice (audit protect-pdf#3).
-      fireEvent.change(await screen.findByLabelText("Confirm password"), {
-        target: { value: "correct horse" },
-      });
+      fireEvent.change(
+        await screen.findByLabelText(
+          "Confirm password",
+          {},
+          { timeout: WAIT_MS },
+        ),
+        {
+          target: { value: "correct horse" },
+        },
+      );
     },
     run: /encrypt pdf/i,
   },
@@ -100,9 +124,12 @@ const DRIVERS: Record<
   TableExtractWorkerPanel: { run: /extract tables/i },
   RequestSignaturesWorkerPanel: {
     prepare: async () => {
-      fireEvent.change(await screen.findByLabelText("Signer 1 name"), {
-        target: { value: "Ada Lovelace" },
-      });
+      fireEvent.change(
+        await screen.findByLabelText("Signer 1 name", {}, { timeout: WAIT_MS }),
+        {
+          target: { value: "Ada Lovelace" },
+        },
+      );
       fireEvent.change(screen.getByLabelText("Signer 1 email"), {
         target: { value: "ada@example.com" },
       });
@@ -114,7 +141,11 @@ const DRIVERS: Record<
   AiExtractWorkerPanel: {
     prepare: async () => {
       fireEvent.change(
-        await screen.findByRole("textbox", { name: "Field 1 name" }),
+        await screen.findByRole(
+          "textbox",
+          { name: "Field 1 name" },
+          { timeout: WAIT_MS },
+        ),
         { target: { value: "Total" } },
       );
     },
@@ -251,10 +282,14 @@ describe.each(SUBJECTS.map((arm) => ({ arm, name: arm.component })))(
       const first = await fileFor(tool, "alpha");
       fireEvent.change(input, { target: { files: [first] } });
       expect(
-        await screen.findByText(first.name, undefined, { timeout: 10_000 }),
+        await screen.findByText(first.name, {}, { timeout: 10_000 }),
       ).toBeInTheDocument();
       await driver.prepare?.();
-      const run = await screen.findByRole("button", { name: driver.run });
+      const run = await screen.findByRole(
+        "button",
+        { name: driver.run },
+        { timeout: WAIT_MS },
+      );
       await waitFor(
         () => expect(run).not.toHaveAttribute("aria-disabled", "true"),
         { timeout: 15_000 },
@@ -286,8 +321,13 @@ describe.each(SUBJECTS.map((arm) => ({ arm, name: arm.component })))(
       });
       expect(confirm.mock.calls[0]![0]).toMatch(/not downloaded yet/i);
       expect(confirm.mock.calls[0]![0]).toContain(second.name);
-      // A no keeps the result, and the file it was made from.
-      await new Promise((r) => setTimeout(r, 300));
+      // A no keeps the result, and the file it was made from. A declared
+      // absence window, as main had: a replace would follow the answer.
+      await observeFor(
+        "worker-result-paste-no-keeps-result",
+        300,
+        "a no to the paste question keeps the result card",
+      );
       expect(card!.isConnected, "the result was replaced").toBe(true);
       expect(screen.queryByText(second.name)).toBeNull();
 
@@ -309,9 +349,9 @@ describe.each(SUBJECTS.map((arm) => ({ arm, name: arm.component })))(
       confirm.mockClear();
       paste([second]);
       expect(
-        await screen.findByText(second.name, undefined, { timeout: 10_000 }),
+        await screen.findByText(second.name, {}, { timeout: 10_000 }),
       ).toBeInTheDocument();
       expect(confirm).not.toHaveBeenCalled();
-    });
+    }, 30_000);
   },
 );

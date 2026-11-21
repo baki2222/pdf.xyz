@@ -42,6 +42,19 @@ import type { CropMargins } from "@/lib/pdf/crop";
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { CropRunner } from "./crop-runner";
 
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ *
+ * CI: the slowest test here took 505 ms (run 44899669004, "draws the page under
+ * the box in Uniform and Per side, not…"; 19 passing runs, 11-18 to 11-21). A
+ * wait cannot outlast its test, so 3 s is at least 5.9x any wait in it, and it
+ * stays below the test's own timeout, so a wait that times out fails with its
+ * DOM dump.
+ */
+const WAIT_MS = 3_000;
+
 vi.mock("pdfjs-dist", async () => import("pdfjs-dist/legacy/build/pdf.mjs"));
 
 const PAGE = { width: 400, height: 600 };
@@ -149,7 +162,11 @@ async function openRunner() {
       ],
     },
   });
-  await screen.findByRole("radiogroup", { name: "Crop mode" });
+  await screen.findByRole(
+    "radiogroup",
+    { name: "Crop mode" },
+    { timeout: WAIT_MS },
+  );
   return view;
 }
 
@@ -164,11 +181,14 @@ function chooseMode(name: "Uniform" | "Per side") {
 
 /** The preview sheet, laid out at SHOWN for pointer maths. */
 async function sheet(): Promise<HTMLElement> {
-  const el = await waitFor(() => {
-    const found = document.querySelector<HTMLElement>("[data-crop-sheet]");
-    expect(found, "the preview sheet is drawn").not.toBeNull();
-    return found!;
-  });
+  const el = await waitFor(
+    () => {
+      const found = document.querySelector<HTMLElement>("[data-crop-sheet]");
+      expect(found, "the preview sheet is drawn").not.toBeNull();
+      return found!;
+    },
+    { timeout: WAIT_MS },
+  );
   vi.spyOn(el, "getBoundingClientRect").mockReturnValue({
     x: 0,
     y: 0,
@@ -210,7 +230,9 @@ async function cropAndRead(): Promise<CropMargins> {
       { timeout: 5000 },
     ),
   );
-  await waitFor(() => expect(pdfs().length).toBeGreaterThan(before));
+  await waitFor(() => expect(pdfs().length).toBeGreaterThan(before), {
+    timeout: WAIT_MS,
+  });
   const out = await PDFDocument.load(
     new Uint8Array(await pdfs().at(-1)!.arrayBuffer()),
   );
@@ -232,13 +254,17 @@ describe("Crop PDF · crop on the rendered page", () => {
     });
     chooseMode("Per side");
     expect((await sheet()).querySelector("img")).not.toBeNull();
-  });
+  }, 20_000);
 
   it("dragging an edge in Per side moves that margin, and the download loses it", async () => {
     await openRunner();
     chooseMode("Per side");
     await sheet();
-    await screen.findByRole("slider", { name: "Left edge" });
+    await screen.findByRole(
+      "slider",
+      { name: "Left edge" },
+      { timeout: WAIT_MS },
+    );
     drag("Left edge", 50, 0); // 50 px at 2 pt/px
     drag("Top edge", 0, 10);
     expect(screen.getByRole("slider", { name: "Left edge" })).toHaveAttribute(
@@ -250,29 +276,37 @@ describe("Crop PDF · crop on the rendered page", () => {
     expect(lost.top).toBeCloseTo(START + 20, 6);
     expect(lost.right).toBeCloseTo(START, 6);
     expect(lost.bottom).toBeCloseTo(START, 6);
-  });
+  }, 20_000);
 
   it("in Uniform an edge moves every side, as the one slider shows", async () => {
     await openRunner();
     await sheet();
-    await screen.findByRole("slider", { name: "Right edge" });
+    await screen.findByRole(
+      "slider",
+      { name: "Right edge" },
+      { timeout: WAIT_MS },
+    );
     drag("Right edge", -15, 0); // inward: 30 pt
     const lost = await cropAndRead();
     for (const edge of ["top", "right", "bottom", "left"] as const) {
       expect(lost[edge], edge).toBeCloseTo(START + 30, 6);
     }
-  });
+  }, 20_000);
 
   it("an edge is a slider: the arrow keys move it a point, Shift ten", async () => {
     await openRunner();
     chooseMode("Per side");
-    const handle = await screen.findByRole("slider", { name: "Bottom edge" });
+    const handle = await screen.findByRole(
+      "slider",
+      { name: "Bottom edge" },
+      { timeout: WAIT_MS },
+    );
     fireEvent.keyDown(handle, { key: "ArrowUp" });
     expect(handle).toHaveAttribute("aria-valuenow", String(START + 1));
     fireEvent.keyDown(handle, { key: "ArrowDown", shiftKey: true });
     expect(handle).toHaveAttribute("aria-valuenow", String(START - 9));
     expect((await cropAndRead()).bottom).toBeCloseTo(START - 9, 6);
-  });
+  }, 20_000);
 
   // Review of 5e22e05b: ArrowUp/ArrowRight always ADDED margin, so on the top
   // edge ArrowDown moved the dashed line up and on the right edge ArrowRight
@@ -281,7 +315,11 @@ describe("Crop PDF · crop on the rendered page", () => {
   it("the arrow keys move the top and right edges the way they point", async () => {
     await openRunner();
     chooseMode("Per side");
-    const top = await screen.findByRole("slider", { name: "Top edge" });
+    const top = await screen.findByRole(
+      "slider",
+      { name: "Top edge" },
+      { timeout: WAIT_MS },
+    );
     fireEvent.keyDown(top, { key: "ArrowDown" }); // down the page: inward
     fireEvent.keyDown(top, { key: "ArrowDown" });
     fireEvent.keyDown(top, { key: "ArrowUp" }); // back up: outward
@@ -297,7 +335,7 @@ describe("Crop PDF · crop on the rendered page", () => {
     expect(lost.right).toBeCloseTo(START + 9, 6);
     expect(lost.left).toBeCloseTo(START + 1, 6);
     expect(lost.bottom).toBeCloseTo(START, 6);
-  });
+  }, 20_000);
 });
 
 describe("Crop PDF · the page says what the preview does", () => {

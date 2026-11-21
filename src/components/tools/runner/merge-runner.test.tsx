@@ -16,6 +16,19 @@ import { ToolRunner } from "./tool-runner";
 import { runnerMounted } from "@/tests/runner-mounted";
 
 /**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ *
+ * CI: the slowest test here took 1090 ms (run 44910288854, "'Add a blank page
+ * after files with an odd page count' pad…"; 19 passing runs, 11-18 to 11-21).
+ * A wait cannot outlast its test, so 3 s is at least 2.8x any wait in it, and
+ * it stays below the test's own timeout, so a wait that times out fails with
+ * its DOM dump.
+ */
+const WAIT_MS = 3_000;
+
+/**
  * Merge PDF's options, driven the way a visitor drives them, with the verdict
  * read off the bytes the Download button hands the browser: an option the
  * engine honours but the panel never sends is an option nobody has.
@@ -88,13 +101,14 @@ async function mountWith(files: File[]): Promise<void> {
   const input = container.querySelector<HTMLInputElement>('input[type="file"]');
   expect(input, "the merge dropzone file input").not.toBeNull();
   fireEvent.change(input!, { target: { files } });
-  for (const file of files) await screen.findAllByText(file.name);
+  for (const file of files)
+    await screen.findAllByText(file.name, {}, { timeout: WAIT_MS });
 }
 
 /** Press Merge, download, and return the page widths of the file handed over. */
 async function mergeAndRead(): Promise<{ widths: number[]; summary: string }> {
   const run = screen.getByRole("button", { name: /^merge/i });
-  await waitFor(() => expect(run).toBeEnabled());
+  await waitFor(() => expect(run).toBeEnabled(), { timeout: WAIT_MS });
   fireEvent.click(run);
   const download = await screen.findByRole(
     "button",

@@ -47,6 +47,20 @@ import {
   readRecents,
   resetRecentsForTests,
 } from "@/lib/intent/recents";
+import { observeFor } from "@/tests/time-bound";
+
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ *
+ * CI: the slowest test here took 324 ms (run 44331878323, "compress, a batch:
+ * every file is one run, and a broken on…"; 19 passing runs, 11-18 to 11-21). A
+ * wait cannot outlast its test, so 3 s is at least 9.3x any wait in it, and it
+ * stays below the test's own timeout, so a wait that times out fails with its
+ * DOM dump.
+ */
+const WAIT_MS = 3_000;
 
 const SECRET = "clientlist-2026.pdf could not be read";
 
@@ -291,8 +305,9 @@ describe("a completed run is remembered for the home page's Recent row", () => {
         </>,
       );
     });
-    await waitFor(() =>
-      expect(readRecents().map((r) => r.slug)).toEqual(["rotate-pdf"]),
+    await waitFor(
+      () => expect(readRecents().map((r) => r.slug)).toEqual(["rotate-pdf"]),
+      { timeout: WAIT_MS },
     );
   });
 
@@ -317,7 +332,11 @@ describe("a completed run is remembered for the home page's Recent row", () => {
     // The store is fetched on completion; give a write that should not
     // happen the time one that should would take.
     await import("@/lib/intent/recents");
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await observeFor(
+      "tool-outcome-failed-run-not-remembered",
+      20,
+      "a failed run writes no Recent entry once the store module is loaded",
+    );
     expect(readRecents()).toEqual([]);
   });
 });
@@ -494,7 +513,7 @@ describe("the run paths that held their own state now report", () => {
       capability: "in-browser",
     });
     expect(JSON.stringify(seen)).not.toContain("report.pdf");
-  });
+  }, 30_000);
 
   it("compress, a batch: every file is one run, and a broken one is a failure", async () => {
     const seen = sink();
@@ -506,7 +525,13 @@ describe("the run paths that held their own state now report", () => {
         type: "application/pdf",
       }),
     ]);
-    fireEvent.click(await screen.findByRole("button", { name: /Compress 3/ }));
+    fireEvent.click(
+      await screen.findByRole(
+        "button",
+        { name: /Compress 3/ },
+        { timeout: WAIT_MS },
+      ),
+    );
     await waitFor(
       () => {
         expect(seen.filter((e) => e.name === "tool_completed")).toHaveLength(2);
@@ -519,7 +544,7 @@ describe("the run paths that held their own state now report", () => {
     ))
       expect(e).toMatchObject({ toolSlug: "compress-pdf" });
     expect(JSON.stringify(seen)).not.toContain("broken");
-  });
+  }, 30_000);
 });
 
 describe("a resumed job reports how it ended", () => {

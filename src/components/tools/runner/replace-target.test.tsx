@@ -53,6 +53,20 @@ import { withAppRouter } from "@/tests/app-router";
 import { runnerMounted } from "@/tests/runner-mounted";
 import { ToolRunProvider } from "./tool-context";
 import { ToolRunner } from "./tool-runner";
+import { observeFor } from "@/tests/time-bound";
+
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ *
+ * CI: the slowest test here took 902 ms (run 44331878323, "Sign PDF with Upload
+ * chosen: the signature zone is shown,…"; 19 passing runs, 11-18 to 11-21). A
+ * wait cannot outlast its test, so 3 s is at least 3.3x any wait in it, and it
+ * stays below the test's own timeout, so a wait that times out fails with its
+ * DOM dump.
+ */
+const WAIT_MS = 3_000;
 
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
@@ -204,7 +218,7 @@ describe("an open editor is its page's drop target", SLOW, () => {
     const { container } = await openTool("rotate", "rotate-pdf", "Rotate PDF");
     dropOn(screen.getByRole("heading", { level: 1 }), [png("photo.png")]);
     // The ticket dialog takes it instead (drop-layer.test.tsx).
-    await screen.findByRole("dialog", undefined, { timeout: 5000 });
+    await screen.findByRole("dialog", {}, { timeout: 5000 });
     expect(openName(container)).toContain("first.pdf");
   });
 
@@ -228,10 +242,17 @@ describe("an open editor is its page's drop target", SLOW, () => {
     dropOn(screen.getByRole("heading", { level: 1 }), [
       await pdfFile("second.pdf"),
     ]);
-    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1), {
+      timeout: WAIT_MS,
+    });
     expect(confirm.mock.calls[0]![0]).toContain("your rotations in Rotate PDF");
-    // Give a replace every chance to happen; it must not.
-    await new Promise((r) => setTimeout(r, 200));
+    // Give a replace every chance to happen; it must not (a declared
+    // absence window, as main had).
+    await observeFor(
+      "replace-target-no-keeps-document",
+      200,
+      "a no to the unsaved-work question keeps the open document",
+    );
     expect(openName(container)).toContain("first.pdf");
     confirm.mockReturnValue(true);
     dropOn(screen.getByRole("heading", { level: 1 }), [
@@ -251,8 +272,18 @@ describe(
       const { container } = await openTool("sign", "sign-pdf", "Sign PDF");
       // The signature panel opens with the editor (Sign PDF opens on Sign);
       // Upload is its tab. WAS a radio in the form, until 2026-10-24.
-      fireEvent.click(await screen.findByRole("tab", { name: "Upload" }));
-      const zone = await screen.findByText(/drop a signature image, or/i);
+      fireEvent.click(
+        await screen.findByRole(
+          "tab",
+          { name: "Upload" },
+          { timeout: WAIT_MS },
+        ),
+      );
+      const zone = await screen.findByText(
+        /drop a signature image, or/i,
+        {},
+        { timeout: WAIT_MS },
+      );
       // The zone is there (positive control for the condition being tested)…
       expect(zone).toBeTruthy();
       // …and the page still has one target, the editor's.
@@ -273,13 +304,28 @@ describe(
       const { container } = await openTool("sign", "sign-pdf", "Sign PDF");
       // The signature panel opens with the editor (Sign PDF opens on Sign);
       // Upload is its tab. WAS a radio in the form, until 2026-10-24.
-      fireEvent.click(await screen.findByRole("tab", { name: "Upload" }));
+      fireEvent.click(
+        await screen.findByRole(
+          "tab",
+          { name: "Upload" },
+          { timeout: WAIT_MS },
+        ),
+      );
       const zone = (
-        await screen.findByText(/drop a signature image, or/i)
+        await screen.findByText(
+          /drop a signature image, or/i,
+          {},
+          { timeout: WAIT_MS },
+        )
       ).closest("[data-drop-sheet]")!;
       dropOn(zone, [png()]);
-      // Not replaced, and no dialog: the zone took it.
-      await new Promise((r) => setTimeout(r, 200));
+      // Not replaced, and no dialog: the zone took it (a declared absence
+      // window, as main had).
+      await observeFor(
+        "replace-target-zone-drop-is-the-zones",
+        200,
+        "a drop on the signature zone neither replaces nor opens the ticket",
+      );
       expect(openName(container)).toContain("first.pdf");
       expect(screen.queryByRole("dialog")).toBeNull();
     });
@@ -323,10 +369,12 @@ describe("a replace is said, and focus survives it", SLOW, () => {
     // Control: the editor that held focus is gone — without the move, focus
     // would be on <body>.
     expect(before.isConnected).toBe(false);
-    await waitFor(() =>
-      expect(liveText()).toBe(
-        "Replaced first.pdf with second.pdf in Rotate PDF.",
-      ),
+    await waitFor(
+      () =>
+        expect(liveText()).toBe(
+          "Replaced first.pdf with second.pdf in Rotate PDF.",
+        ),
+      { timeout: WAIT_MS },
     );
     const after = container.querySelector('[data-single-pdf-runner="loaded"]')!;
     expect(after.contains(document.activeElement)).toBe(true);
@@ -348,10 +396,12 @@ describe("a replace is said, and focus survives it", SLOW, () => {
       await waitFor(() => expect(openName(container)).toContain("third.pdf"), {
         timeout: 5000,
       });
-      await waitFor(() =>
-        expect(liveText()).toBe(
-          "Replaced first.pdf with third.pdf in Rotate PDF.",
-        ),
+      await waitFor(
+        () =>
+          expect(liveText()).toBe(
+            "Replaced first.pdf with third.pdf in Rotate PDF.",
+          ),
+        { timeout: WAIT_MS },
       );
       expect(document.activeElement).toBe(outside);
     } finally {
@@ -406,8 +456,13 @@ describe("a result not yet downloaded", SLOW, () => {
     });
     expect(confirm.mock.calls[0]![0]).toMatch(/not downloaded/i);
     expect(confirm.mock.calls[0]![0]).toContain("second.pdf");
-    // Give a replace every chance to happen; it must not.
-    await new Promise((r) => setTimeout(r, 300));
+    // Give a replace every chance to happen; it must not (a declared
+    // absence window, as main had).
+    await observeFor(
+      "replace-target-no-keeps-result",
+      300,
+      "a no to the paste question keeps the undownloaded result",
+    );
     expect(resultShown()).toBe(true);
     expect(openName(container)).not.toContain("second.pdf");
     // A yes replaces it.
@@ -504,9 +559,10 @@ describe("a result not yet downloaded", SLOW, () => {
         fireEvent.click(row);
       });
       // Health: the row said it could not carry the file.
-      expect((await screen.findByRole("alert")).textContent).toMatch(
-        /couldn't carry the file/i,
-      );
+      expect(
+        (await screen.findByRole("alert", {}, { timeout: WAIT_MS }))
+          .textContent,
+      ).toMatch(/couldn't carry the file/i);
       const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
       pasteOn(document.body, [await pdfFile("second.pdf")]);
       await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1), {

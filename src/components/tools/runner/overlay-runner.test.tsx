@@ -25,6 +25,19 @@ import { overlayDropHint } from "./overlay-runner";
 import { runnerMounted } from "@/tests/runner-mounted";
 
 /**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ *
+ * CI: the slowest test here took 716 ms (run 44331878323, "'Behind content'
+ * keeps the letter readable under an opaqu…"; 19 passing runs, 11-18 to 11-21).
+ * A wait cannot outlast its test, so 3 s is at least 4.2x any wait in it, and
+ * it stays below the test's own timeout, so a wait that times out fails with
+ * its DOM dump.
+ */
+const WAIT_MS = 3_000;
+
+/**
  * The overlay tool, driven the way a visitor drives it, with the verdict read
  * off the PIXELS of the bytes the Download button hands the browser.
  *
@@ -148,20 +161,24 @@ async function overlayThroughTheUi(
   });
 
   // Once the base loads, the only picker left belongs to the overlay zone.
-  await screen.findByText(/drop the overlay pdf here/i);
+  await screen.findByText(
+    /drop the overlay pdf here/i,
+    {},
+    { timeout: WAIT_MS },
+  );
   const overlayInput =
     container.querySelector<HTMLInputElement>('input[type="file"]');
   expect(overlayInput, "the overlay dropzone file input").not.toBeNull();
   fireEvent.change(overlayInput!, {
     target: { files: [pdfFile(await letterhead(), "letterhead.pdf")] },
   });
-  await screen.findByText("letterhead.pdf");
+  await screen.findByText("letterhead.pdf", {}, { timeout: WAIT_MS });
 
   if (layerLabel) {
     fireEvent.click(screen.getByRole("radio", { name: layerLabel }));
   }
   const run = screen.getByRole("button", { name: /overlay onto 1 page/i });
-  await waitFor(() => expect(run).toBeEnabled());
+  await waitFor(() => expect(run).toBeEnabled(), { timeout: WAIT_MS });
   fireEvent.click(run);
 
   const download = await screen.findByRole(
@@ -222,9 +239,13 @@ describe("overlay-pdf: what the downloaded file shows", () => {
     fireEvent.change(input!, {
       target: { files: [pdfFile(await letter(), "letter.pdf")] },
     });
-    const group = await screen.findByRole("radiogroup", {
-      name: /overlay layer/i,
-    });
+    const group = await screen.findByRole(
+      "radiogroup",
+      {
+        name: /overlay layer/i,
+      },
+      { timeout: WAIT_MS },
+    );
     const radios = Array.from(group.querySelectorAll('[role="radio"]')).map(
       (el) => el.textContent,
     );
@@ -269,7 +290,11 @@ describe("overlay-pdf: what the downloaded file shows", () => {
     fireEvent.change(baseInput!, {
       target: { files: [pdfFile(await letter(), "letter.pdf")] },
     });
-    await screen.findByText(/drop the overlay pdf here/i);
+    await screen.findByText(
+      /drop the overlay pdf here/i,
+      {},
+      { timeout: WAIT_MS },
+    );
     const doc = await PDFDocument.create();
     doc.addPage([612, 792]).drawRectangle({ x: 0, y: 0, width: 9, height: 9 });
     doc.addPage([612, 792]).drawRectangle({ x: 0, y: 0, width: 9, height: 9 });
@@ -278,9 +303,13 @@ describe("overlay-pdf: what the downloaded file shows", () => {
     fireEvent.change(overlayInput!, {
       target: { files: [pdfFile(await doc.save(), "set.pdf")] },
     });
-    const group = await screen.findByRole("radiogroup", {
-      name: /how overlay pages map to base pages/i,
-    });
+    const group = await screen.findByRole(
+      "radiogroup",
+      {
+        name: /how overlay pages map to base pages/i,
+      },
+      { timeout: WAIT_MS },
+    );
     const labels = Array.from(group.querySelectorAll('[role="radio"]')).map(
       (el) => el.textContent?.trim() ?? "",
     );
@@ -311,7 +340,11 @@ describe("overlay-pdf: what the downloaded file shows", () => {
       container.querySelector<HTMLInputElement>('input[type="file"]')!,
       { target: { files: [pdfFile(await letter(), "letter.pdf")] } },
     );
-    await screen.findByText(/drop the overlay pdf here/i);
+    await screen.findByText(
+      /drop the overlay pdf here/i,
+      {},
+      { timeout: WAIT_MS },
+    );
     const names = (hint: string) =>
       OVERLAY_PAGINGS.every((p) => hint.includes(`"${p.label}"`));
     // Health: the modes are there to be named, with real labels.
@@ -354,12 +387,16 @@ describe("overlay-pdf: what the downloaded file shows", () => {
       container.querySelector<HTMLInputElement>('input[type="file"]')!,
       { target: { files: [pdfFile(await two.save(), "letter.pdf")] } },
     );
-    await screen.findByText(/drop the overlay pdf here/i);
+    await screen.findByText(
+      /drop the overlay pdf here/i,
+      {},
+      { timeout: WAIT_MS },
+    );
     fireEvent.change(
       container.querySelector<HTMLInputElement>('input[type="file"]')!,
       { target: { files: [pdfFile(await letterhead(), "letterhead.pdf")] } },
     );
-    await screen.findByText("letterhead.pdf");
+    await screen.findByText("letterhead.pdf", {}, { timeout: WAIT_MS });
     const scope = screen.getByRole("radiogroup", {
       name: /overlay page scope/i,
     });

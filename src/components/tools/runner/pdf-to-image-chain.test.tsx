@@ -39,6 +39,19 @@ import { RASTER_MAX_DEVICE_PX } from "@/lib/pdf/render-utils";
 import { PdfToImageRunner } from "./pdf-to-image-runner";
 
 /**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ *
+ * CI: the slowest test here took 760 ms (run 44899669004, "an A2 sheet: the PNG
+ * stops at 5,000 px, and the note says…"; 19 passing runs, 11-18 to 11-21). A
+ * wait cannot outlast its test, so 3 s is at least 3.9x any wait in it, and it
+ * stays below the test's own timeout, so a wait that times out fails with its
+ * DOM dump.
+ */
+const WAIT_MS = 3_000;
+
+/**
  * PDF → PNG at "Print · 300 DPI", from the file a person drops to the file the
  * browser saves — through the REAL `rasterizePdf`.
  *
@@ -297,7 +310,7 @@ async function convertAtPrint(name: string, sizes: Paper[]) {
       ?.textContent ?? null;
 
   fireEvent.click(download);
-  await waitFor(() => expect(downloads).toHaveLength(1));
+  await waitFor(() => expect(downloads).toHaveLength(1), { timeout: WAIT_MS });
   const saved = await readBlob(downloads[0]!.blob!);
 
   let pngs: Uint8Array[];
@@ -453,7 +466,11 @@ describe("PDF to PNG — Select pages renders exactly those pages", () => {
       // Since 2026-11-08 Select pages draws the pages as thumbnails (audit
       // pdf-to-png#7), through the same stubbed encoder. Let them finish and
       // forget them, so `encoded` below counts the RUN's canvases only.
-      const grid = await screen.findByRole("group", { name: /^Pages — / });
+      const grid = await screen.findByRole(
+        "group",
+        { name: /^Pages — / },
+        { timeout: WAIT_MS },
+      );
       await waitFor(
         () => expect(grid.querySelectorAll("img")).toHaveLength(4),
         { timeout: 10_000 },
@@ -471,7 +488,9 @@ describe("PDF to PNG — Select pages renders exactly those pages", () => {
       { timeout: 20_000 },
     );
     fireEvent.click(download);
-    await waitFor(() => expect(downloads).toHaveLength(1));
+    await waitFor(() => expect(downloads).toHaveLength(1), {
+      timeout: WAIT_MS,
+    });
     return readBlob(downloads[0]!.blob!);
   }
 
@@ -507,7 +526,11 @@ describe("PDF to PNG — Select pages renders exactly those pages", () => {
   it("a range the PDF cannot satisfy says why and renders nothing", async () => {
     await convertPages("2, 9");
     expect(
-      await screen.findByText(/This PDF has 4 pages — "9" is out of range\./),
+      await screen.findByText(
+        /This PDF has 4 pages — "9" is out of range\./,
+        {},
+        { timeout: WAIT_MS },
+      ),
     ).toBeTruthy();
     const run = screen.getByRole("button", { name: /render 0 pages/i });
     fireEvent.click(run);
@@ -593,7 +616,9 @@ describe("PDF to PNG — one page failing, or Cancel, keeps the finished pages",
       { timeout: 20_000 },
     );
     fireEvent.click(download);
-    await waitFor(() => expect(downloads).toHaveLength(1));
+    await waitFor(() => expect(downloads).toHaveLength(1), {
+      timeout: WAIT_MS,
+    });
     expect(downloads[0]!.name).toBe(zipOutputName(name, "png"));
     return JSZip.loadAsync(await readBlob(downloads[0]!.blob!));
   }
@@ -870,7 +895,7 @@ describe("PDF to JPG — the Quality choice reaches the encoder", () => {
 
   it("the default is the quality the page has always used", async () => {
     expect(await qualityFor(null)).toBe(DEFAULT_JPEG_QUALITY);
-  });
+  }, 30_000);
 
   /**
    * The intro says "this browser remembers the one you convert with". Until
@@ -921,14 +946,14 @@ describe("PDF to JPG — the Quality choice reaches the encoder", () => {
         name: `${q.label}, quality ${n} out of 100`,
       });
     }
-  });
+  }, 30_000);
 
   it("control: PDF to PNG has no Quality choice", async () => {
     await mount("png");
     expect(
       screen.queryByRole("group", { name: JPEG_QUALITY_LABEL }),
     ).toBeNull();
-  });
+  }, 30_000);
 });
 
 /* ------------------------------------------------------------------ *
@@ -1003,18 +1028,18 @@ describe("PDF to PNG — the Background choice reaches pdf.js", () => {
     expect(params.canvas).toBeNull();
     expect("canvasContext" in params).toBe(true);
     expect(params.background).toBe("rgba(0,0,0,0)");
-  });
+  }, 30_000);
 
   it("control: White, the default, paints the page white as before", async () => {
     const params = await renderParams(null);
     expect(params.canvas).not.toBeNull();
     expect(params.background).toBe("#ffffff");
-  });
+  }, 30_000);
 
   it("control: PDF to JPG has no Background choice", async () => {
     await mount("jpg");
     expect(
       screen.queryByRole("group", { name: RASTER_BACKGROUND_LABEL }),
     ).toBeNull();
-  });
+  }, 30_000);
 });

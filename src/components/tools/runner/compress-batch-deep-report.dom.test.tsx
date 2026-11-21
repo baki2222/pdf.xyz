@@ -37,6 +37,19 @@ import { BATCH_DEEP_LABEL } from "@/lib/pdf/compress-batch-copy";
 import { resetWorkerStatusForTests } from "../use-worker-status";
 import { CompressBatchRunner } from "./compress-batch";
 
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ *
+ * CI: the slowest test here took 700 ms (run 44331878323, "a deep batch: each
+ * server file once (not twice), and a fi…"; 19 passing runs, 11-18 to 11-21). A
+ * wait cannot outlast its test, so 3 s is at least 4.3x any wait in it, and it
+ * stays below the test's own timeout, so a wait that times out fails with its
+ * DOM dump.
+ */
+const WAIT_MS = 3_000;
+
 const router = {
   back: () => {},
   forward: () => {},
@@ -200,7 +213,9 @@ describe("CompressBatchRunner — one outcome per file, at the sink", () => {
       pdfFile(bytes, "b.pdf"),
       unreadableFile("c.pdf"),
     ]);
-    fireEvent.click(await screen.findByLabelText(BATCH_DEEP_LABEL));
+    fireEvent.click(
+      await screen.findByLabelText(BATCH_DEEP_LABEL, {}, { timeout: WAIT_MS }),
+    );
     fireEvent.click(
       screen.getByRole("button", { name: "Compress 3 PDFs on our server" }),
     );
@@ -222,7 +237,7 @@ describe("CompressBatchRunner — one outcome per file, at the sink", () => {
     const bytes = await pdf(20);
     renderBatch([pdfFile(bytes, "x.pdf"), pdfFile(bytes, "y.pdf")]);
     // The deep option is offered (the server is up), and not chosen.
-    await screen.findByLabelText(BATCH_DEEP_LABEL);
+    await screen.findByLabelText(BATCH_DEEP_LABEL, {}, { timeout: WAIT_MS });
     fireEvent.click(screen.getByRole("button", { name: "Compress 2 PDFs" }));
     await screen.findByText(/^Batch complete\./, {}, { timeout: 10_000 });
     expect(outcomes().map((e) => e.name)).toEqual([

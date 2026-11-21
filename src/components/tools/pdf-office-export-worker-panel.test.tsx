@@ -60,6 +60,19 @@ import { docxDocumentOf } from "@/lib/workers/pdf-office-export/docx-layout";
 import { docxPackage } from "@/lib/workers/pdf-office-export/docx-package";
 import { readyFileInput } from "@/tests/worker-ready";
 
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ *
+ * CI: the slowest test here took 1123 ms (run 44321190257, "says which pictures
+ * were left out to keep the document wi…"; 19 passing runs, 11-18 to 11-21). A
+ * wait cannot outlast its test, so 3 s is at least 2.7x any wait in it, and it
+ * stays below the test's own timeout, so a wait that times out fails with its
+ * DOM dump.
+ */
+const WAIT_MS = 3_000;
+
 const wordTool = getToolBySlug("pdf-to-word")!;
 const providers = getProviderReadiness("remote-configured");
 
@@ -215,11 +228,14 @@ async function exportOnePdf() {
       <PdfOfficeExportWorkerPanel tool={wordTool} />
     </InToolPage>,
   );
-  const input = await vi.waitFor(() => {
-    const found = readyFileInput();
-    if (!found) throw new Error("no file input yet");
-    return found;
-  });
+  const input = await vi.waitFor(
+    () => {
+      const found = readyFileInput();
+      if (!found) throw new Error("no file input yet");
+      return found;
+    },
+    { timeout: WAIT_MS },
+  );
   fireEvent.change(input, {
     target: {
       files: [
@@ -264,7 +280,11 @@ describe("PDF to Word panel — pages that were not exported", () => {
       ),
     );
     await exportOnePdf();
-    const notice = await screen.findByText(/Text found on 1 of 4 pages/);
+    const notice = await screen.findByText(
+      /Text found on 1 of 4 pages/,
+      {},
+      { timeout: WAIT_MS },
+    );
     const box = notice.closest('[role="status"]') as HTMLElement;
     expect(box).not.toBeNull();
     expect(box).toHaveTextContent(
@@ -280,7 +300,11 @@ describe("PDF to Word panel — pages that were not exported", () => {
   it("names pages with only a stamp on them, hedged", async () => {
     stubNetwork(await jobFrom(pages(SENTENCE, "BATES 000124")));
     await exportOnePdf();
-    const notice = await screen.findByText(/Text found on 2 of 2 pages/);
+    const notice = await screen.findByText(
+      /Text found on 2 of 2 pages/,
+      {},
+      { timeout: WAIT_MS },
+    );
     expect(notice.closest('[role="status"]')).toHaveTextContent(
       /Page 2 has under 40 characters of selectable text\. If it is a scan/,
     );
@@ -290,7 +314,11 @@ describe("PDF to Word panel — pages that were not exported", () => {
     stubNetwork(await jobFrom(pages(SENTENCE, SENTENCE)));
     await exportOnePdf();
     expect(
-      await screen.findByText(/Your DOCX file is ready/),
+      await screen.findByText(
+        /Your DOCX file is ready/,
+        {},
+        { timeout: WAIT_MS },
+      ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Text found on/)).not.toBeInTheDocument();
   });
@@ -300,7 +328,11 @@ describe("PDF to Word panel — pages that were not exported", () => {
     stubNetwork(await jobFrom(pages(SENTENCE, "", ""), undefined, false));
     await exportOnePdf();
     expect(
-      await screen.findByText(/Your DOCX file is ready/),
+      await screen.findByText(
+        /Your DOCX file is ready/,
+        {},
+        { timeout: WAIT_MS },
+      ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Text found on/)).not.toBeInTheDocument();
     // …and nothing else on the page promised it would. The panel's intro
@@ -341,7 +373,11 @@ describe("PDF to Word panel — pages kept only as pictures", () => {
       await jobFrom(flowStandIn, await threePagePdf(), true, scanPdfPages),
     );
     await exportOnePdf();
-    const notice = await screen.findByText(/Text found on 1 of 3 pages/);
+    const notice = await screen.findByText(
+      /Text found on 1 of 3 pages/,
+      {},
+      { timeout: WAIT_MS },
+    );
     const box = notice.closest('[role="status"]') as HTMLElement;
     expect(box).toHaveTextContent(
       /No selectable text on page 2, so only its pictures come through, and the words in them are not editable text/,
@@ -369,7 +405,11 @@ describe("PDF to Word panel — pages kept only as pictures", () => {
       await jobFrom(flowStandIn, await notePagesPdf(), true, scanPdfPages),
     );
     await exportOnePdf();
-    const notice = await screen.findByText(/Text found on 1 of 4 pages/);
+    const notice = await screen.findByText(
+      /Text found on 1 of 4 pages/,
+      {},
+      { timeout: WAIT_MS },
+    );
     const box = notice.closest('[role="status"]') as HTMLElement;
     expect(box).toHaveTextContent(
       /Page 4 has no selectable text and no picture, so nothing from it is in this file/,
@@ -401,7 +441,11 @@ describe("PDF to Word panel — pages kept only as pictures", () => {
       }),
     );
     await exportOnePdf();
-    const line = await screen.findByText(/are not in the document/);
+    const line = await screen.findByText(
+      /are not in the document/,
+      {},
+      { timeout: WAIT_MS },
+    );
     const box = line.closest('[role="status"]') as HTMLElement;
     expect(box).toHaveTextContent(
       new RegExp(
@@ -439,7 +483,11 @@ describe("PDF to Word panel — pages kept only as pictures", () => {
       delete block[key];
     stubNetwork(served);
     await exportOnePdf();
-    const notice = await screen.findByText(/Text found on 1 of 3 pages/);
+    const notice = await screen.findByText(
+      /Text found on 1 of 3 pages/,
+      {},
+      { timeout: WAIT_MS },
+    );
     expect(notice.closest('[role="status"]')).toHaveTextContent(
       /No selectable text on pages 2–3, so nothing from them is in this file/,
     );
@@ -466,6 +514,8 @@ describe("PDF to Word panel — pages without their formatting", () => {
     await exportOnePdf();
     const line = await screen.findByText(
       /came through in Word.s default style/,
+      {},
+      { timeout: WAIT_MS },
     );
     // CHANGED 2026-11-15 (review round 1): this said "Page 1 came through
     // in Word's default style, without its bold, italics, sizes and
@@ -501,6 +551,8 @@ describe("PDF to Word panel — pages without their formatting", () => {
     await exportOnePdf();
     const line = await screen.findByText(
       /came through in Word.s default style/,
+      {},
+      { timeout: WAIT_MS },
     );
     expect(line.closest('[role="status"]')).toHaveTextContent(
       /words on page 1 came through[^]*or we could not tell for certain which formatting a word is drawn in \(one whose colour changes partway through, say, or text drawn turned/,
@@ -517,7 +569,11 @@ describe("PDF to Word panel — pages without their formatting", () => {
       ),
     );
     await exportOnePdf();
-    await screen.findByText(/Your DOCX file is ready/);
+    await screen.findByText(
+      /Your DOCX file is ready/,
+      {},
+      { timeout: WAIT_MS },
+    );
     expect(
       screen.queryByText(/came through in Word.s default style/),
     ).not.toBeInTheDocument();
@@ -546,7 +602,11 @@ describe("PDF to Word panel — pages without their formatting", () => {
       delete block[key];
     stubNetwork(served);
     await exportOnePdf();
-    await screen.findByText(/Your DOCX file is ready/);
+    await screen.findByText(
+      /Your DOCX file is ready/,
+      {},
+      { timeout: WAIT_MS },
+    );
     expect(
       screen.queryByText(/came through in Word.s default style/),
     ).not.toBeInTheDocument();
@@ -590,7 +650,11 @@ describe("PDF to Word panel — tables written as text to fit the size limit", (
       }),
     );
     await exportOnePdf();
-    const line = await screen.findByText(/came through as lines of text/);
+    const line = await screen.findByText(
+      /came through as lines of text/,
+      {},
+      { timeout: WAIT_MS },
+    );
     expect(line.closest('[role="status"]')).toHaveTextContent(
       /One table came through as lines of text, its cells separated by tabs, rather than as a Word table: with it the file would have been larger than one conversion can deliver\. All of the text is there\./,
     );
@@ -604,7 +668,11 @@ describe("PDF to Word panel — tables written as text to fit the size limit", (
       }),
     );
     await exportOnePdf();
-    await screen.findByText(/Your DOCX file is ready/);
+    await screen.findByText(
+      /Your DOCX file is ready/,
+      {},
+      { timeout: WAIT_MS },
+    );
     expect(
       screen.queryByText(/came through as lines of text/),
     ).not.toBeInTheDocument();
@@ -644,7 +712,11 @@ describe("PDF to Word panel — fonts left out to fit the size limit", () => {
       }),
     );
     await exportOnePdf();
-    const line = await screen.findByText(/too large to name each word/);
+    const line = await screen.findByText(
+      /too large to name each word/,
+      {},
+      { timeout: WAIT_MS },
+    );
     expect(line.closest('[role="status"]')).toHaveTextContent(
       /This document was too large to name each word's font; it opens in Word's default font\. All of the text is there\./,
     );
@@ -658,7 +730,11 @@ describe("PDF to Word panel — fonts left out to fit the size limit", () => {
       }),
     );
     await exportOnePdf();
-    await screen.findByText(/Your DOCX file is ready/);
+    await screen.findByText(
+      /Your DOCX file is ready/,
+      {},
+      { timeout: WAIT_MS },
+    );
     expect(
       screen.queryByText(/too large to name each word/),
     ).not.toBeInTheDocument();
@@ -682,9 +758,9 @@ describe("PDF to Word panel — failures link the tool that fixes them", () => {
       ),
     );
     await exportOnePdf();
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      /password-protected/,
-    );
+    expect(
+      await screen.findByRole("alert", {}, { timeout: WAIT_MS }),
+    ).toHaveTextContent(/password-protected/);
     expect(
       screen.getByRole("link", { name: "Open Unlock PDF" }),
     ).toHaveAttribute("href", "/tools/unlock-pdf");
@@ -693,7 +769,7 @@ describe("PDF to Word panel — failures link the tool that fixes them", () => {
   it("sends a PDF with no text to OCR PDF", async () => {
     stubNetwork(await jobFrom(pages("", "")));
     await exportOnePdf();
-    await screen.findByRole("alert");
+    await screen.findByRole("alert", {}, { timeout: WAIT_MS });
     expect(screen.getByRole("link", { name: "Open OCR PDF" })).toHaveAttribute(
       "href",
       "/tools/ocr-pdf",
@@ -707,7 +783,7 @@ describe("PDF to Word panel — failures link the tool that fixes them", () => {
       }),
     );
     await exportOnePdf();
-    await screen.findByRole("alert");
+    await screen.findByRole("alert", {}, { timeout: WAIT_MS });
     expect(screen.queryByRole("link", { name: /^Open / })).toBeNull();
   });
 });
@@ -788,11 +864,14 @@ describe("PDF to PowerPoint panel — pages kept only as pictures", () => {
         <PdfOfficeExportWorkerPanel tool={pptxTool} />
       </InToolPage>,
     );
-    const input = await vi.waitFor(() => {
-      const found = readyFileInput();
-      if (!found) throw new Error("no file input yet");
-      return found;
-    });
+    const input = await vi.waitFor(
+      () => {
+        const found = readyFileInput();
+        if (!found) throw new Error("no file input yet");
+        return found;
+      },
+      { timeout: WAIT_MS },
+    );
     fireEvent.change(input, {
       target: {
         files: [
@@ -808,7 +887,11 @@ describe("PDF to PowerPoint panel — pages kept only as pictures", () => {
   it("says the scanned page is on its slide as a picture, and the blank one empty", async () => {
     stubNetwork(await pptxJob(true));
     await exportPptx();
-    const notice = await screen.findByText(/Text found on 1 of 3 pages/);
+    const notice = await screen.findByText(
+      /Text found on 1 of 3 pages/,
+      {},
+      { timeout: WAIT_MS },
+    );
     const box = notice.closest('[role="status"]') as HTMLElement;
     expect(box).toHaveTextContent(
       /No selectable text on page 2, so its slide carries the page as a picture/,
@@ -826,7 +909,11 @@ describe("PDF to PowerPoint panel — pages kept only as pictures", () => {
     // result says nothing of pictures; the panel must not claim them.
     stubNetwork(await pptxJob(false));
     await exportPptx();
-    const notice = await screen.findByText(/Text found on 1 of 3 pages/);
+    const notice = await screen.findByText(
+      /Text found on 1 of 3 pages/,
+      {},
+      { timeout: WAIT_MS },
+    );
     expect(notice.closest('[role="status"]')).toHaveTextContent(
       /nothing from them is in this file/,
     );
@@ -899,11 +986,14 @@ describe("PDF to PowerPoint panel — pictures that are not on their slides", ()
         <PdfOfficeExportWorkerPanel tool={pptxTool} />
       </InToolPage>,
     );
-    const input = await vi.waitFor(() => {
-      const found = readyFileInput();
-      if (!found) throw new Error("no file input yet");
-      return found;
-    });
+    const input = await vi.waitFor(
+      () => {
+        const found = readyFileInput();
+        if (!found) throw new Error("no file input yet");
+        return found;
+      },
+      { timeout: WAIT_MS },
+    );
     fireEvent.change(input, {
       target: {
         files: [
@@ -919,7 +1009,11 @@ describe("PDF to PowerPoint panel — pictures that are not on their slides", ()
   it("a page whose only picture could not be decoded is named as such, and only the blank page is called empty", async () => {
     stubNetwork(await pptxJobFor((await undecodablePicturePdf()).pdf));
     await exportPptx();
-    const notice = await screen.findByText(/Text found on 1 of 3 pages/);
+    const notice = await screen.findByText(
+      /Text found on 1 of 3 pages/,
+      {},
+      { timeout: WAIT_MS },
+    );
     const box = notice.closest('[role="status"]') as HTMLElement;
     expect(box).toHaveTextContent(
       /1 picture on page 2 is not on its slide: its image data could not be decoded/,
@@ -936,6 +1030,8 @@ describe("PDF to PowerPoint panel — pictures that are not on their slides", ()
     await exportPptx();
     const sentence = await screen.findByText(
       /1 picture on page 1 is not on its slide/,
+      {},
+      { timeout: WAIT_MS },
     );
     const box = sentence.closest('[role="status"]') as HTMLElement;
     expect(box).toHaveTextContent(/it was too large for our server to carry/);
@@ -958,7 +1054,11 @@ describe("PDF to PowerPoint panel — pictures that are not on their slides", ()
       await pptxJobFor(pdf, scanPdfPages, { repairPdf: repairStandIn }),
     );
     await exportPptx();
-    const sentence = await screen.findByText(/looked damaged/);
+    const sentence = await screen.findByText(
+      /looked damaged/,
+      {},
+      { timeout: WAIT_MS },
+    );
     const box = sentence.closest('[role="status"]') as HTMLElement;
     expect(box).toHaveTextContent(
       /rebuilt it first, the way Repair PDF does, and converted the rebuilt copy/,
@@ -968,7 +1068,11 @@ describe("PDF to PowerPoint panel — pictures that are not on their slides", ()
   it("POSITIVE CONTROL: an intact PDF says nothing about rebuilding", async () => {
     stubNetwork(await pptxJobFor((await imageCaptionPdf()).pdf));
     await exportPptx();
-    await screen.findByText(/Your PPTX file is ready/);
+    await screen.findByText(
+      /Your PPTX file is ready/,
+      {},
+      { timeout: WAIT_MS },
+    );
     expect(screen.queryByText(/looked damaged/)).toBeNull();
   });
 });
@@ -996,11 +1100,14 @@ describe("PDF to Excel panel — “One sheet per page” (audit pdf-to-excel#3)
     const box = screen.getByRole("checkbox", { name: /One sheet per page/ });
     expect(box).not.toBeChecked();
     if (tick) fireEvent.click(box);
-    const input = await vi.waitFor(() => {
-      const found = readyFileInput();
-      if (!found) throw new Error("no file input yet");
-      return found;
-    });
+    const input = await vi.waitFor(
+      () => {
+        const found = readyFileInput();
+        if (!found) throw new Error("no file input yet");
+        return found;
+      },
+      { timeout: WAIT_MS },
+    );
     fireEvent.change(input, {
       target: {
         files: [
@@ -1011,7 +1118,7 @@ describe("PDF to Excel panel — “One sheet per page” (audit pdf-to-excel#3)
       },
     });
     fireEvent.click(screen.getByRole("button", { name: /export xlsx/i }));
-    await screen.findByRole("alert");
+    await screen.findByRole("alert", {}, { timeout: WAIT_MS });
     const calls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
     const create = calls.find(([url]) => url === "/api/jobs");
     if (!create) throw new Error("no job was created");

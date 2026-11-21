@@ -40,6 +40,20 @@ import { chatAnswerOutputName } from "@/lib/jobs/chat-with-pdf";
 import { ChatWithPdfWorkerPanel } from "./chat-with-pdf-worker-panel";
 import { PAGE_TEXT_LIMIT } from "./ai-result-limits";
 import { pageImageDeps } from "./runner/use-page-image";
+import { observeFor } from "@/tests/time-bound";
+
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ *
+ * CI: the slowest test here took 959 ms (run 44299285879, "never sends more
+ * prior turns than the contract allows"; 19 passing runs, 11-18 to 11-21). A
+ * wait cannot outlast its test, so 3 s is at least 3.1x any wait in it, and it
+ * stays below the test's own timeout, so a wait that times out fails with its
+ * DOM dump.
+ */
+const WAIT_MS = 3_000;
 
 // The job driver and the document measurement are handed to the panel as
 // props. They used to be swapped in with `vi.mock` on the client module, which
@@ -197,13 +211,16 @@ async function ask(question: string) {
       },
     });
   }
-  fireEvent.change(await screen.findByRole("textbox"), {
-    target: { value: question },
-  });
+  fireEvent.change(
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS }),
+    {
+      target: { value: question },
+    },
+  );
   const submit = screen.getByRole("button", {
     name: /ask the pdf|send follow-up/i,
   });
-  await waitFor(() => expect(submit).not.toBeDisabled());
+  await waitFor(() => expect(submit).not.toBeDisabled(), { timeout: WAIT_MS });
   fireEvent.click(submit);
 }
 
@@ -230,18 +247,22 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
       );
 
     render(<Panel />);
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
 
     await ask(first);
     // The answer really came out of the package — nothing here supplied it as a string.
-    expect(await screen.findByText(shownAnswer(answer))).toBeInTheDocument();
+    expect(
+      await screen.findByText(shownAnswer(answer), {}, { timeout: WAIT_MS }),
+    ).toBeInTheDocument();
 
     // A first question is a fresh conversation: sending an empty `context` would be a
     // different request than the one the contract expects for a standalone question.
     expect(requestAt(0)).not.toHaveProperty("context");
 
     await ask(second);
-    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2), {
+      timeout: WAIT_MS,
+    });
 
     // THE point of the change: the follow-up carries the previous exchange.
     expect(requestAt(1).context).toEqual([
@@ -257,11 +278,15 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     );
 
     render(<Panel />);
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
     await ask("Q one");
 
     expect(
-      await screen.findByText(/sent with the previous exchange as context/i),
+      await screen.findByText(
+        /sent with the previous exchange as context/i,
+        {},
+        { timeout: WAIT_MS },
+      ),
     ).toBeInTheDocument();
     // And the fact that makes the re-upload comprehensible rather than surprising.
     // INVERTED 2026-11-06 (audit #41): this pinned "our server keeps nothing
@@ -286,16 +311,22 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
       .mockImplementationOnce(() => workerSuccess("second", "Second answer."));
 
     render(<Panel />);
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
     await ask("What is the total?");
 
     expect(
-      await screen.findByText(/could not be read here/i),
+      await screen.findByText(
+        /could not be read here/i,
+        {},
+        { timeout: WAIT_MS },
+      ),
     ).toBeInTheDocument();
     expect(screen.queryByText("Some answer.")).not.toBeInTheDocument();
 
     await ask("second");
-    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2), {
+      timeout: WAIT_MS,
+    });
     expect(requestAt(1)).not.toHaveProperty("context");
     expect(
       screen.getByText(/1 unreadable answer is excluded/i),
@@ -309,14 +340,17 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     );
 
     render(<Panel />);
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
     await ask("Q one");
-    expect(await screen.findByText("A one.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("A one.", {}, { timeout: WAIT_MS }),
+    ).toBeInTheDocument();
 
     // Turns about the previous PDF must never be sent as context for a new one.
     fireEvent.click(screen.getByRole("button", { name: /remove/i }));
-    await waitFor(() =>
-      expect(screen.queryByText("A one.")).not.toBeInTheDocument(),
+    await waitFor(
+      () => expect(screen.queryByText("A one.")).not.toBeInTheDocument(),
+      { timeout: WAIT_MS },
     );
   });
 
@@ -338,14 +372,16 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     });
 
     render(<Panel />);
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
     await ask("Q about A");
     // The request must actually be IN FLIGHT before the swap — the shape this
     // test is about. Since 2026-09-27 the panel measures the document before
     // it sends anything, so a swap made immediately would land during the
     // measurement, send nothing, and let the assertions below pass for a
     // different reason than the one they were written for.
-    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(1), {
+      timeout: WAIT_MS,
+    });
 
     // Swap the document while the request is still running.
     fireEvent.click(screen.getByRole("button", { name: /remove/i }));
@@ -361,26 +397,40 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     });
 
     release();
-    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(1), {
+      timeout: WAIT_MS,
+    });
     // A's answer belongs to no document on screen, so it must not appear at all.
-    await waitFor(() =>
-      expect(screen.queryByText("A's answer.")).not.toBeInTheDocument(),
+    await waitFor(
+      () => expect(screen.queryByText("A's answer.")).not.toBeInTheDocument(),
+      { timeout: WAIT_MS },
     );
 
     // ...and must not travel as context for the document that replaced it.
-    fireEvent.change(await screen.findByRole("textbox"), {
-      target: { value: "Q about B" },
-    });
+    fireEvent.change(
+      await screen.findByRole("textbox", {}, { timeout: WAIT_MS }),
+      {
+        target: { value: "Q about B" },
+      },
+    );
     // FOUND, not got: A's job is still settling here — the button reads
     // "Answering…" until it does. The shared job hook (wave-1 L03, merged
     // 2026-09-28) adds awaits between the answer and the end of the run, and
     // under a full parallel run this query landed before them.
-    const submit = await screen.findByRole("button", {
-      name: /ask the pdf|send follow-up/i,
+    const submit = await screen.findByRole(
+      "button",
+      {
+        name: /ask the pdf|send follow-up/i,
+      },
+      { timeout: WAIT_MS },
+    );
+    await waitFor(() => expect(submit).not.toBeDisabled(), {
+      timeout: WAIT_MS,
     });
-    await waitFor(() => expect(submit).not.toBeDisabled());
     fireEvent.click(submit);
-    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2), {
+      timeout: WAIT_MS,
+    });
     expect(requestAt(1).context).toBeUndefined();
   });
 
@@ -393,20 +443,27 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     runWorkerChatWithPdf.mockImplementation(() => workerSuccess("Q one", long));
 
     render(<Panel />);
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
     await ask("Q one");
-    await screen.findByText(/shortened/i);
+    await screen.findByText(/shortened/i, {}, { timeout: WAIT_MS });
 
     // And what actually goes on the wire really is shortened, not merely described so.
-    fireEvent.change(await screen.findByRole("textbox"), {
-      target: { value: "Q two" },
-    });
+    fireEvent.change(
+      await screen.findByRole("textbox", {}, { timeout: WAIT_MS }),
+      {
+        target: { value: "Q two" },
+      },
+    );
     const submit = screen.getByRole("button", {
       name: /ask the pdf|send follow-up/i,
     });
-    await waitFor(() => expect(submit).not.toBeDisabled());
+    await waitFor(() => expect(submit).not.toBeDisabled(), {
+      timeout: WAIT_MS,
+    });
     fireEvent.click(submit);
-    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2), {
+      timeout: WAIT_MS,
+    });
     const sent = requestAt(1).context ?? [];
     expect(sent.length).toBeGreaterThan(0);
     expect(sent.some((turn) => turn.content.length < long.length)).toBe(true);
@@ -419,18 +476,23 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     );
 
     render(<Panel />);
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
 
     const rounds = MAX_CONTEXT_TURNS / 2 + 2;
     for (let i = 0; i < rounds; i++) {
       await ask(`Question ${i}`);
       expect(
-        await screen.findByText(`Answer to Question ${i}.`),
+        await screen.findByText(
+          `Answer to Question ${i}.`,
+          {},
+          { timeout: WAIT_MS },
+        ),
       ).toBeInTheDocument();
     }
     await ask("one more");
-    await waitFor(() =>
-      expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(rounds + 1),
+    await waitFor(
+      () => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(rounds + 1),
+      { timeout: WAIT_MS },
     );
 
     const sent = requestAt(-1).context!;
@@ -466,16 +528,27 @@ describe("ChatWithPdfWorkerPanel — what each question declares", () => {
       .mockImplementationOnce(() => workerSuccess("Q two", "A two [p.1]."));
 
     render(<Panel />);
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
     await ask("Q one");
-    await screen.findByText(shownAnswer("A one [p.1]."));
-    fireEvent.change(await screen.findByRole("textbox"), {
-      target: { value: "Q two" },
-    });
+    await screen.findByText(
+      shownAnswer("A one [p.1]."),
+      {},
+      { timeout: WAIT_MS },
+    );
+    fireEvent.change(
+      await screen.findByRole("textbox", {}, { timeout: WAIT_MS }),
+      {
+        target: { value: "Q two" },
+      },
+    );
     const submit = screen.getByRole("button", { name: /send follow-up/i });
-    await waitFor(() => expect(submit).not.toBeDisabled());
+    await waitFor(() => expect(submit).not.toBeDisabled(), {
+      timeout: WAIT_MS,
+    });
     fireEvent.click(submit);
-    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2), {
+      timeout: WAIT_MS,
+    });
 
     for (const index of [0, 1]) {
       expect(
@@ -499,10 +572,14 @@ describe("ChatWithPdfWorkerPanel — what each question declares", () => {
     );
 
     render(<Panel />);
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
     await ask("Q one");
     expect(
-      await screen.findByText(shownAnswer("A one [p.1].")),
+      await screen.findByText(
+        shownAnswer("A one [p.1]."),
+        {},
+        { timeout: WAIT_MS },
+      ),
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /remove/i }));
@@ -511,7 +588,9 @@ describe("ChatWithPdfWorkerPanel — what each question declares", () => {
       count: { characters: 99, textPages: 1, pageCount: 1 },
     });
     await ask("Q one");
-    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2), {
+      timeout: WAIT_MS,
+    });
     expect(
       (requestAt(1) as { documentCharacters?: unknown }).documentCharacters,
       "a new document was charged at the previous document's size",
@@ -526,9 +605,11 @@ describe("ChatWithPdfWorkerPanel — what each question declares", () => {
       workerSuccess("Q", "A [p.1]."),
     );
     render(<Panel />);
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
     await ask("Q");
-    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(1), {
+      timeout: WAIT_MS,
+    });
     expect(
       (requestAt(0) as { documentCharacters?: unknown }).documentCharacters,
     ).toBeNull();
@@ -538,9 +619,11 @@ describe("ChatWithPdfWorkerPanel — what each question declares", () => {
     stubStatus();
     measureChatDocument.mockResolvedValue({ kind: "no-text" });
     render(<Panel />);
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
     await ask("Q");
-    expect(await screen.findByText(/no selectable text/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/no selectable text/i, {}, { timeout: WAIT_MS }),
+    ).toBeInTheDocument();
     expect(screen.getByText(/run OCR PDF first/i)).toBeInTheDocument();
     expect(runWorkerChatWithPdf).not.toHaveBeenCalled();
   });
@@ -582,14 +665,20 @@ describe("ChatWithPdfWorkerPanel — the window the answer came from", () => {
     });
 
     render(<Panel />);
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
     await ask(question);
 
     // The answer is shown verbatim — the denial is not edited or suppressed.
-    expect(await screen.findByText(denial)).toBeInTheDocument();
+    expect(
+      await screen.findByText(denial, {}, { timeout: WAIT_MS }),
+    ).toBeInTheDocument();
 
     // And beside it, the fact that makes the denial readable: a named page.
-    const notice = await screen.findByText(/pages 1–131 of 400/);
+    const notice = await screen.findByText(
+      /pages 1–131 of 400/,
+      {},
+      { timeout: WAIT_MS },
+    );
     expect(notice).toBeInTheDocument();
     expect(notice.textContent).toMatch(/cut mid-page/);
     expect(
@@ -623,10 +712,12 @@ describe("ChatWithPdfWorkerPanel — the window the answer came from", () => {
     });
 
     render(<Panel />);
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
     await ask(question);
 
-    expect(await screen.findByText(/The total is/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/The total is/, {}, { timeout: WAIT_MS }),
+    ).toBeInTheDocument();
     // A caveat on a complete reading would be its own false claim.
     expect(screen.queryByText(/could be read/)).not.toBeInTheDocument();
   });
@@ -647,16 +738,24 @@ describe("ChatWithPdfWorkerPanel — every answer carries its caveat", () => {
       .mockImplementationOnce(() => workerSuccess("Q2?", "Second [p.1]."));
 
     render(<Panel />);
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
     await ask("Q1?");
     expect(
-      await screen.findByText(shownAnswer("First [p.1].")),
+      await screen.findByText(
+        shownAnswer("First [p.1]."),
+        {},
+        { timeout: WAIT_MS },
+      ),
     ).toBeInTheDocument();
     expect(screen.getAllByText(AI_ANSWER_CAVEAT)).toHaveLength(1);
 
     await ask("Q2?");
     expect(
-      await screen.findByText(shownAnswer("Second [p.1].")),
+      await screen.findByText(
+        shownAnswer("Second [p.1]."),
+        {},
+        { timeout: WAIT_MS },
+      ),
     ).toBeInTheDocument();
     expect(screen.getAllByText(AI_ANSWER_CAVEAT)).toHaveLength(2);
     expect(AI_ANSWER_CAVEAT).toMatch(/AI-generated/);
@@ -702,7 +801,9 @@ describe("ChatWithPdfWorkerPanel — how a longer file's pages are chosen", () =
 
   it("says it when the observed worker proves chatRetrieval", async () => {
     const { line, ready } = await renderWith({ ...READY, chatRetrieval: true });
-    expect(await screen.findByText(ready)).toBeInTheDocument();
+    expect(
+      await screen.findByText(ready, {}, { timeout: WAIT_MS }),
+    ).toBeInTheDocument();
     expect(screen.getByText(line)).toBeInTheDocument();
     // The line brings its own reserve, inline (no new utility class: the
     // shared stylesheet is at its ceiling), and only with the line.
@@ -724,7 +825,9 @@ describe("ChatWithPdfWorkerPanel — how a longer file's pages are chosen", () =
   ] as const) {
     it(`keeps main's slot, byte for byte, when ${name}`, async () => {
       const { ready } = await renderWith(status);
-      expect(await screen.findByText(ready)).toBeInTheDocument();
+      expect(
+        await screen.findByText(ready, {}, { timeout: WAIT_MS }),
+      ).toBeInTheDocument();
       const slot = document.querySelector('[data-slot="worker-status"]')!;
       expect(slot.getAttribute("data-state")).toBe("run");
       expect(slot.getAttribute("class")).toBe(MAIN_SLOT_CLASS);
@@ -738,7 +841,9 @@ describe("ChatWithPdfWorkerPanel — how a longer file's pages are chosen", () =
   ] as const) {
     it(`says nothing when ${name}`, async () => {
       const { line, ready } = await renderWith(status);
-      expect(await screen.findByText(ready)).toBeInTheDocument();
+      expect(
+        await screen.findByText(ready, {}, { timeout: WAIT_MS }),
+      ).toBeInTheDocument();
       expect(screen.queryByText(line)).toBeNull();
       expect(document.body.textContent).not.toMatch(/less common words/);
     });
@@ -746,9 +851,11 @@ describe("ChatWithPdfWorkerPanel — how a longer file's pages are chosen", () =
 
   it("says nothing when the status cannot be read", async () => {
     const { line } = await renderWith(null);
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
     // Give the failed status fetch time to settle before reading absence.
-    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled());
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled(), {
+      timeout: WAIT_MS,
+    });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.queryByText(line)).toBeNull();
     expect(document.body.textContent).not.toMatch(/less common words/);
@@ -818,7 +925,7 @@ describe("ChatWithPdfWorkerPanel — what the job declares", () => {
         </InToolPage>
       </InToolPage>,
     );
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
     fireEvent.change(document.querySelector('input[type="file"]')!, {
       target: {
         files: [
@@ -828,14 +935,21 @@ describe("ChatWithPdfWorkerPanel — what the job declares", () => {
         ],
       },
     });
-    fireEvent.change(await screen.findByRole("textbox"), {
-      target: { value: "What is the total?" },
-    });
+    fireEvent.change(
+      await screen.findByRole("textbox", {}, { timeout: WAIT_MS }),
+      {
+        target: { value: "What is the total?" },
+      },
+    );
     const submit = screen.getByRole("button", { name: /ask the pdf/i });
-    await waitFor(() => expect(submit).not.toBeDisabled());
+    await waitFor(() => expect(submit).not.toBeDisabled(), {
+      timeout: WAIT_MS,
+    });
     fireEvent.click(submit);
 
-    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(1), {
+      timeout: WAIT_MS,
+    });
     // Only the DOCUMENT is declared; the route measures the question itself.
     expect(runWorkerChatWithPdf.mock.calls[0]![0].documentCharacters).toBe(
       counted,
@@ -914,19 +1028,24 @@ describe("ChatWithPdfWorkerPanel — a long follow-up still fits the job request
         );
 
       render(<Panel />);
-      await screen.findByRole("textbox");
+      await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
       await ask(FIRST_QUESTION);
-      await screen.findByText(/উত্তর/);
+      await screen.findByText(/উত্তর/, {}, { timeout: WAIT_MS });
 
-      fireEvent.change(await screen.findByRole("textbox"), {
-        target: { value: followUp },
-      });
+      fireEvent.change(
+        await screen.findByRole("textbox", {}, { timeout: WAIT_MS }),
+        {
+          target: { value: followUp },
+        },
+      );
       const submit = screen.getByRole("button", {
         name: /ask the pdf|send follow-up/i,
       });
-      await waitFor(() => expect(submit).not.toBeDisabled());
+      await waitFor(() => expect(submit).not.toBeDisabled(), {
+        timeout: WAIT_MS,
+      });
       fireEvent.click(submit);
-      await waitFor(() => expect(bodies).toHaveLength(1));
+      await waitFor(() => expect(bodies).toHaveLength(1), { timeout: WAIT_MS });
 
       const body = bodies[0]!;
       // Health: this is the follow-up, carrying the long exchange.
@@ -1024,9 +1143,9 @@ describe("ChatWithPdfWorkerPanel — a citation shows its page", () => {
   async function answered(answer: string) {
     runWorkerChatWithPdf.mockImplementation(() => threePageAnswer("Q", answer));
     render(<Panel />);
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
     await ask("Q");
-    await screen.findByText(shownAnswer(answer));
+    await screen.findByText(shownAnswer(answer), {}, { timeout: WAIT_MS });
   }
 
   it("pressing [p.2] opens page 2 of 3, drawn from the bytes the question was sent with", async () => {
@@ -1039,9 +1158,17 @@ describe("ChatWithPdfWorkerPanel — a citation shows its page", () => {
       screen.getByRole("button", { name: "Show page 2 of your PDF" }),
     );
     expect(
-      await screen.findByRole("heading", { name: "Page 2 of 3" }),
+      await screen.findByRole(
+        "heading",
+        { name: "Page 2 of 3" },
+        { timeout: WAIT_MS },
+      ),
     ).toBeInTheDocument();
-    const image = await screen.findByRole("img", { name: "Page 2" });
+    const image = await screen.findByRole(
+      "img",
+      { name: "Page 2" },
+      { timeout: WAIT_MS },
+    );
     expect(image.getAttribute("src")).toBe("blob:page-1");
     // The 1-based citation reached the renderer as its 0-based index.
     expect(asked).toEqual([1]);
@@ -1056,15 +1183,26 @@ describe("ChatWithPdfWorkerPanel — a citation shows its page", () => {
     fireEvent.change(screen.getByRole("textbox"), {
       target: { value: "And the deposit?" },
     });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // A declared absence window, as main had: a redraw would start on the
+    // re-render the typing caused; the positive control just below sees a
+    // different page drawn afresh.
+    await observeFor(
+      "chat-typing-does-not-redraw-page",
+      20,
+      "typing in the question does not redraw the cited page",
+    );
     expect(created).toHaveLength(1);
 
     // Positive control: a different page IS drawn afresh.
     fireEvent.click(screen.getByRole("button", { name: /next page/i }));
     expect(
-      await screen.findByRole("heading", { name: "Page 3 of 3" }),
+      await screen.findByRole(
+        "heading",
+        { name: "Page 3 of 3" },
+        { timeout: WAIT_MS },
+      ),
     ).toBeInTheDocument();
-    await waitFor(() => expect(asked).toEqual([1, 2]));
+    await waitFor(() => expect(asked).toEqual([1, 2]), { timeout: WAIT_MS });
   });
 
   it("says so when the page cannot be drawn, rather than a blank box", async () => {
@@ -1075,7 +1213,11 @@ describe("ChatWithPdfWorkerPanel — a citation shows its page", () => {
       screen.getByRole("button", { name: "Show page 2 of your PDF" }),
     );
     expect(
-      await screen.findByText("This page could not be drawn here."),
+      await screen.findByText(
+        "This page could not be drawn here.",
+        {},
+        { timeout: WAIT_MS },
+      ),
     ).toBeInTheDocument();
   });
 
@@ -1085,10 +1227,15 @@ describe("ChatWithPdfWorkerPanel — a citation shows its page", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Show page 2 of your PDF" }),
     );
-    await screen.findByRole("heading", { name: "Page 2 of 3" });
+    await screen.findByRole(
+      "heading",
+      { name: "Page 2 of 3" },
+      { timeout: WAIT_MS },
+    );
     fireEvent.click(screen.getByRole("button", { name: /remove/i }));
-    await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: /of 3$/ })).toBeNull(),
+    await waitFor(
+      () => expect(screen.queryByRole("heading", { name: /of 3$/ })).toBeNull(),
+      { timeout: WAIT_MS },
     );
     expect(screen.queryByRole("button", { name: /show page/i })).toBeNull();
   });
@@ -1125,9 +1272,13 @@ describe("ChatWithPdfWorkerPanel — a citation shows its page", () => {
       },
     );
     render(<Panel />);
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
     await ask(question);
-    return screen.findByRole("button", { name: /keep waiting/i });
+    return screen.findByRole(
+      "button",
+      { name: /keep waiting/i },
+      { timeout: WAIT_MS },
+    );
   }
 
   it("a Keep-waiting answer that lands after a file swap joins nothing and opens nothing", async () => {
@@ -1142,15 +1293,20 @@ describe("ChatWithPdfWorkerPanel — a citation shows its page", () => {
       () => new Promise((resolve) => (land = resolve)),
     );
     fireEvent.click(keep);
-    await waitFor(() => expect(resumeChatJob).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(resumeChatJob).toHaveBeenCalledTimes(1), {
+      timeout: WAIT_MS,
+    });
 
     // While the resume is pending: Remove A, pick B.
     fireEvent.click(screen.getByRole("button", { name: /remove/i }));
-    const input = await waitFor(() => {
-      const found = document.querySelector('input[type="file"]');
-      expect(found).not.toBeNull();
-      return found!;
-    });
+    const input = await waitFor(
+      () => {
+        const found = document.querySelector('input[type="file"]');
+        expect(found).not.toBeNull();
+        return found!;
+      },
+      { timeout: WAIT_MS },
+    );
     fireEvent.change(input, {
       target: {
         files: [
@@ -1166,15 +1322,28 @@ describe("ChatWithPdfWorkerPanel — a citation shows its page", () => {
     runWorkerChatWithPdf.mockImplementation(() =>
       threePageAnswer("Q about B", "B answer, no cites."),
     );
-    fireEvent.change(await screen.findByRole("textbox"), {
-      target: { value: "Q about B" },
+    fireEvent.change(
+      await screen.findByRole("textbox", {}, { timeout: WAIT_MS }),
+      {
+        target: { value: "Q about B" },
+      },
+    );
+    const submit = await screen.findByRole(
+      "button",
+      {
+        name: /ask the pdf|send follow-up/i,
+      },
+      { timeout: WAIT_MS },
+    );
+    await waitFor(() => expect(submit).not.toBeDisabled(), {
+      timeout: WAIT_MS,
     });
-    const submit = await screen.findByRole("button", {
-      name: /ask the pdf|send follow-up/i,
-    });
-    await waitFor(() => expect(submit).not.toBeDisabled());
     fireEvent.click(submit);
-    await screen.findByText(shownAnswer("B answer, no cites."));
+    await screen.findByText(
+      shownAnswer("B answer, no cites."),
+      {},
+      { timeout: WAIT_MS },
+    );
 
     // A's answer is about no file on screen: not shown, not sent, no button.
     expect(
@@ -1192,7 +1361,11 @@ describe("ChatWithPdfWorkerPanel — a citation shows its page", () => {
       threePageAnswer("Q", "Rent is due [p.2]."),
     );
     fireEvent.click(keep);
-    await screen.findByText(shownAnswer("Rent is due [p.2]."));
+    await screen.findByText(
+      shownAnswer("Rent is due [p.2]."),
+      {},
+      { timeout: WAIT_MS },
+    );
     // The file is still here and was counted before the question was sent,
     // so the document IS held: the marker is text because the answer was
     // resumed, not because there is nothing to open.
@@ -1200,7 +1373,11 @@ describe("ChatWithPdfWorkerPanel — a citation shows its page", () => {
       threePageAnswer("Q2", "And the deposit [p.3]."),
     );
     await ask("Q2");
-    await screen.findByText(shownAnswer("And the deposit [p.3]."));
+    await screen.findByText(
+      shownAnswer("And the deposit [p.3]."),
+      {},
+      { timeout: WAIT_MS },
+    );
     // Positive control: the live answer's marker IS a button.
     expect(
       screen.getByRole("button", { name: "Show page 3 of your PDF" }),
@@ -1252,22 +1429,30 @@ describe("ChatWithPdfWorkerPanel: copy and save the conversation", () => {
       .mockImplementationOnce(() => answerAs(first, a1))
       .mockImplementationOnce(() => answerAs(second, a2));
     render(<Panel />);
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
     await ask(first);
-    await screen.findByText(shownAnswer(a1));
+    await screen.findByText(shownAnswer(a1), {}, { timeout: WAIT_MS });
     await ask(second);
-    await screen.findByText(shownAnswer(a2));
+    await screen.findByText(shownAnswer(a2), {}, { timeout: WAIT_MS });
 
-    const copies = await screen.findAllByRole("button", {
-      name: "Copy answer",
-    });
+    const copies = await screen.findAllByRole(
+      "button",
+      {
+        name: "Copy answer",
+      },
+      { timeout: WAIT_MS },
+    );
     expect(copies).toHaveLength(2);
     const fetches = vi.mocked(fetch).mock.calls.length;
     fireEvent.click(copies[1]!);
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(a2));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(a2), {
+      timeout: WAIT_MS,
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Copy conversation" }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2), {
+      timeout: WAIT_MS,
+    });
     expect(writeText.mock.calls[1]![0]).toBe(
       [
         `Q: ${first}`,
@@ -1297,7 +1482,9 @@ describe("ChatWithPdfWorkerPanel: copy and save the conversation", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Download conversation (.md)" }),
     );
-    await waitFor(() => expect(names).toEqual(["invoice-conversation.md"]));
+    await waitFor(() => expect(names).toEqual(["invoice-conversation.md"]), {
+      timeout: WAIT_MS,
+    });
     expect(await saved!.text()).toBe(
       [
         "# Chat with PDF: invoice",
@@ -1326,15 +1513,19 @@ describe("ChatWithPdfWorkerPanel: copy and save the conversation", () => {
     const writeText = clipboard();
     runWorkerChatWithPdf.mockImplementationOnce(() => answerAs("Q", long));
     render(<Panel />);
-    await screen.findByRole("textbox");
+    await screen.findByRole("textbox", {}, { timeout: WAIT_MS });
     await ask("Q");
     const note = await screen.findByText(
       /^Only the first 50,000 of [\d,]+ characters are shown here\./,
+      {},
+      { timeout: WAIT_MS },
     );
     const shown = screen.getByText(shownAnswer(long.slice(0, PAGE_TEXT_LIMIT)));
     expect(shown.textContent).not.toContain(tail);
     expect(note).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Copy answer" }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(long));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(long), {
+      timeout: WAIT_MS,
+    });
   });
 });

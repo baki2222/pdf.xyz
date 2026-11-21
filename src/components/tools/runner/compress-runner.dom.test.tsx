@@ -93,6 +93,20 @@ import {
 } from "@/lib/pdf/compress-target";
 import { getGuideBySlug } from "@/lib/guides";
 
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (1373 ms in sign-runner, run 44917160721).
+ *
+ * CI: the wait-headroom blocks of runs 44917160721 and 44924793701 list no wait
+ * in this file above 500 ms (half the 1 s default most of them ran under). Its
+ * slowest test took 2343 ms (run 44264031662, "a Remove that leaves one file
+ * hands it to the single-file panel"; 19 passing runs, 11-18 to 11-21), most of
+ * it outside any wait. 3 s is 6x the waits seen, and stays below every test's
+ * own timeout, so a wait that times out fails with its DOM dump.
+ */
+const WAIT_MS = 3_000;
+
 const router = {
   back: () => {},
   forward: () => {},
@@ -285,9 +299,13 @@ describe("Compress: an encrypted PDF", { timeout: 30_000 }, () => {
     ).toBeNull();
     // …and the secure worker, which can, is mounted and runnable.
     expect(screen.getByText(WORKER_PANEL)).toBeInTheDocument();
-    const run = await screen.findByRole("button", {
-      name: /compress images on our server/i,
-    });
+    const run = await screen.findByRole(
+      "button",
+      {
+        name: /compress images on our server/i,
+      },
+      { timeout: WAIT_MS },
+    );
     expect(run).not.toHaveAttribute("aria-disabled", "true");
     // Signatures cannot be inspected in an encrypted file; say so, don't guess.
     expect(container).toHaveTextContent(
@@ -501,9 +519,13 @@ describe("Compress: a digitally signed PDF", { timeout: 30_000 }, () => {
     expect(
       screen.queryByRole("button", { name: /download optimized pdf/i }),
     ).toBeNull();
-    const run = await screen.findByRole("button", {
-      name: /compress images on our server/i,
-    });
+    const run = await screen.findByRole(
+      "button",
+      {
+        name: /compress images on our server/i,
+      },
+      { timeout: WAIT_MS },
+    );
     expect(run).toHaveAttribute("aria-disabled", "true");
 
     fireEvent.click(within(warning).getByRole("checkbox"));
@@ -529,9 +551,13 @@ describe("Compress: a digitally signed PDF", { timeout: 30_000 }, () => {
       screen.queryByRole("group", { name: /digital signatures/i }),
     ).toBeNull();
     expect(
-      await screen.findByRole("button", {
-        name: /compress images on our server/i,
-      }),
+      await screen.findByRole(
+        "button",
+        {
+          name: /compress images on our server/i,
+        },
+        { timeout: WAIT_MS },
+      ),
     ).not.toHaveAttribute("aria-disabled", "true");
   });
 });
@@ -734,7 +760,7 @@ describe("Compress: an already-lean PDF", { timeout: 30_000 }, () => {
       names.push(this.download);
     });
     fireEvent.click(download);
-    await waitFor(() => expect(blobs).toHaveLength(1));
+    await waitFor(() => expect(blobs).toHaveLength(1), { timeout: WAIT_MS });
     expect(names).toEqual(["lean.pdf"]);
     const saved = new Uint8Array(await blobs[0]!.arrayBuffer());
     expect(
@@ -746,7 +772,7 @@ describe("Compress: an already-lean PDF", { timeout: 30_000 }, () => {
     await act(async () => {
       fireEvent.click(links[0]!);
     });
-    await waitFor(() => expect(pushes).toHaveLength(1));
+    await waitFor(() => expect(pushes).toHaveLength(1), { timeout: WAIT_MS });
     // INVERTED 2026-10-20: the address no longer carries the token (its
     // payload fetch sent it to the server's logs); the tab does.
     expect(pushes[0]).toMatch(/^\/tools\/[a-z0-9-]+$/);
@@ -780,7 +806,7 @@ describe(
           // One orphan and one thumbnail. Until the review of 36048d58 this
           // read { unreferenced: 2 }: the thumbnail's stream counted twice.
           removedLine({ thumbnails: 1, unreferenced: 1 })!,
-          undefined,
+          {},
           { timeout: 10_000 },
         ),
       ).toBeVisible();
@@ -822,15 +848,19 @@ describe("Compress batch", { timeout: 30_000 }, () => {
     );
     remove.focus();
     fireEvent.click(remove);
-    await waitFor(() =>
-      expect(container.querySelector("[data-compress-stage]")).not.toBeNull(),
+    await waitFor(
+      () =>
+        expect(container.querySelector("[data-compress-stage]")).not.toBeNull(),
+      { timeout: WAIT_MS },
     );
     expect(
       screen.queryByRole("list", { name: /files in this batch/i }),
     ).toBeNull();
     const stage = container.querySelector("[data-compress-stage]");
     expect(document.activeElement).toBe(stage);
-    expect(await screen.findAllByText("b.pdf")).not.toHaveLength(0);
+    expect(
+      await screen.findAllByText("b.pdf", {}, { timeout: WAIT_MS }),
+    ).not.toHaveLength(0);
     expect(screen.queryByText("a.pdf")).toBeNull();
   });
 
@@ -879,10 +909,12 @@ describe("Compress batch", { timeout: 30_000 }, () => {
     fireEvent.click(
       screen.getByRole("checkbox", { name: /include 1 signed file/i }),
     );
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: /download all \(2\)/i }),
-      ).toBeInTheDocument(),
+    await waitFor(
+      () =>
+        expect(
+          screen.getByRole("button", { name: /download all \(2\)/i }),
+        ).toBeInTheDocument(),
+      { timeout: WAIT_MS },
     );
     expect(
       within(signedRow).getByRole("button", { name: /download compressed/i }),
@@ -911,9 +943,13 @@ describe(
       const { container } = render(withRouter(<CompressRunner />));
       await drop(container, [asFile(a, "a.pdf"), asFile(b, "b.pdf")]);
 
-      const lossless = await screen.findByRole("radio", {
-        name: /in your browser/i,
-      });
+      const lossless = await screen.findByRole(
+        "radio",
+        {
+          name: /in your browser/i,
+        },
+        { timeout: WAIT_MS },
+      );
       expect(lossless).toBeChecked();
       fireEvent.click(
         await screen.findByRole(
@@ -1046,14 +1082,20 @@ describe(
         asFile(await plainPdf(2), "one.pdf"),
         asFile(await plainPdf(3), "two.pdf"),
       ]);
-      await screen.findByRole("button", { name: /^compress 2 pdfs$/i });
+      await screen.findByRole(
+        "button",
+        { name: /^compress 2 pdfs$/i },
+        { timeout: WAIT_MS },
+      );
       // First the status has to have been answered (the 503 is an error),
       // or the absence below is only "not loaded yet".
       expect(
         await screen.findByTestId("status-phase", {}, { timeout: 10_000 }),
       ).toBeInTheDocument();
-      await waitFor(() =>
-        expect(screen.getByTestId("status-phase")).toHaveTextContent("error"),
+      await waitFor(
+        () =>
+          expect(screen.getByTestId("status-phase")).toHaveTextContent("error"),
+        { timeout: WAIT_MS },
       );
       expect(
         screen.queryByRole("radio", { name: /compress images on our server/i }),
@@ -1092,7 +1134,11 @@ describe(
           asFile(await plainPdf(2), "one.pdf"),
           asFile(await plainPdf(3), "two.pdf"),
         ]);
-        await screen.findByRole("button", { name: /^compress 2 pdfs$/i });
+        await screen.findByRole(
+          "button",
+          { name: /^compress 2 pdfs$/i },
+          { timeout: WAIT_MS },
+        );
         await waitFor(
           () =>
             expect(screen.getByTestId("status-phase")).toHaveTextContent(
@@ -1144,7 +1190,7 @@ describe(
       const { seen, input } = await runGray(gray);
       const card = await screen.findByText(
         /converted this file to grayscale/i,
-        undefined,
+        {},
         { timeout: 10_000 },
       );
       expect(gray.byteLength).toBeGreaterThan(input.byteLength);
@@ -1164,7 +1210,7 @@ describe(
       await runGray(colour);
       await screen.findByText(
         /did not convert this file to grayscale/i,
-        undefined,
+        {},
         { timeout: 10_000 },
       );
       expect(
@@ -1237,7 +1283,7 @@ describe(
       );
       const line = await screen.findByText(
         /under your 200 KB target/,
-        undefined,
+        {},
         { timeout: 10_000 },
       );
       // Top down from Balanced: 150 (~152 KB) is the first fit, so nothing
@@ -1263,7 +1309,7 @@ describe(
       });
       const line = await screen.findByText(
         /above your 40 KB target/,
-        undefined,
+        {},
         { timeout: 10_000 },
       );
       // Every rung runs (was [72]: the floor-first shortcut, inverted the
@@ -1286,7 +1332,7 @@ describe(
         () => fireEvent.click(screen.getByRole("button", { name: "100 KB" })),
         true,
       );
-      await screen.findByText(/100 KB target/, undefined, { timeout: 10_000 });
+      await screen.findByText(/100 KB target/, {}, { timeout: 10_000 });
       expect(seen.length).toBeGreaterThan(0);
       expect(seen.every((s) => s.grayscale === true)).toBe(true);
     });
