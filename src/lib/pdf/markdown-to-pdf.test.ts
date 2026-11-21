@@ -395,6 +395,15 @@ function expectEveryNestedLevelKept(
   );
 }
 
+/**
+ * Each flat row's timeout, and the detector of the link-scan budget's
+ * removal (review 2026-11-22: that mutant passed a 30 s timeout at 24,332 ms,
+ * where vitest's 5 s default had failed it). CI maximum 2,057 ms a row
+ * (ci-flake audit 2026-11-19), so 10 s is 4.9x; the mutant's lowest reading
+ * is 22,321 ms on the dev host, and CI is slower, so 10 s is 2.2x under it.
+ */
+const INLINE_ROW_TIMEOUT_MS = 10_000;
+
 describe("the inline tokenizer stays linear up to the source cap", () => {
   // One paragraph, as large as the tool accepts. A scan that restarts per
   // candidate is quadratic here: `[a](b` repeated took 19.5 s before the
@@ -432,20 +441,21 @@ describe("the inline tokenizer stays linear up to the source cap", () => {
       expect(text).toBe(source.trim());
       // WAS `elapsed < 5_000` under vitest's 5 s default, so the bound in
       // force was the default (ci-flake audit 2026-11-19, lines 424/430:
-      // 2,057 ms on CI, 2.43x). 12 s is 5.8x that maximum; it records until
-      // CI calibrates it. What it is for: the link-scan budget removed
-      // (`linkBudget = Infinity`) is linear with a 4,096x constant, 19 s on
-      // the dev host (20ba6ceb) — only a bound on the time itself sees it,
-      // never a growth ratio. The 30 s timeout covers that mutant's run on
-      // CI so it ends as a number, not a hang. `text` is the witness: every
-      // character comes back, which no runner's speed changes.
-      expectFasterThan("md-inline-flat-row", elapsed, 12_000, {
+      // 2,057 ms on CI, 2.43x; bare URLs 1,657 ms in 44910288854). What it is
+      // for: the link-scan budget removed (`linkBudget = Infinity`) is
+      // linear with a 4,096x constant, 22-24 s on the dev host (review
+      // 2026-11-22) — only a bound on the time itself sees it, never a growth
+      // ratio, and `text` (every character comes back) cannot see it either.
+      // So the row keeps a timeout that FAILS on it: INLINE_ROW_TIMEOUT_MS.
+      // The routed record prints each row's time on CI so that timeout can
+      // be set from CI's own spread.
+      expectFasterThan("md-inline-flat-row", elapsed, INLINE_ROW_TIMEOUT_MS, {
         mode: "measure",
         witness: "text",
         instance: label,
       });
     },
-    30_000,
+    INLINE_ROW_TIMEOUT_MS,
   );
 
   // Nesting. Every label used to be read by a fresh recursive call, one stack
@@ -848,13 +858,16 @@ describe("nested link labels stay renderable up to the source cap", () => {
       // linearity is held in-process above ("nested %s"), and what is
       // left to catch here is a render that blows up on nesting.
       //
-      // WAS `result.ms < flatMs * 6 + 2_000`, one yardstick for both shapes
-      // (ci-flake audit 2026-11-19, line 740). Each shape now has the flat
-      // render taken just before it, and the bound is the ratio alone
-      // (multiplicative). Measured 2026-11-01 (local): links 8,256 ms and
-      // images 8,782 ms against a 3,033 ms paragraph, 2.7-2.9x; no CI ratio
-      // has been printed yet, so it records until the harvest calibrates
-      // it. What fails meanwhile is `levels`: every destination drawn.
+      // `result.ms < run.flatMs * 6 + 2_000` (ci-flake audit 2026-11-19,
+      // line 740) KEEPS asserting: never red in the 31 CI logs read, and the
+      // only check that fails on a render blowing up on nesting short of the
+      // child's 240 s kill (review 2026-11-22: routed alone, with `levels`
+      // as its witness, a count no render's cost moves, it detected
+      // nothing). Measured 2026-11-01 (local): links 8,256 ms and images
+      // 8,782 ms against a 3,033 ms paragraph, 2.7-2.9x.
+      const run = renderNestedInChild();
+      expect(run.flatMs).toBeGreaterThan(0);
+      expect(result.ms).toBeLessThan(run.flatMs * 6 + 2_000);
       expect(result.flatMs).toBeGreaterThan(0);
 
       // What the reader receives: every drawn run. The title ("links.md")
@@ -867,11 +880,16 @@ describe("nested link labels stay renderable up to the source cap", () => {
       expectEveryNestedLevelKept(drawn, open, result.k, "x", "y");
       const levels = occurrences(drawn, "y");
       expect(levels).toBe(result.k);
+      // The same property against the flat render taken just before EACH
+      // shape, multiplicative, printed so the harvest can calibrate it and
+      // retire the additive bound above. 7, not 6: the old bound's effective
+      // multiple at a 3.3 s yardstick is 6.6, and the dev host read 3.07
+      // under load (review 2026-11-22), 2.3x under 7.
       expectRatioBelow(
         "md-nested-render-vs-flat",
         result.ms,
         result.flatMs,
-        6,
+        7,
         {
           mode: "measure",
           witness: "levels",
