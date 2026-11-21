@@ -22,8 +22,15 @@ import type { WaitRecord } from "./time-bound-core";
  * wrapper is marked and installed once; the buffer lives on `globalThis` for
  * the same reason, and each file's `afterEach` drains it into its test.
  *
- * Not covered: `vi.waitFor` and `expect.poll`, which do not go through
- * testing-library. The guard's sleep and deadline rules see those sites.
+ * `vi.waitFor` (59 call sites on 2026-11-21) does not go through
+ * testing-library, so `installViWaitRecorder` wraps it the same way, held
+ * to vitest's 1000 ms default when the call passes no timeout of its own.
+ *
+ * HISTORY: on f8d48720 this comment said "the guard's sleep and deadline
+ * rules see" `vi.waitFor` and `expect.poll`. They did not — nothing did
+ * (reviewer, 2026-11-21): a comment standing in for a guard. Still not
+ * covered: vitest's `expect.poll`, used once in the tree
+ * (`poll-leak-guard.test.ts`, a planted control with no timeout of its own).
  */
 
 const MARK = Symbol.for("pdfxyz.waitRecorder");
@@ -71,10 +78,10 @@ export function installWaitRecorder(): boolean {
     const site = waitCallSite(stack);
     const defaultTimeoutMs = getConfig().asyncUtilTimeout;
     const started = performance.now();
-    let timedOut = true;
+    let rejected = true;
     try {
       const out = await inner(cb);
-      timedOut = false;
+      rejected = false;
       return out;
     } finally {
       if (site)
@@ -82,12 +89,52 @@ export function installWaitRecorder(): boolean {
           ms: performance.now() - started,
           ...site,
           defaultTimeoutMs,
-          timedOut,
+          rejected,
         });
     }
   };
   wrapper[MARK] = true;
   configure({ asyncWrapper: wrapper });
+  return true;
+}
+
+const VI_MARK = Symbol.for("pdfxyz.viWaitRecorder");
+
+/** vitest's own default for `vi.waitFor`. */
+export const VI_WAIT_FOR_DEFAULT_MS = 1000;
+
+type ViWaitFor = ((...args: unknown[]) => Promise<unknown>) & {
+  [VI_MARK]?: true;
+};
+
+/** Wraps `vi.waitFor` once per realm; returns whether it installed. */
+export function installViWaitRecorder(v: { waitFor: unknown }): boolean {
+  const inner = v.waitFor as ViWaitFor;
+  if (inner[VI_MARK]) return false;
+  const wrapper: ViWaitFor = async (...args) => {
+    const limit = Error.stackTraceLimit;
+    Error.stackTraceLimit = 40;
+    const stack = new Error().stack ?? "";
+    Error.stackTraceLimit = limit;
+    const site = waitCallSite(stack);
+    const started = performance.now();
+    let rejected = true;
+    try {
+      const out = await inner(...args);
+      rejected = false;
+      return out;
+    } finally {
+      if (site)
+        buffer().push({
+          ms: performance.now() - started,
+          ...site,
+          defaultTimeoutMs: VI_WAIT_FOR_DEFAULT_MS,
+          rejected,
+        });
+    }
+  };
+  wrapper[VI_MARK] = true;
+  v.waitFor = wrapper;
   return true;
 }
 

@@ -21,8 +21,85 @@
  * (`src/tests/e2e-cjs-load.test.ts` compiles it the way that loader does).
  */
 
+import { createRequire } from "node:module";
+import path from "node:path";
+import type * as TS from "typescript";
+
 /** A bound is reported once it has used more than this share of its margin. */
 export const BOUND_HEADROOM_RATIO = 0.5;
+
+/**
+ * GitHub shows at most 10 warning annotations per step; each block
+ * annotates only its worst few, so a real near-miss is not crowded off the
+ * PR page by the blocks printed before it. The rest are printed plainly.
+ */
+export const ANNOTATIONS_PER_BLOCK = 3;
+
+let tsModule: typeof TS | null | undefined;
+/**
+ * TypeScript, loaded on first use from the working directory: the reporters
+ * import this module at config time (vitest's, Playwright's CommonJS loader),
+ * so nothing third-party loads until a report reads source. Null when it
+ * cannot be loaded — callers then say "unresolved", never "default".
+ */
+function typescript(): typeof TS | null {
+  if (tsModule === undefined) {
+    try {
+      tsModule = createRequire(path.join(process.cwd(), "noop.js"))(
+        "typescript",
+      ) as typeof TS;
+    } catch {
+      tsModule = null;
+    }
+  }
+  return tsModule;
+}
+
+const parsed = new Map<string, TS.SourceFile>();
+function parse(source: string): TS.SourceFile | null {
+  const ts = typescript();
+  if (!ts) return null;
+  let sf = parsed.get(source);
+  if (!sf) {
+    sf = ts.createSourceFile(
+      "x.tsx",
+      source,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX,
+    );
+    if (parsed.size > 400) parsed.clear();
+    parsed.set(source, sf);
+  }
+  return sf;
+}
+
+/** Names that hold a time (`ms`, `*Ms`, `elapsed*`, `took*`, `*Duration`, ...). */
+export const TIME_NAME =
+  /^(ms|\w*Ms|elapsed\w*|took\w*|\w*Duration|duration\w*|latency\w*|perQuery\w*)$/;
+/** Config names: a bound, a knob or a schedule — never the measured subject. */
+export const CONFIG_NAME =
+  /^(timeout\w*|\w*Timeout\w*|\w*TIMEOUT\w*|interval\w*|delay\w*|budget\w*|ttl\w*|deadline\w*|retryAfter\w*|\w*(Budget|Interval|Delay|Ceiling|Bound|Limit|Max|Min|Wait|Sleep|Hold|Grace)Ms)$/i;
+
+export const isTimeName = (name: string): boolean =>
+  TIME_NAME.test(name) && !CONFIG_NAME.test(name);
+
+/**
+ * Why `witness` cannot be a measure-mode bound's witness, or null. A witness
+ * is a speed-independent count, size or shape; a name that reads as a time
+ * (measured or configured) is the measurement wearing a witness's label —
+ * the attack that turned detection off on f8d48720 was `{ witness: "ms" }`.
+ * The guard adds what only the source can show (that the name is not a
+ * clock-tainted variable, and that an equality or size matcher asserts it).
+ */
+export function witnessNameProblem(witness: string | undefined): string | null {
+  if (!witness) return "no witness";
+  if (!/^[A-Za-z_$][\w$]*$/.test(witness))
+    return `witness "${witness}" is not a variable name`;
+  if (TIME_NAME.test(witness) || CONFIG_NAME.test(witness))
+    return `witness "${witness}" is named as a time, so it is the measurement, not a speed-independent witness`;
+  return null;
+}
 
 export type TimeBoundKind = "ceiling" | "ratio" | "floor";
 export type TimeBoundMode = "assert" | "measure";
@@ -48,6 +125,13 @@ export interface TimeBound {
   file: string;
   test: string;
   line: number;
+  /**
+   * The token-stream hash of the test body that RAN, computed at record
+   * time from the file on disk (`routedBodyHash`), so a calibration value
+   * certifies the body it was measured on — not whatever body the harvest
+   * finds in today's tree (critic P5, CLAUDE.md rule 2).
+   */
+  bodyHash?: string;
 }
 
 /** One testing-library wait (`findBy*`, `waitFor`), timed by `src/tests/wait-recorder.ts`. */
@@ -58,8 +142,12 @@ export interface WaitRecord {
   column: number;
   /** testing-library's `asyncUtilTimeout` when the wait ran. */
   defaultTimeoutMs: number;
-  /** The wait threw (timed out, or its callback kept failing). */
-  timedOut: boolean;
+  /**
+   * The wait rejected. Whether it TIMED OUT is decided by the report against
+   * the timeout it ran under (`waitForElementToBeRemoved` rejects at once
+   * when the element is already gone — that is not a timeout).
+   */
+  rejected: boolean;
   test?: string;
 }
 
@@ -156,20 +244,34 @@ export interface HeadroomItem {
  */
 export function headroomLines(
   items: readonly HeadroomItem[],
-  opts: { github: boolean; title: string; ratio?: number },
+  opts: { github: boolean; title: string; ratio?: number; annotate?: number },
 ): string[] {
   const ratio = opts.ratio ?? BOUND_HEADROOM_RATIO;
+  const cap = opts.annotate ?? ANNOTATIONS_PER_BLOCK;
   const lines: string[] = [];
-  for (const item of [...items]
+  const over = [...items]
     .filter((i) => i.share > ratio)
-    .sort((a, b) => b.share - a.share)) {
+    .sort((a, b) => b.share - a.share);
+  over.forEach((item, i) => {
     lines.push(`  ${pct(item.share).padStart(4)}  ${item.text}`);
-    if (opts.github)
-      lines.push(
-        `::warning ${item.file ? `file=${escapeProperty(item.file)},` : ""}${item.line ? `line=${item.line},` : ""}title=${escapeProperty(opts.title)}::${escapeData(item.text)}`,
-      );
-  }
+    if (opts.github && i < cap)
+      lines.push(annotation(item.file, item.line, opts.title, item.text));
+  });
+  if (opts.github && cap > 0 && over.length > cap)
+    lines.push(
+      `        (${over.length - cap} more over the threshold are not annotated: GitHub shows at most 10 annotations per step)`,
+    );
   return lines;
+}
+
+/** One `::warning` workflow command. */
+export function annotation(
+  file: string | undefined,
+  line: number | undefined,
+  title: string,
+  text: string,
+): string {
+  return `::warning ${file ? `file=${escapeProperty(file)},` : ""}${line ? `line=${line},` : ""}title=${escapeProperty(title)}::${escapeData(text)}`;
 }
 
 const repoPath = (file: string, root: string) => {
@@ -223,13 +325,24 @@ export type CallTimeout =
   | { kind: "unresolved"; text: string };
 
 /**
- * The `timeout:` a call passes, read from the source at (line, column):
- * from there to the end of the call's statement, with brackets balanced.
- * A numeric literal is read as is; an identifier is resolved to a numeric
- * `const` in the same file; anything else is "unresolved" and is reported
- * as such — never silently compared against the default (critic P6: a
- * recorder that drops the calls with explicit timeouts leaves every one of
- * them with no headroom check at all).
+ * The timeout a call site passes, read from its AST at (line, column) — the
+ * position a stack frame (a testing-library wait) or a Playwright step
+ * location (`backToExpect`: the matcher, possibly lines below the
+ * `expect.poll(fn, { timeout })` that carries the timeout) points at.
+ *
+ * The call is the innermost one containing the position (or, when the
+ * position is on `await` before it, the first call starting after it on
+ * that line). Its timeout is a top-level `timeout` property of an
+ * object-literal OPTIONS argument — never the callback's, never the first
+ * argument (a waitFor callback, a findBy matcher); for an expect chain, the
+ * matcher's options first, then each call down the chain. An options
+ * argument that is a variable is resolved to a same-file `const` object; a
+ * value that is a numeric literal or a same-file numeric `const` is
+ * "explicit"; anything else is "unresolved" and reported as such — never
+ * silently held to the default (critic P6). The textual scan this replaces
+ * took the first `timeout:` anywhere, including inside the callback and,
+ * past an apostrophe in a regex literal, in a LATER call (finding C2,
+ * 2026-11-21).
  */
 export function callTimeoutAt(
   source: string,
@@ -237,65 +350,160 @@ export function callTimeoutAt(
   column = 1,
   opts: { backToExpect?: boolean } = {},
 ): CallTimeout {
-  const lines = source.split(/\r?\n/);
-  if (line < 1 || line > lines.length) return { kind: "default" };
-  let at = 0;
-  for (let i = 0; i < line - 1; i++) at += lines[i]!.length + 1;
-  // Normalise CRLF offsets by working on the LF-joined text.
-  const text = lines.join("\n");
-  at += Math.max(0, column - 1);
-  // Playwright places an expect step at its MATCHER, which may sit lines
-  // below the `expect.poll(fn, { timeout })` that carries the timeout.
+  const sf = parse(source);
+  const ts = typescript();
+  if (!sf || !ts)
+    return { kind: "unresolved", text: "typescript not loadable" };
+  const starts = sf.getLineStarts();
+  if (line < 1 || line > starts.length) return { kind: "default" };
+  const lineStart = starts[line - 1]!;
+  const lineEnd = line < starts.length ? starts[line]! : sf.text.length;
+  const pos = Math.min(lineStart + Math.max(0, column - 1), lineEnd);
+  let inner: TS.CallExpression | undefined;
+  let after: TS.CallExpression | undefined;
+  const visit = (n: TS.Node): void => {
+    const start = n.getStart(sf);
+    const contains = start <= pos && pos < n.getEnd();
+    const onLineAfter = start >= pos && start < lineEnd;
+    if (ts.isCallExpression(n)) {
+      if (contains) inner = n;
+      else if (onLineAfter && !after) after = n;
+    }
+    if (start < lineEnd && n.getEnd() > pos) ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  const call = inner ?? after;
+  if (!call) return { kind: "default" };
+  const chain: TS.CallExpression[] = [];
   if (opts.backToExpect) {
-    const back = text.lastIndexOf("expect", at);
-    if (back !== -1 && at - back < 800) at = back;
-  }
-  let depth = 0;
-  let end = text.length;
-  let opened = false;
-  for (let i = at; i < text.length; i++) {
-    const ch = text[i]!;
-    if (ch === '"' || ch === "'" || ch === "`") {
-      const close = text.indexOf(ch, i + 1);
-      if (close === -1) break;
-      i = close;
-      continue;
+    // Up to the outermost call of the chain (the location may sit on
+    // `expect(` or on the matcher), then the matcher call and each call
+    // below it.
+    let top: TS.CallExpression = call;
+    while (
+      ts.isPropertyAccessExpression(top.parent) &&
+      ts.isCallExpression(top.parent.parent) &&
+      top.parent.parent.expression === top.parent
+    )
+      top = top.parent.parent;
+    let cur: TS.Expression = top;
+    for (;;) {
+      if (ts.isCallExpression(cur)) {
+        chain.push(cur);
+        cur = cur.expression;
+      } else if (ts.isPropertyAccessExpression(cur)) cur = cur.expression;
+      else break;
     }
-    if (ch === "(" || ch === "{" || ch === "[") {
-      depth++;
-      opened = true;
-    } else if (ch === ")" || ch === "}" || ch === "]") {
-      depth--;
-      // The call ends where its brackets close and no `.next(` chain follows.
+  } else chain.push(call);
+  for (const c of chain) {
+    const t = optionsTimeout(c, sf, ts);
+    if (t) return t;
+  }
+  return { kind: "default" };
+}
+
+/** The timeout in a call's options arguments, or undefined when it passes none. */
+function optionsTimeout(
+  call: TS.CallExpression,
+  sf: TS.SourceFile,
+  ts: typeof TS,
+): CallTimeout | undefined {
+  const constInit = (name: string): TS.Expression | undefined => {
+    let found: TS.Expression | undefined;
+    const visit = (n: TS.Node): void => {
+      if (found) return;
       if (
-        depth < 0 ||
-        (opened &&
-          depth === 0 &&
-          !/^\s*[.?([]/.test(text.slice(i + 1, i + 200)))
-      ) {
-        end = i + 1;
-        break;
-      }
-    } else if (ch === ";" && depth <= 0) {
-      end = i;
-      break;
+        ts.isVariableDeclaration(n) &&
+        ts.isIdentifier(n.name) &&
+        n.name.text === name &&
+        n.initializer &&
+        ts.isVariableDeclarationList(n.parent) &&
+        n.parent.flags & ts.NodeFlags.Const
+      )
+        found = n.initializer;
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+    return found;
+  };
+  const text = (n: TS.Node) => n.getText(sf).replace(/\s+/g, " ");
+  const value = (x: TS.Expression, label: string): CallTimeout => {
+    let e = x;
+    while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e))
+      e = e.expression;
+    if (ts.isNumericLiteral(e))
+      return { kind: "explicit", ms: Number(e.text.replace(/_/g, "")) };
+    if (ts.isIdentifier(e)) {
+      const init = constInit(e.text);
+      if (init && ts.isNumericLiteral(init))
+        return { kind: "explicit", ms: Number(init.text.replace(/_/g, "")) };
+    }
+    return { kind: "unresolved", text: `${label}: ${text(e)}` };
+  };
+  // The first argument is a callback, a matcher text or a locator — an
+  // options object only when it is written as one (`toBeVisible({ timeout })`).
+  for (const [i, raw] of call.arguments.entries()) {
+    let arg: TS.Expression = raw;
+    if (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)) continue;
+    if (i === 0 && !ts.isObjectLiteralExpression(arg)) continue;
+    // vi.waitFor(cb, 2000): a bare number is the timeout.
+    if (ts.isNumericLiteral(arg))
+      return { kind: "explicit", ms: Number(arg.text.replace(/_/g, "")) };
+    if (ts.isIdentifier(arg)) {
+      const init = constInit(arg.text);
+      if (!init || !ts.isObjectLiteralExpression(init))
+        return { kind: "unresolved", text: `options: ${arg.text}` };
+      arg = init;
+    }
+    if (!ts.isObjectLiteralExpression(arg)) continue;
+    for (const p of arg.properties) {
+      if (ts.isSpreadAssignment(p))
+        return { kind: "unresolved", text: `options: ${text(p)}` };
+      if (!p.name || p.name.getText(sf) !== "timeout") continue;
+      if (ts.isShorthandPropertyAssignment(p))
+        return value(p.name, "timeout (shorthand)");
+      if (ts.isPropertyAssignment(p)) return value(p.initializer, "timeout");
     }
   }
-  const call = text.slice(at, end);
-  const m = /\btimeout\s*:\s*([A-Za-z_$][\w$.]*|[\d_]+(?:\.\d+)?)/.exec(call);
-  if (!m) {
-    if (/\btimeout\b/.test(call))
-      return { kind: "unresolved", text: "timeout (shorthand)" };
-    return { kind: "default" };
-  }
-  const value = m[1]!;
-  if (/^[\d_.]+$/.test(value))
-    return { kind: "explicit", ms: Number(value.replace(/_/g, "")) };
-  const decl = new RegExp(
-    `\\b(?:const|let)\\s+${value.replace(/[$.]/g, "\\$&")}\\s*(?::\\s*\\w+\\s*)?=\\s*([\\d_]+)\\s*[;,\\n]`,
-  ).exec(text);
-  if (decl) return { kind: "explicit", ms: Number(decl[1]!.replace(/_/g, "")) };
-  return { kind: "unresolved", text: `timeout: ${value}` };
+  return undefined;
+}
+
+/**
+ * The timeout each `beforeAll`/`afterAll` in a file runs under: its own
+ * numeric argument (a literal or a same-file const), else `defaultMs`.
+ */
+export function hookBudgets(source: string, defaultMs: number): number[] {
+  const sf = parse(source);
+  const ts = typescript();
+  if (!sf || !ts) return [];
+  const consts = new Map<string, number>();
+  const out: number[] = [];
+  const visit = (n: TS.Node): void => {
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.initializer &&
+      ts.isNumericLiteral(n.initializer)
+    )
+      consts.set(n.name.text, Number(n.initializer.text.replace(/_/g, "")));
+    if (
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      /^(beforeAll|afterAll)$/.test(n.expression.text)
+    ) {
+      const t = n.arguments[1];
+      out.push(
+        t && ts.isNumericLiteral(t)
+          ? Number(t.text.replace(/_/g, ""))
+          : t && ts.isIdentifier(t) && consts.has(t.text)
+            ? consts.get(t.text)!
+            : defaultMs,
+      );
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return out;
 }
 
 /**
@@ -326,19 +534,24 @@ export function waitReport(
         : t.kind === "default"
           ? w.defaultTimeoutMs
           : undefined;
-    return { w, t, budget, share: budget ? w.ms / budget : NaN };
+    const timedOut = w.rejected && budget !== undefined && w.ms >= budget;
+    return { w, t, budget, share: budget ? w.ms / budget : NaN, timedOut };
   });
   const site = (w: WaitRecord) => `${repoPath(w.file, opts.root)}:${w.line}`;
   const label = (j: (typeof judged)[number]) =>
-    `${site(j.w)}${j.w.test ? ` > ${j.w.test}` : ""}: ${Math.round(j.w.ms)} ms of ${j.budget ?? "?"} ms (${j.t.kind === "explicit" ? "its own timeout" : j.t.kind === "default" ? "default" : j.t.text}${j.w.timedOut ? "; TIMED OUT" : ""})`;
+    `${site(j.w)}${j.w.test ? ` > ${j.w.test}` : ""}: ${Math.round(j.w.ms)} ms of ${j.budget ?? "?"} ms (${j.t.kind === "explicit" ? "its own timeout" : j.t.kind === "default" ? "default" : j.t.text}${j.timedOut ? "; TIMED OUT" : j.w.rejected ? (j.budget === undefined ? "; REJECTED" : "; REJECTED early") : ""})`;
   const resolved = judged.filter((j) => j.budget !== undefined);
   const over = resolved.filter((j) => j.share > BOUND_HEADROOM_RATIO);
   const unresolved = judged.filter(
     (j) => j.budget === undefined && j.w.ms > defaultMs * BOUND_HEADROOM_RATIO,
   );
-  const timedOut = judged.filter((j) => j.w.timedOut);
+  const timedOut = judged.filter((j) => j.timedOut);
+  const early = judged.filter(
+    (j) => j.w.rejected && !j.timedOut && j.budget !== undefined,
+  );
+  const unread = judged.filter((j) => j.w.rejected && j.budget === undefined);
   const lines = [
-    `wait headroom: ${over.length} of ${waits.length} testing-library waits took more than ${BOUND_HEADROOM_RATIO * 100}% of their timeout (default asyncUtilTimeout ${defaultMs} ms; ${timedOut.length} timed out)`,
+    `wait headroom: ${over.length} of ${waits.length} waits (testing-library and vi.waitFor) took more than ${BOUND_HEADROOM_RATIO * 100}% of their timeout (default asyncUtilTimeout ${defaultMs} ms; ${timedOut.length} timed out${early.length > 0 ? `, ${early.length} rejected before its timeout` : ""}${unread.length > 0 ? `, ${unread.length} rejected under a timeout it could not read` : ""})`,
     ...headroomLines(
       over.map((j) => ({
         share: j.share,
@@ -389,27 +602,47 @@ export function pendingReport(
  * module's `diagnostic().duration` ("all tests and hooks") and each test's
  * duration (which includes its beforeEach/afterEach), so the difference is
  * the time a file spent in beforeAll/afterAll — an UPPER bound on any single
- * such hook, compared here against `hookTimeout`.
+ * such hook.
+ *
+ * Each file is held to the SMALLEST timeout among its own beforeAll/afterAll
+ * hooks (`hookBudgets`: each hook's explicit timeout, else hookTimeout; with
+ * none of its own, hookTimeout). That bounds the worst hook's share from
+ * above: any one hook took at most the sum, and runs under at least the
+ * smallest budget. On f8d48720 every file was held to the global
+ * hookTimeout, so a beforeAll with its own 300 s timeout read as 318%
+ * (finding S1, 2026-11-21). Printed, never annotated: the split between
+ * hooks is unknown, and an annotation would name a hook the figure cannot.
  */
 export function hookReport(
-  modules: readonly { file: string; moduleMs: number; testsMs: number }[],
+  modules: readonly {
+    file: string;
+    moduleMs: number;
+    testsMs: number;
+    budgets: readonly number[];
+  }[],
   hookTimeoutMs: number,
   opts: { github: boolean; root: string },
 ): string[] {
   const items = modules.map((m) => {
     const hooks = Math.max(0, m.moduleMs - m.testsMs);
+    const budget =
+      m.budgets.length > 0 ? Math.min(...m.budgets) : hookTimeoutMs;
+    const own =
+      m.budgets.length === 0
+        ? "none of its own; hookTimeout"
+        : `${m.budgets.length} of its own: ${m.budgets.join(", ")} ms`;
     return {
-      share: hooks / hookTimeoutMs,
-      text: `${repoPath(m.file, opts.root)}: ${Math.round(hooks)} ms in beforeAll/afterAll (module total less its tests; an upper bound on any one hook) of hookTimeout ${hookTimeoutMs} ms`,
+      share: hooks / budget,
+      text: `${repoPath(m.file, opts.root)}: ${Math.round(hooks)} ms in beforeAll/afterAll (module total less its tests; an upper bound on any one hook) against ${budget} ms, the smallest timeout of its hooks (${own})`,
       file: repoPath(m.file, opts.root),
     };
   });
   const over = items.filter((i) => i.share > BOUND_HEADROOM_RATIO);
   return [
-    `hook headroom: ${over.length} of ${modules.length} files spent more than ${BOUND_HEADROOM_RATIO * 100}% of hookTimeout in beforeAll/afterAll (vitest 4.1 exposes no per-hook duration; this is the per-file sum)`,
+    `hook headroom: ${over.length} of ${modules.length} files spent more than ${BOUND_HEADROOM_RATIO * 100}% of their hooks' smallest timeout in beforeAll/afterAll (vitest 4.1 exposes no per-hook duration; this is the per-file sum, printed only, not annotated)`,
     ...headroomLines(items, {
-      github: opts.github,
-      title: "Hooks near hookTimeout",
+      github: false,
+      title: "Hooks near their timeout",
     }),
   ];
 }
@@ -439,7 +672,11 @@ export function brokenPipeLines(opts: {
     msgs.push(
       `time-bound pipe broken: ${opts.testsSeen} tests ran and no time-bound record reached the reporter`,
     );
-  return msgs.map((m) =>
-    opts.github ? `::warning title=time-bound pipe::${escapeData(m)}` : m,
+  // On GitHub the plain line is printed too: the step summary drops
+  // workflow commands, and the annotation can be crowded out.
+  return msgs.flatMap((m) =>
+    opts.github
+      ? [m, `::warning title=time-bound pipe::${escapeData(m)}`]
+      : [m],
   );
 }

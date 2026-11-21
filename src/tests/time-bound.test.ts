@@ -8,6 +8,9 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   brokenPipeLines,
   callTimeoutAt,
+  headroomLines,
+  hookBudgets,
+  hookReport,
   parseTimeBoundLines,
   shareOf,
   timeBoundLine,
@@ -21,7 +24,7 @@ import {
   expectRatioBelow,
   measureTime,
 } from "./time-bound";
-import { TimeoutHeadroomReporter } from "./timeout-headroom";
+import { TimeoutHeadroomReporter, headroomReport } from "./timeout-headroom";
 import { installWaitRecorder, waitCallSite } from "./wait-recorder";
 
 const bound = (over: Partial<TimeBound>): TimeBound => ({
@@ -80,9 +83,10 @@ describe("the core", () => {
     expect(callTimeoutAt(src, 2)).toEqual({ kind: "default" });
     expect(callTimeoutAt(src, 3)).toEqual({ kind: "explicit", ms: 2500 });
     expect(callTimeoutAt(src, 4)).toEqual({ kind: "explicit", ms: 4000 });
+    // The whole expression now (the textual scan stopped at `base`).
     expect(callTimeoutAt(src, 5)).toEqual({
       kind: "unresolved",
-      text: "timeout: base",
+      text: "timeout: base + 1000",
     });
     // Playwright places the step at the matcher, two lines below the timeout.
     expect(callTimeoutAt(src, 8, 3, { backToExpect: true })).toEqual({
@@ -90,6 +94,109 @@ describe("the core", () => {
       ms: 7000,
     });
     expect(callTimeoutAt(src, 9).kind).toBe("unresolved");
+  });
+
+  it("reads the timeout from the call's own options argument, by the AST, not the first `timeout:` in the text", () => {
+    // Each of these borrowed a wrong timeout from the textual scan on
+    // f8d48720: a `timeout:` inside the callback, and an apostrophe in a
+    // regex literal read as an unclosed string, so the scan ran on to the
+    // next call's timeout (html-source-area.test.tsx:143 took line 177's).
+    const src = [
+      `await waitFor(() => { spy({ timeout: 30000 }); check(); });`,
+      `await waitFor(() => expect(screen.getByText(/can't open/)).toBeTruthy());`,
+      `await screen.findByText("later", {}, { timeout: 8000 });`,
+      `await waitFor(cb, opts);`,
+      `const OPTS = { timeout: 2_000 };`,
+      `await waitFor(cb, OPTS);`,
+      `await screen.findByText(/isn't a file/);`,
+    ].join("\n");
+    expect(callTimeoutAt(src, 1, 7)).toEqual({ kind: "default" });
+    expect(callTimeoutAt(src, 2, 7)).toEqual({ kind: "default" });
+    expect(callTimeoutAt(src, 3, 14)).toEqual({ kind: "explicit", ms: 8000 });
+    expect(callTimeoutAt(src, 4, 7)).toEqual({
+      kind: "unresolved",
+      text: "options: opts",
+    });
+    expect(callTimeoutAt(src, 6, 7)).toEqual({ kind: "explicit", ms: 2000 });
+    expect(callTimeoutAt(src, 7, 14)).toEqual({ kind: "default" });
+  });
+
+  it("a wait that rejects before its timeout is labelled as rejected, not timed out", () => {
+    const lines = waitReport(
+      [
+        {
+          ms: 12,
+          file: "/r/a.ts",
+          line: 1,
+          column: 7,
+          defaultTimeoutMs: 1000,
+          rejected: true,
+        },
+        {
+          ms: 1004,
+          file: "/r/a.ts",
+          line: 1,
+          column: 7,
+          defaultTimeoutMs: 1000,
+          rejected: true,
+        },
+      ],
+      {
+        github: false,
+        root: "/r",
+        source: () => `await waitForElementToBeRemoved(() => el());\n`,
+      },
+    ).join("\n");
+    expect(lines).toContain("1 timed out, 1 rejected before its timeout");
+    expect(lines).toContain("12 ms of 1000 ms (default; REJECTED early)");
+    expect(lines).toContain("1004 ms of 1000 ms (default; TIMED OUT)");
+  });
+
+  it("annotates only the worst three of a block; the rest are printed plainly (GitHub shows ten per step)", () => {
+    const items = [0.9, 0.8, 0.7, 0.6, 0.55].map((share, i) => ({
+      share,
+      text: `t${i}`,
+      file: "src/a.ts",
+      line: i + 1,
+    }));
+    const lines = headroomLines(items, { github: true, title: "T" });
+    expect(lines.filter((l) => l.startsWith("::warning"))).toHaveLength(3);
+    expect(lines.filter((l) => !l.startsWith("::warning"))).toHaveLength(6);
+    expect(lines.at(-1)).toBe(
+      "        (2 more over the threshold are not annotated: GitHub shows at most 10 annotations per step)",
+    );
+  });
+
+  it("the hook line holds a file's hooks to their own timeouts and never annotates", () => {
+    const src = [
+      `const LONG = 180_000;`,
+      `beforeAll(async () => { await big(); }, 300_000);`,
+      `afterAll(() => {}, LONG);`,
+    ].join("\n");
+    expect(hookBudgets(src, 10_000)).toEqual([300_000, 180_000]);
+    expect(hookBudgets(`beforeAll(() => {});`, 10_000)).toEqual([10_000]);
+    expect(hookBudgets(`it("x", () => {});`, 10_000)).toEqual([]);
+    const lines = hookReport(
+      [
+        // wall-clock-bounds.test.ts on f8d48720: 318% of the GLOBAL 10 s,
+        // with its own beforeAll at 300 s.
+        {
+          file: "/r/a.test.ts",
+          moduleMs: 31_817,
+          testsMs: 0,
+          budgets: [300_000],
+        },
+        { file: "/r/b.test.ts", moduleMs: 8_000, testsMs: 0, budgets: [] },
+      ],
+      10_000,
+      { github: true, root: "/r" },
+    );
+    expect(lines[0]).toMatch(/^hook headroom: 1 of 2 files/);
+    expect(lines.join("\n")).not.toContain("::warning");
+    expect(lines.join("\n")).not.toContain("a.test.ts:");
+    expect(lines.join("\n")).toContain(
+      "b.test.ts: 8000 ms in beforeAll/afterAll (module total less its tests; an upper bound on any one hook) against 10000 ms, the smallest timeout of its hooks (none of its own; hookTimeout)",
+    );
   });
 
   it("the time-bound block counts assert-mode bounds over half and lists measure-only ones apart", () => {
@@ -123,7 +230,7 @@ describe("the core", () => {
           line: 2,
           column: 7,
           defaultTimeoutMs: 1000,
-          timedOut: false,
+          rejected: false,
         },
         {
           ms: 700,
@@ -131,7 +238,7 @@ describe("the core", () => {
           line: 3,
           column: 7,
           defaultTimeoutMs: 1000,
-          timedOut: false,
+          rejected: false,
         },
         {
           ms: 800,
@@ -139,13 +246,13 @@ describe("the core", () => {
           line: 4,
           column: 7,
           defaultTimeoutMs: 1000,
-          timedOut: true,
+          rejected: true,
         },
       ],
       { github: false, root: "/r", source: () => src },
     );
     expect(lines[0]).toBe(
-      "wait headroom: 1 of 3 testing-library waits took more than 50% of their timeout (default asyncUtilTimeout 1000 ms; 1 timed out)",
+      "wait headroom: 1 of 3 waits (testing-library and vi.waitFor) took more than 50% of their timeout (default asyncUtilTimeout 1000 ms; 0 timed out, 1 rejected under a timeout it could not read)",
     );
     expect(lines.join("\n")).toContain("a.ts:3: 700 ms of 1000 ms (default)");
     expect(lines.join("\n")).toContain(
@@ -173,80 +280,72 @@ describe("the core", () => {
         github: false,
       })[0],
     ).toMatch(/3 \[time-bound\] lines were printed but only 1 records/);
+    // On GitHub the plain message is printed TOO: the step summary keeps
+    // only lines that are not workflow commands, and on f8d48720 the pipe
+    // check printed nothing else, so it never reached the summary.
     expect(
       brokenPipeLines({
         printed: 0,
         recorded: 0,
         testsSeen: 6000,
         github: true,
-      })[0],
-    ).toMatch(
-      /^::warning title=time-bound pipe::time-bound pipe broken: 6000 tests ran/,
-    );
+      }),
+    ).toEqual([
+      "time-bound pipe broken: 6000 tests ran and no time-bound record reached the reporter",
+      "::warning title=time-bound pipe::time-bound pipe broken: 6000 tests ran and no time-bound record reached the reporter",
+    ]);
+    expect(headroomReport(0, [], true)).toEqual([
+      "timeout headroom: saw no test results, so it checked nothing",
+      "::warning title=timeout headroom::the headroom reporter saw no test results, so it checked nothing",
+    ]);
   });
 });
 
 /**
- * Called through an object, so the guard's routed-call scan (which reads
- * bare calls to the helpers) does not take these planted controls for
- * bounds that need a CI calibration. Only passing, low-share calls record
- * anything; the failure path is checked through the child run in
- * `time-bound-chain.test.ts`, so CI's report is not fed a planted 120%.
+ * HISTORY: on f8d48720 these called the helpers through an object
+ * (`helper.expectFasterThan`) so the guard's routed scan would not see
+ * them, and the passing calls (`unit-floor` at 83%, `unit-measure`) reached
+ * CI's real report on every run — a planted number describing a fixture.
+ * The guard now refuses any use of a helper but a call it reads, and the
+ * calls that RECORD moved to the child run (`time-bound-chain.fixture.ts`,
+ * "chain: the helper returns the record it printed"), whose report is the
+ * child's own. What stays here throws before anything is recorded; each
+ * measured value is a literal, so it measures nothing and needs no
+ * calibration.
  */
-const helper = {
-  expectAtLeast,
-  expectFasterThan,
-  expectRatioBelow,
-  measureTime,
-};
-
 describe("the vitest helper", () => {
-  it("records, prints and passes inside its bound", () => {
-    const rec = helper.expectFasterThan("unit-pass", 10, 1000, {
-      instance: "a",
-    });
-    expect(rec).toMatchObject({
-      id: "unit-pass",
-      instance: "a",
-      kind: "ceiling",
-      mode: "assert",
-    });
-    expect(rec.line).toBeGreaterThan(0);
-    expect(helper.expectRatioBelow("unit-ratio", 10, 100, 1).kind).toBe(
-      "ratio",
-    );
-    expect(helper.expectAtLeast("unit-floor", 300, 250).kind).toBe("floor");
-  });
-
   it("refuses a broken measurement and a dead control before recording or comparing anything", () => {
-    expect(() => helper.expectFasterThan("unit-nan", Number.NaN, 1000)).toThrow(
+    expect(() => expectFasterThan("unit-nan", Number.NaN, 1000)).toThrow(
       /not a finite time/,
     );
-    expect(() => helper.expectFasterThan("unit-neg", -1, 1000)).toThrow(
+    expect(() => expectFasterThan("unit-neg", -1, 1000)).toThrow(
       /not a finite time/,
     );
-    expect(() => helper.expectRatioBelow("unit-dead", 5, 0, 2)).toThrow(
+    expect(() => expectRatioBelow("unit-dead", 5, 0, 2)).toThrow(
       /the control did no work/,
     );
   });
 
-  it("measure mode never fails, and needs a witness or a pending entry", () => {
-    expect(
-      helper.measureTime("unit-measure", 50, 1000, { witness: "count" }).mode,
-    ).toBe("measure");
-    expect(() => helper.measureTime("unit-blind", 10, 1000)).toThrow(
+  it("measure mode needs a witness or a pending entry, and the witness cannot be named as a time", () => {
+    expect(() => measureTime("unit-blind", 10, 1000)).toThrow(
       /needs a witness/,
     );
     expect(() =>
-      helper.expectFasterThan("unit-blind-2", 10, 1000, { mode: "measure" }),
+      expectFasterThan("unit-blind-2", 10, 1000, { mode: "measure" }),
     ).toThrow(/needs a witness/);
+    expect(() =>
+      measureTime("unit-ms-witness", 10, 1000, { witness: "ms" }),
+    ).toThrow(/named as a time/);
+    expect(() =>
+      measureTime("unit-took-witness", 10, 1000, { witness: "tookMs" }),
+    ).toThrow(/named as a time/);
   });
 
   describe("outside a test", () => {
     let error: unknown;
     beforeAll(() => {
       try {
-        helper.expectFasterThan("unit-hook", 1, 10);
+        expectAtLeast("unit-hook", 1, 10);
       } catch (e) {
         error = e;
       }

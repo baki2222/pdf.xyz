@@ -9,8 +9,8 @@ import {
   BOUND_HEADROOM_RATIO,
   brokenPipeLines,
   callTimeoutAt,
-  escapeData,
-  escapeProperty,
+  ANNOTATIONS_PER_BLOCK,
+  annotation,
   headroomLines,
   timeBoundReport,
   type HeadroomItem,
@@ -223,7 +223,7 @@ export default class HeadroomReporter implements Reporter {
     lines.push(
       `retries masked: ${flaky.length} tests failed and then passed on a retry`,
     );
-    for (const [test, results] of flaky) {
+    flaky.forEach(([test, results], i) => {
       const failed = results.find(
         (r) => r.status !== "passed" && r.status !== "skipped",
       );
@@ -236,11 +236,20 @@ export default class HeadroomReporter implements Reporter {
         .split("\n")[0]!;
       const text = `${this.rel(test.location.file)}:${test.location.line} > ${test.title}: attempt ${failed ? failed.retry + 1 : "?"} of ${results.length} failed: ${first}`;
       lines.push(`  ${text}`);
-      if (github)
+      if (github && i < ANNOTATIONS_PER_BLOCK)
         lines.push(
-          `::warning file=${escapeProperty(this.rel(test.location.file))},line=${test.location.line},title=${escapeProperty("Flaky e2e test hidden by a retry")}::${escapeData(text)}`,
+          annotation(
+            this.rel(test.location.file),
+            test.location.line,
+            "Flaky e2e test hidden by a retry",
+            text,
+          ),
         );
-    }
+    });
+    if (github && flaky.length > ANNOTATIONS_PER_BLOCK)
+      lines.push(
+        `        (${flaky.length - ANNOTATIONS_PER_BLOCK} more are not annotated: GitHub shows at most 10 annotations per step)`,
+      );
 
     // 5. Sleeps executed.
     const sleptMs = this.sleeps.reduce((n, s) => n + s.ms, 0);

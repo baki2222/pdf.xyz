@@ -46,9 +46,10 @@
  */
 import { appendFileSync, readFileSync } from "node:fs";
 import {
+  ANNOTATIONS_PER_BLOCK,
+  annotation,
   brokenPipeLines,
-  escapeData,
-  escapeProperty,
+  hookBudgets,
   hookReport,
   pendingReport,
   timeBoundReport,
@@ -86,25 +87,32 @@ export function headroomReport(
 ): string[] {
   // Health check: a reporter that saw no test cases would report "nothing
   // near its timeout", the strongest possible pass, for the wrong reason.
+  // On GitHub the plain line is printed too: the step summary drops
+  // workflow commands (finding C4, 2026-11-21).
   if (seen === 0)
     return [
-      github
-        ? "::warning title=timeout headroom::the headroom reporter saw no test results, so it checked nothing"
-        : "timeout headroom: saw no test results, so it checked nothing",
+      "timeout headroom: saw no test results, so it checked nothing",
+      ...(github
+        ? [
+            "::warning title=timeout headroom::the headroom reporter saw no test results, so it checked nothing",
+          ]
+        : []),
     ];
   const near = nearTimeout(tests);
   const lines = [
     `timeout headroom: ${near.length} of ${seen} tests used more than ${HEADROOM_RATIO * 100}% of their timeout`,
   ];
-  for (const t of near) {
+  near.forEach((t, i) => {
     const share = Math.round((t.durationMs / t.timeoutMs) * 100);
     const text = `${t.name} took ${Math.round(t.durationMs)} ms of its ${t.timeoutMs} ms budget (${share}%)`;
     lines.push(`  ${String(share).padStart(3)}%  ${t.file} > ${text}`);
-    if (github)
-      lines.push(
-        `::warning file=${escapeProperty(t.file)},title=${escapeProperty("Test near its timeout")}::${escapeData(text)}`,
-      );
-  }
+    if (github && i < ANNOTATIONS_PER_BLOCK)
+      lines.push(annotation(t.file, undefined, "Test near its timeout", text));
+  });
+  if (github && near.length > ANNOTATIONS_PER_BLOCK)
+    lines.push(
+      `        (${near.length - ANNOTATIONS_PER_BLOCK} more over the threshold are not annotated: GitHub shows at most 10 annotations per step)`,
+    );
   return lines;
 }
 
@@ -128,6 +136,7 @@ interface TestModuleLike {
 export class TimeoutHeadroomReporter {
   private readonly tests: TimedTest[] = [];
   private seen = 0;
+  private failed = 0;
   private readonly bounds: TimeBound[] = [];
   private readonly waits: WaitRecord[] = [];
   private readonly testsMsByModule = new Map<string, number>();
@@ -138,6 +147,8 @@ export class TimeoutHeadroomReporter {
   }[] = [];
   private printedBoundLines = 0;
   private hookTimeoutMs = 10_000;
+  /** Which run this is, for the summary title (`pnpm test` and `pnpm test:bundle` both report). */
+  private label = "";
 
   private readonly root: string;
   private readonly github: boolean;
@@ -166,6 +177,10 @@ export class TimeoutHeadroomReporter {
   onInit(ctx: { config?: { hookTimeout?: number } }): void {
     const hookTimeout = ctx.config?.hookTimeout;
     if (typeof hookTimeout === "number") this.hookTimeoutMs = hookTimeout;
+    // pnpm names the script it runs; on CI the verify job runs `pnpm test`
+    // and `pnpm test:bundle`, each with this reporter (finding C5).
+    const script = process.env.npm_lifecycle_event;
+    this.label = script && script !== "npx" ? `pnpm ${script}` : "vitest";
   }
 
   onUserConsoleLog(log: { content: string }): void {
@@ -186,6 +201,7 @@ export class TimeoutHeadroomReporter {
     const timeout = testCase.options.timeout;
     if (duration === undefined || timeout === undefined) return;
     this.seen++;
+    if (state === "failed") this.failed++;
     const moduleId = testCase.module.moduleId;
     this.testsMsByModule.set(
       moduleId,
@@ -230,6 +246,7 @@ export class TimeoutHeadroomReporter {
     };
     const opts = { github: this.github, root: this.root };
     return [
+      `headroom report for ${this.label || "vitest"}: ${this.modules.length} files, ${this.seen} tests (${this.failed} failed)`,
       ...headroomReport(this.seen, this.tests, this.github),
       ...timeBoundReport(this.bounds, opts),
       ...brokenPipeLines({
@@ -243,7 +260,14 @@ export class TimeoutHeadroomReporter {
       }),
       ...waitReport(this.waits, { ...opts, source }),
       ...pendingReport(WALL_CLOCK_PENDING, PENDING_CAP),
-      ...hookReport(this.modules, this.hookTimeoutMs, opts),
+      ...hookReport(
+        this.modules.map((m) => ({
+          ...m,
+          budgets: hookBudgets(source(m.file) ?? "", this.hookTimeoutMs),
+        })),
+        this.hookTimeoutMs,
+        opts,
+      ),
     ];
   }
 
@@ -255,7 +279,7 @@ export class TimeoutHeadroomReporter {
       const body = lines.filter((l) => !l.startsWith("::")).join("\n");
       appendFileSync(
         this.stepSummary,
-        `\n### Unit-test headroom\n\n\`\`\`\n${body}\n\`\`\`\n`,
+        `\n### Unit-test headroom (${this.label || "vitest"}, ${this.modules.length} files)\n\n\`\`\`\n${body}\n\`\`\`\n`,
       );
     } catch {
       // An instrument never fails the run it reports on.

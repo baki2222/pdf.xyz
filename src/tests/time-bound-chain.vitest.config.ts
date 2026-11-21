@@ -5,9 +5,9 @@ import { TimeoutHeadroomReporter } from "./timeout-headroom";
 
 /**
  * The config `time-bound-chain.test.ts` runs a child vitest with: the
- * suite's own setup files (so the wait recorder is the real one), ONLY the
- * headroom reporter, as on GitHub, and a 1000 ms hookTimeout so the
- * fixture's 600 ms beforeAll is over half of it.
+ * suite's own setup files (so the wait recorder is the real one), the
+ * reporters CI runs (default and the headroom reporter), and a 3000 ms hookTimeout so the
+ * fixture's 1950 ms beforeAll is over half of it, about 1000 ms either way.
  *
  * `TIME_BOUND_CHAIN_HELPER` swaps the fixture's `./time-bound` for a mutant
  * the parent writes (the registration deleted), so the control runs through
@@ -33,8 +33,11 @@ export default defineConfig({
     include: ["src/tests/time-bound-chain.fixture.ts"],
     globalSetup: [],
     pool: "forks",
-    hookTimeout: 1000,
+    hookTimeout: 3000,
+    // As CI names them (vitest.config.ts): "default" prints each test's
+    // console lines, which is the log the harvest reads.
     reporters: [
+      "default",
       new TimeoutHeadroomReporter({
         root: ROOT,
         github: true,

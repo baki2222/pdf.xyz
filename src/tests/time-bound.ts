@@ -1,11 +1,14 @@
+import { readFileSync } from "node:fs";
 import { expect, onTestFinished } from "vitest";
 import {
   timeBoundLine,
+  witnessNameProblem,
   type TimeBound,
   type TimeBoundKind,
   type TimeBoundMode,
 } from "./time-bound-core";
 import { WALL_CLOCK_PENDING } from "./wall-clock-pending";
+import { scanSource } from "./wall-clock-detector";
 
 /**
  * The one way a vitest test compares a wall-clock time against a bound.
@@ -33,8 +36,9 @@ import { WALL_CLOCK_PENDING } from "./wall-clock-pending";
  * Per-instance data goes in `instance`.
  *
  * Measure mode records and never fails. It needs a `witness` — the subject
- * of a speed-independent `expect` in the same test, which the guard finds —
- * or an entry in `wall-clock-pending.ts`; otherwise it would be a switch
+ * of a speed-independent equality or size `expect` in the same test, which
+ * the guard finds, and never a name that reads as a time (refused here too)
+ * — or an entry in `wall-clock-pending.ts`; otherwise it would be a switch
  * that turns a detector off (critic P6).
  */
 
@@ -67,6 +71,28 @@ function callSiteLine(): number {
   return 0;
 }
 
+const hashes = new Map<string, Map<string, string>>();
+
+/**
+ * The body hash of the routed call `id` in `file`, as the guard computes it,
+ * read from the file the test RAN from (cached per file). Undefined when the
+ * file cannot be read or holds no routed call with that id.
+ */
+export function routedBodyHash(file: string, id: string): string | undefined {
+  if (!file) return undefined;
+  if (!hashes.has(file)) {
+    const byId = new Map<string, string>();
+    try {
+      for (const r of scanSource(readFileSync(file, "utf8"), file).routed)
+        if (r.id) byId.set(r.id, r.bodyHash);
+    } catch {
+      // Unreadable: no hash, so the harvest skips the record.
+    }
+    hashes.set(file, byId);
+  }
+  return hashes.get(file)!.get(id);
+}
+
 function record(
   kind: TimeBoundKind,
   id: string,
@@ -90,14 +116,19 @@ function record(
     throw new Error(
       `${named}: the ratio's control measured ${control}, so any ratio would pass — the control did no work`,
     );
-  if (
-    mode === "measure" &&
-    !opts.witness &&
-    !WALL_CLOCK_PENDING.some((p) => p.id === id)
-  )
-    throw new Error(
-      `${named}: measure mode records and never fails, so it needs a witness (a speed-independent expect in this test) or an entry in src/tests/wall-clock-pending.ts`,
-    );
+  if (mode === "measure" && !WALL_CLOCK_PENDING.some((p) => p.id === id)) {
+    if (!opts.witness)
+      throw new Error(
+        `${named}: measure mode records and never fails, so it needs a witness (a speed-independent expect in this test) or an entry in src/tests/wall-clock-pending.ts`,
+      );
+    const problem = witnessNameProblem(opts.witness);
+    if (problem) throw new Error(`${named}: ${problem}`);
+  }
+  // File and test are filled HERE, before the line is printed: the log is
+  // what the harvest reads, and on f8d48720 every printed vitest record
+  // carried file "" (they were filled only later, for the meta).
+  const state = expect.getState();
+  const file = state.testPath ?? "";
   const rec: TimeBound = {
     id,
     ...(opts.instance === undefined ? {} : { instance: opts.instance }),
@@ -108,16 +139,18 @@ function record(
     mode,
     ...(opts.witness === undefined ? {} : { witness: opts.witness }),
     ...(opts.detail === undefined ? {} : { detail: opts.detail }),
-    file: "",
-    test: "",
+    file,
+    test: state.currentTestName ?? "",
     line: callSiteLine(),
   };
+  const bodyHash = routedBodyHash(file, id);
+  if (bodyHash) rec.bodyHash = bodyHash;
   // Registered BEFORE the assertion below, so a failing bound still carries
   // its measurement to the reporter.
   try {
     onTestFinished(({ task }) => {
-      rec.file = task.file?.filepath ?? "";
-      rec.test = task.name;
+      rec.file ||= task.file?.filepath ?? "";
+      rec.test ||= task.name;
       (task.meta.timeBounds ??= []).push(rec);
     });
   } catch (cause) {

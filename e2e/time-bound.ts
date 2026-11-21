@@ -1,11 +1,14 @@
+import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import {
   timeBoundLine,
+  witnessNameProblem,
   type TimeBound,
   type TimeBoundKind,
   type TimeBoundMode,
 } from "../src/tests/time-bound-core";
 import { WALL_CLOCK_PENDING } from "../src/tests/wall-clock-pending";
+import { scanSource } from "../src/tests/wall-clock-detector";
 
 /**
  * The e2e twin of `src/tests/time-bound.ts`: the one way a spec compares a
@@ -43,6 +46,23 @@ function callSiteLine(): number {
   return 0;
 }
 
+const hashes = new Map<string, Map<string, string>>();
+
+/** The guard's body hash of the routed call `id`, from the spec file that ran. */
+function routedBodyHash(file: string, id: string): string | undefined {
+  if (!hashes.has(file)) {
+    const byId = new Map<string, string>();
+    try {
+      for (const r of scanSource(readFileSync(file, "utf8"), file).routed)
+        if (r.id) byId.set(r.id, r.bodyHash);
+    } catch {
+      // Unreadable: no hash, so the harvest skips the record.
+    }
+    hashes.set(file, byId);
+  }
+  return hashes.get(file)!.get(id);
+}
+
 function record(
   kind: TimeBoundKind,
   id: string,
@@ -67,14 +87,14 @@ function record(
     throw new Error(
       `${named}: the ratio's control measured ${control}, so any ratio would pass — the control did no work`,
     );
-  if (
-    mode === "measure" &&
-    !opts.witness &&
-    !WALL_CLOCK_PENDING.some((p) => p.id === id)
-  )
-    throw new Error(
-      `${named}: measure mode records and never fails, so it needs a witness (a speed-independent expect in this test) or an entry in src/tests/wall-clock-pending.ts`,
-    );
+  if (mode === "measure" && !WALL_CLOCK_PENDING.some((p) => p.id === id)) {
+    if (!opts.witness)
+      throw new Error(
+        `${named}: measure mode records and never fails, so it needs a witness (a speed-independent expect in this test) or an entry in src/tests/wall-clock-pending.ts`,
+      );
+    const problem = witnessNameProblem(opts.witness);
+    if (problem) throw new Error(`${named}: ${problem}`);
+  }
   const info = test.info();
   const rec: TimeBound = {
     id,
@@ -90,6 +110,8 @@ function record(
     test: info.title,
     line: callSiteLine(),
   };
+  const bodyHash = routedBodyHash(info.file, id);
+  if (bodyHash) rec.bodyHash = bodyHash;
   // Recorded BEFORE the assertion: a failing attempt keeps its number.
   info.annotations.push({
     type: "time-bound",

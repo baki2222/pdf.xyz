@@ -57,17 +57,18 @@ const median = (xs: number[]) => {
 type StoredEntry = CalibrationEntry & { perRun?: Record<string, number> };
 
 /**
- * Folds one run into the calibration. Per id, the run's worst value is
- * kept (for a ratio, the ratio). An entry whose test body changed since it
- * was harvested (`hashOf` disagrees) starts again from this run: a number
- * measured on another test certifies nothing about this one.
+ * Folds one attempt (`runId` is `<run>/<attempt>`) into the calibration.
+ * Per id, the attempt's worst value is kept (for a ratio, the ratio) —
+ * counted ONLY when the record's own `bodyHash` (computed when the test ran)
+ * equals today's (`todayHash`): a number measured on another test body
+ * certifies nothing about this one. An entry whose body changed starts again.
  */
 export function mergeRun(
   cal: Calibration,
   runId: string,
   conclusion: string,
   run: HarvestedRun,
-  hashOf: (rec: TimeBound) => string | undefined,
+  todayHash: (rec: TimeBound) => string | undefined,
 ): { calibration: Calibration; skipped: string[] } {
   const next: Calibration = {
     ...cal,
@@ -88,10 +89,22 @@ export function mergeRun(
     if (!w || value > w.value) worst.set(rec.id, { rec, value });
   }
   for (const [id, { rec, value }] of worst) {
-    const bodyHash = hashOf(rec);
+    const bodyHash = todayHash(rec);
     if (!bodyHash) {
       skipped.push(
-        `${id}: no routed call with this id in ${repoRelative(rec.file)} today`,
+        `${id}: no routed call with this id in ${repoRelative(rec.file) || "(no file)"} today`,
+      );
+      continue;
+    }
+    if (!rec.bodyHash) {
+      skipped.push(
+        `${id}: the record printed no body hash (a helper older than the hash), so what it measured is unknown`,
+      );
+      continue;
+    }
+    if (rec.bodyHash !== bodyHash) {
+      skipped.push(
+        `${id}: measured on test body ${rec.bodyHash}, today's is ${bodyHash}`,
       );
       continue;
     }
@@ -114,4 +127,36 @@ export function mergeRun(
     next.entries[id] = entry;
   }
   return { calibration: next, skipped };
+}
+
+/**
+ * The guard's body hash of each routed call, read from today's tree under
+ * `root`: what the harvest compares a record's own hash against. One
+ * function for the script and the chain test, so the chain proves the
+ * script's own lookup.
+ */
+export function todayHashes(
+  root: string,
+  read: (file: string) => string,
+  scan: (
+    text: string,
+    file: string,
+  ) => { routed: { id: string | null; bodyHash: string }[] },
+): (rec: Pick<TimeBound, "id" | "file">) => string | undefined {
+  const byFile = new Map<string, Map<string, string>>();
+  return (rec) => {
+    const file = repoRelative(rec.file);
+    if (!file) return undefined;
+    if (!byFile.has(file)) {
+      const byId = new Map<string, string>();
+      try {
+        for (const r of scan(read(`${root}/${file}`), file).routed)
+          if (r.id) byId.set(r.id, r.bodyHash);
+      } catch {
+        // A file gone since the run: nothing to calibrate.
+      }
+      byFile.set(file, byId);
+    }
+    return byFile.get(file)!.get(rec.id);
+  };
 }

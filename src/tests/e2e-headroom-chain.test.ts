@@ -7,8 +7,8 @@
  *
  * The fixture plants: a bound at 80% and one at 120% (which fails and must
  * still report: rule 3), an expect step at ~65% of the default expect
- * timeout and the same step under its own 4000 ms timeout (compared against
- * 4000, never dropped: critic P6), a test at ~65% of its own timeout, and a
+ * timeout and the same step under its own 12000 ms timeout (compared against
+ * 12000, never dropped: critic P6), a test at ~65% of its own timeout, and a
  * test that fails once and passes on its retry (which must appear under
  * "retries masked").
  *
@@ -96,7 +96,7 @@ describe("the e2e headroom reporter, end to end through a child Playwright", () 
     expect(out, tail).toMatch(/^e2e timeout headroom: \d+ of 6 tests/m);
 
     expect(out).toMatch(
-      /::warning [^\n]*title=E2E test near its timeout::[^\n]*a test at about 65%25 of its own timeout: \d+ ms of its 1000 ms timeout/,
+      /::warning [^\n]*title=E2E test near its timeout::[^\n]*a test at about 65%25 of its own timeout: \d+ ms of its 3000 ms timeout/,
     );
     expect(out).toContain(
       "e2e time-bound headroom: 2 of 2 wall-clock bounds used more than 50% of their bound (worst: e2e-chain-over 120%)",
@@ -109,15 +109,15 @@ describe("the e2e headroom reporter, end to end through a child Playwright", () 
     );
     expect(out).not.toContain("pipe broken");
 
-    // The default-timeout expect is held to 1000 ms; the one with its own
-    // 4000 ms timeout is held to 4000 and is not flagged.
+    // The default-timeout expect is held to 3000 ms; the one with its own
+    // 12000 ms timeout is held to 12000 and is not flagged.
     expect(out).toMatch(
-      /e2e expect headroom: 1 of \d+ expect steps took more than 50% of their timeout \(expect\.timeout 1000 ms\)/,
+      /e2e expect headroom: 1 of \d+ expect steps took more than 50% of their timeout \(expect\.timeout 3000 ms\)/,
     );
     expect(out).toMatch(
-      /::warning [^\n]*title=E2E expect near its timeout::[^\n]*an expect step at about 65%25 of expect\.timeout: [^\n]* of 1000 ms \(expect\.timeout\)/,
+      /::warning [^\n]*title=E2E expect near its timeout::[^\n]*an expect step at about 65%25 of expect\.timeout: [^\n]* of 3000 ms \(expect\.timeout\)/,
     );
-    expect(out).not.toMatch(/near its timeout::[^\n]*own 4000 ms timeout/);
+    expect(out).not.toMatch(/near its timeout::[^\n]*own 12000 ms timeout/);
 
     expect(out).toContain(
       "retries masked: 1 tests failed and then passed on a retry",
@@ -168,6 +168,10 @@ describe("the e2e headroom reporter, end to end through a child Playwright", () 
       );
       expect(child.stdout, tail).toMatch(
         /::warning title=time-bound pipe::time-bound pipe broken: [1-9]\d* \[time-bound\] lines were printed but only 0 records reached the reporter/,
+      );
+      // The plain message reaches the step summary too (finding C4).
+      expect(child.summary, tail).toMatch(
+        /time-bound pipe broken: [1-9]\d* \[time-bound\] lines were printed but only 0 records reached the reporter/,
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
