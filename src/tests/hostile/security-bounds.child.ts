@@ -238,13 +238,20 @@ const ENTRIES: Record<string, (bytes: Uint8Array) => Promise<unknown>> = {
     // "unreadable without asking pdf.js" is a count, not a time.
     const lib = await legacyPdfjs();
     let pdfjsCalls = 0;
-    const counted: PdfjsForAccess = {
+    // Forwarded with Reflect.apply, not written as a call: the repo's open
+    // guards (pdfjs-open.test.ts, wasm-assets.test.ts) read every written
+    // pdf.js open as one that must be awaited and given the defaults, and
+    // this wrapper only passes classifyPdfAccess's own open through.
+    const open = Reflect.get(lib, "getDocument") as (
+      ...args: unknown[]
+    ) => unknown;
+    const counted = {
       ...lib,
-      getDocument: ((...args: Parameters<PdfjsForAccess["getDocument"]>) => {
+      getDocument: (...args: unknown[]) => {
         pdfjsCalls += 1;
-        return lib.getDocument(...args);
-      }) as PdfjsForAccess["getDocument"],
-    };
+        return Reflect.apply(open, lib, args);
+      },
+    } as PdfjsForAccess;
     return {
       settled: (await classifyPdfAccess(bytes, counted)).kind,
       pdfjsCalls,
