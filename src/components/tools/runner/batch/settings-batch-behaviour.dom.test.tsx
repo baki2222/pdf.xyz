@@ -53,6 +53,7 @@ import { WATERMARK_BATCH_PAGES_NOTE } from "@/lib/batch/tools";
 import { addPageNumbers, PAGE_NUMBER_MARGINS } from "@/lib/pdf/page-numbers";
 import { getRunnerKind } from "@/lib/pdf/registry";
 import { DEFAULT_IMAGE_SCALE, watermarkPdf } from "@/lib/pdf/watermark";
+import { parsePageList } from "@/lib/pdf/ranges";
 import { readAsViewer } from "@/tests/pdf-viewer-read";
 import { runnerMounted } from "@/tests/runner-mounted";
 import { PageNumbersEditor } from "../page-numbers-runner";
@@ -267,26 +268,48 @@ describe("Add Watermark's batch: an open-ended page range", () => {
       const field = screen.getByLabelText(/^Pages in every file/);
       const run = screen.getByRole("button", { name: "Watermark 2 PDFs" });
       // On the way to "1-3", the dash alone is a whole range, not an error.
+      // Checked, not expanded, counted rather than timed: every Set.add made
+      // while the two keystrokes render. The defect expanded the open range
+      // into a Set, one add per page; an expansion that finishes (a large
+      // bound short of the Set's maximum) still froze the tab and threw
+      // nothing, so only a count sees it on every runner (review of lane 3,
+      // mutant C2: parsePageList(list, 5_000_000) passed the throw witness).
+      // Measured: 0 numeric adds on this machine. Both files have at most 5
+      // pages, so 100 is above any per-file resolution the check could make
+      // and below an open range expanded to any bound of 100 pages or more
+      // (mutant C2 made 10,000,000).
+      const setAdds = vi.spyOn(Set.prototype, "add");
       const typedAt = performance.now();
       const openRangeBlocks: (string | null)[] = [];
       fireEvent.change(field, { target: { value: "1-" } });
       openRangeBlocks.push(run.getAttribute("aria-disabled"));
       fireEvent.change(field, { target: { value: "3-" } });
       openRangeBlocks.push(run.getAttribute("aria-disabled"));
-      // Checked, not expanded. The witness, whatever the runner's speed:
-      // expanding an open range to Number.MAX_SAFE_INTEGER pages throws
-      // "Set maximum size exceeded" (review 2026-11-08), which blocks Run
-      // with that message, so Run stays free only if nothing was expanded.
+      // Page indices are numbers; React and jsdom add objects and strings
+      // (about 1,100 of them here), so only numeric adds are counted.
+      const numericAdds = () =>
+        setAdds.mock.calls.filter(([value]) => typeof value === "number")
+          .length;
+      const typingMs = performance.now() - typedAt;
+      const addsWhileTyping = numericAdds();
+      // Positive control on the same spy: one real expansion of 50 pages is
+      // seen as at least 50 adds, so a count of 0 means "nothing expanded",
+      // not "the spy saw nothing".
+      parsePageList("1-", 50);
+      const controlAdds = numericAdds() - addsWhileTyping;
+      setAdds.mockRestore();
+      expect(controlAdds).toBeGreaterThanOrEqual(50);
+      expect(addsWhileTyping).toBeLessThan(100);
+      // The throwing form of the defect: expanding to Number.MAX_SAFE_INTEGER
+      // pages throws "Set maximum size exceeded" (review 2026-11-08), which
+      // blocks Run with that message.
       expect(openRangeBlocks).toEqual([null, null]);
       // The time, recorded beside it, no longer asserted: 500 ms was 1.36x
       // this whole test's CI maximum (367 ms, run 44331878323), and a
       // Windows-era constant. Measure mode until CI harvests calibrate it.
-      measureTime(
-        "watermark-open-range-checked-not-expanded",
-        performance.now() - typedAt,
-        500,
-        { witness: "openRangeBlocks" },
-      );
+      measureTime("watermark-open-range-checked-not-expanded", typingMs, 500, {
+        witness: "addsWhileTyping",
+      });
       // Control: a token no file could meet still blocks Run, in the
       // parser's own words.
       fireEvent.change(field, { target: { value: "5-3" } });
