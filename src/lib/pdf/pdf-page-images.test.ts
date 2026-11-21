@@ -37,12 +37,39 @@ import {
   withObjectStreams,
 } from "@/tests/hostile/page-images.fixtures";
 import { encryptPdf } from "@/tests/encrypted-pdf";
+import { inflateScanYardstick } from "@/tests/hostile/yardstick";
+import { expectFasterThan, expectRatioBelow } from "@/tests/time-bound";
 
 const STUB = new Uint8Array([0x78, 0x9c]);
 const image = (w: number, h: number, extra = "") => ({
   dict: `/Type /XObject /Subtype /Image /Width ${w} /Height ${h} /BitsPerComponent 8 /ColorSpace /DeviceRGB /Filter /FlateDecode ${extra}`,
   stream: STUB,
 });
+
+/**
+ * The map read directly, with the scan's counts or without, counting what it
+ * decodes (the `tools.decodeTo` seam). A count is work, not time: it reads
+ * the same on any runner.
+ */
+async function mapWith(bytes: Uint8Array, counted: boolean) {
+  const { PageImages } = await import("./pdf-page-images");
+  const guard = await import("./pdfjs-guard");
+  const scan = await guard.scanPdfStreams(bytes);
+  const tools = guard.pageScanTools(
+    scan.jpx,
+    counted ? scan.contentCounts : new Map(),
+  );
+  let decodes = 0;
+  const decodeTo = tools.decodeTo;
+  tools.decodeTo = (...args) => {
+    decodes += 1;
+    return decodeTo(...args);
+  };
+  const reader = await PageImages.open(bytes, tools);
+  if (!(reader instanceof PageImages)) throw new Error("no reader");
+  const map = await reader.map(Infinity);
+  return { map, decodes };
+}
 
 /** Page weights in page order (the page objects' numbers, ascending). */
 function weights(pre: PdfjsPreflight): number[] {
@@ -840,6 +867,12 @@ describe("every paint is charged: pdf.js decodes once a page, but paints per `Do
   });
 });
 
+/** How many times the map decodes content itself on each walk-bound row. */
+const DECODES_TO_THE_BOUND: Record<string, number> = {
+  "paint steps": 1,
+  "content work": 1,
+};
+
 describe("the map's work is bounded on the main thread", () => {
   /** P pages naming one content stream (3.9 million `Q` after one `Do`, by default). */
   async function sharedOps(
@@ -877,8 +910,20 @@ describe("the map's work is bounded on the main thread", () => {
     expect(pre.pages!.incomplete).toBeNull();
     expect(weights(pre)).toHaveLength(200);
     expect(new Set(weights(pre))).toEqual(new Set([5500 * 5500]));
+    // Walked once, as a count (ci-flake audit 2026-11-19, line 881): the
+    // scan counts this stream, so the preflight's map decodes nothing either
+    // way; read WITHOUT the scan's counts, the map decodes the shared stream
+    // itself, once for 200 pages. Dropping the page and summary caches makes
+    // that 200, on any runner, where the time below could not see it.
+    const decodes = (await mapWith(bytes, false)).decodes;
+    expect(decodes).toBe(1);
     // Before: 6.4 s for 200 pages, 87.5 s for 2,000 (hostile review r1).
-    expect(ms).toBeLessThan(5_000);
+    // CI: 467 ms for the whole test (12 passing runs, 2026-11-18), so 5 s is
+    // 10.7x; it records until CI calibrates it.
+    expectFasterThan("ppi-shared-stream-200-pages", ms, 5_000, {
+      mode: "measure",
+      witness: "decodes",
+    });
   }, 30_000);
 
   it("...and with a distinct /Resources on every page: a weight walks only what paints, so the 3.9 million `Q` cost nothing past their one read", async () => {
@@ -892,7 +937,16 @@ describe("the map's work is bounded on the main thread", () => {
     const ms = Date.now() - t0;
     expect(pre.pages!.incomplete).toBeNull();
     expect(new Set(weights(pre))).toEqual(new Set([5500 * 5500]));
-    expect(ms).toBeLessThan(5_000);
+    // A distinct /Resources text on every page, one summary of the stream:
+    // without the scan's counts the map decodes it once, and dropping the
+    // summary cache alone makes that one a page (ci-flake audit, line 895).
+    const decodes = (await mapWith(bytes, false)).decodes;
+    expect(decodes).toBe(1);
+    // CI: 425 ms for the whole test (2026-11-18), so 5 s is 11.8x.
+    expectFasterThan("ppi-distinct-resources-200-pages", ms, 5_000, {
+      mode: "measure",
+      witness: "decodes",
+    });
   }, 30_000);
 
   it("...and one name run 400,000 times, or one inline image read 200,000 times, is weighed once a page: every page complete and measured", async () => {
@@ -916,10 +970,17 @@ describe("the map's work is bounded on the main thread", () => {
       const pre = await preflightPdfjsBytes(bytes);
       const ms = Date.now() - t0;
       expect(pre.pages!.incomplete).toBeNull();
-      expect(weights(pre)).toHaveLength(200);
-      expect(new Set(weights(pre))).toEqual(new Set([each]));
+      const weighed = weights(pre);
+      expect(weighed).toHaveLength(200);
+      expect(new Set(weighed)).toEqual(new Set([each]));
       expect(pageImageVerdict(pre, { num: 6 })).toBe(verdict);
-      expect(ms).toBeLessThan(5_000);
+      // CI: 796 ms for the whole test, both files (ci-flake audit
+      // 2026-11-19), so 5 s a file is 6.3x or more.
+      expectFasterThan("ppi-repeated-paint-200-pages", ms, 5_000, {
+        mode: "measure",
+        witness: "weighed",
+        instance: String(each),
+      });
     }
   }, 60_000);
 
@@ -942,14 +1003,42 @@ describe("the map's work is bounded on the main thread", () => {
     "...but what does paint is walked per page, and the walk stops at its bound (%s) with every page failing safe",
     async (bound, text, firstOnly) => {
       const bytes = await sharedOps(200, true, text, firstOnly);
+      // The yardstick is measured just before, on this runner at this
+      // moment: inflate-and-scan of 16 MiB, median of 5.
+      const y = await inflateScanYardstick(16, 5);
       const t0 = Date.now();
       const pre = await preflightPdfjsBytes(bytes);
       const ms = Date.now() - t0;
       expect(pre.pages!.incomplete).toBe(bound);
       expect(pageImageVerdict(pre, { num: 6 })).toBe(PAGE_IMAGES_UNKNOWN_NOTE);
-      expect(ms).toBeLessThan(5_000);
+      // Content the scan does not count is decoded by the map itself, ONCE:
+      // one summary for the 200 pages that name it. Dropping the summary
+      // cache makes it a decode a page until the walk's bound ends the map;
+      // a count sees that on any runner (ci-flake audit 2026-11-19, 950).
+      const decodes = (await mapWith(bytes, true)).decodes;
+      expect(decodes).toBe(DECODES_TO_THE_BOUND[bound]);
+      // WAS `ms < 5_000`: 2,778 ms on CI (ci-flake audit 2026-11-19), 1.80x.
+      // Now against the same-run yardstick. The 4x per-visit mutant is BELOW
+      // what this ratio can resolve (single yardstick readings differ
+      // 1.6-2.8x within one CI run); it guards a slowdown of roughly 8-12x
+      // or more. K = 72 is the audit's provisional 18 for a 64 MiB yardstick,
+      // scaled to 16 MiB; it and the 25 s ceiling record until CI prints its
+      // own spread (bound >= 2x the CI maximum), and `decodes` is what fails
+      // meanwhile.
+      expectRatioBelow("ppi-walk-bound-vs-yardstick", ms, y.ms, 72, {
+        mode: "measure",
+        witness: "decodes",
+        instance: bound,
+      });
+      expectFasterThan("ppi-walk-bound-ceiling", ms, 25_000, {
+        mode: "measure",
+        witness: "decodes",
+        instance: bound,
+      });
     },
-    30_000,
+    // WAS 30 s: room now for the yardstick, a ceiling-length preflight and
+    // the counted map after it.
+    90_000,
   );
 });
 
@@ -1332,10 +1421,15 @@ describe("the map's cost is linear in what pages name", () => {
     expect(pre.pages!.incomplete).toBeNull();
     expect(pre.pages!.weights.size).toBe(pages);
     // Each page paints the 49 MP image 20,000 times.
-    expect(new Set(pre.pages!.weights.values())).toEqual(
-      new Set([refs * 49_000_000]),
-    );
-    expect(ms).toBeLessThan(3_000);
+    const painted = new Set(pre.pages!.weights.values());
+    expect(painted).toEqual(new Set([refs * 49_000_000]));
+    // CI: under the reporter's 300 ms floor in every run read (ci-flake
+    // audit 2026-11-19), so 3 s is 10x or more; it records until CI
+    // calibrates it. A quadratic walk is a 100x-class slowdown here.
+    expectFasterThan("ppi-contents-array-40-pages", ms, 3_000, {
+      mode: "measure",
+      witness: "painted",
+    });
   }, 60_000);
 });
 
@@ -1497,9 +1591,17 @@ describe("review r3 (2026-11-14): never worse than main", () => {
     const pre = await preflightPdfjsBytes(lattice(22, "content"));
     const ms = Date.now() - t0;
     expect(pre.pages!.incomplete).toBeNull();
-    expect(pre.pages!.weights.get(3)).toBe(2 ** 21 * 1_000_000);
+    const weight = pre.pages!.weights.get(3);
+    expect(weight).toBe(2 ** 21 * 1_000_000);
     expect(pre.pages!.exact.get(3)).toBe(2 ** 21 * 1_000_000);
-    expect(ms).toBeLessThan(2_000);
+    // CI: under 300 ms in every run read (ci-flake audit 2026-11-19), so
+    // 2 s is 6.7x or more. The defect it names (a memo key per path) also
+    // ends the map, which `incomplete` and the exact weight catch at any
+    // speed; it records until CI calibrates it.
+    expectFasterThan("ppi-diamond-lattice", ms, 2_000, {
+      mode: "measure",
+      witness: "weight",
+    });
   }, 30_000);
 
   it("an annotation's /D and /R appearances are never drawn by pdf.js, so they weigh nothing; its /N is weighed", async () => {
@@ -1539,7 +1641,15 @@ describe("review r3 (2026-11-14): never worse than main", () => {
     }
     const t0 = Date.now();
     const pre = await preflightPdfjsBytes(rawPdf(objects));
-    expect(Date.now() - t0).toBeLessThan(3_000);
+    const ms = Date.now() - t0;
+    const pages = pre.pages!.weights.size;
+    expect(pages).toBe(1);
+    // CI: under 300 ms in every run read (ci-flake audit 2026-11-19), so
+    // 3 s is 10x or more; it records until CI calibrates it.
+    expectFasterThan("ppi-cyclic-lattice", ms, 3_000, {
+      mode: "measure",
+      witness: "pages",
+    });
     expect(pre.pages!.incomplete).toBeNull();
     // At least what pdf.js paints: 2^17 bottom forms, each its image once
     // (each one's /T is the top form, its own ancestor: refused).
@@ -1766,29 +1876,65 @@ describe("review r3 (2026-11-14): never worse than main", () => {
     }
   }, 60_000);
 
+  /**
+   * WAS `ms < 4_000`: 2,682 ms on CI, 1.49x (ci-flake audit 2026-11-19,
+   * line 1790; 2,367 ms for the whole test over 14 attempts 2026-11-19..21,
+   * run 44891504062). Now against a same-run CONTROL: the same 64 MiB of
+   * zeros, deflated, with no /DecodeParms, so the same inflate, the same
+   * lexer and the same counted path, and only the predictor differs. A
+   * per-row allocation put back in the unpredictor slows the subject alone.
+   * Control and subject alternate, best of two each, after a warm-up of
+   * both. K = 16 is the audit's provisional figure, not a CI one; it and the
+   * 20 s ceiling record until CI prints the ratio. `weight` (the page with
+   * no image weighs 0, the map complete) is what fails meanwhile; it cannot
+   * see the allocation, only a map the predictor broke.
+   */
   it("content behind /Predictor 12 /Columns 1 is read in a fraction of the 8 s that 64 MB took", async () => {
     const { deflateSync } = await import("node:zlib");
     // Filter byte 0 and value 0, every row.
     const zeros = new Uint8Array(64 << 20);
-    const bytes = rawPdf([
-      CATALOG,
-      "<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
-      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Contents 4 0 R >>",
-      {
-        dict: "/Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 1 >>",
-        stream: new Uint8Array(deflateSync(zeros)),
-      },
-      image(7000, 7000),
-      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /H 5 0 R >> >> /Contents 7 0 R >>",
-      { dict: "", stream: "/H Do" },
-    ]);
-    const t0 = Date.now();
-    const pre = await preflightPdfjsBytes(bytes);
-    const ms = Date.now() - t0;
-    expect(pre.pages!.incomplete).toBeNull();
-    expect(pre.pages!.weights.get(3)).toBe(0);
-    expect(ms).toBeLessThan(4_000);
-  }, 60_000);
+    const deflated = new Uint8Array(deflateSync(zeros));
+    const fileWith = (decodeParms: string) =>
+      rawPdf([
+        CATALOG,
+        "<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Contents 4 0 R >>",
+        { dict: `/Filter /FlateDecode${decodeParms}`, stream: deflated },
+        image(7000, 7000),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 600] /Resources << /XObject << /H 5 0 R >> >> /Contents 7 0 R >>",
+        { dict: "", stream: "/H Do" },
+      ]);
+    const bytes = fileWith(" /DecodeParms << /Predictor 12 /Columns 1 >>");
+    const plain = fileWith("");
+    const time = async (file: Uint8Array) => {
+      const t0 = Date.now();
+      const pre = await preflightPdfjsBytes(file);
+      return { pre, ms: Date.now() - t0 };
+    };
+    await time(plain);
+    let control = Infinity;
+    let subject = Infinity;
+    let pre: PdfjsPreflight | undefined;
+    for (let round = 0; round < 2; round += 1) {
+      control = Math.min(control, (await time(plain)).ms);
+      const run = await time(bytes);
+      subject = Math.min(subject, run.ms);
+      pre = run.pre;
+    }
+    expect(pre!.pages!.incomplete).toBeNull();
+    const weight = pre!.pages!.weights.get(3);
+    expect(weight).toBe(0);
+    expectRatioBelow("ppi-predictor-columns-1-vs-plain", subject, control, 16, {
+      mode: "measure",
+      witness: "weight",
+    });
+    expectFasterThan("ppi-predictor-columns-1-ceiling", subject, 20_000, {
+      mode: "measure",
+      witness: "weight",
+    });
+    // WAS 60 s: four 64 MiB preflights and a warm-up now, at today's CI
+    // maximum about 12 s; 120 s keeps the ceiling's two attempts inside it.
+  }, 120_000);
 
   it("a form painted 120,000 times a page is looked up once a page: a 20-page map completes, every page measured", async () => {
     // History (legit-corpus review r3): every `Do` was a step of the map's
@@ -1841,27 +1987,6 @@ describe("review r3 (2026-11-14): never worse than main", () => {
 });
 
 describe("the map takes the scan's own reading of a stream instead of reading it again", () => {
-  /** The map read directly, with the scan's counts or without, counting what it decodes. */
-  async function mapWith(bytes: Uint8Array, counted: boolean) {
-    const { PageImages } = await import("./pdf-page-images");
-    const guard = await import("./pdfjs-guard");
-    const scan = await guard.scanPdfStreams(bytes);
-    const tools = guard.pageScanTools(
-      scan.jpx,
-      counted ? scan.contentCounts : new Map(),
-    );
-    let decodes = 0;
-    const decodeTo = tools.decodeTo;
-    tools.decodeTo = (...args) => {
-      decodes += 1;
-      return decodeTo(...args);
-    };
-    const reader = await PageImages.open(bytes, tools);
-    if (!(reader instanceof PageImages)) throw new Error("no reader");
-    const map = await reader.map(Infinity);
-    return { map, decodes };
-  }
-
   it("the same weights either way, over the legit corpus and the shapes above, and the counted map decodes no content the scan read", async () => {
     // History (legit-corpus review r3, 2026-11-14): the map decoded and
     // lexed every content stream again after the scan had: 3x main's
