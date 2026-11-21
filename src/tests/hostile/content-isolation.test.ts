@@ -29,6 +29,7 @@ import { addPageNumbers, batesFormat } from "@/lib/pdf/page-numbers";
 import { signPdf } from "@/lib/pdf/signature";
 import { watermarkPdf } from "@/lib/pdf/watermark";
 import { readAsViewer } from "@/tests/pdf-viewer-read";
+import { expectRatioBelow, measureTime } from "../time-bound";
 import { runBounded } from "./bounded";
 import { editingFixtures } from "./editing.fixtures";
 import { scaleOf } from "./ctm-probe";
@@ -770,11 +771,16 @@ describe("decoding is bounded", () => {
     const content = enc(
       unit.repeat(Math.floor(ISOLATION_DECODE_BUDGET / unit.length)),
     );
-    const t0 = Date.now();
+    const t0 = performance.now();
     const got = scanContentBalance(content);
-    expect(Date.now() - t0).toBeLessThan(5_000);
+    const scanned = performance.now() - t0;
     // Health: it read the whole thing as the balanced, certain page it is.
     expect(got).toEqual({ surplus: [], open: 0, uncertain: false });
+    // Measure mode until harvested (CI-flake audit lane 2): the test took
+    // up to 854 ms on CI (12 runs of 2026-11-18), so 5 s is 5.9x.
+    measureTime("content-isolation-ordinary-budget", scanned, 5_000, {
+      witness: "got",
+    });
   }, 30_000);
 
   test("a deflate bomb as page content stops at the budget instead of inflating", async () => {
@@ -787,12 +793,15 @@ describe("decoding is bounded", () => {
       doc.context.register(doc.context.flateStream(zeros)),
     );
     const loaded = await PDFDocument.load(await doc.save());
-    const t0 = Date.now();
-    expect(await isolatePageContent(loaded.getPage(0), PdfLib)).toEqual({
-      kind: "skipped",
-      reason: "budget",
+    const t0 = performance.now();
+    const outcome = await isolatePageContent(loaded.getPage(0), PdfLib);
+    const isolating = performance.now() - t0;
+    expect(outcome).toEqual({ kind: "skipped", reason: "budget" });
+    // Measure mode until harvested (CI-flake audit lane 2): the test took
+    // up to 1,255 ms on CI (12 runs of 2026-11-18), so 10 s is 8x.
+    measureTime("content-isolation-deflate-bomb", isolating, 10_000, {
+      witness: "outcome",
     });
-    expect(Date.now() - t0).toBeLessThan(10_000);
   }, 60_000);
 });
 
@@ -815,19 +824,54 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
     return (r as { value: T }).value;
   };
 
+  /** A scan's size ratio (`ratio` in the child): one shape at two sizes, best of 3 each. */
+  type Ratio = {
+    smallBytes: number;
+    bigBytes: number;
+    smallMs: number;
+    bigMs: number;
+  };
+
   test("a full budget of inline images that no EI ends scans in linear time", async () => {
     const got = await settle<{
       ms: number;
       bytes: number;
       surplus: number;
       uncertain: boolean;
-    }>(["scan-ei-less", String(ISOLATION_DECODE_BUDGET)], 60_000);
+      ratio: Ratio;
+    }>(
+      [
+        "scan-ei-less",
+        String(ISOLATION_DECODE_BUDGET),
+        `${512 * 1024}:${4 * 2 ** 20}`,
+      ],
+      60_000,
+    );
     // Health: it built and read the whole budget, and found the leading Q
-    // without trusting the guessed image ends.
+    // without trusting the guessed image ends. A quadratic re-search (the
+    // round-2 defect, the knownNone shortcut lost) never finishes 32 MiB:
+    // the 60 s kill reds it on any runner.
     expect(got.bytes).toBeGreaterThan(ISOLATION_DECODE_BUDGET - 16);
-    expect(got.surplus).toBe(1);
-    expect(got.uncertain).toBe(true);
-    expect(got.ms).toBeLessThan(10_000);
+    const found = [got.surplus, got.uncertain];
+    expect(found).toEqual([1, true]);
+    // Linear is the claim, so it is a size ratio (CI-flake audit lane 2):
+    // 4 MiB against 512 KiB of the same shape, in the same child, best of 3
+    // each. Linear reads about 8, quadratic about 64. It WAS `ms < 10_000`
+    // on the full budget: CI's test reached 8,353 ms (43998624497), 1.2x.
+    // Measure mode until harvested.
+    const { ratio } = got;
+    expect(ratio.bigBytes / ratio.smallBytes).toBeCloseTo(8, 1);
+    expectRatioBelow(
+      "content-isolation-ei-less-linear",
+      ratio.bigMs,
+      ratio.smallMs,
+      24,
+      {
+        detail: `full budget ${got.ms} ms; 4 MiB ${ratio.bigMs.toFixed(1)} ms, 512 KiB ${ratio.smallMs.toFixed(1)} ms`,
+        mode: "measure",
+        witness: "found",
+      },
+    );
   }, 90_000);
 
   test("the costliest inline-image shape, EI candidates pdf.js tests one by one, scans in linear time (4 MiB: 1.2 s measured, 10 s allowed)", async () => {
@@ -837,26 +881,76 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
     // is the claim. Round 2 ran a full 32 MiB and said "8.6 s measured, 30 s
     // allowed"; the round-3 reviewer measured 18.7 s under load, too close to
     // flake. An eighth of the budget makes the same claim with a 10x margin.
+    //
+    // 2026-11-22 (CI-flake audit lane 2): "a 10x margin" was a Windows
+    // figure; CI's test reached 5,239 ms (43998624497) against the 10 s
+    // bound, 1.9x. Linearity is now a size ratio in the same child: 2 MiB
+    // against 256 KiB of the same shape, best of 3 each (linear about 8,
+    // quadratic about 64). A per-candidate test that ran to the end of the
+    // stream (the printable test's `stop = n`) is O(n^2) and the 60 s kill
+    // reds it on any runner, before any ratio.
     const size = ISOLATION_DECODE_BUDGET / 8;
-    const got = await settle<{ ms: number; bytes: number; uncertain: boolean }>(
-      ["scan-dense-ei", String(size)],
-      60_000,
-    );
+    const got = await settle<{
+      ms: number;
+      bytes: number;
+      uncertain: boolean;
+      ratio: Ratio;
+    }>(["scan-dense-ei", String(size), `${256 * 1024}:${2 * 2 ** 20}`], 60_000);
     expect(got.bytes).toBeGreaterThan(size - 16);
-    expect(got.uncertain).toBe(true);
-    expect(got.ms).toBeLessThan(10_000);
+    const uncertain = got.uncertain;
+    expect(uncertain).toBe(true);
+    const { ratio } = got;
+    expect(ratio.bigBytes / ratio.smallBytes).toBeCloseTo(8, 1);
+    expectRatioBelow(
+      "content-isolation-dense-ei-linear",
+      ratio.bigMs,
+      ratio.smallMs,
+      24,
+      {
+        detail: `4 MiB ${got.ms} ms; 2 MiB ${ratio.bigMs.toFixed(1)} ms, 256 KiB ${ratio.smallMs.toFixed(1)} ms`,
+        mode: "measure",
+        witness: "uncertain",
+      },
+    );
   }, 90_000);
 
   test("past the document budget, pages are left as before: 12 distinct ~30 MB pages, 8 isolated (2.9 s measured, 15 s allowed)", async () => {
-    const got = await settle<{ ms: number; kinds: string[] }>(
+    const got = await settle<{ ms: number; kinds: string[]; pageMs: number[] }>(
       ["isolate-distinct", "12"],
       120_000,
     );
-    expect(got.kinds).toEqual([
+    // Ignoring the document budget isolates all 12: red here on any runner.
+    const kinds = got.kinds;
+    expect(kinds).toEqual([
       ...Array(8).fill("isolated"),
       ...Array(4).fill("skipped:budget"),
     ]);
-    expect(got.ms).toBeLessThan(15_000);
+    // Past the budget a page costs almost nothing: it is refused at its
+    // first 64 KiB, not decoded and scanned and then refused. A per-page
+    // ratio in the same child (CI-flake audit lane 2), where it WAS an
+    // absolute `ms < 15_000` on the whole loop, which CI's test reached at
+    // 14,737 ms (43629904891). Medians, so one major GC on one page cannot
+    // decide it; page 9 legitimately decodes the budget's last ~28 MB and is
+    // left out. Decode-then-refuse reads about 0.6-0.85. Measure mode until
+    // harvested.
+    const median = (xs: number[]) => {
+      const s = [...xs].sort((a, b) => a - b);
+      return s[Math.floor(s.length / 2)]!;
+    };
+    expect(got.pageMs).toHaveLength(12);
+    const isolatedMs = median(got.pageMs.slice(0, 8));
+    const pastBudgetMs = median(got.pageMs.slice(9));
+    expectRatioBelow(
+      "content-isolation-past-budget-page",
+      pastBudgetMs,
+      isolatedMs,
+      0.2,
+      {
+        detail: `loop ${got.ms} ms; pages ${got.pageMs.map((m) => Math.round(m)).join(" ")} ms`,
+        mode: "measure",
+        witness: "kinds",
+      },
+    );
   }, 150_000);
 
   /*
@@ -871,10 +965,28 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
    */
   for (const shape of ["dense", "eiless"] as const) {
     test(`ten distinct ~31 MiB pages of the ${shape} shape stamp in bounded time (review-l06 round 3)`, async () => {
-      const got = await settle<Stamped>(["stamp-costly", shape, "10"], 60_000);
+      const got = await settle<Stamped & { kinds: string[] }>(
+        ["stamp-costly", shape, "10"],
+        60_000,
+      );
       // Health: it is the reviewer's small file, not a 300 MB one.
       expect(got.inBytes).toBeLessThan(1_000_000);
-      expect(got.ms).toBeLessThan(10_000);
+      // The work meter, as outcomes (CI-flake audit lane 2): every page
+      // costs more scan work than its budget, so isolation leaves each one
+      // as it was. A meter that stopped charging images or EI candidates
+      // (IMAGE_WORK or CANDIDATE_WORK at 0) scans them in full and
+      // isolates them: red on any runner, where the 10 s bound below saw it
+      // only while CI stayed fast (IMAGE_WORK=0: about 18 s on Windows,
+      // 40-55 s on CI, under the 60 s kill).
+      const kinds = got.kinds;
+      expect(kinds).toEqual(Array(10).fill("skipped:budget"));
+      // Measure mode until harvested: CI's test reached 5,566 ms (eiless,
+      // 44321190257) and 4,688 ms (dense, 43629904891), fixture build and
+      // spawn included; the stamp alone was never printed.
+      measureTime("content-isolation-stamp-costly", got.ms, 10_000, {
+        instance: shape,
+        witness: "kinds",
+      });
     }, 90_000);
   }
 
@@ -884,22 +996,42 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
     // the document budget stops it after ~11 pages. Over the page budget
     // (the tests above) a page stops early; this is the shape that spends
     // the whole document budget on scanning.
-    const got = await settle<{ ms: number; kinds: string[] }>(
+    const got = await settle<{ ms: number; kinds: string[]; ctrlMs: number }>(
       ["isolate-costly", "dense", "20", "512"],
       60_000,
     );
     // Health: the early pages really were scanned to the end (ambiguous is
     // decided only from a complete scan), and the budget then stopped it.
-    const full = got.kinds.filter((k) => k === "skipped:ambiguous").length;
+    const kinds = got.kinds;
+    const full = kinds.filter((k) => k === "skipped:ambiguous").length;
     expect(full).toBeGreaterThanOrEqual(8);
     // 20 x 512 KiB is 10 MiB of BYTES, 1/25 of the document budget: pages
     // are skipped only because the scan work is charged to the document.
+    // A meter charged nothing fits every page (full = 20): red on any runner.
     expect(full).toBeLessThan(20);
-    expect(got.kinds).toEqual([
+    expect(kinds).toEqual([
       ...Array(full).fill("skipped:ambiguous"),
       ...Array(20 - full).fill("skipped:budget"),
     ]);
-    expect(got.ms).toBeLessThan(10_000);
+    // What only time sees: one metered unit costing far more than the
+    // ordinary byte it is charged as. Read against the same child's scan of
+    // 4 MiB of ordinary operators (best of 3): the whole document budget is
+    // 64 of them. Both are measure mode until harvested (CI-flake audit
+    // lane 2). It WAS `ms < 10_000`; CI's test reached 8,929 ms
+    // (44007721339), 1.12x. 20 s is 2.24x over that; the ratio's CI spread
+    // is estimated at 1.5-2.2 from same-run durations, never measured.
+    const said = `${got.ms} ms; 4 MiB ordinary ${got.ctrlMs.toFixed(1)} ms`;
+    measureTime("content-isolation-costly-document", got.ms, 20_000, {
+      detail: said,
+      witness: "kinds",
+    });
+    expectRatioBelow(
+      "content-isolation-costly-document-vs-budget",
+      got.ms,
+      64 * got.ctrlMs,
+      4.5,
+      { detail: said, mode: "measure", witness: "kinds" },
+    );
   }, 90_000);
 
   test("a page whose scan would cost more than its budget is left as it was (skipped:budget), not scanned in full", async () => {
@@ -935,8 +1067,13 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
     const got = await settle<Stamped>(["stamp-shared", "50"], 60_000);
     // One rewritten copy (~the input's own size) plus 50 small stamps; 50
     // copies came out at 50x the input.
-    expect(got.outBytes).toBeLessThan(got.inBytes * 3);
-    expect(got.ms).toBeLessThan(10_000);
+    const overThreeCopies = Math.max(0, got.outBytes - got.inBytes * 3);
+    expect(overThreeCopies, `${got.outBytes} of ${got.inBytes}`).toBe(0);
+    // Measure mode until harvested (CI-flake audit lane 2): the test took
+    // up to 2,511 ms on CI (12 runs of 2026-11-18), so 10 s is 4x.
+    measureTime("content-isolation-stamp-shared", got.ms, 10_000, {
+      witness: "overThreeCopies",
+    });
   }, 90_000);
 
   test("pages that share a stream share its one rewritten copy, and each is isolated", async () => {
