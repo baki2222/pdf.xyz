@@ -186,7 +186,6 @@ describe("cost of entry boxes and stacked lines stays linear in the page's size"
     }
     expectRatioBelow("S4 entry boxes", b!.ms, a!.ms, BOXES_BOUND, {
       mode: "measure",
-      witness: "result",
       detail: `${b!.calls} / ${a!.calls} calls`,
     });
   }, 120_000);
@@ -217,7 +216,6 @@ describe("cost of entry boxes and stacked lines stays linear in the page's size"
     }
     expectRatioBelow("S4 stacks", b!.ms, a!.ms, STACKS_BOUND, {
       mode: "measure",
-      witness: "result",
       detail: `${b!.calls} / ${a!.calls} calls`,
     });
   }, 120_000);
@@ -266,12 +264,17 @@ describe("cost of entry boxes and stacked lines stays linear in the page's size"
  * #390 (the time-bound instrument) holds every new wall-clock check to
  * src/tests/time-bound.ts, and an assert-mode bound to a CI calibration
  * (n >= 5 runs, one on a slow runner) that does not exist yet; its debt
- * list may not grow. So these two bounds RECORD and do not fail, each
- * witnessed by `result`, the health checks above (both pages read as
- * expected, so the ratio compared like with like). That witness does NOT
- * catch a quadratic step: the readings above are the evidence for the
- * bound, and turning it back to assert, once
- * src/tests/time-bounds.calibration.json holds these ids, is owed.
+ * list may not grow. So these two bounds RECORD and do not fail.
+ *
+ * They are listed in src/tests/wall-clock-pending.ts and name NO witness.
+ * The health checks above (both pages read as expected, so the ratio
+ * compares like with like) are not a witness: they check what the page
+ * finds, not what it costs, and a quadratic step passes them every time.
+ * Naming them as a witness would claim cost was still guarded when it was
+ * not (CLAUDE.md rule 2). The pending list says so on every CI run.
+ *
+ * Owed: turn both back to assert once src/tests/time-bounds.calibration.json
+ * holds these ids, and remove the two pending entries.
  */
 const BOXES_BOUND = 45;
 const STACKS_BOUND = 45;
