@@ -398,6 +398,22 @@ describe("filled cells propose nothing", () => {
     const sq = { ...p, rects: [rect(320, 665, 10, 10)] };
     expect(labels(sq)).not.toContain("Unit price row 1");
   });
+
+  // KNOWN MISS (a false positive, slice S5, decided and reported): a
+  // calendar printed with a sixth week row left empty reads like an
+  // invoice's blank line items, and nothing on the page tells them apart.
+  // Pinned so a fix shows here; corpus N83 (five filled weeks) is zero.
+  it("KNOWN MISS: a calendar with an empty sixth week row proposes a field per day of that row", () => {
+    const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const xs = Array.from({ length: 8 }, (_, i) => 72 + 66 * i);
+    const p = headed(
+      6,
+      (r, k) => (r <= 5 ? String((r - 1) * 7 + k + 1) : ""),
+      xs,
+      days,
+    );
+    expect(labels(p)).toEqual(days.map((d) => `${d} row 6`));
+  });
 });
 
 /* ------------------------------------------------------------------ *
