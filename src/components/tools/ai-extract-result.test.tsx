@@ -32,7 +32,7 @@ const ZIP = extractionOutputName("invoice.pdf");
 // building included, was 387 ms (run 44331878323, ci-durations.tsv, 12
 // passing runs of 11-18), so > 10x; and it stays under the 5 s test
 // timeout, so a missing button fails with the role message.
-const CSV_WAIT = { timeout: 4_000 } as const;
+const CSV_WAIT = { timeout: 4_000 };
 
 async function realPackage(reply: unknown): Promise<Uint8Array> {
   const text = "Invoice INV-7, total 120.50.";

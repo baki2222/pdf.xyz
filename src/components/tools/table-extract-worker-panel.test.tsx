@@ -41,10 +41,11 @@ import { jobPollFor } from "@/lib/jobs/client-wait";
 // A run's outcome: stubbed fetches, but real processors (OCR first, then
 // tables, then the workbook) inside the wait, and in the file's first run
 // whatever this isolate:false worker has not loaded yet. The slowest test
-// here took 882 ms on CI (run 44321190257, ci-durations.tsv, 12 passing
-// runs of 11-18), so 3000 ms is > 3.4x where the 1 s default gave 1.1x
+// here took 895 ms on CI (failed run 43998624497, the max over 33 CI runs
+// of 11-09..11-21; 882 ms among the 12 passing runs of 11-18, run
+// 44321190257), so 3000 ms is > 3.3x where the 1 s default gave 1.1x
 // to that test, and it stays under the 5 s test timeout.
-const OUTCOME = { timeout: 3_000 } as const;
+const OUTCOME = { timeout: 3_000 };
 import { buildOcrResultMeta } from "@/lib/jobs/ocr";
 import {
   createProcessorRegistry,
@@ -191,9 +192,9 @@ describe("Extract Tables panel — failures link the tool that fixes them", () =
       ),
     );
     await extractOnePdf();
-    expect(
-      await screen.findByRole("alert", undefined, OUTCOME),
-    ).toHaveTextContent(/password-protected/);
+    expect(await screen.findByRole("alert", {}, OUTCOME)).toHaveTextContent(
+      /password-protected/,
+    );
     expect(
       screen.getByRole("link", { name: "Open Unlock PDF" }),
     ).toHaveAttribute("href", "/tools/unlock-pdf");
@@ -815,9 +816,9 @@ describe("Extract Tables panel — after an OCR-first run, OCR PDF is not offere
   it("no table, OCR on: the step links PDF to Excel only, and does not offer OCR PDF", async () => {
     const { ocrRuns } = stubWorker([false]);
     await extract(true);
-    expect(
-      await screen.findByRole("alert", undefined, OUTCOME),
-    ).toHaveTextContent(/No table-like structure/);
+    expect(await screen.findByRole("alert", {}, OUTCOME)).toHaveTextContent(
+      /No table-like structure/,
+    );
     // OCR really ran in this job, and the step really rendered.
     expect(ocrRuns).toHaveLength(1);
     expect(
@@ -845,7 +846,7 @@ describe("Extract Tables panel — after an OCR-first run, OCR PDF is not offere
     const { ocrRuns } = stubWorker([true, false]);
     await extract(true);
     expect(
-      await screen.findByText("Found 1 table on page 1.", undefined, OUTCOME),
+      await screen.findByText("Found 1 table on page 1.", {}, OUTCOME),
     ).toBeInTheDocument();
     expect(ocrRuns).toHaveLength(1);
     expect(
@@ -919,12 +920,17 @@ describe("Extract Tables panel — a job resumed after a reload", () => {
     // A resumed job is seeded "processing", so the first read comes after one
     // REAL poll interval (800 ms today) — of the 1 s default that left 200 ms
     // (814 of 1000 ms used in run 44924793701's wait headroom; the test took
-    // up to 882 ms in run 44321190257). Derived from the interval, so raising
-    // it moves the bound; 3800 ms today, under the 5 s test timeout.
+    // up to 882 ms in run 44321190257 of the 12 passing runs of 11-18, and
+    // 895 ms in failed run 43998624497). 3800 ms: the interval plus 3 s,
+    // 4.2x the 895 ms, under the 5 s test timeout. A numeric literal, so
+    // CI's wait-headroom report can read it from source and judge this wait
+    // against it; the check below reddens if the interval grows past it.
+    const NO_TABLE_WAIT_MS = 3_800;
+    expect(NO_TABLE_WAIT_MS).toBeGreaterThanOrEqual(
+      jobPollFor("extract-tables").intervalMs + 3_000,
+    );
     expect(
-      await screen.findByRole("alert", undefined, {
-        timeout: jobPollFor("extract-tables").intervalMs + 3_000,
-      }),
+      await screen.findByRole("alert", {}, { timeout: NO_TABLE_WAIT_MS }),
     ).toHaveTextContent(/No table-like structure/);
     // Health check: the resumed failure reached the step.
     expect(

@@ -297,8 +297,9 @@ describe("Summarize PDF result — the summary is on the page", () => {
     // The read's own outcome, not a sleep: until 2026-11-21 a 20 ms tick
     // stood here, and a reader that claimed a summary 50 ms later stayed
     // green at any speed. 3000 ms: this file's slowest CI test, a real
-    // package read included, took 310 ms (run 44299285879, ci-durations.tsv,
-    // 12 passing runs of 11-18), so > 9x; under the 5 s test timeout, so
+    // package read included, took 316 ms (failed run 42669105530, the max
+    // over 33 CI runs of 11-09..11-21; 310 ms among the 12 passing runs of
+    // 11-18, run 44299285879), so > 9x; under the 5 s test timeout, so
     // the wait's own message wins.
     await waitFor(() => expect(readState(container)).toBe("unavailable"), {
       timeout: 3_000,

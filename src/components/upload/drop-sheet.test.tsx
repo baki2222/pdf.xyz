@@ -538,8 +538,11 @@ describe("before its engine arrives", () => {
     // 4000 ms: the layer routes once its targets have arrived, a wait the
     // design caps at 2000 ms (targetsArrived); the budget sits above the cap
     // so it never races a wait the design intends, under the 5 s test
-    // timeout. Every test of this file ran under 300 ms in all 12 passing
-    // CI runs of 11-18 (no row in ci-durations.tsv).
+    // timeout. No test of this file has a CI row (the reporter prints a
+    // test only past 300 ms); the whole FILE, all 22 tests and its hooks,
+    // took at most 437 ms over 33 CI runs of 11-09..11-21, failed runs
+    // included (run 42638025531; 383 ms on main run 44931945692), so 4000
+    // ms is > 9x the file, let alone this one test.
     await waitFor(
       () => expect(onFiles).toHaveBeenCalledWith([signature], "drop"),
       { timeout: 4_000 },

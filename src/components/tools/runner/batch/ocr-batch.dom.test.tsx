@@ -219,7 +219,7 @@ async function readyRun(n: number): Promise<HTMLElement> {
 const done = (ok: number, failed: number) =>
   screen.findByText(
     `Batch complete. ${ok} done, ${failed} failed.`,
-    undefined,
+    {},
     {
       timeout: 5000,
     },

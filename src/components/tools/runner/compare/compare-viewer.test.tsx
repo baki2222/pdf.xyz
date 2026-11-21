@@ -163,12 +163,13 @@ function placeMarks() {
 // 3000 ms: each wait below covers the whole in-memory chain of a column
 // (sizes, layout write, text layer, placement, marks), and the file's
 // first test pays first-execution costs inside it. That test took at
-// most 503 ms in all on CI (run 44299285879, ci-durations.tsv, 12
-// passing runs of 11-18), so > 5x where the 1 s default gave 1.7x; and
+// most 581 ms in all on CI (failed run 43998624497, the max over 33 CI
+// runs of 11-09..11-21; 503 ms among the 12 passing runs of 11-18, run
+// 44299285879), so > 5x where the 1 s default gave 1.7x; and
 // it stays under the 5 s test timeout, so a wait's own message wins. Not
 // configure({ asyncUtilTimeout }): that is module state, and under
 // isolate:false it would leak into later files in the same worker.
-const SETTLE = { timeout: 3_000 } as const;
+const SETTLE = { timeout: 3_000 };
 
 describe("Compare PDF's page view", () => {
   it("renders its chunk marker, two labelled columns and the sync box", async () => {

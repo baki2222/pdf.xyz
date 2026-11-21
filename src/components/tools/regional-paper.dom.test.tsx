@@ -121,10 +121,21 @@ const pressedSize = () =>
 // or ENDING_WAIT_MS has passed. The 1 s default gave the file's first
 // test 1000/638 = 1.6x (638 ms, run 44331878323, ci-durations.tsv, 12
 // passing runs of 11-18, render and download included), and a cold
-// ending past the cap left it 200 ms. This grows with the cap: 4800 ms
-// today, 6.3x in the capped branch; the tests get 15 s, so the wait's
-// own message wins.
-const RESULT = { timeout: ENDING_WAIT_MS + 4_000 } as const;
+// ending past the cap left it 200 ms. 4800 ms: 7.5x the 638 ms (6.3x in
+// the capped branch); the tests get 15 s, so the wait's own message wins.
+// No timing mutant bounds it from above: these tests guard WHICH paper is
+// drawn and downloaded, not how fast, so a result held 1.5 s longer is a
+// speed control this wait must admit (and does), not a defect it must
+// catch. Deleting setResult is the defect, and it is red at the wait.
+// A numeric literal, not an expression of the cap, so CI's wait-headroom
+// report can read it from source; the test "the result wait still
+// covers..." below reddens if the cap grows past it.
+const RESULT_MS = 4_800;
+const RESULT = { timeout: RESULT_MS };
+
+it("the result wait still covers the result-ending cap plus 4 s", () => {
+  expect(RESULT_MS).toBeGreaterThanOrEqual(ENDING_WAIT_MS + 4_000);
+});
 const RESULT_TEST = 15_000;
 
 describe("Text to PDF starts on the regional paper", () => {
@@ -144,7 +155,7 @@ describe("Text to PDF starts on the regional paper", () => {
         target: { value: "hello" },
       });
       fireEvent.click(screen.getByRole("button", { name: /Create PDF/ }));
-      await screen.findByText("PDF created", undefined, RESULT);
+      await screen.findByText("PDF created", {}, RESULT);
       fireEvent.click(screen.getByRole("button", { name: "Download PDF" }));
       expect(downloads).toHaveLength(1);
       expect(await pageOf(downloads[0]!)).toEqual({
@@ -169,7 +180,7 @@ describe("Text to PDF starts on the regional paper", () => {
         target: { value: "hello" },
       });
       fireEvent.click(screen.getByRole("button", { name: /Create PDF/ }));
-      await screen.findByText("PDF created", undefined, RESULT);
+      await screen.findByText("PDF created", {}, RESULT);
       fireEvent.click(screen.getByRole("button", { name: "Download PDF" }));
       const legal = sizeOf("legal");
       expect(await pageOf(downloads[0]!)).toEqual({

@@ -449,8 +449,9 @@ describe("a 429 pauses the batch: typed wait, never an error, nothing after it r
     ]);
     const resumeAt = result.current.resumeAt!;
     // 4000 ms over a real 1 s Retry-After: this whole test took at most
-    // 1058 ms on CI (12 passing runs of 11-18, ci-durations.tsv; run
-    // 44386549494 among them), so > 3.7x, and it stays under the 5 s test
+    // 1075 ms on CI (failed run 44164715213, the max over 33 CI runs of
+    // 11-09..11-21; 1058 ms among the 12 passing runs of 11-18, run
+    // 44272458560), so > 3.7x, and it stays under the 5 s test
     // timeout, so this wait's own message wins.
     await waitFor(() => expect(result.current.state.phase).toBe("done"), {
       timeout: 4000,
@@ -665,8 +666,9 @@ describe("refusals before the network, and Cancel", () => {
     act(() => result.current.start());
     // 4500 ms: the client reads every byte of the 100 MiB + 1 file before it
     // can refuse it, and ~300 MB of dead copies invite a GC inside the wait.
-    // The whole test took at most 380 ms on CI (4 slow-line rows of 12
-    // passing runs of 11-18, ci-durations.tsv), so > 11x; and it stays under
+    // The whole test took at most 423 ms on CI (failed run 43636213581, the
+    // max over 33 CI runs of 11-09..11-21; 380 ms among the 12 passing runs
+    // of 11-18, run 44321190257), so > 10x; and it stays under
     // the 5 s test timeout, so this wait's own message wins.
     await waitFor(() => expect(result.current.state.phase).toBe("done"), {
       timeout: 4_500,

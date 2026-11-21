@@ -179,11 +179,20 @@ function expectServedNames(labels: readonly string[]) {
 // imports, cold in this worker on first use), then a run whose result is
 // held for the result-ending chunk for up to ENDING_WAIT_MS by design. The
 // 1 s default left ~2.1x against the slowest CI run of a whole test here
-// (467 ms across the audit's logs; 448 ms in ci-durations.tsv, run
-// 44299285879, 12 passing runs of 11-18), and the cap alone could reach
-// it. This grows with the cap: 2800 ms today, 6x the CI max and 2.2x the
-// designed worst case (cap plus run), under the 5 s test timeout.
-const UI = { timeout: ENDING_WAIT_MS + 2_000 } as const;
+// (483 ms on main run 44931945692, the max over 33 CI runs of
+// 11-09..11-21, failed runs included; 448 ms among the 12 passing runs of
+// 11-18, run 44299285879), and the cap alone could reach it. 2800 ms:
+// 5.8x the CI max and 2.2x the designed worst case (cap plus
+// run), under the 5 s test timeout. A numeric literal, not an expression
+// of the cap, so CI's wait-headroom report can read it from source and
+// judge each wait against it; the test "the UI wait still covers..."
+// below reddens if the cap grows past it.
+const UI_MS = 2_800;
+const UI = { timeout: UI_MS };
+
+it("the UI wait still covers the result-ending cap plus 2 s", () => {
+  expect(UI_MS).toBeGreaterThanOrEqual(ENDING_WAIT_MS + 2_000);
+});
 
 /** Wait for the inspection to finish, then press the one primary action. */
 async function runTool(action: RegExp) {
@@ -196,7 +205,7 @@ describe("Flatten PDF runner — what the user is told and handed", () => {
     mount(await blankPdf(), "contract.pdf");
     await screen.findByText(
       /no fillable acroform fields were detected/i,
-      undefined,
+      {},
       UI,
     );
     const run = await screen.findByRole(
@@ -232,7 +241,7 @@ describe("Flatten PDF runner — what the user is told and handed", () => {
 
   it("control: a real form is flattened under a success panel and downloads as '-flattened'", async () => {
     mount(await formPdf(), "form.pdf");
-    await screen.findByText(/found 2 fillable form fields/i, undefined, UI);
+    await screen.findByText(/found 2 fillable form fields/i, {}, UI);
     await runTool(/flatten form fields/i);
 
     const panel = await screen.findByRole(
@@ -255,7 +264,7 @@ describe("Flatten PDF runner — what the user is told and handed", () => {
 
   it("a signed PDF is warned about before the run, and its signature field is reported as left as-is", async () => {
     mount(await signedFormPdf(), "signed.pdf");
-    await screen.findByText(/found 1 fillable form field\./i, undefined, UI);
+    await screen.findByText(/found 1 fillable form field\./i, {}, UI);
     expect(
       screen.getByText(/1 signature field\s*will be left\s*as-is/i),
     ).toBeInTheDocument();
@@ -316,7 +325,7 @@ describe("Flatten PDF runner — what the user is told and handed", () => {
 
   it("a dynamic XFA form is explained and cannot be run", async () => {
     mount(await dynamicXfaPdf(), "tax-form.pdf");
-    await screen.findByText(DYNAMIC_XFA_MESSAGE, undefined, UI);
+    await screen.findByText(DYNAMIC_XFA_MESSAGE, {}, UI);
     const button = screen.getByRole("button", { name: /re-save pdf/i });
     expect(button).toHaveAttribute("aria-disabled", "true");
     fireEvent.click(button);
