@@ -12,6 +12,7 @@ import {
   pageTreeWalk,
   pdfjsBoardPageCount,
 } from "@/lib/pdf/pdfjs-guard";
+import { expectRatioBelow, measureTime } from "../time-bound";
 import { runBounded, type BoundedOutcome } from "./bounded";
 
 /**
@@ -160,19 +161,46 @@ describe("the reader:'pdfjs' board reaches an outcome on a page tree of any size
   }, 90_000);
 
   test("past the limit the outcome costs what the file's bytes cost, not pages squared", async () => {
-    const small = settled(
-      await runBounded(CHILD, [`flat:${PDFJS_BOARD_MAX_PAGES + 1}`], 60_000),
+    // One child, both sizes alternated three times, each call on a fresh
+    // copy so its preflight really runs (CI-flake audit lane 2). It WAS one
+    // sample of each from two children run one after the other, under a
+    // 250 ms floor that made it an absolute 7.5 s bound: CI's test reached
+    // 9,354 ms (43998624497), so the data could not rule out a red. The
+    // pair is six opens, an estimated 17 s at worst on CI: kill 120 s.
+    const small = PDFJS_BOARD_MAX_PAGES + 1;
+    const v = settled(
+      await runBounded(CHILD, [`pair:${small}:100000:3`], 120_000),
     );
-    const big = settled(await runBounded(CHILD, ["flat:100000"], 60_000));
-    expect(small.error).toMatchObject({ typed: true });
-    expect(big.error).toMatchObject({ typed: true });
-    // Health: the second file really is ten times the first.
-    expect((big.bytes as number) / (small.bytes as number)).toBeGreaterThan(9);
+    const got = v as {
+      smallMs: number[];
+      bigMs: number[];
+      entries: number[];
+      typed: boolean[];
+      bytes: { small: number; big: number };
+      calls: number;
+      distinctPreflights: number;
+    };
+    // Health: every call's preflight ran and counted its own tree, and
+    // every call was refused, typed.
+    const counted = got.entries;
+    expect(counted).toEqual([small, 100_000, small, 100_000, small, 100_000]);
+    expect(got.typed).toEqual(Array(6).fill(true));
+    // One preflight answer per call: none was the guard's cached answer.
+    expect(got.distinctPreflights).toBe(got.calls);
+    expect(got.calls).toBeGreaterThanOrEqual(6);
+    // The second file really is ten times the first.
+    expect(got.bytes.big / got.bytes.small).toBeGreaterThan(9);
     // Ten times the pages: about ten times the bytes to parse, where a walk
-    // would cost a hundred times. A floor on the small one keeps a fast run's
-    // few milliseconds from making the ratio noise.
-    const ratio = (big.ms as number) / Math.max(small.ms as number, 250);
-    expect(ratio, `${big.ms} ms vs ${small.ms} ms`).toBeLessThan(30);
+    // would cost a hundred times. Best of 3 samples each, every sample at
+    // least 100 ms of calls (the old 250 ms floor on the small side is no
+    // longer needed). Measure mode until harvested.
+    const bigMs = Math.min(...got.bigMs);
+    const smallMs = Math.min(...got.smallMs);
+    expectRatioBelow("board-pages-past-limit", bigMs, smallMs, 30, {
+      detail: `big ${got.bigMs.map(Math.round).join("/")} ms, small ${got.smallMs.map(Math.round).join("/")} ms`,
+      mode: "measure",
+      witness: "counted",
+    });
   }, 150_000);
 
   test(`positive control at the bound: a flat tree of exactly ${PDFJS_BOARD_MAX_PAGES} pages still loads, every rotation read`, async () => {
@@ -261,10 +289,17 @@ describe("the board's walk is bounded by the /Kids the file contains, not by its
     "%s (%s pages reported; %s) is refused, typed, in seconds",
     async (c, pages) => {
       const v = settled(await runBounded(CHILD, [c], 60_000));
-      expect(v.error).toMatchObject(treeRefusal);
-      expect(v.ms as number).toBeLessThan(20_000);
+      const refused = v.error;
+      expect(refused).toMatchObject(treeRefusal);
       // Refused for its tree: the count puts it past the bound.
       expect(charge(v, pages)).toBeGreaterThan(PDFJS_BOARD_MAX_WALK);
+      // In seconds: measure mode until harvested (CI-flake audit lane 2;
+      // absent from CI's >300 ms list in all 12 runs of 2026-11-18). A walk
+      // that charged per element again is killed at 60 s on any runner.
+      measureTime("board-pages-tree-refusal", v.ms as number, 20_000, {
+        instance: c,
+        witness: "refused",
+      });
     },
     90_000,
   );
@@ -287,7 +322,16 @@ describe("the board's walk is bounded by the /Kids the file contains, not by its
         rotationCount: pages,
         rotated: rotatedIn(pages),
       });
-      // 2.0-5.3 s on the branch (Windows, Node 24); CI is slower.
+      // An absolute promise, kept as one (CI-flake audit lane 2): it is the
+      // only check that sees a uniform slowdown of pdf.js's walk. CI read
+      // 4.2-21.0 s across the four cases (lie:10000:19950 21,024 ms, run
+      // 43629904891-era logs, 27 of them): 2.85x. Printed on every pass.
+      const shape = v.pageCount;
+      expect(shape).toBe(pages);
+      measureTime("board-pages-at-walk-bound", v.ms as number, 60_000, {
+        instance: c,
+        witness: "shape",
+      });
       expect(v.ms as number).toBeLessThan(60_000);
       const walk = charge(v, pages);
       expect(walk).toBeLessThanOrEqual(PDFJS_BOARD_MAX_WALK);
