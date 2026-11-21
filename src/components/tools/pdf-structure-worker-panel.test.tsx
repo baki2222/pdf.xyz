@@ -18,7 +18,7 @@
  *    "clean" and "recovered" apart right up to the one sentence a user reads.
  */
 import { InToolPage } from "@/tests/in-tool-page";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { RECONSTRUCTION_CLAIM } from "@/tests/reconstruction-claim";
 import { getToolBySlug } from "@/lib/tools";
@@ -48,6 +48,8 @@ import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 import { PdfStructureWorkerPanel } from "./pdf-structure-worker-panel";
 import { OptimizeOutcome } from "./optimize-outcome";
 import { readyFileInput } from "@/tests/worker-ready";
+import { loadJobRun } from "@/lib/workers/job-run-lazy";
+import { warmEnding } from "./runner/runner-kit";
 
 const providers = getProviderReadiness("remote-configured");
 
@@ -198,6 +200,25 @@ function stubNetwork(slug: Slug, job: Job, artifact?: Uint8Array) {
   );
 }
 
+// Every outcome wait in this file: a job's whole run through stubbed
+// fetches, and in the file's first test the cold loads the pick and the
+// run start (job-run, the result ending, the replace boxes). The 1 s
+// default gave that first test 1000/615 = 1.6x (615 ms across the
+// audit's CI logs; 559 ms in ci-durations.tsv, run 44331878323, 12
+// passing runs of 11-18). 3000 ms is 4.9x, and it stays under the 5 s
+// test timeout, so a miss still names the role. vi.waitFor does not read
+// testing-library's default, so it is passed there too.
+const OUTCOME = { timeout: 3_000 } as const;
+
+// The cold loads, here, under the 10 s hook timeout: neither test order
+// nor a -t filter then makes some job test the one that pays them.
+beforeAll(async () => {
+  // Positive control: the module really loaded, with what a run uses.
+  expect((await loadJobRun()).uploadToWorkerSlot).toBeTypeOf("function");
+  await warmEnding();
+  await import("./replace-boxes");
+});
+
 async function runOnePdf(slug: Slug, chosen: Uint8Array = INPUT) {
   render(
     <>
@@ -211,7 +232,7 @@ async function runOnePdf(slug: Slug, chosen: Uint8Array = INPUT) {
     const found = readyFileInput();
     if (!found) throw new Error("no file input yet");
     return found;
-  });
+  }, OUTCOME);
   fireEvent.change(input, {
     target: {
       files: [
@@ -239,7 +260,7 @@ async function announced(): Promise<string> {
       document.querySelector('[aria-live="polite"]')?.textContent ?? "";
     if (!text) throw new Error("nothing announced yet");
     return text;
-  });
+  }, OUTCOME);
   expect(screen.getByRole("group")).toHaveAccessibleName(spoken);
   return spoken;
 }
@@ -268,9 +289,9 @@ describe("a document qpdf refuses — named once, with the tool that fixes it", 
       const { job } = await jobFrom(slug, LOCKED, PROBE_LOCKED);
       stubNetwork(slug, job);
       await runOnePdf(slug);
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        /password-protected/,
-      );
+      expect(
+        await screen.findByRole("alert", undefined, OUTCOME),
+      ).toHaveTextContent(/password-protected/);
       expect(
         screen.getByRole("link", { name: "Open Unlock PDF" }),
       ).toHaveAttribute("href", "/tools/unlock-pdf");
@@ -287,9 +308,9 @@ describe("a document qpdf refuses — named once, with the tool that fixes it", 
       expect(job.error?.retryable).toBe(false);
       stubNetwork(slug, job);
       await runOnePdf(slug);
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        /took too long/,
-      );
+      expect(
+        await screen.findByRole("alert", undefined, OUTCOME),
+      ).toHaveTextContent(/took too long/);
     });
 
     it(`${slug}: POSITIVE CONTROL — a run that did not finish links nothing`, async () => {
@@ -297,7 +318,7 @@ describe("a document qpdf refuses — named once, with the tool that fixes it", 
       expect(job.error?.retryable).toBe(true);
       stubNetwork(slug, job);
       await runOnePdf(slug);
-      await screen.findByRole("alert");
+      await screen.findByRole("alert", undefined, OUTCOME);
       expect(screen.queryByRole("link", { name: /^Open / })).toBeNull();
     });
   }
@@ -306,7 +327,7 @@ describe("a document qpdf refuses — named once, with the tool that fixes it", 
     const { job } = await jobFrom("optimize-web", LOCKED);
     stubNetwork("optimize-web", job);
     await runOnePdf("optimize-web");
-    await screen.findByRole("alert");
+    await screen.findByRole("alert", undefined, OUTCOME);
     expect(
       screen.getByRole("link", { name: "Open Repair PDF" }),
     ).toHaveAttribute("href", "/tools/repair-pdf");
@@ -316,9 +337,9 @@ describe("a document qpdf refuses — named once, with the tool that fixes it", 
     const { job } = await jobFrom("repair-pdf", LOCKED);
     stubNetwork("repair-pdf", job);
     await runOnePdf("repair-pdf");
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      /could not be rebuilt/,
-    );
+    expect(
+      await screen.findByRole("alert", undefined, OUTCOME),
+    ).toHaveTextContent(/could not be rebuilt/);
     expect(screen.queryByRole("link", { name: "Open Repair PDF" })).toBeNull();
   });
 });
@@ -335,7 +356,11 @@ describe("repair-pdf success — says what qpdf reported, not more", () => {
     await runOnePdf("repair-pdf");
 
     expect(
-      await screen.findByText("Your repaired PDF is ready."),
+      await screen.findByText(
+        "Your repaired PDF is ready.",
+        undefined,
+        OUTCOME,
+      ),
     ).toBeInTheDocument();
     expect(await announced()).toBe("Your repaired PDF is ready.");
   });
@@ -355,9 +380,9 @@ describe("repair-pdf success — says what qpdf reported, not more", () => {
     stubNetwork("repair-pdf", job, artifact);
     await runOnePdf("repair-pdf");
 
-    const notice = (await screen.findByText(/has been rebuilt/)).closest(
-      '[role="status"]',
-    )!;
+    const notice = (
+      await screen.findByText(/has been rebuilt/, undefined, OUTCOME)
+    ).closest('[role="status"]')!;
     // Health check: this is the notice, and it holds qpdf's lines.
     expect(notice).toHaveTextContent(/file is damaged/);
     expect(notice).toHaveTextContent(/what qpdf reported/);
@@ -382,7 +407,7 @@ describe("repair-pdf success — says what qpdf reported, not more", () => {
     stubNetwork("repair-pdf", job, artifact);
     await runOnePdf("repair-pdf");
 
-    const group = await screen.findByRole("group");
+    const group = await screen.findByRole("group", undefined, OUTCOME);
     expect(group).toHaveTextContent(/has been rebuilt/);
     expect(group).toHaveTextContent(/could not be shown safely/);
     expect(group).not.toHaveTextContent(/found no structural damage/);
@@ -398,7 +423,7 @@ describe("repair-pdf success — says what qpdf reported, not more", () => {
     stubNetwork("repair-pdf", job, artifact);
     await runOnePdf("repair-pdf");
 
-    const group = await screen.findByRole("group");
+    const group = await screen.findByRole("group", undefined, OUTCOME);
     expect(group).toHaveTextContent(/found no structural damage/);
     expect(group).not.toHaveTextContent(/repaired PDF is ready/);
     expect(await announced()).toMatch(/found no structural damage/);
@@ -434,7 +459,7 @@ describe("repair-pdf success — says what qpdf reported, not more", () => {
 
     stubNetwork("repair-pdf", job, artifact);
     await runOnePdf("repair-pdf");
-    const group = await screen.findByRole("group");
+    const group = await screen.findByRole("group", undefined, OUTCOME);
     // The group rendered its outcome (so an absence below is not a blank card).
     expect(group).toHaveTextContent(/found no structural damage/);
 
@@ -455,7 +480,7 @@ describe("repair-pdf success — says what qpdf reported, not more", () => {
     stubNetwork("repair-pdf", older, artifact);
     await runOnePdf("repair-pdf");
 
-    const group = await screen.findByRole("group");
+    const group = await screen.findByRole("group", undefined, OUTCOME);
     expect(group).toHaveTextContent("Your PDF is ready.");
     // Not /repaired/: the download is still named `-repaired.pdf`, which is
     // the tool's name for its output, not a claim about this run.
@@ -491,7 +516,7 @@ describe("optimize-web success — the property, read from the downloaded bytes"
     stubNetwork("optimize-web", job, artifact);
     await runOnePdf("optimize-web");
 
-    const group = await screen.findByRole("group");
+    const group = await screen.findByRole("group", undefined, OUTCOME);
     expect(group).toHaveTextContent(/Linearized for fast web view/);
     expect(group).toHaveTextContent(
       `${formatBytes(INPUT.byteLength)} → ${formatBytes(artifact!.byteLength)}`,
@@ -511,7 +536,7 @@ describe("optimize-web success — the property, read from the downloaded bytes"
     stubNetwork("optimize-web", job, plain);
     await runOnePdf("optimize-web");
 
-    const group = await screen.findByRole("group");
+    const group = await screen.findByRole("group", undefined, OUTCOME);
     // The group rendered (so the absence below is not a blank card).
     expect(group).toHaveTextContent(
       `${formatBytes(INPUT.byteLength)} → ${formatBytes(plain.byteLength)}`,
@@ -532,7 +557,7 @@ describe("optimize-web success — the property, read from the downloaded bytes"
     expect(artifact!.byteLength).toBeGreaterThan(INPUT.byteLength);
     stubNetwork("optimize-web", job, artifact);
     await runOnePdf("optimize-web");
-    await screen.findByRole("group");
+    await screen.findByRole("group", undefined, OUTCOME);
     expect(hrefsTo(compress)).toEqual([compress]);
 
     document.body.innerHTML = "";
@@ -543,7 +568,7 @@ describe("optimize-web success — the property, read from the downloaded bytes"
     );
     stubNetwork("optimize-web", job, artifact);
     await runOnePdf("optimize-web", bigger);
-    await screen.findByRole("group");
+    await screen.findByRole("group", undefined, OUTCOME);
     expect(hrefsTo(compress)).toEqual([]);
   });
 
@@ -557,7 +582,7 @@ describe("optimize-web success — the property, read from the downloaded bytes"
     stubNetwork("optimize-web", job, artifact);
     await runOnePdf("optimize-web");
 
-    const group = await screen.findByRole("group");
+    const group = await screen.findByRole("group", undefined, OUTCOME);
     expect(group).toHaveTextContent("reconstructing xref table");
     expect(group).toHaveTextContent(/worked around/);
     // Optimize for Web did not promise a repair and must not report one.
@@ -578,7 +603,9 @@ describe("optimize-web success — the property, read from the downloaded bytes"
     expect(job.error?.retryable).toBe(false);
     stubNetwork("optimize-web", job);
     await runOnePdf("optimize-web", truncated);
-    expect(await screen.findByRole("alert")).toHaveTextContent(/Repair PDF/);
+    expect(
+      await screen.findByRole("alert", undefined, OUTCOME),
+    ).toHaveTextContent(/Repair PDF/);
     expect(
       screen.getByRole("link", { name: "Open Repair PDF" }),
     ).toHaveAttribute("href", "/tools/repair-pdf");
@@ -624,7 +651,7 @@ describe("optimize-web: what the picked file already is, before any upload", () 
       const found = readyFileInput();
       if (!found) throw new Error("no file input yet");
       return found;
-    });
+    }, OUTCOME);
     fireEvent.change(input, {
       target: {
         files: [
@@ -645,9 +672,13 @@ describe("optimize-web: what the picked file already is, before any upload", () 
     const signed = await signedPdf({ signatures: 2 });
     expect(countDigitalSignatures(signed)).toBe(2);
     const run = await pick("optimize-web", signed);
-    const warning = await screen.findByRole("group", {
-      name: "This PDF has 2 digital signatures",
-    });
+    const warning = await screen.findByRole(
+      "group",
+      {
+        name: "This PDF has 2 digital signatures",
+      },
+      OUTCOME,
+    );
     expect(warning).toHaveTextContent(
       "Linearizing rewrites the whole file, so the byte ranges they cover no longer match: they will show as invalid, even though every page looks the same.",
     );
@@ -664,7 +695,7 @@ describe("optimize-web: what the picked file already is, before any upload", () 
     );
     expect(run).not.toHaveAttribute("aria-disabled");
     fireEvent.click(run);
-    await vi.waitFor(() => expect(uploadsRequested()).toBe(1));
+    await vi.waitFor(() => expect(uploadsRequested()).toBe(1), OUTCOME);
   });
 
   it("a press that lands before the pick-time read finishes still cannot send a signed file", async () => {
@@ -688,15 +719,23 @@ describe("optimize-web: what the picked file already is, before any upload", () 
     expect(run).not.toHaveAttribute("aria-disabled");
     fireEvent.click(run);
     // start() read the bytes itself, found the signatures, and stopped.
-    const warning = await screen.findByRole("group", {
-      name: "This PDF has 2 digital signatures",
-    });
+    const warning = await screen.findByRole(
+      "group",
+      {
+        name: "This PDF has 2 digital signatures",
+      },
+      OUTCOME,
+    );
     expect(reads.mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(run).toHaveAttribute("aria-disabled", "true");
     expect(run).toHaveAttribute("aria-describedby", warning.id);
     release();
-    await vi.waitFor(() =>
-      expect(document.querySelector('[data-web-input="read"]')).not.toBeNull(),
+    await vi.waitFor(
+      () =>
+        expect(
+          document.querySelector('[data-web-input="read"]'),
+        ).not.toBeNull(),
+      OUTCOME,
     );
     expect(uploadsRequested()).toBe(0);
   });
@@ -705,9 +744,13 @@ describe("optimize-web: what the picked file already is, before any upload", () 
     const first = await signedPdf({ signatures: 2 });
     const second = await signedPdf({ signatures: 1 });
     const run = await pick("optimize-web", first);
-    const tick = await screen.findByRole("checkbox", {
-      name: "Optimize anyway — I understand the digital signatures will show as invalid",
-    });
+    const tick = await screen.findByRole(
+      "checkbox",
+      {
+        name: "Optimize anyway — I understand the digital signatures will show as invalid",
+      },
+      OUTCOME,
+    );
     fireEvent.click(tick);
     // Positive control: the tick does unlock Run for the file it was given on.
     expect(run).not.toHaveAttribute("aria-disabled");
@@ -717,7 +760,7 @@ describe("optimize-web: what the picked file already is, before any upload", () 
       const found = readyFileInput();
       if (!found) throw new Error("no file input yet");
       return found;
-    });
+    }, OUTCOME);
     fireEvent.change(input, {
       target: {
         files: [
@@ -725,9 +768,13 @@ describe("optimize-web: what the picked file already is, before any upload", () 
         ],
       },
     });
-    await screen.findByRole("group", {
-      name: "This PDF has 1 digital signature",
-    });
+    await screen.findByRole(
+      "group",
+      {
+        name: "This PDF has 1 digital signature",
+      },
+      OUTCOME,
+    );
     const again = screen.getByRole("checkbox", {
       name: "Optimize anyway — I understand the digital signature will show as invalid",
     });
@@ -749,7 +796,9 @@ describe("optimize-web: what the picked file already is, before any upload", () 
         .spyOn(Blob.prototype, "arrayBuffer")
         .mockRejectedValue(new DOMException("gone", "NotReadableError"));
       fireEvent.click(run);
-      expect(await screen.findByText(LOST_CONNECTION.message)).toBeVisible();
+      expect(
+        await screen.findByText(LOST_CONNECTION.message, undefined, OUTCOME),
+      ).toBeVisible();
       // Health check: the failure came from the read this test broke.
       expect(reads).toHaveBeenCalled();
       expect(uploadsRequested()).toBe(0);
@@ -760,7 +809,7 @@ describe("optimize-web: what the picked file already is, before any upload", () 
     const run = await pick("optimize-web", INPUT);
     expect(run).not.toHaveAttribute("aria-disabled");
     fireEvent.click(run);
-    await vi.waitFor(() => expect(uploadsRequested()).toBe(1));
+    await vi.waitFor(() => expect(uploadsRequested()).toBe(1), OUTCOME);
     expect(
       screen.queryByRole("group", { name: /digital signature/ }),
     ).toBeNull();
@@ -773,6 +822,8 @@ describe("optimize-web: what the picked file already is, before any upload", () 
     expect(
       await screen.findByText(
         "This PDF is already linearized for fast web view, so it does not need this step. Running it again is optional and uploads the file to our secure server.",
+        undefined,
+        OUTCOME,
       ),
     ).toBeInTheDocument();
     expect(run).not.toHaveAttribute("aria-disabled");
@@ -791,8 +842,12 @@ describe("optimize-web: what the picked file already is, before any upload", () 
     await pick("optimize-web", INPUT);
     // The absence means something only once the file has been read: the
     // panel marks that, and the linearized case above reads the same mark.
-    await vi.waitFor(() =>
-      expect(document.querySelector('[data-web-input="read"]')).not.toBeNull(),
+    await vi.waitFor(
+      () =>
+        expect(
+          document.querySelector('[data-web-input="read"]'),
+        ).not.toBeNull(),
+      OUTCOME,
     );
     expect(screen.queryByText(/already linearized/)).toBeNull();
   });
@@ -811,7 +866,7 @@ describe("optimize-web: the page describes the signature gate the panel runs", (
       const found = readyFileInput();
       if (!found) throw new Error("no file input yet");
       return found;
-    });
+    }, OUTCOME);
     fireEvent.change(input, {
       target: {
         files: [
@@ -822,7 +877,8 @@ describe("optimize-web: the page describes the signature gate the panel runs", (
       },
     });
     const label =
-      (await screen.findByRole("checkbox")).closest("label")?.textContent ?? "";
+      (await screen.findByRole("checkbox", undefined, OUTCOME)).closest("label")
+        ?.textContent ?? "";
     const quoted = label.split(" — ")[0]!;
     expect(quoted.length).toBeGreaterThan(3);
     const { default: content } =

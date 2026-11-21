@@ -35,6 +35,7 @@ import { HTML_PAGE_SIZES } from "@/lib/jobs/html-render-options";
 import { PDFArray, PDFDocument, PDFName, PDFRawStream } from "pdf-lib";
 import { inflateSync } from "node:zlib";
 import { TextToPdfRunner } from "./runner/text-to-pdf-runner";
+import { ENDING_WAIT_MS } from "./runner/runner-kit";
 import { HtmlRenderWorkerPanel } from "./html-render-worker-panel";
 
 afterEach(() => {
@@ -116,6 +117,16 @@ const pressedSize = () =>
       "true",
   );
 
+// The result commits after the PDF is made AND the result ending has come
+// or ENDING_WAIT_MS has passed. The 1 s default gave the file's first
+// test 1000/638 = 1.6x (638 ms, run 44331878323, ci-durations.tsv, 12
+// passing runs of 11-18, render and download included), and a cold
+// ending past the cap left it 200 ms. This grows with the cap: 4800 ms
+// today, 6.3x in the capped branch; the tests get 15 s, so the wait's
+// own message wins.
+const RESULT = { timeout: ENDING_WAIT_MS + 4_000 } as const;
+const RESULT_TEST = 15_000;
+
 describe("Text to PDF starts on the regional paper", () => {
   it.each([
     [["en-GB"], "a4"],
@@ -133,7 +144,7 @@ describe("Text to PDF starts on the regional paper", () => {
         target: { value: "hello" },
       });
       fireEvent.click(screen.getByRole("button", { name: /Create PDF/ }));
-      await screen.findByText("PDF created");
+      await screen.findByText("PDF created", undefined, RESULT);
       fireEvent.click(screen.getByRole("button", { name: "Download PDF" }));
       expect(downloads).toHaveLength(1);
       expect(await pageOf(downloads[0]!)).toEqual({
@@ -141,28 +152,33 @@ describe("Text to PDF starts on the regional paper", () => {
         fontSize: 11,
       });
     },
+    RESULT_TEST,
   );
 
-  it("a pressed size, orientation and text size are what is downloaded", async () => {
-    speaks("en-GB");
-    render(withRouter(<TextToPdfRunner />));
-    fireEvent.click(screen.getByRole("button", { name: label("legal") }));
-    fireEvent.click(screen.getByRole("button", { name: "Landscape" }));
-    fireEvent.click(screen.getByRole("button", { name: "14 pt" }));
-    expect(pressedSize()).toEqual([label("legal")]);
-    fireEvent.change(screen.getByPlaceholderText(/Paste or type/), {
-      target: { value: "hello" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /Create PDF/ }));
-    await screen.findByText("PDF created");
-    fireEvent.click(screen.getByRole("button", { name: "Download PDF" }));
-    const legal = sizeOf("legal");
-    expect(await pageOf(downloads[0]!)).toEqual({
-      width: legal.height,
-      height: legal.width,
-      fontSize: 14,
-    });
-  });
+  it(
+    "a pressed size, orientation and text size are what is downloaded",
+    { timeout: RESULT_TEST },
+    async () => {
+      speaks("en-GB");
+      render(withRouter(<TextToPdfRunner />));
+      fireEvent.click(screen.getByRole("button", { name: label("legal") }));
+      fireEvent.click(screen.getByRole("button", { name: "Landscape" }));
+      fireEvent.click(screen.getByRole("button", { name: "14 pt" }));
+      expect(pressedSize()).toEqual([label("legal")]);
+      fireEvent.change(screen.getByPlaceholderText(/Paste or type/), {
+        target: { value: "hello" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Create PDF/ }));
+      await screen.findByText("PDF created", undefined, RESULT);
+      fireEvent.click(screen.getByRole("button", { name: "Download PDF" }));
+      const legal = sizeOf("legal");
+      expect(await pageOf(downloads[0]!)).toEqual({
+        width: legal.height,
+        height: legal.width,
+        fontSize: 14,
+      });
+    },
+  );
 });
 
 describe("Text to PDF's batch gets the same page", () => {
@@ -325,9 +341,22 @@ describe("Webpage to PDF starts on the regional paper", () => {
   const tool = getToolBySlug("webpage-to-pdf")!;
   let fetchMock: ReturnType<typeof vi.fn>;
   async function mount() {
-    fetchMock = vi
-      .fn()
-      .mockResolvedValue({ ok: true, json: async () => READY });
+    // The job POST is refused, as html-render-worker-panel.test.tsx's
+    // readyFetch refuses it: answered with the worker status, it started a
+    // poll loop that outlived every test by up to 800 ms, for setup.ts's
+    // poll-leak guard to wait out (and act noise). The POST bodies, which
+    // are all these tests read, are sent exactly as before.
+    fetchMock = vi.fn(async (url: string) =>
+      url === "/api/jobs"
+        ? {
+            ok: false,
+            status: 400,
+            json: async () => ({
+              error: "Refused by the test: no job is made.",
+            }),
+          }
+        : { ok: true, status: 200, json: async () => READY },
+    );
     vi.stubGlobal("fetch", fetchMock);
     render(
       <InToolPage tool={tool}>

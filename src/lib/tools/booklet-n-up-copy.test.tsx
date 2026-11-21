@@ -10,6 +10,7 @@ import {
   NUpEditor,
 } from "@/components/tools/runner/n-up/n-up-editor";
 import { BookletEditor } from "@/components/tools/runner/n-up/booklet-editor";
+import { ENDING_WAIT_MS } from "@/components/tools/runner/runner-kit";
 import type { LoadedPdf } from "@/components/tools/runner/use-single-pdf";
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import { getToolContent } from "@/lib/tools/content";
@@ -86,6 +87,16 @@ function labelsIn(root: HTMLElement): string[] {
   ].filter((l) => l.length > 0);
 }
 
+// The run's result: the engine (loadPdf's guard imports, 7 modules this
+// file does not load, cold on a fresh worker), then the result ending,
+// raced against ENDING_WAIT_MS AFTER the engine returns. The 1 s default
+// could be spent by the cap alone, and failing it turns all ten tests
+// red from the hook. The ending's cap plus an engine budget: every test
+// of this file ran under 300 ms in all 12 passing CI runs of 11-18 (no
+// row in ci-durations.tsv), and the audit's proxy for the hook's two runs
+// was 529 ms, so the budget is ~19x it. The hook allows 180 s.
+const RESULT_WAIT_MS = ENDING_WAIT_MS + 10_000;
+
 /** What an editor draws, before and after a run (its result's title). */
 async function drawnBy(slug: string): Promise<Set<string>> {
   const { editor: Editor, run } = EDITORS[slug]!;
@@ -95,7 +106,11 @@ async function drawnBy(slug: string): Promise<Set<string>> {
   const before = labelsIn(container);
   fireEvent.click(screen.getByRole("button", { name: run }));
   const headings = new Set(before);
-  await screen.findByRole("button", { name: /download pdf/i });
+  await screen.findByRole(
+    "button",
+    { name: /download pdf/i },
+    { timeout: RESULT_WAIT_MS },
+  );
   const after = labelsIn(container).filter((l) => !headings.has(l));
   cleanup();
   return new Set([...before, ...after]);
