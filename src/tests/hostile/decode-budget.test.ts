@@ -18,7 +18,7 @@ import { afterAll, describe, expect, test } from "vitest";
 import { DEFAULT_DECODE_BUDGET_BYTES } from "@/lib/pdf/decode-budget";
 import { EMBED_TOTAL_BYTES } from "@/lib/pdf/embed-budget";
 import { runBounded, type BoundedOutcome } from "./bounded";
-import { expectFasterThan, expectRatioBelow, measureTime } from "../time-bound";
+import { expectFasterThan, expectRatioBelow } from "../time-bound";
 import {
   chainedFlateBombPdf,
   imageBombAtCapPdf,
@@ -376,9 +376,17 @@ describe("PS-02 / STAMP-13: many pages sharing one content stream under the budg
    * sees work done OUTSIDE decodeContents (a retry, a second decode path) —
    * loosened from 6 to 7.5: the Windows calibration (1.76-1.88) was not CI's.
    * CI read 2.24-3.60 over 48 samples of 24 runs (max 3.60, run 43696792243
-   * nup: 27,439 / 7,613 ms, the control in a quiet window), and 2.22-2.80 on
-   * the 11 attempts of 2026-11-21 (44891504062-44924793701). 7.5 is 2.08x
-   * over 3.60.
+   * nup: 27,439 / 7,613 ms, the control in a quiet window), and 2.22-2.86 on
+   * the 11 attempts of 2026-11-21 (44891504062-44924793701; 2.86 is
+   * 44924793701's nup, 22,247 / 7,769 ms). 7.5 is 2.08x over 3.60.
+   *
+   * The lowest-mutant rule (bound <= mutant / 1.5) does NOT hold here, and
+   * cannot with 2x over CI: the "four times late" mutant decodes about 20
+   * pages, about 4,000 MiB = 10.4 controls by bytes, so the rule wants 6.9
+   * or less and 2 x 3.60 wants 7.2 or more. Its time ratio was never
+   * measured, because the page count above went red first ("expected 20 to
+   * be 5"). So that mutant is the page count's to catch, on any runner, and
+   * this ratio is only the backstop for work outside decodeContents.
    */
   const RATIO_TO_CONTROL = 7.5;
   /**
@@ -388,8 +396,11 @@ describe("PS-02 / STAMP-13: many pages sharing one content stream under the budg
    * the slowest runner seen; the decoded-bytes count above is what catches
    * an under-charging ledger on every runner. History: 40,000 until
    * 2026-11-22, when CI's refusal reached 30,250 ms (44346859633
-   * overlay-cycle, main) and 29,855 ms (44910288854 nup): 1.32x. Now 64,000,
-   * 2.1x over 30,250, under the refusal's 120 s kill.
+   * overlay-cycle, main) and 29,855 ms (44910288854 nup): 1.32x. The
+   * highest CI read is older and on the parent's clock, so an upper bound
+   * on the entry's: 30,692 ms (42740976326, "expected 30692 to be less than
+   * 30000"; PR #318's 43650957051 read 30,348). Now 64,000, 2.09x over
+   * 30,692, under the refusal's 120 s kill.
    */
   const ENTRY_CEILING_MS = 64_000;
   /** Whole pages the destination total admits before it refuses the next. */
@@ -494,21 +505,16 @@ describe("STAMP-12: many object streams, each under the budget", () => {
   // "bookmarks" (2026-11-10): Edit PDF Bookmarks reads through loadPdf.
   for (const entry of ["load", "watermark", "bookmarks"]) {
     test(`STAMP-12: ${entry} refuses 20 object streams of 100 MiB each (2 GB in all)`, async () => {
+      const started = Date.now();
       const r = settled(await run(entry, hostile()));
-      const refusal = r.error;
-      expect(refusal).toBe("PdfDecodeBudgetError");
+      expect(r.error).toBe("PdfDecodeBudgetError");
       expect(r.message).toContain(`${BUDGET_MB} MB`);
       expect(r.growthMb).toBeLessThan(REFUSED_BOMB_MB);
       // Refused once 256 MiB in all is inflated: about 1 s of inflate, not 8.
-      // The entry's own time, from the child (CI-flake audit lane 2): it was
-      // the parent's clock around fixture build, spawn and tsx boot too.
-      // Measure mode until harvested (test CI max 4,487 ms over 12 runs of
-      // 2026-11-18, so 30 s is 6.7x); the typed refusal and the growth bound
-      // above are what see the 2 GB inflate on any runner.
-      measureTime("decode-budget-objstm-refusal", r.ms!, 30_000, {
-        instance: entry,
-        witness: "refusal",
-      });
+      // Kept raw (review 2026-11-22): the test took up to 4,487 ms on CI over
+      // 12 runs of 2026-11-18, 6.7x under 30 s, so it was never flaky, and
+      // the refusal's type cannot see an entry that inflates all 2 GB first.
+      expect(Date.now() - started).toBeLessThan(30_000);
     }, 90_000);
   }
 
@@ -562,6 +568,7 @@ describe("CO-07: extract-images bounds decoded bytes", () => {
         stream: content,
       })),
     ];
+    const started = Date.now();
     const r = settled(await run("extract", rawPdf({ objects })));
     const skipped = (r.ok as { skipped: { page: number; reason: string }[] })
       .skipped;
@@ -569,14 +576,10 @@ describe("CO-07: extract-images bounds decoded bytes", () => {
       s.reason.startsWith("Too much page content in this PDF"),
     );
     // 256 MiB / 60 MiB: pages 1-4 scanned (the 5th gets the last 16 MiB).
-    const uncheckedPages = unchecked.map((s) => s.page);
-    expect(uncheckedPages).toEqual([6, 7, 8, 9, 10]);
-    // The pages left unchecked pin the total above on any runner; the time
-    // is the entry's own, from the child, in measure mode until harvested
-    // (test CI max 3,443 ms over 12 runs of 2026-11-18: 30 s is 8.7x).
-    measureTime("decode-budget-inline-total", r.ms!, 30_000, {
-      witness: "uncheckedPages",
-    });
+    expect(unchecked.map((s) => s.page)).toEqual([6, 7, 8, 9, 10]);
+    // Kept raw (review 2026-11-22): test CI max 3,443 ms over 12 runs of
+    // 2026-11-18, 8.7x under 30 s; never flaky.
+    expect(Date.now() - started).toBeLessThan(30_000);
   }, 90_000);
 
   // l01#11 / l01#17: page 5 below gets only the last 16 MiB of the 256 MiB
