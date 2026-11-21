@@ -70,8 +70,10 @@ const MEASURED_KB: Record<number, number> = {
  * The rotation fixture is the only proof input with a /Rotate in it.
  *
  * A byte search, not a decode: until 2026-11-21 this decoded every input
- * (two 1380 px photos per run included) to a string first, which was most of
- * what the photo controls cost on CI. For an ASCII needle the answer is the
+ * (two 1380 px photos per run included) to a string first. That was a part
+ * of the file's cost, not most of it: run alone, the file's tests went from
+ * about 24.4 s to about 20.9 s on one machine (review, 2 runs each way), and
+ * no CI run has measured it yet. For an ASCII needle the answer is the
  * same, and the first test below is its two-way control: a false negative
  * turns the rotation checks red, a false positive the target-rung check.
  */
