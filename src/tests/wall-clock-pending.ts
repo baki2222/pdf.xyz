@@ -43,4 +43,16 @@ export const WALL_CLOCK_PENDING: readonly PendingEntry[] = [
     reason:
       "a metered unit that costs more time per byte it reads changes no count: kinds and scan steps both stay put (lane 2 verify, 2026-11-22); flip to assert from CI harvests",
   },
+  {
+    id: "S4 entry boxes",
+    file: "src/lib/pdf/form-detect-boxes-cost.test.ts",
+    reason:
+      "The entry-box rule's cost must stay linear in the page's boxes, and only this ratio sees a quadratic step: the test's health checks cover what the rule returns, not what it costs. Back to assert once 5 CI runs calibrate the id (bound 45 against 16.7 to 21.6 measured; mutants 74 to 232).",
+  },
+  {
+    id: "S4 stacks",
+    file: "src/lib/pdf/form-detect-boxes-cost.test.ts",
+    reason:
+      "The stacked-line rule's cost must stay linear in the page's stacks, and only this ratio sees a quadratic step: the test's health checks cover what the rule returns, not what it costs. Back to assert once 5 CI runs calibrate the id (bound 45 against 17.1 to 20.5 measured; mutants 74 to 94).",
+  },
 ];
