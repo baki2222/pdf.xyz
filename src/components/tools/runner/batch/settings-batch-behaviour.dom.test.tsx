@@ -274,10 +274,9 @@ describe("Add Watermark's batch: an open-ended page range", () => {
       // bound short of the Set's maximum) still froze the tab and threw
       // nothing, so only a count sees it on every runner (review of lane 3,
       // mutant C2: parsePageList(list, 5_000_000) passed the throw witness).
-      // Measured: 0 numeric adds on this machine. Both files have at most 5
-      // pages, so 100 is above any per-file resolution the check could make
-      // and below an open range expanded to any bound of 100 pages or more
-      // (mutant C2 made 10,000,000).
+      // Pinned at 0, as measured: the check resolves no page while typing
+      // (each file resolves the list only when the batch runs), so a single
+      // numeric add is an expansion. Mutant C2 made 9,999,998.
       const setAdds = vi.spyOn(Set.prototype, "add");
       const typedAt = performance.now();
       const openRangeBlocks: (string | null)[] = [];
@@ -299,7 +298,7 @@ describe("Add Watermark's batch: an open-ended page range", () => {
       const controlAdds = numericAdds() - addsWhileTyping;
       setAdds.mockRestore();
       expect(controlAdds).toBeGreaterThanOrEqual(50);
-      expect(addsWhileTyping).toBeLessThan(100);
+      expect(addsWhileTyping).toBe(0);
       // The throwing form of the defect: expanding to Number.MAX_SAFE_INTEGER
       // pages throws "Set maximum size exceeded" (review 2026-11-08), which
       // blocks Run with that message.
