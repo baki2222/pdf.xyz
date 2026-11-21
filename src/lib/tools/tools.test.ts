@@ -374,7 +374,8 @@ describe("the search corpus", () => {
    * once and handed back, the same object, to every caller (`kept`), so the
    * explorer's per-keystroke `searchTools` cannot rebuild it whatever the
    * runner's speed. Mutant: `index ??=` in search-tools.ts made `index =`
-   * turns `kept` red. The timed one: a query against a whole build of the
+   * turns `kept` red. A slowdown inside `search` itself has no count; only
+   * the records below see it, and they record. The timed one: a query against a whole build of the
    * index, same run, interleaved, time-boxed samples, best per call. A
    * search that holds a build inside it reads 1 or more by construction
    * (dev host: 1.01-1.08); the honest search reads 0.06 there. Measure mode
@@ -391,8 +392,11 @@ describe("the search corpus", () => {
     const docs = toolDocs(tools);
     const sides = [
       () => buildIndex(docs),
+      // Through `searchTools`, the explorer's per-keystroke call, so the
+      // timed path is the one `kept` holds (review 2026-11-22: timing
+      // `search(index, q)` over a prebuilt index never reached the memo).
       () => {
-        for (const query of queries) search(index, query);
+        for (const query of queries) searchTools(query);
         return queries.length;
       },
     ] as const;

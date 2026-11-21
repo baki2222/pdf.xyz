@@ -583,6 +583,12 @@ const PATHOLOGICAL: [string, string][] = [
 const PROSE = fill("The lease runs for three years.\n");
 /** One time-boxed sample lasts at least this long. */
 const SAMPLE_MS = 100;
+/**
+ * The timeout that fails an unbounded parse (see the "inside the default
+ * timeout" test): vitest's 5 s default, written out.
+ */
+const PARSE_BACKSTOP_MS = 5_000;
+const PARSE_TESTS = { timeout: PARSE_BACKSTOP_MS };
 
 interface Reach {
   /** The whole input became one thematic break. */
@@ -642,21 +648,25 @@ describe("bounded", () => {
       expect(text.length, name).toBeGreaterThanOrEqual(KB200 - 10);
   });
 
-  it("health check: every shape reaches the code it is named for", () => {
-    for (const [name, text] of PATHOLOGICAL) {
-      const reach = reachOf(parseMarkdown(text));
-      expect(reaches(name, reach), `${name} ${JSON.stringify(reach)}`).toBe(
-        true,
-      );
-    }
-    // Positive control: the members as they were, one `hr` each, fail it.
-    for (const [name, was] of [
-      ["stars", fill("*")],
-      ["underscores", fill("_")],
-      ["bullets", fill("- ")],
-    ] as const)
-      expect(reaches(name, reachOf(parseMarkdown(was))), name).toBe(false);
-  });
+  it(
+    "health check: every shape reaches the code it is named for",
+    PARSE_TESTS,
+    () => {
+      for (const [name, text] of PATHOLOGICAL) {
+        const reach = reachOf(parseMarkdown(text));
+        expect(reaches(name, reach), `${name} ${JSON.stringify(reach)}`).toBe(
+          true,
+        );
+      }
+      // Positive control: the members as they were, one `hr` each, fail it.
+      for (const [name, was] of [
+        ["stars", fill("*")],
+        ["underscores", fill("_")],
+        ["bullets", fill("- ")],
+      ] as const)
+        expect(reaches(name, reachOf(parseMarkdown(was))), name).toBe(false);
+    },
+  );
 
   /**
    * WAS: each shape timed once against `took < 1_500` ms, in this test,
@@ -667,13 +677,24 @@ describe("bounded", () => {
    * takes about 7 s on the dev host and more on CI, so the default fails it
    * on every runner, a bound that does not move with the runner's speed the
    * way a measured one does. Do not give this test a longer timeout.
+   *
+   * Written out (PARSE_BACKSTOP_MS), not left to the default, so a change
+   * to the suite's default cannot loosen it unseen. Review 2026-11-22
+   * proved it: `CLOSER_TRIES` 4096 (64 honest) fails this test and the
+   * health check above with "Test timed out in 5000ms" (10,088 and
+   * 11,205 ms on the dev host), while the ratio test below only records.
+   * CI maximum 1,219 ms for the loop (44373418087), so 5 s is 4.1x.
    */
-  it("each 200 KB shape parses, losing no more than its marks, inside the default timeout", () => {
-    for (const [name, text] of PATHOLOGICAL) {
-      const blocks = parseMarkdown(text);
-      expect(blockText(blocks).length, name).toBeLessThanOrEqual(text.length);
-    }
-  });
+  it(
+    "each 200 KB shape parses, losing no more than its marks, inside the default timeout",
+    () => {
+      for (const [name, text] of PATHOLOGICAL) {
+        const blocks = parseMarkdown(text);
+        expect(blockText(blocks).length, name).toBeLessThanOrEqual(text.length);
+      }
+    },
+    PARSE_BACKSTOP_MS,
+  );
 
   /**
    * The parse's cost shape, against plain prose of the same 200 KB parsed in
