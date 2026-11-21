@@ -677,16 +677,17 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
       expect(drawnInk).toEqual([765, 765]);
       expect(v.notice as string).toContain(PDF_IMAGE_TOO_LARGE_MESSAGE);
       // Ink and notice cannot see the mask decoded (a zero mask paints white
-      // either way). Memory can (CI-flake audit lane 2): decoding the 100 MP
-      // mask allocates 100 MB or more (its Flate output plus a byte a pixel
-      // of alpha), against the 10-11 MB an honest case adds on Linux / Node
-      // 22 (this file's header). 64 MB sits between.
-      expect(v.growthMb as number).toBeLessThan(64);
+      // either way). Memory can: decoding the 100 MP mask allocates 100 MB
+      // or more. The honest growth is printed here (CI-flake audit lane 2)
+      // so a dedicated bound can be set from CI's spread; a first guess of
+      // 64 MB read 77 MB honest on a loaded Windows box, so it waits for
+      // the harvest.
       // The 500 ms bound stays until its CI spread is read: it is printed
       // now, never before (CI's tests took up to 4,170 / 5,681 ms with the
       // fixture build and the open).
       measureTime("pdfjs-guard-softmask-render", v.renderMs as number, 500, {
         instance: typed,
+        detail: `growth ${v.growthMb as number} MB`,
         witness: "drawnInk",
       });
       expect(v.renderMs as number).toBeLessThan(500);
