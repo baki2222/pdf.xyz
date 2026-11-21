@@ -137,8 +137,8 @@ async function panelFor(slug: string): Promise<ComponentType<{ tool: Tool }>> {
  * CI: the slowest test in this file took 1093 ms (the rate-limit test, run
  * 44299285879; 19 passing runs, 11-18 to 11-21); the slowest wait the
  * wait-headroom block saw, 1004 ms, is that test's end message, which waits
- * out the stub's 1 s Retry-After (run 44917160721). 3 s is 2.7x the slowest
- * test.
+ * out the stub's 1 s Retry-After (run 44917160721; `RESUMED_END_MS`). 3 s
+ * is 2.7x the slowest test.
  */
 const WAIT_MS = 3_000;
 /**
@@ -148,6 +148,18 @@ const WAIT_MS = 3_000;
  * at the foot of the file, above every wait it holds.
  */
 const BATCH_END_MS = 5_000;
+/** The stubbed limit's `Retry-After`, in seconds (the rate-limit test). */
+const RATE_LIMIT_RETRY_AFTER_S = 1;
+/**
+ * The end of a batch paused by that limit. The batch resumes at
+ * now + Retry-After x 1000 (`worker-batch.ts`, resumeAt), so the wait is
+ * the stub's pause plus ordinary work. CI: this wait took 947, 990 and
+ * 1004 ms (wait-headroom, the last in run 44917160721), i.e. the 1 s pause
+ * plus little; 1 s + WAIT_MS = 4 s is 4.0x that, and below the describe's
+ * 20 s. A literal, so the wait-headroom reporter can read it; the
+ * rate-limit test asserts it still leaves WAIT_MS beyond the stub's pause.
+ */
+const RESUMED_END_MS = 4_000;
 
 let events: RedactedEvent[] = [];
 let leave: () => void = () => {};
@@ -231,7 +243,7 @@ function limitedNetwork(
           return json(
             { error: { code: "rate_limited", message: "Too many." } },
             429,
-            { "Retry-After": "1" },
+            { "Retry-After": String(RATE_LIMIT_RETRY_AFTER_S) },
           );
         return json({
           slots: [
@@ -494,10 +506,14 @@ describe("every registered worker batch, through its page's own panel", () => {
     const unload = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(unload);
     expect(unload.defaultPrevented).toBe(true);
+    // The end wait is the stub's pause plus ordinary work.
+    expect(
+      RESUMED_END_MS - RATE_LIMIT_RETRY_AFTER_S * 1000,
+    ).toBeGreaterThanOrEqual(WAIT_MS);
     await screen.findByText(
       "Batch complete. 2 done, 0 failed.",
       {},
-      { timeout: BATCH_END_MS },
+      { timeout: RESUMED_END_MS },
     );
     // The paused file was asked for again: three reservations, two jobs.
     expect(net.reservations()).toBe(3);
