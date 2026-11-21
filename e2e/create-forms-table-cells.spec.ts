@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
 import { PDFDocument, PDFTextField, StandardFonts, rgb } from "pdf-lib";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
+import { axeViolations } from "./chat-citations-fixture";
 import { fileInput, waitForHydration } from "./helpers";
 
 /**
@@ -15,8 +16,15 @@ import { fileInput, waitForHydration } from "./helpers";
  *
  *  - exactly six fields, named by column and row, each widget inside the
  *    cell PRINTED there (the numbers this file drew with), one a cell;
- *  - nothing from page 2, whose table the summary names in ONE line.
+ *  - nothing from page 2, whose table the summary names in ONE line;
+ *  - axe passes on the CARDS state, the six fields drawn on the preview
+ *    about 16 px apart (review round 1: a 24 px button each overlapped its
+ *    neighbours, target-size, and no gate looked past the idle page).
+ *
+ * "Inside" means clear of the printed 0.75 pt line's ink, 0.375 in from
+ * its centre (review round 1: the check allowed 0.5 pt OVER the line).
  */
+const INK = 0.375;
 const XS = [72, 260, 380, 540];
 const YS = [600, 624, 648, 672];
 const HEAD = ["Item", "Qty", "Amount"];
@@ -114,6 +122,11 @@ test("Find fields: a headed table's empty cells become fields inside their cells
   await page.getByRole("button", { name: /^Add all \(6\)/ }).click();
   await expect(rows).toHaveCount(0);
   await expect(page.locator("[data-field-card]")).toHaveCount(6);
+  // One field on the sheet is in the tab order; the rest are pressed or
+  // picked from their cards.
+  await expect(page.locator("button[data-preview-field]")).toHaveCount(1);
+  await expect(page.locator("[data-preview-target]")).toHaveCount(6);
+  expect(await axeViolations(page)).toEqual([]);
 
   await page.getByRole("button", { name: "Create form" }).click();
   await expect(page.getByText("Fillable form ready")).toBeVisible({
@@ -138,16 +151,16 @@ test("Find fields: a headed table's empty cells become fields inside their cells
     expect(widgets[0]!.P()).toBe(pages[0]!.ref);
     const r = widgets[0]!.getRectangle();
     expect(r.x, `${field.getName()} left`).toBeGreaterThanOrEqual(
-      want.x0 - 0.5,
+      want.x0 + INK,
     );
     expect(r.x + r.width, `${field.getName()} right`).toBeLessThanOrEqual(
-      want.x1 + 0.5,
+      want.x1 - INK,
     );
     expect(r.y, `${field.getName()} bottom`).toBeGreaterThanOrEqual(
-      want.y0 - 0.5,
+      want.y0 + INK,
     );
     expect(r.y + r.height, `${field.getName()} top`).toBeLessThanOrEqual(
-      want.y1 + 0.5,
+      want.y1 - INK,
     );
   }
   // Health: six printed cells, each a different one.

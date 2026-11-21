@@ -304,6 +304,7 @@ export function CreateFormsPreview({
             field={f}
             size={size}
             selected={f.id === selectedId}
+            tabbable={f.id === (selected ?? fields[0])?.id}
             sheetRef={sheetRef}
             onSelect={() => onSelect(f.id)}
             onMove={(at) => onMove(f.id, at)}
@@ -400,13 +401,21 @@ export function CreateFormsPreview({
 /**
  * One field on the sheet: its box(es) exactly as the engine will write them
  * (`data-field-box`, read by the tests and the e2e spec against the saved
- * widgets), under one button over the whole field (a radio group's stack is
- * one field), grown to at least 24 x 24 px about its centre (WCAG 2.5.8).
+ * widgets), under one press area over the whole field (a radio group's stack
+ * is one field), grown to at least 24 x 24 px about its centre.
+ *
+ * Only ONE field on the sheet is a button in the tab order, as only one of
+ * Find fields' suggestions is: the selected field, else the first, drawn
+ * over the others so a press where grown areas overlap goes to it. A table
+ * of 24 pt rows draws its fields about 16 px apart, so a 24 px button each
+ * overlapped its neighbours (axe target-size, WCAG 2.5.8; S5 review round
+ * 1). Every other field is reached from its card, which selects it here.
  */
 function PreviewBox({
   field,
   size,
   selected,
+  tabbable,
   sheetRef,
   onSelect,
   onMove,
@@ -416,6 +425,8 @@ function PreviewBox({
   field: PreviewField;
   size: SheetSize;
   selected: boolean;
+  /** The one field on the sheet in the tab order: the selected, else the first. */
+  tabbable: boolean;
   sheetRef: React.RefObject<HTMLDivElement | null>;
   onSelect: () => void;
   onMove: (at: { x: number; y: number }) => void;
@@ -433,6 +444,64 @@ function PreviewBox({
   const ink = selected ? PREVIEW_INK.selected : PREVIEW_INK.other;
   const union = unionOf(field.boxes);
   const u = union ? boxOnSheet(union, size) : null;
+
+  // The pointer's part, shared by the field's press area and its button.
+  const press = {
+    onPointerDown: (event: React.PointerEvent<HTMLElement>) => {
+      if (event.button !== 0 && event.pointerType === "mouse") return;
+      event.preventDefault();
+      event.currentTarget.focus();
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      const start = { x: field.x, y: field.y };
+      drag.current = {
+        cx: event.clientX,
+        cy: event.clientY,
+        start,
+        boxes: field.boxes,
+        last: start,
+        moved: false,
+      };
+      onSelect();
+    },
+    onPointerMove: (event: React.PointerEvent<HTMLElement>) => {
+      const d = drag.current;
+      const rect = sheetRef.current?.getBoundingClientRect();
+      if (!d || !rect || rect.width <= 0 || rect.height <= 0) return;
+      const dx = event.clientX - d.cx;
+      const dy = event.clientY - d.cy;
+      if (!d.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+      d.moved = true;
+      d.last = placeAt(
+        {
+          x: d.start.x + (dx / rect.width) * size.width,
+          y: d.start.y - (dy / rect.height) * size.height,
+        },
+        d.start,
+        d.boxes,
+        size,
+      );
+      onMove(d.last);
+    },
+    onPointerUp: () => {
+      const d = drag.current;
+      drag.current = null;
+      if (d?.moved) onDrop(d.last);
+    },
+    onPointerCancel: () => {
+      const d = drag.current;
+      drag.current = null;
+      if (d?.moved) onMove(d.start);
+    },
+    onClick: onSelect,
+  };
+  const target = (b: SheetBox): React.CSSProperties => ({
+    ...grown(b, true),
+    background: "transparent",
+    border: 0,
+    padding: 0,
+    touchAction: "none",
+    cursor: "move",
+  });
 
   return (
     <>
@@ -466,69 +535,23 @@ function PreviewBox({
         );
       })}
       {u && (
+        <span
+          aria-hidden
+          data-preview-target={field.id}
+          className="rounded-tag absolute"
+          style={target(u)}
+          {...press}
+        />
+      )}
+      {u && tabbable && (
         <button
           type="button"
           data-preview-field={field.id}
           aria-label={`${fieldLabel(field)}, X ${field.x}, Y ${field.y}`}
           aria-pressed={selected}
           className="rounded-tag focus-visible:ring-accent/50 absolute outline-none focus-visible:ring-2"
-          style={{
-            left: `calc(${pct(u.left)} + (${pct(u.width)} - max(${pct(u.width)}, 24px)) / 2)`,
-            bottom: `calc(${pct(u.bottom)} + (${pct(u.height)} - max(${pct(u.height)}, 24px)) / 2)`,
-            width: `max(${pct(u.width)}, 24px)`,
-            height: `max(${pct(u.height)}, 24px)`,
-            background: "transparent",
-            border: 0,
-            padding: 0,
-            touchAction: "none",
-            cursor: "move",
-          }}
-          onPointerDown={(event) => {
-            if (event.button !== 0 && event.pointerType === "mouse") return;
-            event.preventDefault();
-            event.currentTarget.focus();
-            event.currentTarget.setPointerCapture?.(event.pointerId);
-            const start = { x: field.x, y: field.y };
-            drag.current = {
-              cx: event.clientX,
-              cy: event.clientY,
-              start,
-              boxes: field.boxes,
-              last: start,
-              moved: false,
-            };
-            onSelect();
-          }}
-          onPointerMove={(event) => {
-            const d = drag.current;
-            const rect = sheetRef.current?.getBoundingClientRect();
-            if (!d || !rect || rect.width <= 0 || rect.height <= 0) return;
-            const dx = event.clientX - d.cx;
-            const dy = event.clientY - d.cy;
-            if (!d.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
-            d.moved = true;
-            d.last = placeAt(
-              {
-                x: d.start.x + (dx / rect.width) * size.width,
-                y: d.start.y - (dy / rect.height) * size.height,
-              },
-              d.start,
-              d.boxes,
-              size,
-            );
-            onMove(d.last);
-          }}
-          onPointerUp={() => {
-            const d = drag.current;
-            drag.current = null;
-            if (d?.moved) onDrop(d.last);
-          }}
-          onPointerCancel={() => {
-            const d = drag.current;
-            drag.current = null;
-            if (d?.moved) onMove(d.start);
-          }}
-          onClick={onSelect}
+          style={{ ...target(u), zIndex: 1 }}
+          {...press}
           onKeyDown={(event) => {
             const step = event.shiftKey ? STEP_BIG_PT : STEP_PT;
             const by: Record<string, [number, number]> = {
