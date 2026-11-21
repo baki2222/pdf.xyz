@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -130,13 +131,18 @@ export function useBatchRunner<R>(
   const runningRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
+  // Both refs sync in a LAYOUT effect, inside the commit: a passive effect
+  // runs in a later task (React defers it behind requestPaint), so a press
+  // landing on freshly drawn DOM before that task read the PREVIOUS rows,
+  // and "Retry failed (1)" retried nothing. batch-view.dom.test.tsx presses
+  // in the same microtask the button appears in, to keep this so.
   const unitsRef = useRef(units);
-  useEffect(() => {
+  useLayoutEffect(() => {
     unitsRef.current = units;
   }, [units]);
   // The rows as last rendered: what a press of Run or Retry acts on.
   const stateRef = useRef(state);
-  useEffect(() => {
+  useLayoutEffect(() => {
     stateRef.current = state;
   }, [state]);
   // Files taken out before Run stay out when the batch is run again.
