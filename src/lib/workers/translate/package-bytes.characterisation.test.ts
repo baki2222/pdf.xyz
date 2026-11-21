@@ -10,9 +10,14 @@
  * bf742a9a plus the spend fix, which changes no success path) and must stay
  * green after it.
  *
- * The clock is frozen because JSZip stamps each entry with `new Date()`; the
- * manifest's `createdAt` comes from the injected `now`. With both pinned the
- * bytes are a pure function of the fixtures.
+ * The bytes are a pure function of the fixtures: the manifest's `createdAt`
+ * comes from the injected `now`, and since 2026-11-19 every ZIP entry is
+ * dated with that `createdAt` (`buildPackage`). WAS: a frozen `Date`, because
+ * JSZip stamped each entry with `new Date()`. The freeze is gone on purpose:
+ * it made this file blind to that defect coming back (with it, the old engine
+ * stayed green here; without it, all six cases go red on the old engine and
+ * stay green, at the SAME hashes, on the fix — NOW is the instant the freeze
+ * used, so no hash moved). `package-date.test.ts` holds the 2 s case.
  *
  * HISTORY, kept on purpose (re-recorded, not deleted):
  *   1. Recorded on the pre-refactor engine, then held GREEN through the move
@@ -54,7 +59,7 @@
  */
 import { createHash } from "node:crypto";
 import JSZip from "jszip";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import type { TranslateOptions } from "@/lib/jobs/translate-pdf";
 import type { AiCompletionResult, AiProvider } from "../ai/provider";
@@ -203,14 +208,6 @@ const CASES: Case[] = [
 ];
 
 describe("the translation ZIP's bytes do not move", () => {
-  beforeEach(() => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-11-15T00:00:00.000Z"));
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it.each(CASES.map((c) => [c.name, c] as const))("%s", async (_, c) => {
     const provider = numbered(c.failAt, c.emptyAt);
     const run = await runTranslate(new Uint8Array([1]), OPTIONS, {

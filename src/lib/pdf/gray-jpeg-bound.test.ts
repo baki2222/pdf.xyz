@@ -150,6 +150,13 @@ const SIZES: [number, number][] = [
  * the worst full-suite figure: a runner 3× slower still has 6× headroom. The
  * grid is the same 54 cells; the health check below bounds its size, so a
  * cell lost from it fails rather than passing vacuously.
+ *
+ * ON CI, after the split (checked 2026-11-19, the five runs that carry it:
+ * 44402871424, 44409912518, 44418885729, 44421232512, 44428026069): the
+ * slowest test in this file was a cell, "2% dither 1275×1650, at every
+ * quality", at 1,271 ms (44402871424) — CELL_TIMEOUT is 11.8× that, so it
+ * stays. The CI reporter prints only tests over about 300 ms, so the
+ * unprinted cells are under that.
  */
 const CELL_TIMEOUT = 15_000;
 const CELLS = SHAPES.flatMap(([label, make]) =>
