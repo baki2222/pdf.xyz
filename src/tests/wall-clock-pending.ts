@@ -31,4 +31,10 @@ export const WALL_CLOCK_PENDING: readonly PendingEntry[] = [
     reason:
       "Create Forms' stacked-line reading must stay linear in the page's stacks, and only this ratio sees a quadratic step. The test's health checks cover what is found, not what it costs. Back to assert once 5 CI runs calibrate the id (bound 45 against 17.1 to 20.5 measured; mutants 74 to 94).",
   },
+  {
+    id: "S5 tables",
+    file: "src/lib/pdf/form-detect-tables-cost.test.ts",
+    reason:
+      "Create Forms' table reading must stay linear in the page's tables, and only this ratio sees a quadratic step. The test's health checks cover what the page yields, not what it costs. Back to assert once 5 CI runs calibrate the id (see the bound's readings in the test file).",
+  },
 ];

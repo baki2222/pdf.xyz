@@ -3478,6 +3478,49 @@ function cellLabel(ix: TextIndex, c: Edges): string | null {
 }
 
 /**
+ * The page's plumb lines by band of height, for the questions that need
+ * only those beside some stretch of height: `bands(y0, y1)` returns every
+ * plumb line reaching [y0 - GRID_TOUCH_EPS, y1 + GRID_TOUCH_EPS] (and a few
+ * more near it), each once, for the caller's exact test. A line taller
+ * than TALL bands, or with an end that is not finite, is in every answer.
+ * Slice S5: the grid finder asked of every vertical on the page per stack
+ * part, and `gridTouches` per rule reaching table-grid (S4's cost note
+ * reported that one), so a page of tables was quadratic in its tables.
+ */
+function plumbBands(
+  verticals: PageLines["verticals"],
+): (y0: number, y1: number) => PageLines["verticals"] {
+  const STEP = 50;
+  const TALL = 64;
+  const eps = DETECT.GRID_TOUCH_EPS;
+  const band = (y: number) => Math.floor(y / STEP);
+  const bands = new Map<number, PageLines["verticals"]>();
+  const tall: PageLines["verticals"] = [];
+  for (const v of verticals) {
+    const b0 = band(v.y0 - eps);
+    const b1 = band(v.y1 + eps);
+    if (!(b1 - b0 <= TALL)) {
+      tall.push(v);
+      continue;
+    }
+    for (let b = b0; b <= b1; b++) {
+      const list = bands.get(b);
+      if (list) list.push(v);
+      else bands.set(b, [v]);
+    }
+  }
+  return (y0, y1) => {
+    const b0 = band(y0 - eps);
+    const b1 = band(y1 + eps);
+    if (!(b1 - b0 <= TALL)) return verticals;
+    const out = new Set(tall);
+    for (let b = b0; b <= b1; b++)
+      for (const v of bands.get(b) ?? []) out.add(v);
+    return [...out];
+  };
+}
+
+/**
  * A RULED GRID: a stack of rules whose ends line up (within
  * {@link DETECT.GRID_ROW_EPS}), split wherever the outer plumb lines break
  * (two tables at one margin), with plumb lines at both ends and at every
@@ -3494,9 +3537,16 @@ interface Grid {
   ys: number[];
 }
 
-function ruledGrids(lines: PageLines): Grid[] {
+function ruledGrids(
+  lines: PageLines,
+  plumbs: ReturnType<typeof plumbBands>,
+): Grid[] {
   const eps = DETECT.GRID_ROW_EPS;
   const tEps = DETECT.GRID_TOUCH_EPS;
+  // Every rule by height, for the stray-rule question of each part.
+  const byY = lines.rules
+    .filter((r) => Number.isFinite(r.y))
+    .sort((a, b) => a.y - b.y);
   const long = lines.rules
     .filter((r) => r.x1 - r.x0 >= DETECT.RULE_MIN_LEN)
     .sort((a, b) => a.y - b.y);
@@ -3540,7 +3590,7 @@ function ruledGrids(lines: PageLines): Grid[] {
       const a = stack[i - 1]!;
       const b = stack[i]!;
       outer ??= [seed.x0, seed.x1].map((x) =>
-        plumbCoverage(lines.verticals, x),
+        plumbCoverage(plumbs(stack[0]!.y, stack[stack.length - 1]!.y), x),
       );
       const joined = outer[0]!(a.y, b.y) && outer[1]!(a.y, b.y);
       if (joined) parts[parts.length - 1]!.push(b);
@@ -3550,7 +3600,7 @@ function ruledGrids(lines: PageLines): Grid[] {
       if (part.length < 2) continue;
       const lo = part[0]!.y;
       const hi = part[part.length - 1]!.y;
-      const inside = lines.verticals.filter(
+      const inside = plumbs(lo, hi).filter(
         (v) =>
           v.x >= seed.x0 - tEps &&
           v.x <= seed.x1 + tEps &&
@@ -3565,13 +3615,20 @@ function ruledGrids(lines: PageLines): Grid[] {
       if (xs.length < 3) continue;
       if (xs.slice(1, -1).some((x) => !plumbCovers(inside, x, lo, hi)))
         continue;
-      const stray = lines.rules.some(
-        (r) =>
-          !part.includes(r) &&
+      const own = new Set(part);
+      // (A rule with a y that is not finite was never inside a part.)
+      let stray = false;
+      for (
+        let i = from(byY, (r) => r.y, lo + tEps);
+        !stray && i < byY.length && byY[i]!.y < hi - tEps;
+        i++
+      ) {
+        const r = byY[i]!;
+        stray =
+          !own.has(r) &&
           r.y > lo + tEps &&
-          r.y < hi - tEps &&
-          overlap(r.x0, r.x1, seed.x0, seed.x1) > tEps,
-      );
+          overlap(r.x0, r.x1, seed.x0, seed.x1) > tEps;
+      }
       if (stray) continue;
       out.push({ xs, ys: part.map((r) => r.y) });
     }
@@ -3732,10 +3789,11 @@ interface TableRead {
 function tables(
   ix: TextIndex,
   lines: PageLines,
+  plumbs: ReturnType<typeof plumbBands>,
   on: (id: ExclusionRuleId) => boolean,
 ): TableRead {
   const read: TableRead = { cells: [], filled: [], large: [] };
-  for (const g of ruledGrids(lines)) {
+  for (const g of ruledGrids(lines, plumbs)) {
     const label = labelTable(ix, lines, g);
     if (label) {
       read.cells.push(...label);
@@ -4327,7 +4385,8 @@ export function classifyPage(
   // Tables (slice S5): their cells are read before the loop, and what the
   // read passes over is recorded first, so the cell it was about is
   // decided by it, not by the strip of a rule drawn under that cell.
-  const tableRead = tables(tix, lines, on);
+  const plumbs = plumbBands(lines.verticals);
+  const tableRead = tables(tix, lines, plumbs, on);
   for (const box of tableRead.large) {
     exclude("large-table", box);
     counts.largeTables++;
@@ -4514,7 +4573,7 @@ export function classifyPage(
       c.line &&
       (c.rule === "labelled-rule" || c.rule === "entry-box") &&
       on("table-grid") &&
-      (gridTouches(c.line, lines.verticals) ||
+      (gridTouches(c.line, plumbs(c.line.y, c.line.y)) ||
         (rowTable.has(c.line) && !c.leftLabel))
     ) {
       exclude("table-grid", c.box);
