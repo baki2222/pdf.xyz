@@ -113,7 +113,14 @@ const BOUNDS = {
   testOnly: [10, 80],
   workflowScripts: [20, 60],
   sleeps: [100, 400],
-  comparisons: [100, 500],
+  // Raw comparisons alone. 102 on 2026-11-21; 91 on 2026-11-22 after lane
+  // 1b routed its scope (routing moves a comparison out of this set by
+  // design). The floor sits where a recognizer gone half blind (91 -> 45)
+  // still fails; a lane that routes the set below it lowers it here, with
+  // its own dated count, never by folding another set into this one.
+  comparisons: [60, 500],
+  // Routed calls alone, so a routing walk that goes blind fails on its own.
+  routed: [30, 300],
   routedDebtExempt: [100, 500],
 } as const;
 
@@ -363,12 +370,10 @@ describe.skipIf(MODE)(
         `routed ${audit.routed.length}, debt ${parseDebt(WALL_CLOCK_DEBT_TSV).length}, exempt ${WALL_CLOCK_EXEMPT.length}, comparisons ${audit.comparisons.length}`,
       );
       within("routedDebtExempt", total);
-      // Raw comparisons AND routed calls: routing a comparison moves it from
-      // the first set to the second, so a lane that fixes its debt shrinks
-      // the raw count by design (lane 1b took it from 102 to 79 on
-      // 2026-11-22) and the raw count alone would read that as blindness.
-      // The raw recognizer's own sight is held by wall-clock-detector.test.ts.
-      within("comparisons", audit.comparisons.length + audit.routed.length);
+      // Each recognizer's set bounded on its own (review 2026-11-22: a sum
+      // of the two let the raw set lose half its members unseen).
+      within("comparisons", audit.comparisons.length);
+      within("routed", audit.routed.length);
     });
 
     it("every rule catches a real member, or says what it is waiting for (rule 1, both directions)", () => {
