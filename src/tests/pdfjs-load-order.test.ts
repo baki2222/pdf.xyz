@@ -76,6 +76,15 @@ const ROOT = process.cwd();
 const POISONER = "src/components/tools/runner/signed-input-notice.test.tsx";
 const CONFIG = "src/tests/pdfjs-load-order.vitest.config.ts";
 
+/**
+ * How long the child vitest may run before spawnSync kills it. The child runs
+ * the poisoner and every driver with no warm-up, cold, in one fork: CI max of
+ * the whole test 56,493 ms over 31 runs (43998624497, 11-17), 55,628 ms in the
+ * 11 runs of 11-21 (44891504062). 240 s is 4.25x, so a slow runner is never
+ * mistaken for a hang, and a kill is reported as a kill (first assertion).
+ */
+const KILL_MS = 240_000;
+
 const repoPath = (path: string) => relative(ROOT, path).replaceAll("\\", "/");
 
 function testFiles(dir: string): string[] {
@@ -107,7 +116,11 @@ interface JsonReport {
     name: string;
     status: string;
     startTime: number;
-    assertionResults: { status: string; fullName: string }[];
+    assertionResults: {
+      status: string;
+      fullName: string;
+      failureMessages?: string[];
+    }[];
     message?: string;
   }[];
 }
@@ -141,101 +154,121 @@ describe("the discovery of the files that drive pdf.js's browser build", () => {
 });
 
 describe("pdf.js load order under isolate:false", () => {
-  it("a file that loads pdf.js with no DOMMatrix does not break the files after it", () => {
-    const order = [POISONER, ...browserBuildDrivers()];
-    const work = mkdtempSync(join(tmpdir(), "pdfjs-load-order-"));
-    const report = join(work, "report.json");
-    const trace = join(work, "trace.jsonl");
-    writeFileSync(trace, "");
+  it(
+    "a file that loads pdf.js with no DOMMatrix does not break the files after it",
+    () => {
+      const order = [POISONER, ...browserBuildDrivers()];
+      const work = mkdtempSync(join(tmpdir(), "pdfjs-load-order-"));
+      const report = join(work, "report.json");
+      const trace = join(work, "trace.jsonl");
+      writeFileSync(trace, "");
 
-    const vitestCli = join(
-      dirname(createRequire(import.meta.url).resolve("vitest/package.json")),
-      "vitest.mjs",
-    );
-    // A fresh vitest, not this one: the property is about what the FIRST
-    // evaluation of pdf.js in a worker leaves behind, and this worker's module
-    // cache has already decided that for itself.
-    const env: NodeJS.ProcessEnv = { ...process.env };
-    for (const key of Object.keys(env)) {
-      if (key.startsWith("VITEST")) delete env[key];
-    }
-    const run = spawnSync(
-      process.execPath,
-      [
-        vitestCli,
-        "run",
-        "--config",
-        CONFIG,
-        "--no-file-parallelism",
-        "--reporter=json",
-        `--outputFile=${report}`,
-        ...order,
-      ],
-      {
-        cwd: ROOT,
-        encoding: "utf8",
-        timeout: 150_000,
-        env: {
-          ...env,
-          PDFJS_LOAD_ORDER: JSON.stringify(order),
-          PDFJS_LOAD_ORDER_LOG: trace,
+      const vitestCli = join(
+        dirname(createRequire(import.meta.url).resolve("vitest/package.json")),
+        "vitest.mjs",
+      );
+      // A fresh vitest, not this one: the property is about what the FIRST
+      // evaluation of pdf.js in a worker leaves behind, and this worker's module
+      // cache has already decided that for itself.
+      const env: NodeJS.ProcessEnv = { ...process.env };
+      for (const key of Object.keys(env)) {
+        if (key.startsWith("VITEST")) delete env[key];
+      }
+      const spawnedAt = performance.now();
+      const run = spawnSync(
+        process.execPath,
+        [
+          vitestCli,
+          "run",
+          "--config",
+          CONFIG,
+          "--no-file-parallelism",
+          "--reporter=json",
+          `--outputFile=${report}`,
+          ...order,
+        ],
+        {
+          cwd: ROOT,
+          encoding: "utf8",
+          timeout: KILL_MS,
+          env: {
+            ...env,
+            PDFJS_LOAD_ORDER: JSON.stringify(order),
+            PDFJS_LOAD_ORDER_LOG: trace,
+          },
         },
-      },
-    );
-    const output = `${run.stdout ?? ""}\n${run.stderr ?? ""}`.slice(-4000);
-    const wrote = existsSync(report);
-    const results = wrote
-      ? (
-          JSON.parse(readFileSync(report, "utf8")) as JsonReport
-        ).testResults.map((r) => ({ ...r, file: repoPath(r.name) }))
-      : [];
-    const traces = readFileSync(trace, "utf8")
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as Trace)
-      .map((t) => ({ ...t, file: repoPath(t.file) }));
-    rmSync(work, { recursive: true, force: true });
-    expect(wrote, `the child run wrote a report:\n${output}`).toBe(true);
+      );
+      const childMs = Math.round(performance.now() - spawnedAt);
+      const output = `${run.stdout ?? ""}\n${run.stderr ?? ""}`.slice(-4000);
+      const wrote = existsSync(report);
+      const results = wrote
+        ? (
+            JSON.parse(readFileSync(report, "utf8")) as JsonReport
+          ).testResults.map((r) => ({ ...r, file: repoPath(r.name) }))
+        : [];
+      const traces = readFileSync(trace, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as Trace)
+        .map((t) => ({ ...t, file: repoPath(t.file) }));
+      rmSync(work, { recursive: true, force: true });
+      // First, so a kill reads as one: spawnSync sets `error` when it kills the
+      // child (ETIMEDOUT at KILL_MS, ENOBUFS past its 1 MiB buffer), whether or
+      // not a report was written before it.
+      const killed = run.error as NodeJS.ErrnoException | undefined;
+      expect(
+        killed,
+        `child killed after ${childMs} ms of ${KILL_MS} (${killed?.code}, status ${run.status}): the runner is too slow or the child hung; this is not a load-order failure\n${output}`,
+      ).toBeUndefined();
+      expect(wrote, `the child run wrote a report:\n${output}`).toBe(true);
 
-    // The order is the test: every listed file ran, in the listed order.
-    const ran = [...results]
-      .sort((a, b) => a.startTime - b.startTime)
-      .map((r) => r.file);
-    expect(ran).toEqual(order);
+      // The order is the test: every listed file ran, in the listed order.
+      const ran = [...results]
+        .sort((a, b) => a.startTime - b.startTime)
+        .map((r) => r.file);
+      expect(ran).toEqual(order);
 
-    // The first file started where pdf.js's browser build cannot evaluate —
-    // a fresh worker, jsdom, no DOMMatrix. Otherwise the order tests nothing.
-    expect(
-      traces.find((t) => t.file === POISONER && t.at === "start")?.domMatrix,
-      "DOMMatrix when the poisoner started",
-    ).toBe("undefined");
+      // The first file started where pdf.js's browser build cannot evaluate —
+      // a fresh worker, jsdom, no DOMMatrix. Otherwise the order tests nothing.
+      expect(
+        traces.find((t) => t.file === POISONER && t.at === "start")?.domMatrix,
+        "DOMMatrix when the poisoner started",
+      ).toBe("undefined");
 
-    // THE PROPERTY: every test in every file after it passed.
-    const failed = results.flatMap((r) =>
-      r.assertionResults
-        .filter((a) => a.status !== "passed")
-        .map((a) => `${r.file} > ${a.fullName}`)
-        .concat(
-          r.status === "passed" || !r.message
-            ? []
-            : [`${r.file}: ${r.message}`],
-        ),
-    );
-    expect(failed, output).toEqual([]);
-    for (const file of order) {
-      const passed = results
-        .find((r) => r.file === file)!
-        .assertionResults.filter((a) => a.status === "passed");
-      expect(passed.length, `${file} ran tests`).toBeGreaterThan(0);
-    }
+      // THE PROPERTY: every test in every file after it passed.
+      const failed = results.flatMap((r) =>
+        r.assertionResults
+          .filter((a) => a.status !== "passed")
+          // The cause rides on the name, so a module error handed on by the
+          // poisoner ("DOMMatrix is not defined") reads apart from a wait that
+          // ran out ("Unable to find role=...").
+          .map(
+            (a) =>
+              `${r.file} > ${a.fullName}: ${a.failureMessages?.[0]?.split("\n")[0] ?? "(no message)"}`,
+          )
+          .concat(
+            r.status === "passed" || !r.message
+              ? []
+              : [`${r.file}: ${r.message}`],
+          ),
+      );
+      expect(failed, output).toEqual([]);
+      for (const file of order) {
+        const passed = results
+          .find((r) => r.file === file)!
+          .assertionResults.filter((a) => a.status === "passed");
+        expect(passed.length, `${file} ran tests`).toBeGreaterThan(0);
+      }
 
-    // Health: the poisoner did load pdf.js in that DOM. The legacy build
-    // polyfills DOMMatrix when it is evaluated, so its presence at the end of
-    // the file is the trace of pdf.js having been loaded during it.
-    expect(
-      traces.find((t) => t.file === POISONER && t.at === "end")?.domMatrix,
-      `${POISONER} loaded pdf.js where DOMMatrix was absent`,
-    ).toBe("function");
-    expect(run.status, output).toBe(0);
-  }, 180_000);
+      // Health: the poisoner did load pdf.js in that DOM. The legacy build
+      // polyfills DOMMatrix when it is evaluated, so its presence at the end of
+      // the file is the trace of pdf.js having been loaded during it.
+      expect(
+        traces.find((t) => t.file === POISONER && t.at === "end")?.domMatrix,
+        `${POISONER} loaded pdf.js where DOMMatrix was absent`,
+      ).toBe("function");
+      expect(run.status, output).toBe(0);
+    },
+    KILL_MS + 30_000,
+  );
 });
