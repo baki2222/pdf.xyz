@@ -321,8 +321,9 @@ export function debtTsvFromModule(text: string, name: string): string {
  *    new sleep). A routed entry replacing a raw one in the same file is a
  *    conversion, not growth, while the file's entry count does not rise.
  *  - `lostButPresent`: entries the base had, gone from this list, whose
- *    code is still in the file's token stream — the detector went blind to
- *    them, which a shrink-only writer would otherwise record as progress.
+ *    code is still in the file's token stream more often than the list
+ *    keeps entries for it — the detector went blind to them, which a
+ *    shrink-only writer would otherwise record as progress.
  */
 export function ratchet<
   T extends { file: string; snippet: string; n: number; kind?: string },
@@ -340,11 +341,18 @@ export function ratchet<
       !baseKeys.has(debtKey(e)) &&
       !(e.kind === "routed" && count(now, e.file) <= count(base, e.file)),
   );
+  // Blind only while the file holds MORE copies of the snippet than the list
+  // keeps entries for it: one of several identical comparisons routed is
+  // progress (2026-11-22, lane 1b), the same count with an entry gone is not.
+  const copies = (file: string, snippet: string) =>
+    (keys.get(file) ?? "").split(snippet).length - 1;
+  const kept = (file: string, snippet: string) =>
+    now.filter((x) => x.file === file && x.snippet === snippet).length;
   const lostButPresent = base.filter(
     (e) =>
       !nowKeys.has(debtKey(e)) &&
       e.kind !== "routed" &&
-      (keys.get(e.file) ?? "").includes(e.snippet),
+      copies(e.file, e.snippet) > kept(e.file, e.snippet),
   );
   return { grown, lostButPresent };
 }
