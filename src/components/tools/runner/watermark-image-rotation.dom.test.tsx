@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * Audit watermark-pdf#6: text and image marks shared one Rotation, which
  * started at 45 degrees, so the advertised "logo small in a corner" came out

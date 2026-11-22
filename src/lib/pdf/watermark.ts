@@ -17,9 +17,11 @@ import {
   loadPdf,
   normalizeRotation,
   placeCenteredStamp,
+  placeTiltedAt,
   placeTiltedStamp,
   resolveAlign,
   stampProducer,
+  tiltedSpan,
   tilePlacements,
   toRgb,
   viewerSize,
@@ -82,8 +84,49 @@ export const WATERMARK_INSET = (1 - WATERMARK_FIT) / 2;
  */
 export const TILE_FIT = 0.5;
 
-/** Where the mark goes: one of the nine cells, or repeated across the page. */
-export type WatermarkPosition = StampPosition | "tile";
+/**
+ * A spot the reader picked on the page (dragged on the preview): the mark's
+ * CENTRE, as a share of the visible page as read (0–1 on each axis, origin at
+ * the TOP-LEFT, the way a screen counts). The mark is kept whole on the page,
+ * so a point near an edge moves in until the tilted mark fits.
+ */
+export interface WatermarkPoint {
+  x: number;
+  y: number;
+}
+
+/**
+ * Where the mark goes: one of the nine cells, repeated across the page, or a
+ * point the reader picked.
+ */
+export type WatermarkPosition = StampPosition | "tile" | WatermarkPoint;
+
+/** Whether a position is a picked point rather than a cell or "tile". */
+export function isWatermarkPoint(
+  position: WatermarkPosition | undefined,
+): position is WatermarkPoint {
+  return typeof position === "object" && position !== null;
+}
+
+/**
+ * The centre of a `span`-sized tilted mark at a picked point, in the
+ * reader's frame with y UP (what `placeTiltedAt` takes), kept whole on a
+ * `vw × vh` page.
+ */
+function pointCentre(
+  point: WatermarkPoint,
+  vw: number,
+  vh: number,
+  span: { x: number; y: number },
+): { cx: number; cy: number } {
+  const keep = (v: number, size: number, half: number) =>
+    half * 2 >= size ? size / 2 : clamp(v, half, size - half);
+  const share = (v: number) => (Number.isFinite(v) ? clamp(v, 0, 1) : 0.5);
+  return {
+    cx: keep(share(point.x) * vw, vw, span.x / 2),
+    cy: keep((1 - share(point.y)) * vh, vh, span.y / 2),
+  };
+}
 
 /** Whether the mark is drawn over the page's content or underneath it. */
 export type WatermarkLayer = "over" | "behind";
@@ -275,6 +318,16 @@ function placementsFor(
   if (position === "tile") {
     return tilePlacements({ box, pageRotation, width, height, tilt });
   }
+  if (isWatermarkPoint(position)) {
+    const view = viewerSize(box, pageRotation);
+    const { cx, cy } = pointCentre(
+      position,
+      view.width,
+      view.height,
+      tiltedSpan(width, height, tilt),
+    );
+    return [placeTiltedAt({ box, pageRotation, width, height, tilt, cx, cy })];
+  }
   if (position === "middle-center") {
     // The original path, kept literally: centred on the visible box, not on
     // (0,0)-(w,h), since a CropBox or a MediaBox that does not start at the
@@ -445,4 +498,135 @@ function sendDrawingToBack(
   const last = contents.get(contents.size() - 1);
   contents.remove(contents.size() - 1);
   contents.insert(0, last);
+}
+
+/** One mark as the preview draws it: its centre on the page as read. */
+export interface WatermarkPreviewMark {
+  /** Centre, in points from the LEFT of the page as read. */
+  cx: number;
+  /** Centre, in points from the TOP of the page as read. */
+  cy: number;
+}
+
+/** Everything the preview needs to draw what {@link watermarkPdf} will. */
+export interface WatermarkPreviewLayout {
+  /** The size factor this page gets (1, or less when it had to shrink). */
+  scale: number;
+  /** The mark's own (untilted) size on this page, in points. */
+  width: number;
+  height: number;
+  /** Tilt in degrees, counter-clockwise, as read. */
+  tilt: number;
+  marks: WatermarkPreviewMark[];
+}
+
+/**
+ * Where {@link watermarkPdf} puts the mark on a page whose visible size, AS
+ * READ, is `view`: the same fit and the same placement code, run on an
+ * upright page of that size, with each placement turned back into the centre
+ * of its mark. The engine places in the page's stored frame and turns by
+ * `/Rotate`; the reader's frame is the one both agree on, and the one a
+ * preview of the displayed page is drawn in. `mark` is the unshrunk size:
+ * {@link measureWatermarkText} for text, the image's size for an image.
+ */
+export function watermarkPreviewLayout(input: {
+  view: { width: number; height: number };
+  mark: { width: number; height: number };
+  tilt: number;
+  position: WatermarkPosition;
+}): WatermarkPreviewLayout {
+  const tilt = clamp(input.tilt, -90, 90);
+  const box = {
+    x: 0,
+    y: 0,
+    width: input.view.width,
+    height: input.view.height,
+  };
+  const scale = fitWatermarkScale({
+    boxWidth: box.width,
+    boxHeight: box.height,
+    textWidth: input.mark.width,
+    textHeight: input.mark.height,
+    theta: tilt,
+    fit: input.position === "tile" ? TILE_FIT : WATERMARK_FIT,
+  });
+  const width = input.mark.width * scale;
+  const height = input.mark.height * scale;
+  const page = {
+    getMediaBox: () => box,
+    getCropBox: () => box,
+    getRotation: () => ({ angle: 0 }),
+  } as unknown as PDFPage;
+  const rad = (tilt * Math.PI) / 180;
+  const marks = placementsFor(page, width, height, tilt, input.position).map(
+    (spot) => {
+      // The anchor is the mark's lower-left corner; its centre is the anchor
+      // plus R(tilt)·(w/2, h/2). y flips to count from the top.
+      const cx =
+        spot.x + (width / 2) * Math.cos(rad) - (height / 2) * Math.sin(rad);
+      const cy =
+        spot.y + (width / 2) * Math.sin(rad) + (height / 2) * Math.cos(rad);
+      return { cx, cy: box.height - cy };
+    },
+  );
+  return { scale, width, height, tilt, marks };
+}
+
+/**
+ * The size {@link watermarkPdf} gives `text` at `fontSize` before any fit:
+ * the same face it would embed (bold, the chosen family, a Unicode face when
+ * the text needs one). Null when no shipped face can draw the text — the run
+ * would refuse it, and says why.
+ */
+export async function measureWatermarkText(
+  text: string,
+  fontSize: number,
+  family?: StampFontFamily,
+): Promise<{ width: number; height: number } | null> {
+  const value = text.trim();
+  if (value.length === 0) return null;
+  try {
+    const { PDFDocument } = await loadPdfLib();
+    const doc = await PDFDocument.create();
+    const font = await embedStampFont(doc, [value], "bold", family);
+    const size = clamp(fontSize, 8, 240);
+    return {
+      width: font.widthOfTextAtSize(value, size),
+      height: font.heightAtSize(size),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** The visible size of page `index` as a reader sees it, in points. */
+export async function watermarkPageView(
+  bytes: Uint8Array,
+  index: number,
+): Promise<{ width: number; height: number }> {
+  const doc = await loadPdf(bytes);
+  const page = doc.getPage(clamp(index, 0, doc.getPageCount() - 1));
+  return viewerSize(visibleBox(page), page.getRotation().angle);
+}
+
+/**
+ * An image mark's height over its width as {@link watermarkPdf} draws it (the
+ * same embed, so a JPEG's orientation counts the same way), or null when the
+ * bytes cannot be a watermark image.
+ */
+export async function measureWatermarkImage(
+  bytes: Uint8Array,
+): Promise<number | null> {
+  const format = watermarkImageProblem(bytes)
+    ? null
+    : watermarkImageFormat(bytes);
+  if (!format) return null;
+  try {
+    const { PDFDocument } = await loadPdfLib();
+    const doc = await PDFDocument.create();
+    const shown = rasterDisplaySize(await embedRasterImage(doc, bytes, format));
+    return shown.height / shown.width;
+  } catch {
+    return null;
+  }
 }

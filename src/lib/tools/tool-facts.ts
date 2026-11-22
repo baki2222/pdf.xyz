@@ -997,7 +997,8 @@ export const RUNNER_MID_RUN_FETCHES: Readonly<
   "image-to-pdf": [],
   "pdf-to-image": ["image-decoder", "character-map"],
   "page-numbers": ["drawing-font"],
-  watermark: ["drawing-font"],
+  // The live preview renders the page (audit watermark-pdf#1, 2026-11-22).
+  watermark: ["image-decoder", "character-map", "drawing-font"],
   "header-footer": ["drawing-font"],
   // Auto renders every page through pdf.js to find its margins (2026-10-24).
   crop: ["image-decoder", "character-map"],

@@ -12,6 +12,7 @@ import {
   watermarkPdf,
   watermarkedOutputName,
   type WatermarkLayer,
+  type WatermarkPoint,
   type WatermarkReport,
 } from "@/lib/pdf/watermark";
 import {
@@ -54,6 +55,7 @@ import {
   TextField,
 } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
+import { WatermarkPreview } from "./watermark-preview";
 
 const COLORS: Record<"gray" | "red" | "blue", RGB> = {
   gray: WATERMARK_INK,
@@ -128,6 +130,8 @@ export function WatermarkEditor({
   const [color, setColor] = useState<ColorChoice>("gray");
   const [customHex, setCustomHex] = useState(() => rgbToHex(WATERMARK_INK));
   const [position, setPosition] = useState<StampPosition>("middle-center");
+  // A spot picked on the preview, in place of a cell; a cell clears it.
+  const [point, setPoint] = useState<WatermarkPoint | null>(null);
   const [tile, setTile] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [pageMode, setPageMode] = useState<"all" | "some">("all");
@@ -170,7 +174,7 @@ export function WatermarkEditor({
         fontSize,
         color: inkColor,
         font,
-        position: tile ? "tile" : position,
+        position: tile ? "tile" : (point ?? position),
         pages: pageMode === "some" ? pageList : undefined,
         layer,
         ...(mode === "image" && image
@@ -273,6 +277,24 @@ export function WatermarkEditor({
         </div>
       </RunnerSection>
 
+      <RunnerSection title="Preview">
+        <WatermarkPreview
+          bytes={pdf.bytes}
+          pageCount={pdf.pageCount}
+          mode={mode}
+          text={text}
+          font={font}
+          fontSize={fontSize}
+          image={mode === "image" ? (image?.bytes ?? null) : null}
+          imageScale={imageScale}
+          opacity={opacity}
+          rotation={rotation}
+          colorHex={rgbToHex(inkColor)}
+          position={tile ? "tile" : (point ?? position)}
+          onPlace={setPoint}
+        />
+      </RunnerSection>
+
       <RunnerSection title="Appearance">
         <div className="grid gap-5 sm:grid-cols-2">
           <RangeField
@@ -356,11 +378,22 @@ export function WatermarkEditor({
         <div className="flex flex-wrap items-start gap-6">
           <PositionPicker
             label="Watermark position"
-            value={position}
-            onChange={setPosition}
+            // A spot dragged on the preview is no cell: none is shown as
+            // chosen until one is picked again.
+            value={(point ? "" : position) as StampPosition}
+            onChange={(cell) => {
+              setPoint(null);
+              setPosition(cell);
+            }}
             disabled={tile}
           />
           <div className="flex min-w-52 flex-1 flex-col gap-3">
+            {point && !tile && (
+              <p className="text-muted text-xs">
+                Placed where you put it on the preview. Pick a spot on the grid
+                to snap it back.
+              </p>
+            )}
             <CheckboxField
               label="Tile across the page"
               checked={tile}
