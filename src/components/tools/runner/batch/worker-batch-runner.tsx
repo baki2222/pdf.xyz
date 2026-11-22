@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { Info, PauseCircle, Play, X } from "lucide-react";
+import { downloadBytes } from "@/lib/pdf/browser";
 import { BatchSkip, withNote, type NotedResult } from "@/lib/batch";
 import {
   BATCH_LIMITS,
@@ -23,6 +24,9 @@ import {
   type WorkerBatchSlug,
 } from "@/lib/batch/tools";
 import {
+  COMBINE_PDFS_HINT,
+  COMBINE_PDFS_LABEL,
+  combinedDownloadLabel,
   WORKER_BATCH_PAUSED,
   workerBatchJobsSentence,
   workerBatchUploadSentence,
@@ -105,6 +109,13 @@ export interface WorkerBatchRunnerProps {
    * row downloads its own as one ZIP.
    */
   bundleRows?: boolean;
+  /**
+   * Offer "Combine into one PDF" (PowerPoint to PDF, audit wave 2
+   * powerpoint-to-pdf#1): when it is ticked and the batch ends, one button
+   * joins every finished row's PDF, in drop order, in the browser, and
+   * saves it as `fileName`.
+   */
+  combine?: { fileName: string };
 }
 
 /**
@@ -186,7 +197,12 @@ export function WorkerBatchRunner({
   resume,
   rowNote,
   bundleRows = false,
+  combine,
 }: WorkerBatchRunnerProps) {
+  const [combineOn, setCombineOn] = useState(false);
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const combineHintId = useId();
   const pickRefuse = usePickRefusal(tool);
   // A page that mounts this for a tool with no registration is a bug in
   // the page, said loudly (below, after every hook).
@@ -322,6 +338,75 @@ export function WorkerBatchRunner({
   );
 
   const label = (n: number) => `${n} ${noun[n === 1 ? 0 : 1]}`;
+
+  // The rows' PDFs in drop order: the items keep the order of the units,
+  // which keep the order the files arrived in.
+  const finishedRows = runner.state.items.flatMap((item) =>
+    item.status === "done" && item.result ? [item.result] : [],
+  );
+  const combineBox = combine ? (
+    <div className="flex flex-col gap-1">
+      <label className="text-fg flex min-h-11 items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={combineOn}
+          aria-disabled={runner.running || undefined}
+          aria-describedby={combineHintId}
+          onChange={(e) => {
+            if (runner.running) return;
+            setCombineOn(e.target.checked);
+          }}
+          className="accent-accent size-4"
+        />
+        {COMBINE_PDFS_LABEL}
+      </label>
+      <p id={combineHintId} className="text-muted text-xs leading-relaxed">
+        {COMBINE_PDFS_HINT}
+      </p>
+    </div>
+  ) : null;
+  const joinAll = async () => {
+    if (!combine || joining || finishedRows.length === 0) return;
+    setJoining(true);
+    setJoinError(null);
+    try {
+      const { combineBatchPdfs } = await import("@/lib/batch/combine-pdfs");
+      const bytes = await combineBatchPdfs(finishedRows.map((r) => r.blob));
+      downloadBytes(bytes, combine.fileName);
+    } catch {
+      setJoinError(
+        "These PDFs could not be joined here. Download them from their rows, or press Download all.",
+      );
+    } finally {
+      setJoining(false);
+    }
+  };
+  const combinedDownload =
+    combine && combineOn && finishedRows.length > 0 ? (
+      <span className="flex flex-col gap-1">
+        <button
+          type="button"
+          onClick={() => void joinAll()}
+          aria-disabled={joining || undefined}
+          aria-busy={joining || undefined}
+          className={buttonVariants({
+            variant: "primary",
+            size: "sm",
+            className: CONTROL,
+          })}
+        >
+          {combinedDownloadLabel(finishedRows.length, count)}
+        </button>
+        {joinError && <span className="text-muted text-xs">{joinError}</span>}
+      </span>
+    ) : undefined;
+  const allSettings =
+    settings || combineBox ? (
+      <>
+        {settings}
+        {combineBox}
+      </>
+    ) : null;
   const blocked =
     runBlocked ??
     (available
@@ -349,13 +434,14 @@ export function WorkerBatchRunner({
       arrivedCount={files.length}
       rejected={rejected}
       banner={banner}
+      {...(combinedDownload ? { settledSummary: combinedDownload } : {})}
       settings={
-        settings ? (
+        allSettings ? (
           <fieldset className="flex flex-col gap-4">
             <legend className="text-muted mb-1 text-[11px] font-medium tracking-wide uppercase">
               Applied to all {label(count)}
             </legend>
-            {settings}
+            {allSettings}
           </fieldset>
         ) : undefined
       }

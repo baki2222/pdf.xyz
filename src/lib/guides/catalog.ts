@@ -269,6 +269,7 @@ import {
   imagePageLayout,
 } from "@/lib/pdf/image-page-layout";
 import { TEXT_PAGE_SETUP_LABELS } from "@/lib/pdf/text-page-options";
+import { COMBINE_PDFS_LABEL } from "@/lib/batch/worker-copy";
 import { A4_SCAN_SETUP_COPY, IGNORED_DPI_COPY } from "@/lib/pdf/image-density";
 import {
   SMALL_IMAGES_CHOICES,
@@ -5017,7 +5018,7 @@ export const guides: Guide[] = [
         id: "several-decks-and-other-formats",
         heading: "Several decks, and other presentation apps",
         body: [
-          `The tool converts one presentation per job; add several decks at once and they convert in turn, as a batch. For a workshop handout, combine the PDFs with ${nameOf("merge-pdf")}. Word documents go through ${nameOf("word-to-pdf")} the same way.`,
+          `The tool converts one presentation per job; add several decks at once and they convert in turn, as a batch. For a workshop handout, tick ${COMBINE_PDFS_LABEL} before you start and download them as one PDF in the order you added them; to pick pages or mix in other PDFs, use ${nameOf("merge-pdf")}. Word documents go through ${nameOf("word-to-pdf")} the same way.`,
           "PowerPoint's .pptx and .ppt and OpenDocument's .odp are accepted; any other type is refused before anything is uploaded. From Google Slides, download the deck as a Microsoft PowerPoint file first. From Keynote, export it to PowerPoint, then convert that file here.",
         ],
       },

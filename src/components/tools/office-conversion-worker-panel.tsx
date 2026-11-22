@@ -195,6 +195,9 @@ const WorkerBatch = dynamic(
   },
 );
 
+/** PowerPoint to PDF's joined batch download (audit powerpoint-to-pdf#1). */
+const COMBINED_DECKS_NAME = "pdfxyz-presentations.pdf";
+
 function OfficeRunArea({
   tool,
   catalogTool,
@@ -437,6 +440,9 @@ function OfficeRunArea({
               controls,
             )
           }
+          {...(tool === "powerpoint-to-pdf"
+            ? { combine: { fileName: COMBINED_DECKS_NAME } }
+            : {})}
           settings={
             tool === "excel-to-pdf" ? (
               <>
