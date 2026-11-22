@@ -478,7 +478,9 @@ test("G.7 row 4: an encrypted PDF in Rotate → Unlock (the file goes along) →
   await expect(page.getByText("locked.pdf", { exact: true })).toBeVisible();
   await expect(slot(page)).toHaveAttribute("data-state", "run");
   expect(wire.uploads).toEqual([]);
-  await page.getByLabel("Current password").fill("user-pass");
+  // The fixture's real open password: since audit unlock-pdf#1 the panel
+  // tries the password in the browser first, and a wrong one never uploads.
+  await page.getByLabel("Current password").fill("open-sesame");
   actions++;
   await page.getByRole("button", { name: "Unlock PDF" }).click();
   actions++;

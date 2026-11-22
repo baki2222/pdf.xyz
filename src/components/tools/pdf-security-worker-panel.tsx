@@ -2,7 +2,7 @@
 
 import { usePickFacts, usePickRefusal } from "@/components/tools/use-pick";
 import { RunReason } from "@/components/tools/runner/run-reason";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   Eye,
@@ -55,6 +55,7 @@ import { ChosenFileTarget } from "./chosen-file-target";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import { useStagedHandoff } from "./use-staged-handoff";
+import type { UnlockLook } from "./unlock-preflight";
 import {
   useWorkerPanel,
   WorkerGate,
@@ -432,6 +433,50 @@ function SecurityRunArea({
       }),
   });
   const { busy, outcome, setOutcome, run } = job;
+  // Unlock only: what the picked file is, read in the browser before any
+  // upload (audit unlock-pdf#1, `./unlock-preflight`, fetched with the
+  // file). One look per file, shared by the note below and by Run, so a
+  // press before the look ends waits for the same answer. A look that
+  // fails is null: the file goes to our server as before.
+  const looks = useRef(new WeakMap<File, Promise<UnlockLook | null>>());
+  const lookAt = useCallback((picked: File) => {
+    let look = looks.current.get(picked);
+    if (!look) {
+      look = Promise.all([import("./unlock-preflight"), picked.arrayBuffer()])
+        .then(([m, buf]) => m.lookForUnlock(new Uint8Array(buf)))
+        .catch(() => null);
+      looks.current.set(picked, look);
+    }
+    return look;
+  }, []);
+  const [seen, setSeen] = useState<{
+    file: File;
+    look: UnlockLook | null;
+  } | null>(null);
+  useEffect(() => {
+    if (mode !== "unlock" || !file) return;
+    let live = true;
+    void lookAt(file).then((look) => {
+      if (live) setSeen({ file, look });
+    });
+    return () => {
+      live = false;
+    };
+  }, [mode, file, lookAt]);
+  const look = mode === "unlock" && seen?.file === file ? seen.look : null;
+  const stop = look?.stop ?? null;
+  // The password the browser found wrong for this file, and the line that
+  // says so, until either changes; and whether that check is running.
+  const [refused, setRefused] = useState<{
+    file: File;
+    password: string;
+    line: string;
+  } | null>(null);
+  const refusal =
+    refused?.file === file && refused.password === password
+      ? refused.line
+      : null;
+  const [checking, setChecking] = useState(false);
   // A file carried here (a merge's "Continue with", an encrypted PDF's
   // remedy) is staged: it waits beside the password field, and nothing —
   // file or password — leaves this browser until Run.
@@ -465,6 +510,9 @@ function SecurityRunArea({
     restricting && needsConfirming(ownerPassword, ownerPasswordAgain);
   const canSubmit =
     file !== null &&
+    !stop &&
+    !refusal &&
+    !checking &&
     !passwordMissing &&
     !unconfirmed &&
     !ownerUnconfirmed &&
@@ -482,9 +530,42 @@ function SecurityRunArea({
       tooLong ||
       notLatinFor128 ||
       ownerProblem ||
-      !available
+      !available ||
+      checking
     )
       return;
+    if (mode === "unlock") {
+      // Nothing leaves the browser for a file that is not locked, or with a
+      // password that does not open it. Anything the browser cannot judge
+      // (an unreadable file, a password it must not rule on) goes to our
+      // server as before, which decides.
+      setChecking(true);
+      try {
+        const found = await lookAt(file);
+        if (found?.stop) {
+          setSeen({ file, look: found });
+          return;
+        }
+        if (found?.checkPassword) {
+          const [m, buf] = await Promise.all([
+            import("./unlock-preflight"),
+            file.arrayBuffer(),
+          ]);
+          const line = await m.refuseOpenPassword(
+            new Uint8Array(buf),
+            password,
+          );
+          if (line) {
+            setRefused({ file, password, line });
+            return;
+          }
+        }
+      } catch {
+        // A check that could not run decides nothing: our server does.
+      } finally {
+        setChecking(false);
+      }
+    }
     await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const result =
@@ -523,6 +604,8 @@ function SecurityRunArea({
     permissions,
     run,
     available,
+    checking,
+    lookAt,
   ]);
 
   if (batch)
@@ -545,30 +628,37 @@ function SecurityRunArea({
     <div className="flex flex-col gap-4">
       {staged}
       {file ? (
-        <ChosenFileTarget
-          file={file}
-          accept="application/pdf"
-          busy={busy}
-          refuse={refuse}
-          onReplace={(files) => {
-            setOutcome(null);
-            setFile(files[0] ?? null);
-          }}
-        >
-          <div className="border-line bg-wash text-fg rounded-ctl flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-sm">
-            <span className="truncate">{file.name}</span>
-            <button
-              type="button"
-              onClick={() => {
-                setFile(null);
-                setOutcome(null);
-              }}
-              className="text-muted hover:text-fg tap-y shrink-0 text-sm font-medium transition"
-            >
-              Remove
-            </button>
-          </div>
-        </ChosenFileTarget>
+        <>
+          <ChosenFileTarget
+            file={file}
+            accept="application/pdf"
+            busy={busy}
+            refuse={refuse}
+            onReplace={(files) => {
+              setOutcome(null);
+              setFile(files[0] ?? null);
+            }}
+          >
+            <div className="border-line bg-wash text-fg rounded-ctl flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-sm">
+              <span className="truncate">{file.name}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setFile(null);
+                  setOutcome(null);
+                }}
+                className="text-muted hover:text-fg tap-y shrink-0 text-sm font-medium transition"
+              >
+                Remove
+              </button>
+            </div>
+          </ChosenFileTarget>
+          {stop && (
+            <p role="status" className="text-muted text-xs leading-relaxed">
+              {stop}
+            </p>
+          )}
+        </>
       ) : (
         <Dropzone
           pageTarget
@@ -600,7 +690,11 @@ function SecurityRunArea({
 
       <PasswordField
         id="pdf-security-password"
-        label={mode === "protect" ? "New password" : "Current password"}
+        label={
+          mode === "protect"
+            ? "New password"
+            : (look?.label ?? "Current password")
+        }
         value={password}
         onChange={setPassword}
         busy={busy}
@@ -613,18 +707,22 @@ function SecurityRunArea({
       />
       <p
         id="pdf-security-password-hint"
+        role={refusal ? "alert" : undefined}
         className={cn(
           "text-xs leading-relaxed",
-          tooLong || notLatinFor128 ? "text-warn" : "text-muted",
+          tooLong || notLatinFor128 || refusal ? "text-warn" : "text-muted",
         )}
       >
-        {mode === "protect"
-          ? "Anyone opening the PDF will need this password. Store it somewhere safe — it can't be recovered."
-          : // A PDF that opens freely but locks printing or copying has no
-            // password that "opens" it; its owner password is the one qpdf
-            // accepts. Until 2026-09 this hint named only the open password,
-            // so that user had nothing true to type.
-            "Enter the password that opens this PDF — or, if it opens without one, its owner (permissions) password."}
+        {refusal
+          ? refusal
+          : mode === "protect"
+            ? "Anyone opening the PDF will need this password. Store it somewhere safe — it can't be recovered."
+            : // A PDF that opens freely but locks printing or copying has no
+              // password that "opens" it; its owner password is the one qpdf
+              // accepts. Until 2026-09 this hint named only the open password,
+              // so that user had nothing true to type.
+              (look?.hint ??
+              "Enter the password that opens this PDF — or, if it opens without one, its owner (permissions) password.")}
         {tooLong
           ? ` Too long: ${passwordBytes}/${MAX_PDF_PASSWORD_BYTES} bytes.`
           : ""}
@@ -715,17 +813,19 @@ function SecurityRunArea({
           <RunReason
             after
             reason={
-              !ready || file === null
+              !ready || file === null || stop
                 ? null
-                : passwordMissing
-                  ? mode === "protect"
-                    ? "Type a new password first."
-                    : "Type the password that opens this PDF first."
-                  : unconfirmed
-                    ? CONFIRM_PASSWORD_FIRST
-                    : ownerUnconfirmed && ownerProblem === null
-                      ? CONFIRM_OWNER_PASSWORD_FIRST
-                      : null
+                : checking
+                  ? "Checking the password in your browser…"
+                  : passwordMissing
+                    ? mode === "protect"
+                      ? "Type a new password first."
+                      : "Type the password that opens this PDF first."
+                    : unconfirmed
+                      ? CONFIRM_PASSWORD_FIRST
+                      : ownerUnconfirmed && ownerProblem === null
+                        ? CONFIRM_OWNER_PASSWORD_FIRST
+                        : null
             }
           >
             {(describedBy) => (
