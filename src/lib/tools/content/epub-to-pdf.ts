@@ -26,10 +26,16 @@ import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
  *    (Page layout: Page size and Margins, from
  *    src/lib/jobs/epub-render-options.ts; A5 and Normal by default);
  *  - the book: src/lib/workers/epub/package.ts reads mimetype → container →
- *    package → spine (linear items only) → the EPUB 3 nav, else the NCX; a
- *    DRM'd book (encryption.xml naming anything but the two font-obfuscation
- *    algorithms) is refused; obfuscated fonts are never served, so the book
- *    prints in fallback fonts; a fixed-layout page with a viewport prints at
+ *    package → spine (the linear items, then the linear="no" ones after
+ *    them; 2026-11-22, audit epub-to-pdf#3) → the EPUB 3 nav, else the NCX;
+ *    a DRM'd book (encryption.xml naming anything but the two
+ *    font-obfuscation algorithms) is refused; obfuscated fonts are restored
+ *    with the book's identifier (./font-deobfuscate.ts, audit #4), and one
+ *    that cannot be is left out and COUNTED — the note beside the download
+ *    (src/components/tools/epub-result-note.tsx, from job.results.epub)
+ *    says how many extra sections were printed and how many fonts were left
+ *    out, so no sentence here promises either for a particular book; a
+ *    fixed-layout page with a viewport prints at
  *    that size, edge to edge, its first page only (engine.ts
  *    fixedLayoutPrintParams);
  *  - the print: src/lib/workers/html-render/native.ts drivePackage — one tab
@@ -37,8 +43,9 @@ import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
  *    book's own files, every other request refused before any fetch
  *    (proven in epub.chromium.test.ts: the remote image is asked for and
  *    the network seam is never called);
- *  - the joining: engine.ts joinChapters — Page copy, the book's title and
- *    language on the PDF, a bookmark per table-of-contents entry opening its
+ *  - the joining: engine.ts joinChapters — Page copy, the book's title,
+ *    language, author (dc:creator) and subject (dc:subject, else
+ *    dc:description) on the PDF, a bookmark per table-of-contents entry opening its
  *    chapter's FIRST page (not the heading inside it), links to other
  *    chapters pointed at that chapter's first page, links to other files of
  *    the book removed;
@@ -124,11 +131,11 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Can it convert a book I bought with DRM?",
-      a: "No. A book with DRM has its chapters encrypted, and the job is refused with a note saying the book is protected. Nothing tries to remove the protection. A book whose only scrambled files are its embedded fonts (font obfuscation, which many publishers use) is not DRM: it converts, but those fonts are left out, so its text prints in standard fonts.",
+      a: "No. A book with DRM has its chapters encrypted, and the job is refused with a note saying the book is protected. Nothing tries to remove the protection. A book whose only scrambled files are its embedded fonts (font obfuscation, which many publishers use) is not DRM: it converts, and the fonts are unscrambled and used, as an e-reader does. If a font cannot be unscrambled, the note beside the download says so, and the text set in it prints in a standard font.",
     },
     {
       q: "Are the chapters in the right order, and is there a table of contents?",
-      a: "The chapters follow the book's reading order, the order an e-reader pages through, and each starts on a new page. The book's table of contents (the EPUB 3 navigation document, or the older NCX file) becomes the PDF's bookmarks; a bookmark opens the first page of the chapter file it points to, not the exact heading inside it. A link from one chapter to another opens that chapter's first page.",
+      a: "The chapters follow the book's reading order, the order an e-reader pages through, and each starts on a new page. The book's table of contents (the EPUB 3 navigation document, or the older NCX file) becomes the PDF's bookmarks; a bookmark opens the first page of the chapter file it points to, not the exact heading inside it. A link from one chapter to another opens that chapter's first page. Sections the book keeps outside its reading order, such as endnotes or answer keys, are printed after the last chapter, and the note beside the download counts them. The PDF's document properties carry the book's title, author and subject, where the book names them.",
     },
     {
       q: "What page size is the PDF?",
