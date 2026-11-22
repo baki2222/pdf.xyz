@@ -79,9 +79,12 @@ import { DETECTION_RULES } from "@/lib/pdf/form-detect";
  * bound to the reader by the copy guard: cases O1 and O9); a page whose
  * writing shows sideways is said; pages past 50, and suggestions past 60 a
  * page or 300 a run, are counted and said by page. It misses fields (S1's
- * known misses: tables beyond two columns, combs, radio groups, labels too
- * far from their line), so no sentence here may say it finds every field,
- * or one for each shape.
+ * known misses: tables beyond two columns, labels too far from their line;
+ * since S6, 2026-11-22, a comb shorter than four boxes or with no label,
+ * and option boxes not stacked at the builder's radio gap, which stay
+ * checkboxes), so no sentence here may say it finds every field, or one
+ * for each shape. The FAQ's comb and radio sentences are bound to the
+ * reader by form-detect-combs.test.ts.
  */
 const tool = getToolBySlug("create-forms");
 const maxMb = tool ? toolFileCeilingMb(tool) : null;
@@ -195,11 +198,11 @@ const content: ToolContent = {
     },
     {
       q: "Can it find the fields for me?",
-      a: `It can suggest them, for you to check. ${FIND_FIELDS} Each suggestion is listed with its label and page and drawn dotted on the page preview; nothing is added until you add it, and you can rename it first or dismiss it. It runs in your browser, only when you press the button, and it can miss a field or suggest a wrong one, so check the page as well. Lines labelled as a signature are not suggested, so add an empty ${SIGNATURE_FIELD.toLowerCase()} there with ${EDIT_PDF.name}, or sign the PDF yourself with ${SIGN_PDF.name}; the summary counts those lines.`,
+      a: `It can suggest them, for you to check. ${FIND_FIELDS} A labelled row of four or more boxes for one character each is suggested as one text field limited to that many characters, and three or more option boxes stacked close together, each labelled on its right, as one radio group with those labels as its choices: check both before you add them. Each suggestion is listed with its label and page and drawn dotted on the page preview; nothing is added until you add it, and you can rename it first or dismiss it. It runs in your browser, only when you press the button, and it can miss a field or suggest a wrong one, so check the page as well. Lines labelled as a signature are not suggested, so add an empty ${SIGNATURE_FIELD.toLowerCase()} there with ${EDIT_PDF.name}, or sign the PDF yourself with ${SIGN_PDF.name}; the summary counts those lines.`,
     },
     {
       q: "Why did it find nothing?",
-      a: `Find fields reads only what the PDF itself draws, so add by hand any field it cannot see. It passes over a line with no label beside it, the cells of a table it reads as a grid, a row of boxes for one letter each, a line labelled as a signature and a line that already has a field, so add those with Add field. ${PICTURE_PAGES}, and neither is a page whose writing shows sideways or upside down, or one that could not be read: the summary names each such page so you can add its fields by hand.`,
+      a: `Find fields reads only what the PDF itself draws, so add by hand any field it cannot see. It passes over a line with no label beside it, the cells of a table it reads as a grid, a run of fewer than four boxes for one letter each (or a longer one with no label), a line labelled as a signature and a line that already has a field, so add those with Add field. ${PICTURE_PAGES}, and neither is a page whose writing shows sideways or upside down, or one that could not be read: the summary names each such page so you can add its fields by hand.`,
     },
     {
       q: "Why was a default value or a dropdown or list option refused for its characters?",
