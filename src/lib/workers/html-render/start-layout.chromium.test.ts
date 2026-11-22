@@ -16,7 +16,8 @@
  *
  * An image built before these presets refuses them with a field error
  * (`parseHtmlRenderOptions` is strict, `oneOf`), never a silent other
- * layout: `html-render-options.test.ts` holds that refusal.
+ * layout: `src/lib/jobs/html-render-options.test.ts` holds that refusal
+ * (`viewport: "1280"`, a value outside the list, is refused by field).
  *
  * SKIPPED, visibly, where no Chromium exists (`findChromium`).
  */
