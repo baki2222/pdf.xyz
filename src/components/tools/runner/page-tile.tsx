@@ -328,6 +328,7 @@ export function TileAction({
   children,
   danger = false,
   tabIndex,
+  marker,
 }: {
   onClick: () => void;
   title: string;
@@ -336,10 +337,13 @@ export function TileAction({
   danger?: boolean;
   /** For a board with one roving tab stop (the page picker's zoom). */
   tabIndex?: number;
+  /** A name for the action a caller can find the button by, after a render. */
+  marker?: string;
 }) {
   return (
     <button
       type="button"
+      data-action={marker}
       tabIndex={tabIndex}
       title={title}
       aria-label={title}

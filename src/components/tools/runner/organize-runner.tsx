@@ -17,6 +17,7 @@ import {
   Copy,
   Download,
   FlipVertical2,
+  Hash,
   RefreshCw,
   Redo2,
   RotateCw,
@@ -98,6 +99,15 @@ function OrganizeEditor({
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const [grabbedUid, setGrabbedUid] = useState<string | null>(null);
+  // The tile whose "Move to position" field is open (audit organize-pages#4),
+  // the position typed into it, and why it was refused, if it was.
+  const [movingUid, setMovingUid] = useState<string | null>(null);
+  const [moveTo, setMoveTo] = useState("");
+  const [moveError, setMoveError] = useState<string | null>(null);
+  // The page whose Move to position button gets focus after the next render:
+  // the moved page, or the one whose field was closed.
+  const refocusUid = useRef<string | null>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const uidRef = useRef(pdf.pageCount);
   // The bytes AND the page count they were built with: the result screen
   // describes the file, not whatever the arrangement became afterwards.
@@ -293,6 +303,42 @@ function OrganizeEditor({
       }
     };
 
+  useEffect(() => {
+    const uid = refocusUid.current;
+    if (!uid) return;
+    refocusUid.current = null;
+    const at = items.findIndex((item) => item.uid === uid);
+    const tile = listRef.current?.children[at];
+    tile
+      ?.querySelector<HTMLButtonElement>('button[data-action="move-to"]')
+      ?.focus();
+  });
+
+  const openMoveTo = (item: OrganizeItem) => {
+    setMovingUid(item.uid);
+    setMoveTo("");
+    setMoveError(null);
+  };
+  const closeMoveTo = (uid: string) => {
+    setMovingUid(null);
+    setMoveError(null);
+    refocusUid.current = uid;
+  };
+  /** Take the page to the typed position in one step, or say why not. */
+  const submitMoveTo = (item: OrganizeItem, from: number) => {
+    const n = items.length;
+    const to = Number(moveTo.trim());
+    if (!Number.isInteger(to) || to < 1 || to > n) {
+      setMoveError(`Type a position from 1 to ${n}.`);
+      return;
+    }
+    if (to - 1 !== from) {
+      dispatch({ type: "moveUidTo", uid: item.uid, index: to - 1 });
+    }
+    announce(`Moved ${nameOf(item, false)} to position ${to} of ${n}.`);
+    closeMoveTo(item.uid);
+  };
+
   const onRun = () => {
     const plan = items.map(({ sourceIndex, rotation, blank }) =>
       blank ? { sourceIndex, rotation, blank } : { sourceIndex, rotation },
@@ -391,8 +437,9 @@ function OrganizeEditor({
       />
 
       <ul
+        ref={listRef}
         role="list"
-        aria-label="Pages — drag a tile, use its move buttons, or grab its handle and use the arrow keys to reorder"
+        aria-label="Pages — drag a tile, use its move buttons or Move to position, or grab its handle and use the arrow keys to reorder"
         className="border-line bg-wash rounded-panel grid max-h-[58vh] list-none grid-cols-2 gap-3 overflow-auto border p-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
       >
         {items.map((item, i) => (
@@ -440,63 +487,130 @@ function OrganizeEditor({
               onKeyDown: onHandleKeyDown(item, i),
             }}
             actions={
-              <>
-                {/* A blank sheet has nothing to enlarge. */}
-                {!item.blank && (
-                  <ZoomButton
-                    pageNumber={item.sourceIndex + 1}
-                    onClick={() => setZoom(i)}
+              movingUid === item.uid ? (
+                <form
+                  className="flex flex-wrap items-center justify-center gap-1"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    submitMoveTo(item, i);
+                  }}
+                >
+                  <label htmlFor={`move-to-${item.uid}`} className="sr-only">
+                    {`New position for ${nameOf(item, false)}, 1 to ${items.length}`}
+                  </label>
+                  <input
+                    id={`move-to-${item.uid}`}
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={items.length}
+                    step={1}
+                    value={moveTo}
+                    placeholder={`1-${items.length}`}
+                    autoFocus
+                    aria-invalid={moveError ? true : undefined}
+                    aria-describedby={
+                      moveError ? `move-to-error-${item.uid}` : undefined
+                    }
+                    onChange={(event) => {
+                      setMoveTo(event.target.value);
+                      setMoveError(null);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        submitMoveTo(item, i);
+                      } else if (event.key === "Escape") {
+                        event.preventDefault();
+                        closeMoveTo(item.uid);
+                      }
+                    }}
+                    className="border-line text-fg focus:border-accent/40 focus:ring-accent/50 bg-canvas rounded-ctl tnum w-20 shrink-0 border px-2 py-1 text-right text-xs transition outline-none focus:ring-2"
                   />
-                )}
-                <TileAction
-                  title={`Move ${nameOf(item, false)} left`}
-                  onClick={() => move(i, i - 1)}
-                  disabled={i === 0}
-                >
-                  <ArrowLeft className="size-3.5" aria-hidden />
-                </TileAction>
-                <TileAction
-                  title={`Rotate ${nameOf(item, false)} right`}
-                  onClick={() => rotateItem(i)}
-                >
-                  <RotateCw className="size-3.5" aria-hidden />
-                </TileAction>
-                <TileAction
-                  title={`Duplicate ${nameOf(item, false)}`}
-                  onClick={() => duplicateItem(i)}
-                >
-                  <Copy className="size-3.5" aria-hidden />
-                </TileAction>
-                <TileAction
-                  title={`Delete ${nameOf(item, false)}`}
-                  onClick={() => deleteItem(i)}
-                  disabled={!canDelete(item)}
-                  danger
-                >
-                  <Trash2 className="size-3.5" aria-hidden />
-                </TileAction>
-                <TileAction
-                  title={`Insert blank page before ${nameOf(item, false)}`}
-                  onClick={() => insertBlank(i, "before")}
-                  disabled={!sizes}
-                >
-                  <BetweenVerticalStart className="size-3.5" aria-hidden />
-                </TileAction>
-                <TileAction
-                  title={`Insert blank page after ${nameOf(item, false)}`}
-                  onClick={() => insertBlank(i, "after")}
-                  disabled={!sizes}
-                >
-                  <BetweenVerticalEnd className="size-3.5" aria-hidden />
-                </TileAction>
-                <TileAction
-                  title={`Move ${nameOf(item, false)} right`}
-                  onClick={() => move(i, i + 1)}
-                  disabled={i === items.length - 1}
-                >
-                  <ArrowRight className="size-3.5" aria-hidden />
-                </TileAction>
-              </>
+                  <ChipButton onClick={() => submitMoveTo(item, i)}>
+                    Move
+                  </ChipButton>
+                  <ChipButton onClick={() => closeMoveTo(item.uid)}>
+                    Cancel
+                  </ChipButton>
+                  {moveError && (
+                    <p
+                      id={`move-to-error-${item.uid}`}
+                      role="alert"
+                      className="text-warn text-xs"
+                    >
+                      {moveError}
+                    </p>
+                  )}
+                </form>
+              ) : (
+                <>
+                  {/* A blank sheet has nothing to enlarge. */}
+                  {!item.blank && (
+                    <ZoomButton
+                      pageNumber={item.sourceIndex + 1}
+                      onClick={() => setZoom(i)}
+                    />
+                  )}
+                  <TileAction
+                    title={`Move ${nameOf(item, false)} left`}
+                    onClick={() => move(i, i - 1)}
+                    disabled={i === 0}
+                  >
+                    <ArrowLeft className="size-3.5" aria-hidden />
+                  </TileAction>
+                  <TileAction
+                    title={`Rotate ${nameOf(item, false)} right`}
+                    onClick={() => rotateItem(i)}
+                  >
+                    <RotateCw className="size-3.5" aria-hidden />
+                  </TileAction>
+                  <TileAction
+                    title={`Duplicate ${nameOf(item, false)}`}
+                    onClick={() => duplicateItem(i)}
+                  >
+                    <Copy className="size-3.5" aria-hidden />
+                  </TileAction>
+                  <TileAction
+                    title={`Delete ${nameOf(item, false)}`}
+                    onClick={() => deleteItem(i)}
+                    disabled={!canDelete(item)}
+                    danger
+                  >
+                    <Trash2 className="size-3.5" aria-hidden />
+                  </TileAction>
+                  <TileAction
+                    title={`Insert blank page before ${nameOf(item, false)}`}
+                    onClick={() => insertBlank(i, "before")}
+                    disabled={!sizes}
+                  >
+                    <BetweenVerticalStart className="size-3.5" aria-hidden />
+                  </TileAction>
+                  <TileAction
+                    title={`Insert blank page after ${nameOf(item, false)}`}
+                    onClick={() => insertBlank(i, "after")}
+                    disabled={!sizes}
+                  >
+                    <BetweenVerticalEnd className="size-3.5" aria-hidden />
+                  </TileAction>
+                  <TileAction
+                    title={`Move ${nameOf(item, false)} right`}
+                    onClick={() => move(i, i + 1)}
+                    disabled={i === items.length - 1}
+                  >
+                    <ArrowRight className="size-3.5" aria-hidden />
+                  </TileAction>
+                  {/* One step to any position, on a phone too, where a native
+                    drag never fires (audit organize-pages#4). */}
+                  <TileAction
+                    title={`Move ${nameOf(item, false)} to position…`}
+                    onClick={() => openMoveTo(item)}
+                    marker="move-to"
+                  >
+                    <Hash className="size-3.5" aria-hidden />
+                  </TileAction>
+                </>
+              )
             }
           />
         ))}

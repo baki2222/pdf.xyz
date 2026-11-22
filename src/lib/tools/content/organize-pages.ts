@@ -38,7 +38,7 @@ const content: ToolContent = {
   metaDescription: `Drag PDF page thumbnails into a new order, turn, copy or remove pages, and undo up to ${MAX_HISTORY} edits. The rebuild runs in this browser tab, with no upload.`,
 
   intro: [
-    "Organize Pages opens one PDF and lays every page out as a thumbnail tile on a board. Drag a tile to a new slot or nudge it one place with its arrow buttons; other buttons on the tile turn the page a quarter turn clockwise, drop a copy right after it, remove it, or insert an empty page just before or after it, the same size as that page as you see it. Above the board, Reverse flips the whole order and Reset restores the order and rotation the file arrived with.",
+    "Organize Pages opens one PDF and lays every page out as a thumbnail tile on a board. Drag a tile to a new slot, nudge it one place with its arrow buttons, or type the position it should go to; other buttons on the tile turn the page a quarter turn clockwise, drop a copy right after it, remove it, or insert an empty page just before or after it, the same size as that page as you see it. Above the board, Reverse flips the whole order and Reset restores the order and rotation the file arrived with.",
     `The work happens in your browser tab: the file is read and rebuilt there with pdf-lib and is not uploaded, which suits contracts and statements you would rather keep on your own machine. It opens one PDF at a time, up to ${MAX_MB} MB. Each tile carries two numbers, a corner badge for its new position and a label for its original page, so you can see at a glance what moved. Undo walks back up to ${MAX_HISTORY} edits.`,
     "Export writes a new PDF from the pages in board order. Each page is copied across rather than re-rendered, so its content is untouched and selectable text stays selectable. Bookmarks that open a kept page, the kept pages' form fields and the document's title, author, page labels and language come along. Attached files and a tagged PDF's accessibility tags are left out of a rebuilt export; if you only turned pages, the file is saved in place with everything in it, except that its Producer and Creator entries now name pdf.xyz and its modification date is updated.",
   ],
@@ -77,7 +77,7 @@ const content: ToolContent = {
     },
     {
       title: "Arrange the pages",
-      body: "Drag a tile to its new place or use its left and right arrow buttons. By keyboard, focus a tile's handle, press Enter or Space to grab it, move it with the arrow keys, Home or End, then press Enter or Space again to drop it. Escape also lets go, but each step already taken stays in place; Undo takes those back one at a time.",
+      body: "Drag a tile to its new place or use its left and right arrow buttons. To send a page far in one step, on a phone too, press its Move to position button, type the new position and press Enter. By keyboard, focus a tile's handle, press Enter or Space to grab it, move it with the arrow keys, Home or End, then press Enter or Space again to drop it. Escape also lets go, but each step already taken stays in place; Undo takes those back one at a time.",
     },
     {
       title: "Rotate, duplicate, delete or add blank pages",
