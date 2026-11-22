@@ -2,6 +2,7 @@ import type { ToolContent } from "./types";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { FONT_PACKS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
 
 /*
  * Every behavioral claim below was read from the code:
@@ -41,7 +42,15 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
  *    no AcroForm fields at all lands on "No form fields detected" (hasFields
  *    false) — stated as that conditional, not as a claim about how common
  *    pure-XFA forms are;
- *  - alphabet: assertFormFieldTextDrawable (src/lib/pdf/unicode-font.ts) runs
+ *  - alphabet: SUPERSEDED 2026-11-22 (audit fill-forms#6), history kept below.
+ *    applyFormValues now splits the values sent: a field whose text is inside
+ *    WinAnsi is drawn with the form's Helvetica (and asserted so); a field
+ *    whose text is not gets a face from embedDrawingFont, its /DA pointed at
+ *    that face and the face listed in /DR. A value no shipped face can draw
+ *    (right to left, no face, two faces in one field) is "invalid" for THAT
+ *    field with the font module's message, and the rest are still filled
+ *    (forms-unicode.test.ts renders the saved file). What was true before:
+ *    assertFormFieldTextDrawable (src/lib/pdf/unicode-font.ts) ran
  *    over every string value sent when "Fill form" is pressed. Since audit #15
  *    (2026-11-06) the runner sends only values the person CHANGED
  *    (changedValues in fill-forms-runner.tsx) and the engine saves with
@@ -85,6 +94,25 @@ if (ceilingMb === null) {
 }
 const LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
 
+const listFormat = new Intl.ListFormat("en", {
+  style: "long",
+  type: "conjunction",
+});
+/** The scripts a field can now carry beyond Latin, from the shipped faces. */
+const FIELD_SCRIPTS = listFormat.format([
+  ...new Set(
+    FONT_PACKS.filter((pack) => pack.role === "script")
+      .flatMap((pack) => pack.label.split(/, | and /))
+      .filter((name) => name !== "Latin"),
+  ),
+]);
+/** Scripts still refused because lines are set left to right. */
+const FIELD_RTL_REFUSED = listFormat.format(
+  UNSUPPORTED_SCRIPTS.filter((s) => /right to left/.test(s.reason)).map(
+    (s) => s.name,
+  ),
+);
+
 const content: ToolContent = {
   slug: "fill-forms",
 
@@ -96,7 +124,7 @@ const content: ToolContent = {
   intro: [
     "Fill Forms completes the interactive fields a PDF already has: the text boxes, checkboxes, radio groups, dropdowns and list boxes the form's author built in. Each fillable field gets a matching control: a dropdown offers its own options, and a text field with a character limit counts against it and stops at it. Values the form already holds are pre-loaded, so it works as well for correcting a half-finished form as for a blank one.",
     `Forms collect names, addresses and account details, so where the typing happens matters: this PDF is opened, filled and saved again online by your own browser, with no upload and no copy sent to pdf.xyz. Your answers go into the original document rather than a rebuilt copy, so its pages and bookmarks are kept. The size ceiling for one form is ${ceilingMb} MB.`,
-    "Three limits first. It never adds fields, so a flat or scanned page has nothing to fill. Push buttons and signature fields are shown in a separate note and never filled; flattening bakes a push button into the page, but an unsigned signature field with no drawn appearance makes flattening fail for the whole form. And fields accept only the standard PDF fonts' Western alphabet, so Cyrillic, Greek, Arabic, Bengali or Chinese text, and letters such as Polish ł or Czech č, are refused rather than saved as question marks.",
+    `Three limits first. It never adds fields, so a flat or scanned page has nothing to fill. Push buttons and signature fields are shown in a separate note and never filled; flattening bakes a push button into the page, but an unsigned signature field with no drawn appearance makes flattening fail for the whole form. And right-to-left text such as ${FIELD_RTL_REFUSED} is refused for its field rather than saved with the letters reversed; the other fields are still filled.`,
   ],
 
   useCases: [
@@ -144,7 +172,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I type accented letters or other alphabets into the fields?",
-      a: "Western accented letters such as é, ñ, ü and ß work. Cyrillic, Greek, Arabic, Bengali, Chinese and other characters outside the standard PDF fonts' alphabet are refused when you press Fill form, with a message listing them, and nothing becomes a question mark. Only the answers you change are checked and redrawn. Text the form already held, in any alphabet, is left exactly as it was. For a signature, Sign PDF's Type option embeds a font for Cyrillic, Greek, Bengali and Chinese names, though not Arabic.",
+      a: `Yes. Western accented letters such as é, ñ, ü and ß use the form's own font. Other Latin letters such as Polish ł or Czech č, and ${FIELD_SCRIPTS} text, are drawn with a matching Noto font that your browser downloads from pdf.xyz the first time, and the font is saved inside the PDF so the answer shows in any reader. ${FIELD_RTL_REFUSED} are refused, because lines are set left to right, and so is a script with no shipped font or one field that mixes two downloaded fonts, such as Bengali with Chinese; that field is listed with the reason and left as it was, and nothing becomes a question mark. The saved font holds only the letters you typed, so if you later change that answer in another PDF reader, it may need its own font for new letters. Only the answers you change are checked and redrawn, and text the form already held is left exactly as it was.`,
     },
     {
       q: "Does it work with XFA or Adobe LiveCycle forms?",

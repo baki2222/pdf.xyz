@@ -1007,7 +1007,9 @@ export const RUNNER_MID_RUN_FETCHES: Readonly<
   overlay: [],
   grayscale: ["image-decoder", "character-map"],
   redact: ["image-decoder", "character-map"],
-  "fill-forms": [],
+  // A value outside the Western alphabet is drawn with a downloaded face
+  // (audit fill-forms#6, 2026-11-22).
+  "fill-forms": ["drawing-font"],
   // The page preview draws the selected card's page through pdf.js
   // (backlog #17, 2026-11-17): an image decoder or a character map when a
   // page needs one.

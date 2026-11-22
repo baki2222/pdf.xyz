@@ -1981,7 +1981,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-27",
+    updated: "2026-11-22",
   },
   {
     slug: "how-to-sign-a-pdf",
