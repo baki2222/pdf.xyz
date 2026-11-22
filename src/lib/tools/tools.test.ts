@@ -413,6 +413,22 @@ describe("the search corpus", () => {
       readsKept,
       `kept index read ${reads} times by ${queries.length} searchTools calls, ${rankReads} by as many rankTools calls`,
     ).toBe(true);
+    // `builds`, the witness of both records below: how many index builds the
+    // two public paths ran over the whole corpus. `readsKept` alone cannot
+    // see a build BESIDE the kept index (witness audit 2026-11-22: a copy of
+    // search-tools.ts with `void buildIndex(toolDocs(tools));` before the
+    // search in `searchTools` kept `readsKept` true and every query paid a
+    // full build). Every build spreads every doc's keywords, so it iterates
+    // the first tool's keywords array, cached docs or fresh; a search never
+    // does. Positive control first: one build is counted.
+    expect(buildsDuring(() => buildIndex(toolDocs(tools)))).toBeGreaterThan(0);
+    const builds = buildsDuring(() => {
+      for (const query of queries) {
+        searchTools(query);
+        rankTools(query);
+      }
+    });
+    expect(builds, "index builds during the corpus's searches").toBe(0);
     const docs = toolDocs(tools);
     const sides = [
       () => buildIndex(docs),
@@ -444,16 +460,45 @@ describe("the search corpus", () => {
     const queryMs = best[1]! / queries.length;
     expectRatioBelow("tools-search-query-vs-build", queryMs, buildMs, 0.25, {
       mode: "measure",
-      witness: "readsKept",
+      witness: "builds",
       detail: `per query ${queryMs.toPrecision(3)} ms, per build ${buildMs.toPrecision(3)} ms`,
     });
     // The person-facing promise: one query well inside a 60 Hz frame.
     expectFasterThan("tools-search-query-frame", queryMs, 16, {
       mode: "measure",
-      witness: "readsKept",
+      witness: "builds",
     });
   });
 });
+
+/**
+ * How many times `run` iterates the first tool's keywords array: once per
+ * index build (`buildIndex` spreads each doc's keywords, and a doc holds the
+ * tool's own array). An own `Symbol.iterator` is set on that array for the
+ * length of `run`, then removed.
+ */
+function buildsDuring(run: () => unknown): number {
+  const keywords = tools[0]!.keywords as string[];
+  if (keywords.length === 0 || Object.isFrozen(keywords))
+    throw new Error("the first tool's keywords cannot carry a counter");
+  if (Object.prototype.hasOwnProperty.call(keywords, Symbol.iterator))
+    throw new Error("the keywords array already has its own iterator");
+  const values = Array.prototype[Symbol.iterator];
+  let builds = 0;
+  Object.defineProperty(keywords, Symbol.iterator, {
+    configurable: true,
+    value(this: string[]) {
+      builds += 1;
+      return values.call(this);
+    },
+  });
+  try {
+    run();
+  } finally {
+    delete (keywords as { [Symbol.iterator]?: unknown })[Symbol.iterator];
+  }
+  return builds;
+}
 
 /** One time-boxed sample: at least this long, so a timer tick is noise. */
 const SAMPLE_MS = 100;

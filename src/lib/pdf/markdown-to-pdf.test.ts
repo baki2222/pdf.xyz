@@ -395,15 +395,6 @@ function expectEveryNestedLevelKept(
   );
 }
 
-/**
- * Each flat row's timeout, and the detector of the link-scan budget's
- * removal (review 2026-11-22: that mutant passed a 30 s timeout at 24,332 ms,
- * where vitest's 5 s default had failed it). CI maximum 2,057 ms a row
- * (ci-flake audit 2026-11-19), so 10 s is 4.9x; the mutant's lowest reading
- * is 22,321 ms on the dev host, and CI is slower, so 10 s is 2.2x under it.
- */
-const INLINE_ROW_TIMEOUT_MS = 10_000;
-
 describe("the inline tokenizer stays linear up to the source cap", () => {
   // One paragraph, as large as the tool accepts. A scan that restarts per
   // candidate is quadratic here: `[a](b` repeated took 19.5 s before the
@@ -431,32 +422,19 @@ describe("the inline tokenizer stays linear up to the source cap", () => {
     ["undefined references", "[a][b] [^c] "],
     // Added with the audit #11 review's hidden-content elements.
     ["unclosed scripts", "<script> <STYLE> "],
-  ])(
-    "%s",
-    (label, unit) => {
-      const source = repeat(unit);
-      const started = performance.now();
-      const text = paragraphText(source);
-      const elapsed = performance.now() - started;
-      expect(text).toBe(source.trim());
-      // WAS `elapsed < 5_000` under vitest's 5 s default, so the bound in
-      // force was the default (ci-flake audit 2026-11-19, lines 424/430:
-      // 2,057 ms on CI, 2.43x; bare URLs 1,657 ms in 44910288854). What it is
-      // for: the link-scan budget removed (`linkBudget = Infinity`) is
-      // linear with a 4,096x constant, 22-24 s on the dev host (review
-      // 2026-11-22) — only a bound on the time itself sees it, never a growth
-      // ratio, and `text` (every character comes back) cannot see it either.
-      // So the row keeps a timeout that FAILS on it: INLINE_ROW_TIMEOUT_MS.
-      // The routed record prints each row's time on CI so that timeout can
-      // be set from CI's own spread.
-      expectFasterThan("md-inline-flat-row", elapsed, INLINE_ROW_TIMEOUT_MS, {
-        mode: "measure",
-        witness: "text",
-        instance: label,
-      });
-    },
-    INLINE_ROW_TIMEOUT_MS,
-  );
+  ])("%s", (_label, unit) => {
+    // Witness audit 2026-11-22: back to main's raw form. Routed (measure
+    // mode, witness `text`), the link-scan budget removed passed whenever
+    // the row's timeout was lifted: `text` cannot see a cost, and lane
+    // 1b's share of the pending list was spent on bounds with no raw form
+    // to return to.
+    const source = repeat(unit);
+    const started = performance.now();
+    const text = paragraphText(source);
+    const elapsed = performance.now() - started;
+    expect(text).toBe(source.trim());
+    expect(elapsed).toBeLessThan(5_000);
+  });
 
   // Nesting. Every label used to be read by a fresh recursive call, one stack
   // frame and one O(n) bracket pass per level: at 5 KB this took 396 ms, and
@@ -475,7 +453,8 @@ describe("the inline tokenizer stays linear up to the source cap", () => {
   // the current time by the audit's cost model, so the mutant that proves
   // this ratio is depth 128 (`MAX_LABEL_DEPTH` 3 -> 128), roughly 15-60x.
   // The test's timeout is the asserting time check while the records only
-  // record: four samples took 5,904 ms (images) and 5,163 ms (links) on PR
+  // record (on the pending list: `levels` stays k at depth 128, witness
+  // audit 2026-11-22): four samples took 5,904 ms (images) and 5,163 ms (links) on PR
   // #393's run 44957052119, so 15 s (WAS 30 s) is 2.5x. The ceiling record:
   // 1,934 ms best there, 2,998 ms one sample in the audit, so 6 s is 2x.
   it.each(NESTED_OPENERS)(
@@ -496,12 +475,10 @@ describe("the inline tokenizer stays linear up to the source cap", () => {
       expect(levels).toBe(k);
       expectRatioBelow("md-nested-vs-brackets", nested, control, 10, {
         mode: "measure",
-        witness: "levels",
         instance: label,
       });
       expectFasterThan("md-nested-ceiling", nested, 6_000, {
         mode: "measure",
-        witness: "levels",
         instance: label,
       });
     },
@@ -710,11 +687,12 @@ describe("a table stays renderable up to the source cap", () => {
       // 10,955 ms (44346859633), so 2.74x is measured, not inferred; a
       // `flatMs * 6`-style ratio would swap that for an uncalibrated
       // constant. Routed, so each shape's own CI time is printed; it records
-      // until the harvest calibrates it, and `cells` — the table reached the
-      // page as the shape it was built as — is what fails meanwhile.
+      // until the harvest calibrates it, on the pending list: `cells` (the
+      // table reached the page as the shape it was built as) cannot see a
+      // cost — a 35 s busy-wait in drawTable left it at n (witness audit
+      // 2026-11-22) — so meanwhile only the child's kill fails on time.
       expectFasterThan("md-table-render", result.ms, 30_000, {
         mode: "measure",
-        witness: "cells",
         instance: name,
       });
 
@@ -881,24 +859,11 @@ describe("nested link labels stay renderable up to the source cap", () => {
       const drawn = runs.map((run) => run.text).join("");
       expect(drawn).toContain(`${name}.md`);
       expectEveryNestedLevelKept(drawn, open, result.k, "x", "y");
-      const levels = occurrences(drawn, "y");
-      expect(levels).toBe(result.k);
-      // The same property against the flat render taken just before EACH
-      // shape, multiplicative, printed so the harvest can calibrate it and
-      // retire the additive bound above. 7, not 6: the old bound's effective
-      // multiple at a 3.3 s yardstick is 6.6, and the dev host read 3.07
-      // under load (review 2026-11-22), 2.3x under 7.
-      expectRatioBelow(
-        "md-nested-render-vs-flat",
-        result.ms,
-        result.flatMs,
-        7,
-        {
-          mode: "measure",
-          witness: "levels",
-          instance: name,
-        },
-      );
+      // Witness audit 2026-11-22: the multiplicative record that stood
+      // here (`md-nested-render-vs-flat`, witness `levels`) is dropped.
+      // `levels` cannot see a render's cost (depth 128 kept it at k while
+      // the render took 13x the flat one); the additive bound above, main's
+      // form, is what fails on that and keeps asserting.
     },
     // WAS 120 s (line 721): with the child spawned here when the health
     // check is filtered out, its 65 s CI maximum left 1.84x. 300 s, as there.
@@ -1655,7 +1620,7 @@ describe("raw HTML and entities, read the way the FAQ says (audit #11 review)", 
   it.each([
     ["an eighth of the source cap", 8],
     ["the source cap", 1],
-  ])("nested anchors at %s stay linear", (label, divisor) => {
+  ])("nested anchors at %s stay linear", (_label, divisor) => {
     const shape = (tag: string) => {
       const open = `<${tag} href="x">`;
       const close = `</${tag}>`;
@@ -1680,26 +1645,15 @@ describe("raw HTML and entities, read the way the FAQ says (audit #11 review)", 
     // A browser closes an open <a> when the next one opens, so each outer
     // anchor is empty and prints its address, and only the innermost wraps
     // "y". No tag text prints and no address goes missing.
-    const printed = run.text;
-    expect(printed).toBe("x".repeat(nested.n - 1) + "y (x)");
+    expect(run.text).toBe("x".repeat(nested.n - 1) + "y (x)");
     // Measured 2026-11-07 (local): 20 ms against a 16 ms yardstick at an
     // eighth of the cap, 159 ms against 91 ms at the cap. The stack this
-    // replaced took over 10 s at the eighth, and still fails `printed`'s
-    // test by the 5 s timeout at the eighth.
+    // replaced took over 10 s at the eighth.
     //
-    // WAS `run.ms < baseline.ms * 10 + 250`, one sample each (ci-flake
-    // audit 2026-11-19, line 1533). Best of two on both sides now (a GC
-    // pause on the shared heap was the one plausible false red), and the
-    // bound is the ratio alone. It records until CI calibrates it: the
-    // whole test never reached the reporter's 300 ms floor in 26 CI runs,
-    // so no CI ratio exists yet.
-    const ratioBase = Math.min(baseline.ms, time(flat.source).ms);
-    const ratioRun = Math.min(run.ms, time(nested.source).ms);
-    expectRatioBelow("md-nested-anchors-vs-italics", ratioRun, ratioBase, 10, {
-      mode: "measure",
-      witness: "printed",
-      instance: label,
-    });
+    // Witness audit 2026-11-22: back to main's raw form. Routed (measure
+    // mode, witness `printed`), a close that re-read the whole output
+    // passed the eighth-size row, the one written to go red in seconds.
+    expect(run.ms).toBeLessThan(baseline.ms * 10 + 250);
   });
 
   it("an anchor left open still prints its address", () => {

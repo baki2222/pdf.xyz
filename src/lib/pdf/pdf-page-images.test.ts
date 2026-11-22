@@ -1019,19 +1019,18 @@ describe("the map's work is bounded on the main thread", () => {
         // 1.6-2.8x within one CI run); it guards a slowdown of roughly 8-12x
         // or more. K = 72 is the audit's provisional 18 for a 64 MiB yardstick,
         // scaled to 16 MiB; it and the 6 s ceiling record until CI prints its
-        // own spread (bound >= 2x the CI maximum), and `decodes` is what fails
-        // meanwhile. The ceiling: 2,838 ms on PR #393's run 44957052119 and
+        // own spread (bound >= 2x the CI maximum), on the pending list:
+        // `decodes` sees the summary cache, not the time (witness audit
+        // 2026-11-22: the busy-wait below left it at its count). The ceiling: 2,838 ms on PR #393's run 44957052119 and
         // 2,778 ms in the audit, so 6 s is 2.1x. What a uniform slowdown meets
         // first is the row's timeout above (verify 2026-11-22: under a 6 s
         // busy-wait in `PageImages.map` both rows passed at 90 s).
         expectRatioBelow("ppi-walk-bound-vs-yardstick", ms, y.ms, 72, {
           mode: "measure",
-          witness: "decodes",
           instance: bound,
         });
         expectFasterThan("ppi-walk-bound-ceiling", ms, 6_000, {
           mode: "measure",
-          witness: "decodes",
           instance: bound,
         });
       },

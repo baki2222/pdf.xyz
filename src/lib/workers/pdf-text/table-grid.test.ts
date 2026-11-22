@@ -223,7 +223,6 @@ describe("tableGrid", () => {
     ]);
     expectRatioBelow("table-grid-whole-vs-chunked", whole!, parts!, 3, {
       mode: "measure",
-      witness: "columns",
     });
   });
 
@@ -253,7 +252,6 @@ describe("tableGrid", () => {
     ]);
     expectRatioBelow("chain-columns-one-vs-chunked", one!, sixteen!, 4, {
       mode: "measure",
-      witness: "spans",
     });
   }, 30_000);
 

@@ -51,7 +51,11 @@
  *  - `wrap-cell`: a table of 60 rows whose LAST row's Description carries
  *    51 continuation lines — `MAX_WRAP_LINES_PER_CELL` plus one.
  */
-import { flowText, type PdfFlowText } from "@/lib/workers/pdf-text/flow";
+import {
+  flowText,
+  WORD_FLOW_POLICY,
+  type PdfFlowText,
+} from "@/lib/workers/pdf-text/flow";
 import { parseBboxFlow } from "@/lib/workers/pdf-text/parse";
 import { tableGrid } from "@/lib/workers/pdf-text/table-grid";
 import { docxDocumentOf } from "@/lib/workers/pdf-office-export/docx-layout";
@@ -161,6 +165,22 @@ async function main(): Promise<void> {
       );
       reads[key] = count;
     }
+  }
+  if (mode === "wrap" || mode === "wrap-cut") {
+    // Rule 7's judging, counted through the flow's own seam (`onJudge`,
+    // told inside the judge): the items judged on the page, every cut's
+    // rejudge included. Work, which no runner's speed changes.
+    let judged = 0;
+    const rows = Math.ceil(n / 10);
+    flowText(
+      parseBboxFlow(
+        mode === "wrap"
+          ? wrapPage(rows, () => ["part"])
+          : wrapPage(rows, (r) => [r % 2 ? "part" : "12"]),
+      ),
+      { ...WORD_FLOW_POLICY, onJudge: (k) => (judged += k) },
+    );
+    reads.judgedItems = judged;
   }
   console.log(
     JSON.stringify({

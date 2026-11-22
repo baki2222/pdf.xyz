@@ -11,21 +11,21 @@
  *
  * Since 2026-11-22 (ci-flake audit 2026-11-19, line 82) the read-back's
  * time is routed through `@/tests/time-bound` and RECORDS (measure mode)
- * until CI calibrates it: it timed this script's own read-back, so the
- * engine parsing twice could never move it. What fails on that defect is
- * speed-independent: the engine's ONE structural parse of what it delivers
- * (`structureParses`). The matcher rows' 10 s and the engine's 60 s still
+ * until CI calibrates it, on the pending list (src/tests/wall-clock-pending.ts):
+ * no count here moves with the read-back's own cost. The engine parsing
+ * twice, which that time never measured, fails speed-independently: the
+ * engine's ONE structural parse of what it delivers (`structureParses`). The matcher rows' 10 s and the engine's 60 s still
  * assert, as on main (outside the lane's scope; a cap-40,000 mutant flips
  * red or green with the runner CI draws, about 4.8 s on the fastest runner
  * seen and 10.7 s on the slowest, and the matched counts cannot see it).
- * Each row also prints its cost shape — the same layout at a reference
- * size, same child — so the harvest can set those bounds from CI.
+ * The child also prints each row's cost shape (`capMs`, `refMs`); no
+ * record reads it since the witness audit of 2026-11-22.
  */
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { MAX_STYLED_PIECES_PER_PAGE } from "./docx-run-style";
-import { expectFasterThan, expectRatioBelow } from "@/tests/time-bound";
+import { expectFasterThan } from "@/tests/time-bound";
 
 const ROOT = process.cwd();
 const TSX_CLI = path.join(ROOT, "node_modules", "tsx", "dist", "cli.mjs");
@@ -84,19 +84,12 @@ describe("the formatting matcher is bounded per page", () => {
       // 82): it asserts as on main (CI: 3,814 ms for match-wide's whole
       // test, 44299285879, so 10 s is 2.6x).
       expect(got.ms, JSON.stringify(got)).toBeLessThan(10_000);
-      // The shape, same child, alternating: the cap against an eighth for
-      // the near-linear layouts (dev host 2026-11-22, time-boxed samples,
-      // 2 runs: 7.6-9.8; the firstFrom-to-0 mutants the audit counted read
-      // about 40-50), and against a literal 2,000 words for match-wide
-      // (69-88: quadratic, 10x the words; a cap raised 1.5x reads 2.25x that
-      // on any runner). Dev-host bounds; they record until CI prints its own.
-      expectRatioBelow(
-        "docx-run-style-match-scale",
-        got.capMs as number,
-        got.refMs as number,
-        mode === "match-wide" ? 200 : 20,
-        { mode: "measure", witness: "matched", instance: mode },
-      );
+      // Witness audit 2026-11-22: the shape record that stood here
+      // (`docx-run-style-match-scale`, the cap against an eighth, witness
+      // `matched`) is dropped, as on main. `matched` cannot see a cost: a
+      // binary search started at 0 (a quadratic matcher) took match-line
+      // from 9.5x to 58x with `matched` unchanged. The child still prints
+      // `capMs` and `refMs`.
       expect(got.rssDeltaMb, JSON.stringify(got)).toBeLessThan(200);
     },
     120_000,
@@ -133,18 +126,18 @@ describe("a 500-page document through PDF to Word", () => {
     // same engine (dev host 2026-11-22: 7.5; linear about 8), and both
     // record until CI prints them. The scale's bound is 20, 2.4x the dev
     // host's 8.4 and 3x under a quadratic read-back's 63.
+    //
+    // Witness audit 2026-11-22: both records named `structureParses` as
+    // their witness, a count of the ENGINE's parses that a slow read-back
+    // never moves (a quadratic docxPageTexts read 731 ms against 259 with
+    // the count still 1). The ceiling is on the pending list; the scale
+    // record (`docx-run-style-read-back-scale`) is dropped, as on main,
+    // and the child still prints `fullReadMs` and `smallReadMs`.
     expectFasterThan(
       "docx-run-style-read-back",
       got.readBackMs as number,
       3_000,
-      { mode: "measure", witness: "structureParses" },
-    );
-    expectRatioBelow(
-      "docx-run-style-read-back-scale",
-      got.fullReadMs as number,
-      got.smallReadMs as number,
-      20,
-      { mode: "measure", witness: "structureParses" },
+      { mode: "measure" },
     );
     // Health: every page went out, read back, formatted, and Word-clean.
     expect(got.pagesRead, said).toBe(500);

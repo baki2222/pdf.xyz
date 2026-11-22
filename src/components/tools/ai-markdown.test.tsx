@@ -705,11 +705,13 @@ describe("bounded", () => {
    * underscores about 27x cold; `CLOSER_TRIES` 4096 puts open strong near
    * 131x) and is NOT a CI figure — no CI run has printed one — so both
    * bounds record (measure mode) until the harvest has five CI runs, one of
-   * them slow; then the bound is set at 2x the CI maximum or more. The
-   * witness is `reached`: every shape reaches the code it is named for, so
-   * the timing is of the work its name promises (the three members that
-   * were one `hr` each timed nothing). The 30 s timeout cannot hide a
-   * defect: the test above keeps the 5 s backstop.
+   * them slow; then the bound is set at 2x the CI maximum or more. Both
+   * are on the pending list (src/tests/wall-clock-pending.ts), not
+   * witnessed: `reached` (every shape reaches the code it is named for,
+   * asserted here so the timing is of the work its name promises) cannot
+   * see a cost — `CLOSER_TRIES` 4096 left it true and this test green
+   * (witness audit 2026-11-22). What fails on that is the 5 s backstop of
+   * the test above; the 30 s timeout here cannot hide it.
    */
   it("each 200 KB shape parses in a bounded multiple of plain prose", () => {
     const sample = (text: string) => {
@@ -736,12 +738,10 @@ describe("bounded", () => {
       expect(reached, name).toBe(true);
       expectRatioBelow("ai-markdown-shape-vs-prose", perCall, prose, 100, {
         mode: "measure",
-        witness: "reached",
         instance: name,
       });
       expectFasterThan("ai-markdown-shape-ceiling", perCall, 1_500, {
         mode: "measure",
-        witness: "reached",
         instance: name,
       });
     }

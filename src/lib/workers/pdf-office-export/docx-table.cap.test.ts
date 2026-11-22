@@ -14,17 +14,18 @@
  *    peak memory AND 300 MB more — the engine, wrap and wrap-cut tests;
  *  - four absolute hang ceilings (5 s on main, 6 s and recording since;
  *    10 s, 30 s, 10 s) — grid, flow, over and wrap-cell.
- * Lane 1b (2026-11-22) routed the times of the four tests in its scope
- * (grid, engine, wrap, wrap-cut) through `@/tests/time-bound`, where they
+ * Lane 1b (2026-11-22) routed the times of three tests in its scope
+ * (grid, wrap, wrap-cut) through `@/tests/time-bound`, where they
  * record (measure mode) until CI calibrates them; the memory halves still
  * assert. What still FAILS on time:
  *  - the grid's work, COUNTED (reads of the cells' x-ranges), which no
  *    runner's speed moves;
- *  - the engine's exit bound, kept asserting beside its records (review
- *    2026-11-22: routed alone, a writer 45x slower passed; nothing counts
- *    the writer's work);
- *  - wrap and wrap-cut: their defect, an absorption blowup, is counted in
- *    flow-wraps.test.ts; their times only record;
+ *  - the engine's exit bound, asserting as on main (review 2026-11-22:
+ *    routed alone, a writer 45x slower passed; nothing counts the writer's
+ *    work, so the witness audit dropped its records);
+ *  - wrap and wrap-cut: rule 7's judging, COUNTED through the flow's
+ *    `onJudge` seam (the run judged once in full; the cut page within the
+ *    judging budget); their times only record;
  *  - flow, over and wrap-cell (outside the lane's scope): their hang
  *    ceilings, as on main;
  *  - the child's own kill (CHILD_KILL_MS, enforced while it runs).
@@ -160,23 +161,11 @@ describe("Word tables are bounded", () => {
       { slower, heavier },
       `${JSON.stringify(got)} vs ${JSON.stringify(control)}`,
     ).toEqual({ slower: false, heavier: false });
-    // The same bound's two halves, printed apart on every CI run, so the
-    // harvest can calibrate them and retire the conjunction above.
-    const [gotMs, controlMs] = [best(got), best(control)];
-    expectRatioBelow("docx-table-engine-ratio", gotMs, controlMs, 5, {
-      mode: "measure",
-      witness: "cells",
-      detail: `${gotMs.toFixed(0)} ms vs control ${controlMs.toFixed(0)} ms`,
-    });
-    expectFasterThan(
-      "docx-table-engine-excess",
-      Math.max(0, gotMs - controlMs),
-      5_000,
-      {
-        mode: "measure",
-        witness: "cells",
-      },
-    );
+    // Witness audit 2026-11-22: the two records that printed this bound's
+    // halves apart (`docx-table-engine-ratio` and `-excess`, witness
+    // `cells`) are dropped, as on main: `cells` cannot see the writer's
+    // cost (0.5 ms a <w:tc> left it at the cap), and the conjunction above
+    // is what fails on that.
   }, 300_000);
 
   it("one table past the cell cap comes out as tabbed rows, counted, in bounded time", () => {
@@ -217,15 +206,23 @@ describe("Word tables are bounded", () => {
     expect(wrapLines).toBe(WRAP_ROWS - 1);
     expect(control.tables, JSON.stringify(control)).toBe(0);
     expect(control.wrapLines).toBe(0);
+    // `judgedItems`, the witness of both records below: the items rule 7
+    // judged on the page, told by the flow's `onJudge` seam from inside
+    // the judge. Every continuation absorbed means the one run judged once,
+    // in full: its rows and their continuations. Witness audit 2026-11-22:
+    // `wrapLines` stayed 3,332 while a judge of the whole run per held
+    // continuation took the job from 260 ms to 13,484; this count reads
+    // about 11 million there.
+    const judgedItems = got.judgedItems;
+    expect(judgedItems, JSON.stringify(got)).toBe(2 * WRAP_ROWS - 1);
     // CI: 4,471 ms for the whole test (44910288854). The writer is not
     // absorption (wrap-off writes no Word table), so a writer mutant only
-    // shows this ratio CAN turn red; an absorption blowup's guard is the
-    // counted seam in flow-wraps.test.ts.
+    // shows this ratio CAN turn red.
     withinMemory(got, control);
     const [gotMs, controlMs] = [best(got), best(control)];
     expectRatioBelow("docx-table-wrap-ratio", gotMs, controlMs, 5, {
       mode: "measure",
-      witness: "wrapLines",
+      witness: "judgedItems",
       detail: `${gotMs.toFixed(0)} ms vs control ${controlMs.toFixed(0)} ms`,
     });
     expectFasterThan(
@@ -234,7 +231,7 @@ describe("Word tables are bounded", () => {
       5_000,
       {
         mode: "measure",
-        witness: "wrapLines",
+        witness: "judgedItems",
       },
     );
   }, 300_000);
@@ -250,15 +247,25 @@ describe("Word tables are bounded", () => {
     expect(got.cells).toBe(9);
     const wrapLines = got.wrapLines;
     expect(wrapLines).toBe(1);
+    // `judgeBudgetHeld`, the witness of both records below: the items rule 7
+    // judged on this page (the `onJudge` seam), every cut's rejudge
+    // included, stay within the page's judging budget. 100,000 is written
+    // out, not imported: a budget raised to Infinity at its definition
+    // (witness audit 2026-11-22: `wrapLines` stayed 1 while the job went
+    // from 313 ms to 6,513) must not move the bound that holds it. The
+    // health half: this page reaches the budget (dev host: 99,587), so a
+    // total under it is the budget, not a page too small to need one.
+    const judged = got.judgedItems!;
+    expect(judged, JSON.stringify(got)).toBeGreaterThan(50_000);
+    const judgeBudgetHeld = judged <= 100_000;
+    expect(judgeBudgetHeld, JSON.stringify(got)).toBe(true);
     // CI: 4,531 ms for the whole test (ok-44321190257), the thinnest in the
-    // file. Its defect (an unbudgeted cut-and-rejudge, the square of the
-    // rows) is held whatever the runner by flow-wraps.test.ts's COUNTED
-    // test; never weaken that one on the strength of this.
+    // file. flow-wraps.test.ts's COUNTED test holds the same budget.
     withinMemory(got, control);
     const [gotMs, controlMs] = [best(got), best(control)];
     expectRatioBelow("docx-table-wrap-cut-ratio", gotMs, controlMs, 5, {
       mode: "measure",
-      witness: "wrapLines",
+      witness: "judgeBudgetHeld",
       detail: `${gotMs.toFixed(0)} ms vs control ${controlMs.toFixed(0)} ms`,
     });
     expectFasterThan(
@@ -267,7 +274,7 @@ describe("Word tables are bounded", () => {
       5_000,
       {
         mode: "measure",
-        witness: "wrapLines",
+        witness: "judgeBudgetHeld",
       },
     );
   }, 300_000);
