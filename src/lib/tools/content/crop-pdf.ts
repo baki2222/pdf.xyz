@@ -122,7 +122,7 @@ const content: ToolContent = {
     },
     {
       q: "Why is the Crop PDF button greyed out, or why did it refuse my margins?",
-      a: `The button stays disabled while every slider sits at 0, because there is nothing to crop, and in Auto until Find white margins has found content on at least one page. If the margins you set would leave a page narrower or shorter than ${minPt} points, the run stops and names the first page that failed so you can reduce them. A Pages entry that is empty, backwards or past the last page is also rejected with a message. Each slider stops at a fixed maximum; for a deeper cut, crop the downloaded copy again, since margins are measured from the visible area that is left.`,
+      a: `The button stays disabled while every slider sits at 0, because there is nothing to crop, and in Auto until Find white margins has found content on at least one page. Each slider goes as far as your pages allow: it stops where the page would be left narrower or shorter than ${minPt} points, after the opposite margin. If the margins do not fit one of the pages you chose, for example a smaller page, the button is held and a message names that page so you can reduce them. A Pages entry that is empty, backwards or past the last page is also rejected with a message.`,
     },
     {
       q: "Can Crop PDF find the margins for me?",

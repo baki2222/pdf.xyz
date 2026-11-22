@@ -13,10 +13,13 @@ import {
 import {
   cropPdf,
   croppedOutputName,
+  edgeLimits,
+  firstPageMarginsDoNotFit,
   getPageSizes,
   isEmptyMargins,
   MIN_CROP_DIMENSION,
   NO_CROP,
+  uniformLimit,
   type CropMargins,
 } from "@/lib/pdf/crop";
 import { appliedMargins, type AutoCropPlan } from "@/lib/pdf/auto-crop";
@@ -57,7 +60,13 @@ import { evenPages, oddPages } from "./selection";
 import { pagesInText } from "./page-picker-text";
 
 const START_MARGIN = 24;
-const MAX_MARGIN = 300;
+/**
+ * An edge's most until the page sizes are read, a moment after the file
+ * opens. From then on each edge's most is the page's own (`edgeLimits`):
+ * until audit crop-pdf#3 (2026-11-22) this fixed 300 pt was the most on
+ * every page, so a deeper cut took a second run.
+ */
+const UNREAD_MAX_MARGIN = 300;
 
 /** Clamp an inset percentage so the preview rectangle can never invert. */
 const clampPct = (value: number) => Math.max(0, Math.min(49, value));
@@ -126,16 +135,19 @@ function pageList(indices: readonly number[]): string {
 function MarginField({
   label,
   value,
+  max,
   unit,
   onChange,
 }: {
   label: string;
   value: number;
+  /** The most this margin can take on the pages it crops. */
+  max: number;
   unit: LengthUnit;
   onChange: (points: number) => void;
 }) {
   const id = useId();
-  const clampPt = (pt: number) => Math.max(0, Math.min(MAX_MARGIN, pt));
+  const clampPt = (pt: number) => Math.max(0, Math.min(max, pt));
   const step = 1 / 10 ** UNIT_DECIMALS[unit];
   return (
     <div className="flex min-w-0 items-end gap-3">
@@ -144,7 +156,7 @@ function MarginField({
           label={label}
           value={value}
           min={0}
-          max={MAX_MARGIN}
+          max={max}
           onChange={(pt) => onChange(clampPt(pt))}
           format={(pt) => formatLength(pt, unit)}
         />
@@ -157,7 +169,7 @@ function MarginField({
         type="number"
         inputMode="decimal"
         min={0}
-        max={fromPoints(MAX_MARGIN, unit)}
+        max={fromPoints(max, unit)}
         step={step}
         value={fromPoints(value, unit)}
         onChange={(event) =>
@@ -221,6 +233,38 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
     : mode === "auto"
       ? (autoMargins?.[shownPage] ?? null)
       : margins;
+  // Each edge's most on every page it crops, from the pages themselves.
+  const scoped =
+    chosen === null
+      ? Array.from({ length: pdf.pageCount }, (_, i) => i)
+      : [...chosen].sort((a, b) => a - b);
+  const scopedSizes = scoped
+    .map((i) => sizes[i])
+    .filter((size): size is { width: number; height: number } => !!size);
+  const limits: CropMargins =
+    scopedSizes.length === 0
+      ? {
+          top: UNREAD_MAX_MARGIN,
+          right: UNREAD_MAX_MARGIN,
+          bottom: UNREAD_MAX_MARGIN,
+          left: UNREAD_MAX_MARGIN,
+        }
+      : scopedSizes
+          .map((size) => edgeLimits(size, margins))
+          .reduce((a, b) => ({
+            top: Math.min(a.top, b.top),
+            right: Math.min(a.right, b.right),
+            bottom: Math.min(a.bottom, b.bottom),
+            left: Math.min(a.left, b.left),
+          }));
+  const allSidesLimit =
+    scopedSizes.length === 0
+      ? UNREAD_MAX_MARGIN
+      : Math.min(...scopedSizes.map(uniformLimit));
+  // Margins the chosen pages cannot all take (a scope widened to a smaller
+  // page after they were set) stop the run before it starts, naming the page.
+  const misfit =
+    mode === "auto" ? null : firstPageMarginsDoNotFit(sizes, margins, scoped);
   const pageSize = sizes[shownPage] ?? null;
   const preview =
     pageSize && pageSize.width > 0 && pageSize.height > 0
@@ -335,7 +379,7 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
   const runDisabled =
     mode === "auto"
       ? !plan || autoCroppable(undefined) === 0
-      : isEmptyMargins(margins);
+      : isEmptyMargins(margins) || misfit !== null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -392,6 +436,7 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
             <MarginField
               label="All sides"
               value={margins.top}
+              max={allSidesLimit}
               unit={unit}
               onChange={(value) =>
                 setMargins({
@@ -410,6 +455,7 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
                   key={edge}
                   label={edge.charAt(0).toUpperCase() + edge.slice(1)}
                   value={margins[edge]}
+                  max={limits[edge]}
                   unit={unit}
                   onChange={(value) =>
                     setMargins((m) => ({ ...m, [edge]: value }))
@@ -512,6 +558,7 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
                     edge={edge}
                     box={preview.box!}
                     points={margins[edge]}
+                    max={mode === "uniform" ? allSidesLimit : limits[edge]}
                     unit={unit}
                     page={preview}
                     sheetRef={sheetRef}
@@ -573,6 +620,11 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
         Cropping happens on your device — your PDF never leaves the browser.
       </PrivacyLine>
 
+      {misfit !== null && (
+        <ErrorNote
+          message={`These margins would leave page ${misfit + 1} narrower or shorter than ${MIN_CROP_DIMENSION} points. Make them smaller, or choose pages they fit.`}
+        />
+      )}
       {error && <ErrorNote message={error} />}
 
       <RunBar>
@@ -602,6 +654,7 @@ function EdgeHandle({
   edge,
   box,
   points,
+  max,
   unit,
   page,
   sheetRef,
@@ -610,6 +663,8 @@ function EdgeHandle({
   edge: Edge;
   box: Record<Edge, number>;
   points: number;
+  /** The most this edge can take (`edgeLimits`). */
+  max: number;
   unit: LengthUnit;
   page: { width: number; height: number };
   sheetRef: React.RefObject<HTMLDivElement | null>;
@@ -617,7 +672,7 @@ function EdgeHandle({
 }) {
   const drag = useRef<{ x: number; y: number; points: number } | null>(null);
   const clamp = (pt: number) =>
-    Math.max(0, Math.min(MAX_MARGIN, Math.round(pt * 100) / 100));
+    Math.max(0, Math.min(max, Math.round(pt * 100) / 100));
   const vertical = edge === "top" || edge === "bottom";
   const position: React.CSSProperties =
     edge === "top"
@@ -634,7 +689,7 @@ function EdgeHandle({
       aria-label={edgeLabel(edge)}
       aria-orientation={vertical ? "vertical" : "horizontal"}
       aria-valuemin={0}
-      aria-valuemax={MAX_MARGIN}
+      aria-valuemax={max}
       aria-valuenow={points}
       aria-valuetext={formatLength(points, unit)}
       onPointerDown={(event) => {
@@ -701,7 +756,7 @@ function EdgeHandle({
         let next: number | null = null;
         if (event.key in by) next = points + by[event.key]!;
         else if (event.key === "Home") next = 0;
-        else if (event.key === "End") next = MAX_MARGIN;
+        else if (event.key === "End") next = max;
         if (next === null) return;
         event.preventDefault();
         onChange(clamp(next));

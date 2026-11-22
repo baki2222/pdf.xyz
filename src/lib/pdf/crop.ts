@@ -69,7 +69,13 @@ export function insetBox(box: Box, margins: CropMargins): Box | null {
   const bottom = Math.max(0, margins.bottom);
   const width = box.width - left - right;
   const height = box.height - top - bottom;
-  if (width < MIN_CROP_DIMENSION || height < MIN_CROP_DIMENSION) return null;
+  // A hair of tolerance: a margin set at its limit (`edgeLimits`) leaves
+  // exactly the minimum, which floating point can put a hair under it.
+  if (
+    width < MIN_CROP_DIMENSION - LIMIT_TOLERANCE ||
+    height < MIN_CROP_DIMENSION - LIMIT_TOLERANCE
+  )
+    return null;
   return { x: box.x + left, y: box.y + bottom, width, height };
 }
 
@@ -107,6 +113,67 @@ export function toContentMargins(
     default:
       return { ...visual };
   }
+}
+
+type PageSize = { width: number; height: number };
+
+/** Points of rounding a limit may be off by (see `insetBox`). */
+const LIMIT_TOLERANCE = 1e-6;
+
+/** Down to a hundredth of a point, so a limit shown is one the page takes. */
+const floorHundredth = (points: number) =>
+  Math.floor((points + LIMIT_TOLERANCE) * 100) / 100;
+
+/**
+ * The most each edge can take on a page of `size` (displayed, in points)
+ * with the other margins as they are: the page's own dimension, less the
+ * opposite margin, less the smallest strip a page may keep
+ * (`MIN_CROP_DIMENSION`). Until audit crop-pdf#3 (2026-11-22) every edge
+ * stopped at a fixed 300 pt, whatever the page.
+ */
+export function edgeLimits(size: PageSize, margins: CropMargins): CropMargins {
+  const most = (dimension: number, opposite: number) =>
+    Math.max(
+      0,
+      floorHundredth(dimension - Math.max(0, opposite) - MIN_CROP_DIMENSION),
+    );
+  return {
+    top: most(size.height, margins.bottom),
+    bottom: most(size.height, margins.top),
+    left: most(size.width, margins.right),
+    right: most(size.width, margins.left),
+  };
+}
+
+/** The most one margin on every edge can take on a page of `size`. */
+export function uniformLimit(size: PageSize): number {
+  return Math.max(
+    0,
+    floorHundredth((Math.min(size.width, size.height) - MIN_CROP_DIMENSION) / 2),
+  );
+}
+
+/**
+ * The first of `pages` (0-based, ascending) that `margins` would leave
+ * smaller than `MIN_CROP_DIMENSION` on either axis, or null when they fit
+ * every one — the check `cropPdf` makes, made before the run.
+ */
+export function firstPageMarginsDoNotFit(
+  sizes: readonly PageSize[],
+  margins: CropMargins,
+  pages: Iterable<number>,
+): number | null {
+  for (const index of pages) {
+    const size = sizes[index];
+    if (!size) continue;
+    const limits = edgeLimits(size, margins);
+    if (
+      margins.right > limits.right + LIMIT_TOLERANCE ||
+      margins.bottom > limits.bottom + LIMIT_TOLERANCE
+    )
+      return index;
+  }
+  return null;
 }
 
 /** A sensible download name for a cropped document, derived from the source. */

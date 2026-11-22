@@ -1,8 +1,9 @@
 import { expect, type Page } from "@playwright/test";
 import { PDFDocument } from "pdf-lib";
+import { cropPdf } from "../../src/lib/pdf/crop";
 import { addHeaderFooter } from "../../src/lib/pdf/header-footer";
 import { fileInput, waitForHydration } from "../helpers";
-import { captureDownload, pdfPageTexts } from "./artifacts";
+import { captureDownload, loadPdf, pdfPageTexts } from "./artifacts";
 import { makeTextPdf } from "./fixtures";
 import type { CaseContext, VariantCase } from "./cases";
 
@@ -103,4 +104,56 @@ const headerFooterAtCaret: VariantCase = {
   rejectsBecause: [AT_CARET],
 };
 
-export const PAGE_TOOL_VARIANTS: readonly VariantCase[] = [headerFooterAtCaret];
+/** Why the crop variant rejects an artifact. */
+const DEEP_CUT = "the right edge lost 395 pt in one run";
+
+const A4: [number, number] = [595.28, 841.89];
+const DEEP_RIGHT = 395;
+/** The runner's starting margin, left on the other three edges. */
+const START = 24;
+
+const cropDeepRight: VariantCase = {
+  slug: "crop-pdf",
+  name: "Per side, 395 pt off the right of an A4 page",
+  kind: "crop",
+  artifact: "pdf",
+  run: async (ctx) => {
+    const bytes = await makeTextPdf("deep.pdf", { pages: 1, size: A4 });
+    ctx.data.input = Buffer.from(bytes);
+    await uploadPdf(ctx.page, "deep.pdf", bytes);
+    await ctx.page
+      .getByRole("radiogroup", { name: "Crop mode" })
+      .getByRole("radio", { name: "Per side" })
+      .click();
+    // The limits come from the page sizes, read a moment after the file
+    // opens: the preview sheet appears with them.
+    await expect(ctx.page.locator("[data-crop-sheet]")).toBeVisible();
+    await ctx.page.getByLabel("Right in pt").fill(String(DEEP_RIGHT));
+    return runAndSave(
+      ctx.page,
+      /^crop pdf$/i,
+      /pdf cropped/i,
+      /download cropped pdf/i,
+    );
+  },
+  assert: async (buf) => {
+    const doc = await loadPdf(buf);
+    const box = doc.getPage(0).getCropBox();
+    expect(box.x, DEEP_CUT).toBeCloseTo(START, 3);
+    expect(box.width, DEEP_CUT).toBeCloseTo(A4[0] - DEEP_RIGHT - START, 3);
+    expect(box.height, DEEP_CUT).toBeCloseTo(A4[1] - 2 * START, 3);
+  },
+  // The cut the old 300 pt cap allowed in one run.
+  control: async (ctx) =>
+    Buffer.from(
+      await cropPdf(new Uint8Array(ctx.data.input as Buffer), {
+        margins: { top: START, right: 300, bottom: START, left: START },
+      }),
+    ),
+  rejectsBecause: [DEEP_CUT],
+};
+
+export const PAGE_TOOL_VARIANTS: readonly VariantCase[] = [
+  headerFooterAtCaret,
+  cropDeepRight,
+];
