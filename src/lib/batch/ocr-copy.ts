@@ -10,7 +10,10 @@
  *     them into a ref that every file's job body is built from, so a change
  *     after Run reaches no file of that run;
  *   - each file is today's single OCR job, with one input, so each scan
- *     comes back as its own download — photos are never combined;
+ *     comes back as its own download, unless "Combine into one PDF" is
+ *     ticked: then the browser makes every file, in the order listed, into
+ *     one PDF, sent as one job (audit ocr-pdf#3, 2026-11-22; until then
+ *     "photos are never combined");
  *   - "Straighten crooked pages" and "Turn pages upright" reach a JPG or
  *     PNG too: with either ticked, the photo is put on a PDF page in the
  *     browser and sent as a PDF (audit ocr-pdf#2, 2026-11-22; until then
@@ -21,6 +24,7 @@
  * Read by the batch's own chunk and by the tool page's content on the
  * server; never by a first-load module.
  */
+import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
 
 /** Said before Run, under the settings: one language choice for every file. */
 export function ocrBatchLanguageSentence(languages: string): string {
@@ -31,7 +35,10 @@ export function ocrBatchLanguageSentence(languages: string): string {
 export const OCR_BATCH_LOW_CONFIDENCE_NOTE =
   "Recognition confidence was low: the scan may be blurry, skewed or low-resolution, or not in the language you selected.";
 
+/** The combined PDF's ceiling, in MB: the per-file ceiling it must fit. */
+const COMBINED_CEILING_MB = Math.round(WORKER_FILE_CEILING / (1024 * 1024));
+
 /** OCR PDF's page: what its batch shares, and what it never does. */
 export function ocrBatchPageSentence(): string {
-  return `In a batch, the languages, the output and the boxes you tick are set once, before you press the button under the list, and apply to every file. Each scan is its own job and comes back as its own download. Straighten crooked pages and Turn pages upright apply to every file in a batch, photos included.`;
+  return `In a batch, the languages, the output and the boxes you tick are set once, before you press the button under the list, and apply to every file. Each scan is its own job and comes back as its own download, unless you tick “Combine into one PDF”: then your browser puts every file, in the order listed, into one PDF, each photo a page and each PDF all its pages, and it is recognised as one job and comes back as one searchable PDF. Together the files can be at most ${COMBINED_CEILING_MB} MB; above that the button stays off, and the page asks you to remove some files or untick the box. Straighten crooked pages and Turn pages upright apply to every file in a batch, photos included.`;
 }

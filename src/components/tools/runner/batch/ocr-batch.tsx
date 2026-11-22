@@ -12,11 +12,18 @@ import {
   ocrBatchLanguageSentence,
 } from "@/lib/batch/ocr-copy";
 import {
+  OCR_COMBINE_HINT,
   describeOcrLanguage,
+  ocrCombineTooLarge,
   ocrConfidenceLooksLow,
   ocrSendsPhotoAsPdf,
   type OcrOptions,
 } from "@/lib/jobs/ocr";
+import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
+import { ScanText } from "lucide-react";
+import { DownloadCta, ResultCard, WorkerRunButton } from "../runner-kit";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "../../worker-job";
+import { useWorkerPanel, workerOutput } from "../../worker-panel-shell";
 import type { Tool } from "@/lib/tools/types";
 import {
   resumeWorkerOcr,
@@ -57,7 +64,13 @@ import {
  *
  * OUTPUTS. A job can make two files ("PDF + text"); both are the row's, and
  * then each row's files sit in a folder of the ZIP named after its input.
- * Photos are never combined: each input is its own job and its own output.
+ *
+ * COMBINE INTO ONE PDF (audit ocr-pdf#3, 2026-11-22). Ticked, the list is
+ * not a batch: every file is put, in the order listed, into ONE PDF in the
+ * browser (`@/lib/pdf/ocr-photo-pdf`), and that PDF is ONE upload and ONE
+ * job (`OcrCombined`). The worker still reads one file per job; the
+ * combined file must fit the per-file ceiling, and a list over it is refused
+ * before anything is read or sent. Until then photos were never combined.
  */
 
 export interface OcrBatchProps {
@@ -132,6 +145,150 @@ const rowNote = (result: WorkerBatchSuccess): string | undefined => {
     : undefined;
 };
 
+/** The combined run's button: it names what it makes. */
+const COMBINED_RUN_LABEL = "Recognize text in one PDF";
+
+/**
+ * The list as ONE job: every file, in order, made into one PDF here, then
+ * one upload and one OCR job with the request the panel built.
+ */
+function OcrCombined({
+  files,
+  request,
+  settings,
+  runBlocked,
+  contentTypeOf,
+  onReset,
+}: {
+  files: File[];
+  request: OcrOptions;
+  settings: ReactNode;
+  runBlocked: string | null;
+  contentTypeOf: (file: File) => string;
+  onReset: () => void;
+}) {
+  const { available } = useWorkerPanel();
+  const job = useWorkerJob<OcrWorkerResult>({
+    tool: "ocr-pdf",
+    resume: (id, controls) => resumeWorkerOcr(id, controls),
+  });
+  const { busy, outcome, run } = job;
+  const total = files.reduce((n, file) => n + file.size, 0);
+  const tooLarge =
+    total > WORKER_FILE_CEILING
+      ? ocrCombineTooLarge(total, WORKER_FILE_CEILING)
+      : null;
+
+  const start = useCallback(async () => {
+    if (!available || tooLarge || runBlocked) return;
+    await run(async (controls): Promise<OcrWorkerResult> => {
+      const { buildOcrPdf, ocrPdfName } =
+        await import("@/lib/pdf/ocr-photo-pdf");
+      const sources = await Promise.all(
+        files.map(async (file) => ({
+          name: file.name,
+          type: contentTypeOf(file),
+          bytes: new Uint8Array(await file.arrayBuffer()),
+        })),
+      );
+      let bytes: Uint8Array;
+      try {
+        bytes = await buildOcrPdf(sources);
+      } catch (err) {
+        return {
+          ok: false,
+          message: err instanceof Error ? err.message : String(err),
+        };
+      }
+      // A PNG is stored losslessly, so the made PDF can outgrow its files.
+      if (bytes.byteLength > WORKER_FILE_CEILING)
+        return {
+          ok: false,
+          message: ocrCombineTooLarge(bytes.byteLength, WORKER_FILE_CEILING),
+        };
+      return runWorkerOcr(
+        {
+          filename: ocrPdfName(sources),
+          bytes,
+          contentType: "application/pdf",
+          options: request,
+        },
+        controls,
+      );
+    });
+  }, [available, tooLarge, runBlocked, run, files, contentTypeOf, request]);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <ol className="flex flex-col gap-1.5" aria-label="Files, in page order">
+        {files.map((file, index) => (
+          <li
+            key={`${index}-${file.name}`}
+            className="border-line bg-wash text-fg rounded-ctl flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-sm"
+          >
+            <span className="truncate">
+              {index + 1}. {file.name}
+            </span>
+          </li>
+        ))}
+      </ol>
+      {settings}
+      {tooLarge && (
+        <p className="text-warn text-xs leading-relaxed">{tooLarge}</p>
+      )}
+      {runBlocked && (
+        <p className="text-warn text-xs leading-relaxed">{runBlocked}</p>
+      )}
+      <WorkerRunButton
+        onClick={start}
+        busy={busy}
+        disabled={!available || tooLarge !== null || runBlocked !== null}
+        busyLabel={jobBusyLabel(
+          job.phase,
+          "Recognizing text on our secure server…",
+        )}
+        icon={ScanText}
+      >
+        {COMBINED_RUN_LABEL}
+      </WorkerRunButton>
+      <WorkerJobStatus job={job} />
+      {outcome?.ok === true && (
+        <ResultCard
+          announce={`OCR complete — ${outcome.artifacts.length} file${outcome.artifacts.length === 1 ? "" : "s"} ready.`}
+          output={outcome.artifacts.map((entry) =>
+            workerOutput(entry.bytes, entry.artifact),
+          )}
+          inputBytes={total}
+        >
+          <p className="text-ok text-sm">
+            OCR complete — {outcome.artifacts.length} file
+            {outcome.artifacts.length === 1 ? "" : "s"} ready.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {outcome.artifacts.map((entry) => (
+              <DownloadCta
+                key={entry.artifact.artifactId}
+                href={entry.artifact.url}
+                download={entry.artifact.filename}
+                size="inline"
+              >
+                Download {entry.artifact.filename}
+              </DownloadCta>
+            ))}
+          </div>
+        </ResultCard>
+      )}
+      <button
+        type="button"
+        onClick={onReset}
+        className="text-muted hover:text-fg tap-row inline-flex items-center gap-1.5 self-start text-xs font-medium transition"
+      >
+        Start over
+      </button>
+    </div>
+  );
+}
+
 export function OcrBatch({
   tool,
   files,
@@ -143,6 +300,10 @@ export function OcrBatch({
   contentTypeOf,
 }: OcrBatchProps) {
   const frozenRef = useRef<OcrOptions | null>(null);
+  // "Combine into one PDF": off by default; once a run starts it stays as
+  // it was, so a running batch is never swapped for the combined view.
+  const [combine, setCombine] = useState(false);
+  const [started, setStarted] = useState(false);
   // What Run froze, for drawing (the ZIP's folders); the ref is what runs.
   const [ran, setRan] = useState<OcrOptions | null>(null);
   const requestRef = useRef(request);
@@ -154,6 +315,7 @@ export function OcrBatch({
     const frozen = { ...requestRef.current };
     frozenRef.current = frozen;
     setRan(frozen);
+    setStarted(true);
   }, []);
 
   const run = useCallback<WorkerRun>(
@@ -182,6 +344,44 @@ export function OcrBatch({
     request.languages.map(describeOcrLanguage),
   );
 
+  const combineBox = (
+    <label className="text-muted flex items-start gap-2.5 text-sm">
+      <input
+        type="checkbox"
+        checked={combine}
+        // Guarded, never `disabled`: focus stays put (#46).
+        onChange={(event) => {
+          if (!started) setCombine(event.target.checked);
+        }}
+        aria-disabled={started || undefined}
+        className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4 aria-disabled:opacity-50"
+      />
+      <span className="flex flex-col gap-0.5">
+        <span className="text-fg font-medium">Combine into one PDF</span>
+        <span className="text-muted text-xs leading-relaxed">
+          {OCR_COMBINE_HINT}
+        </span>
+      </span>
+    </label>
+  );
+
+  if (combine)
+    return (
+      <OcrCombined
+        files={files}
+        request={request}
+        settings={
+          <>
+            {combineBox}
+            {settings}
+          </>
+        }
+        runBlocked={runBlocked}
+        contentTypeOf={contentTypeOf}
+        onReset={onReset}
+      />
+    );
+
   return (
     <WorkerBatchRunner
       tool={tool}
@@ -194,6 +394,7 @@ export function OcrBatch({
       bundleRows={shown.outputMode === "both"}
       settings={
         <>
+          {combineBox}
           {settings}
           <p
             className="text-fg text-sm leading-relaxed"

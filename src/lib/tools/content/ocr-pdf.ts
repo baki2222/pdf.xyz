@@ -100,7 +100,9 @@ import { OWNER_PASSWORD_LABEL } from "@/lib/pdf/owner-password-copy";
  * beyond the panel's own "Text typed into the document is kept either way".
  * Batch (batch plan P5, 2026-11-09): two or more files open OCR PDF's batch
  * (src/components/tools/runner/batch/ocr-batch.tsx), each file one of
- * today's single OCR jobs, at BATCH_LIMITS.ocrMaxFiles. Until then this page
+ * today's single OCR jobs, at BATCH_LIMITS.ocrMaxFiles. Since 2026-11-22
+ * (audit ocr-pdf#3) its “Combine into one PDF” box makes them one PDF in
+ * the browser, sent as one job, within the per-file ceiling. Until then this page
  * said "One scan goes in per run", "The tool takes one file per run" and
  * "Drop one PDF, JPG or PNG"; batch-claims.test.ts holds those sentences,
  * and the patterns that catch them, in both directions. Its words are
@@ -160,14 +162,14 @@ const content: ToolContent = {
 
   intro: [
     `A scanner or phone camera saves each page as a picture, so Ctrl+F finds nothing and no sentence can be copied out. OCR PDF reads the lettering and returns it as real text. For a PDF, your pages stay as they are and an invisible text layer is laid underneath, so the document looks the same but becomes searchable and selectable, unless you ask for crooked pages to be straightened or turned pages to be set upright. Send a JPG or PNG instead, such as a photographed receipt or a screenshot of a form, and any PDF you ask for comes back as a single page holding that image with the recognised words beneath it. Tick “Straighten crooked pages” or “Turn pages upright” for a photo and your browser first puts it on a PDF page of its own, so it is straightened and turned the same way a scanned PDF is. A phone photo saved as a JPG is read the way up your phone shows it (up to ${OCR_IMAGE_MAX_TURN_PIXELS / 1_000_000} megapixels; a larger one is read as stored), and its page is no longer than ${OCR_IMAGE_PAGE_BOUND.label}.`,
-    `Recognition needs a native OCR engine, so this online tool does not run in your browser. Your file is uploaded over TLS to pdf.xyz's secure server, which runs OCRmyPDF on PDFs and Tesseract on images. The input is deleted when the job finishes, the download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored result. Each scan is a job of its own, at most ${CEILING_MB} MB, and up to ${BATCH_LIMITS.ocrMaxFiles} can be added at once as a batch.`,
+    `Recognition needs a native OCR engine, so this online tool does not run in your browser. Your file is uploaded over TLS to pdf.xyz's secure server, which runs OCRmyPDF on PDFs and Tesseract on images. The input is deleted when the job finishes, the download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored result. Each scan is a job of its own, at most ${CEILING_MB} MB, and up to ${BATCH_LIMITS.ocrMaxFiles} can be added at once as a batch. Tick “Combine into one PDF” in the batch and your browser makes them one PDF, in the order listed, recognised as one job.`,
     `Of every choice on the page, the language is the one most likely to spoil a result. ${LANGUAGE_COUNT} are on offer, with ${NON_LATIN} among them, and a single job can combine up to ${MAX_OCR_LANGUAGES}. Picking the wrong one does not produce an error: the engine matches shapes against the alphabet it was given and returns fluent-looking nonsense.`,
   ],
 
   useCases: [
     {
       title: "Search an archive of scanned letters",
-      body: `Old correspondence, deeds or minutes digitised as images become findable by name, date or phrase with a PDF viewer's search once each file carries a text layer. Add up to ${BATCH_LIMITS.ocrMaxFiles} scans at once and they run as a batch, one after another, with the same languages for each.`,
+      body: `Old correspondence, deeds or minutes digitised as images become findable by name, date or phrase with a PDF viewer's search once each file carries a text layer. Add up to ${BATCH_LIMITS.ocrMaxFiles} scans at once and they run as a batch, one after another, with the same languages for each. To get one searchable PDF of a multi-page letter photographed page by page, tick “Combine into one PDF”.`,
     },
     {
       title: "Recognize several scans in one go",
@@ -241,7 +243,7 @@ const content: ToolContent = {
     },
     {
       q: "How big a scan can I process, and how many at once?",
-      a: `Up to ${CEILING_MB} MB a file, and up to ${BATCH_LIMITS.ocrMaxFiles} files at once: two or more open as a batch, each file its own job, run one after another. Size is not the only limit, since every page takes recognition time and a job has a time limit on our secure server, so cut a very long scan into parts with Split PDF first.`,
+      a: `Up to ${CEILING_MB} MB a file, and up to ${BATCH_LIMITS.ocrMaxFiles} files at once: two or more open as a batch, each file its own job, run one after another. With “Combine into one PDF” ticked they become one PDF and one job, and together they can be at most ${CEILING_MB} MB; above that the button stays off, and the page asks you to remove some files or untick the box. Size is not the only limit, since every page takes recognition time and a job has a time limit on our secure server, so cut a very long scan into parts with Split PDF first.`,
     },
   ],
 
