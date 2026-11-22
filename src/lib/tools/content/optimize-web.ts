@@ -8,12 +8,16 @@ import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
 /*
  * Every behavioral claim below was read from the code on 2026-09-27:
  *  - panel: src/components/tools/pdf-structure-worker-panel.tsx — the live
- *    worker check ("Secure worker" / "Not enabled" badge; the uploader
- *    renders at once and the run waits until the check says yes (WP-10): "Checking the secure worker…" while it runs, "Check
- *    again" when it fails (WorkerStatusPending), and a count-only "Notify me
- *    when this ships" button only once the worker is known to be off), the
- *    compact dropzone "Add a PDF, or browse", one file only, the "Optimize on the worker" button, and
- *    "Download <name>" on success. There is no options control and no
+ *    server check ("Secure server" / "Not enabled" badge; the uploader
+ *    renders at once and the run waits until the check says yes (WP-10):
+ *    "Checking our secure server…" while it runs, "Check again" when it
+ *    fails (WorkerStatusPending), and a count-only "Notify me when this
+ *    ships" button only once the server is known to be off), the drop zone
+ *    (one PDF runs here; two or more go to the worker batch), the "Optimize
+ *    on our secure server" button, and "Download <name>" on success. Its
+ *    "Largest file" row reads the page's own ceiling (`ToolRun.pick`,
+ *    toolFileCeiling) since 2026-11-22 (audit optimize-web#7); it read the
+ *    worker's global cap before, equal today only by chance. There is no options control and no
  *    password field. ADDED 2026-11-07 (audit optimize-web#2): a picked file
  *    is scanned in the browser for /ByteRange signatures
  *    (countDigitalSignatures, web-input-notices.tsx) before any upload; a
@@ -36,7 +40,7 @@ import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
  *    shows no warnings. Any other exit, a timeout, output failing the check,
  *    or output that is not linearized (isLinearized) → the job fails with no
  *    output.
- *  - button: jobBusyLabel(phase, "Optimizing on the worker…"), so the step
+ *  - button: jobBusyLabel(phase, "Optimizing on our secure server…"), so the step
  *    names all four stages; busy-label-claims.test.ts holds it to that.
  *  - download: runSecurityJob fetches the output into the page as soon as the
  *    job completes; "Download <name>" saves those in-memory bytes. The outputTtlMinutes

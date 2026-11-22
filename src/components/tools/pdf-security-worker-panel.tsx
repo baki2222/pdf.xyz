@@ -1,6 +1,6 @@
 "use client";
 
-import { usePickRefusal } from "@/components/tools/use-pick";
+import { usePickFacts, usePickRefusal } from "@/components/tools/use-pick";
 import { RunReason } from "@/components/tools/runner/run-reason";
 import { useCallback, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
@@ -15,7 +15,7 @@ import {
   Timer,
   Unlock,
 } from "lucide-react";
-import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
+import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import {
   AES128_PASSWORD_CHARSET_MESSAGE,
   DEFAULT_PDF_KEY_LENGTH,
@@ -219,6 +219,10 @@ const COPY: Record<
  */
 export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
   const pickRefuse = usePickRefusal(tool);
+  // The ceiling the page states and the pick check refuses above (audit
+  // optimize-web#7): this row read `JOB_LIMITS.maxFileBytes`, the worker's
+  // global cap, which agrees with the tool's own ceiling only by chance.
+  const ceilingBytes = usePickFacts(tool)?.ceilingBytes ?? null;
   const mode: Mode = tool.slug === "protect-pdf" ? "protect" : "unlock";
   const copy = COPY[mode];
 
@@ -236,11 +240,15 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
           label: "Your files",
           value: `Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`,
         },
-        {
-          icon: ShieldCheck,
-          label: "Largest file",
-          value: `${formatBytes(JOB_LIMITS.maxFileBytes)}/file`,
-        },
+        ...(ceilingBytes !== null
+          ? [
+              {
+                icon: ShieldCheck,
+                label: "Largest file",
+                value: `${formatBytes(ceilingBytes)}/file`,
+              },
+            ]
+          : []),
       ]}
       footer={
         <p className="text-muted text-xs leading-relaxed">
