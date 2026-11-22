@@ -447,6 +447,14 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "Request Signatures writes each box's label into prepared.pdf as the box's tooltip, instead of only into manifest.json",
     proves: provenByFlag,
   },
+  htmlAdBlock: {
+    label: "Webpage to PDF's Hide common ads",
+    promise:
+      // Audit wave 2 webpage-to-pdf#1. The panel offers the box only while
+      // this reads true on a fresh heartbeat; an older image ignores it.
+      "Webpage to PDF refuses requests to the listed ad hosts and hides the ad slots they use when Hide common ads is ticked, instead of ignoring the box",
+    proves: provenByFlag,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */

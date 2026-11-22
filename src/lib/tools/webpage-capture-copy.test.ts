@@ -24,6 +24,7 @@ import {
   WEBPAGE_CAPTURE_GROUP_LABEL,
 } from "@/lib/jobs/webpage-capture-options";
 import { CONSENT_MANAGERS } from "@/lib/workers/html-render/overlays";
+import { AD_HOSTS } from "@/lib/workers/html-render/ads";
 import { toolContent } from "./content";
 import { getGuideBySlug } from "@/lib/guides";
 
@@ -49,8 +50,17 @@ describe("Webpage to PDF capture copy", () => {
     expect(WEBPAGE_OVERLAY_ANSWER).toContain(
       `under ${WEBPAGE_CAPTURE_GROUP_LABEL}`,
     );
-    // Ads are named as NOT removed — the option does not block them.
-    expect(WEBPAGE_OVERLAY_ANSWER).toMatch(/adverts are not removed/);
+    // INVERTED 2026-11-22 (audit wave 2 webpage-to-pdf#1). Until then this
+    // pinned "adverts are not removed", true while no option blocked them.
+    // Now the answer names Hide common ads with the count of hosts it
+    // blocks, says COMMON ads, and never claims every ad.
+    expect(WEBPAGE_OVERLAY_ANSWER).not.toMatch(/adverts are not removed/);
+    expect(WEBPAGE_OVERLAY_ANSWER).toContain(WEBPAGE_CAPTURE_LABELS.hideAds);
+    expect(WEBPAGE_OVERLAY_ANSWER).toContain(
+      `blocks ${AD_HOSTS.length} of the largest ad networks`,
+    );
+    expect(WEBPAGE_OVERLAY_ANSWER).toMatch(/\bcommon ads\b/);
+    expect(WEBPAGE_OVERLAY_ANSWER).not.toMatch(/\ball (?:ads|adverts)\b/i);
   });
 
   it("every capture choice is named on the tool page and in the guide", () => {

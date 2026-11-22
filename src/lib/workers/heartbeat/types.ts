@@ -529,6 +529,21 @@ export interface HeartbeatCapabilities {
    * `false`.
    */
   readonly requestSignatureLabels: boolean;
+  /**
+   * This image's Webpage to PDF honours "Hide common ads" (`hideAds`,
+   * audit wave 2 webpage-to-pdf#1): requests to the in-house ad hosts are
+   * refused and the slot markup is hidden. An older image IGNORES the key
+   * (the capture parser leaves unknown keys alone) and prints every ad, so
+   * the panel offers the box only while a fresh beat carries this.
+   *
+   * PROVEN AT START-UP (`html-render/ads-capability.ts`,
+   * `provesHtmlAdBlock`): a webpage job through the daemon's own registry
+   * reaches the renderer with the option exactly when asked, and the
+   * renderer's own request test and slot script cover the lists. Chromium
+   * is a stub there; `ads.chromium.test.ts` proves the printed PDF. The
+   * absence parses as `false`.
+   */
+  readonly htmlAdBlock: boolean;
 }
 
 /**

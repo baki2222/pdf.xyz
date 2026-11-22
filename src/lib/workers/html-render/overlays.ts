@@ -22,7 +22,8 @@
  * one axis beside `hidden` on the other computes to `auto`, and the body
  * stays a one-screen scroll box (capture.chromium.test.ts went red on that).
  *
- * What it does NOT do: block adverts, block any request, or hide a small bar
+ * What it does NOT do: block adverts or any request (that is "Hide common
+ * ads", `./ads`, a separate option), or hide a small bar
  * pinned to an edge that is not one of the listed tools. It can still hide
  * real content a site chose to pin over half the screen, which is why the
  * option is off by default.

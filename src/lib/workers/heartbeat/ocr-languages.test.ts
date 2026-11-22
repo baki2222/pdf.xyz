@@ -53,6 +53,7 @@ const BEAT: WorkerHeartbeat = {
     csvImportOptions: true,
     ocrOwnerPassword: true,
     requestSignatureLabels: true,
+    htmlAdBlock: true,
   },
   at: 1_700_000_000_000,
 };

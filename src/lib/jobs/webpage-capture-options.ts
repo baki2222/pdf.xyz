@@ -12,6 +12,12 @@
  *   - `hideOverlays` (off) — hide cookie-consent windows and pop-ups that
  *     cover the screen (`@/lib/workers/html-render/overlays` says exactly
  *     what is hidden). Off by default because it can hide real content;
+ *   - `hideAds` (off) — refuse requests to a small in-house list of ad
+ *     hosts and hide the slot markup those networks use
+ *     (`@/lib/workers/html-render/ads`, audit wave 2 webpage-to-pdf#1).
+ *     An image built before it IGNORES the key (this parser leaves unknown
+ *     keys alone), so the panel offers it only while the live heartbeat
+ *     proves `htmlAdBlock`;
  *   - `printStyles` (on) — print with the site's print stylesheet, as every
  *     render did. Off, Chromium is told to use SCREEN media before measuring
  *     and printing, so the PDF shows the page's screen layout (audit
@@ -24,12 +30,14 @@ import { apiError, type ParseResult } from "./responses";
 
 export interface WebpageCaptureOptions {
   hideOverlays: boolean;
+  hideAds: boolean;
   printStyles: boolean;
   stamp: boolean;
 }
 
 export const DEFAULT_WEBPAGE_CAPTURE_OPTIONS: WebpageCaptureOptions = {
   hideOverlays: false,
+  hideAds: false,
   printStyles: true,
   stamp: false,
 };
@@ -43,6 +51,7 @@ export const WEBPAGE_CAPTURE_CHOICES: readonly {
   label: string;
 }[] = [
   { key: "hideOverlays", label: "Hide cookie notices and pop-ups" },
+  { key: "hideAds", label: "Hide common ads" },
   { key: "printStyles", label: "Use the site's print styles" },
   { key: "stamp", label: "Add the address and date" },
 ];

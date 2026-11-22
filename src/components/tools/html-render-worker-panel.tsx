@@ -293,6 +293,10 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
     DEFAULT_WEBPAGE_CAPTURE_OPTIONS,
   );
 
+  // "Hide common ads" (audit wave 2 webpage-to-pdf#1): offered, and sent,
+  // only while the live worker proves `htmlAdBlock`; an older image would
+  // ignore the key and print every ad under a ticked box.
+  const adsOffered = status?.htmlAdBlock === true;
   const address = normalizeWebpageAddress(url);
   const start = useCallback(async () => {
     if (!available) return;
@@ -306,7 +310,10 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
       if (mode === "url")
         return runWorkerWebpageToPdf(address, controls, {
           ...bag,
-          ...webpageCaptureOptionsBag(capture),
+          ...webpageCaptureOptionsBag({
+            ...capture,
+            hideAds: adsOffered && capture.hideAds,
+          }),
         });
       if (!file)
         return {
@@ -336,6 +343,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
     layout,
     bookLayout,
     capture,
+    adsOffered,
     source,
   ]);
 
@@ -475,6 +483,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
       {mode === "url" && (
         <WebpageCaptureGroup
           value={capture}
+          hidden={adsOffered ? [] : ["hideAds"]}
           disabled={busy}
           onChange={(next) => {
             setCapture(next);

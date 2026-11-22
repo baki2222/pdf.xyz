@@ -184,6 +184,7 @@ function capabilitiesOf(value: unknown): HeartbeatCapabilities {
     csvImportOptions: boolOf(src.csvImportOptions),
     ocrOwnerPassword: boolOf(src.ocrOwnerPassword),
     requestSignatureLabels: boolOf(src.requestSignatureLabels),
+    htmlAdBlock: boolOf(src.htmlAdBlock),
   };
 }
 
@@ -253,6 +254,7 @@ export function serializeHeartbeat(hb: WorkerHeartbeat): string {
       csvImportOptions: hb.capabilities.csvImportOptions,
       ocrOwnerPassword: hb.capabilities.ocrOwnerPassword,
       requestSignatureLabels: hb.capabilities.requestSignatureLabels,
+      htmlAdBlock: hb.capabilities.htmlAdBlock,
     },
     at: hb.at,
   });

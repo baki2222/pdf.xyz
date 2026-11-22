@@ -59,6 +59,7 @@ import { provesCsvImportOptions } from "@/lib/workers/office-conversion/csv-capa
 import { provesOcrOwnerPassword } from "@/lib/workers/ocr-owner-capability";
 import { provesRequestSignatureLabels } from "@/lib/workers/request-signatures/labels-capability";
 import { provesHtmlZip } from "@/lib/workers/html-render/zip-capability";
+import { provesHtmlAdBlock } from "@/lib/workers/html-render/ads-capability";
 import { provesChatRetrieval } from "@/lib/workers/chat-with-pdf/retrieval-capability";
 import { provesSummarizePages } from "@/lib/workers/summarize/pages-capability";
 import { translatePdfLanguages } from "@/lib/workers/translate/pdf-capability";
@@ -208,6 +209,10 @@ export const PROVED_CAPABILITIES = defineProvers({
     prove: (env) => provesRequestSignatureLabels(env),
     parse: bool,
   },
+  // Audit wave 2 webpage-to-pdf#1: "Hide common ads" reaches the renderer
+  // through the daemon's own registry, and the renderer's request test and
+  // slot script cover the in-house lists. A stub Chromium; pure, in-process.
+  htmlAdBlock: { prove: () => provesHtmlAdBlock(), parse: bool },
 });
 
 export type ProvedKey = keyof typeof PROVED_CAPABILITIES;

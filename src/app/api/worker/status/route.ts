@@ -24,6 +24,8 @@ import {
   liveWorkerReadsCsvImportOptions,
   liveWorkerOcrsWithOwnerPassword,
   liveWorkerWritesRequestSignatureLabels,
+  liveWorkerProves,
+  WORKER_PANEL_FLAGS,
   liveWorkerTranslatesScans,
   readWorkerHeartbeatLiveness,
 } from "@/lib/workers/heartbeat";
@@ -164,6 +166,14 @@ export async function GET(request: Request): Promise<Response> {
         workerCsvImportOptions,
         workerOcrOwnerPassword,
         workerRequestSignatureLabels,
+        // Audit wave 2: the controls a panel offers only on a fresh beat
+        // that proves them (Webpage to PDF's Hide common ads, …).
+        Object.fromEntries(
+          WORKER_PANEL_FLAGS.map((key) => [
+            key,
+            liveWorkerProves(liveness, key),
+          ]),
+        ),
       ),
     ),
   );

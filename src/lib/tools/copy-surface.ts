@@ -311,6 +311,9 @@ export function copyFiles(): string[] {
     // counts and names (audit webpage-to-pdf#1). New phrase code, walked.
     path.join(ROOT, "src", "lib", "jobs", "webpage-capture-options.ts"),
     path.join(ROOT, "src", "lib", "workers", "html-render", "overlays.ts"),
+    // "Hide common ads" (audit wave 2 webpage-to-pdf#1): the ad hosts the
+    // copy counts and the slot script, walked for the reason overlays.ts is.
+    path.join(ROOT, "src", "lib", "workers", "html-render", "ads.ts"),
     path.join(ROOT, "src", "lib", "workers", "html-render", "layout-proof.ts"),
     path.join(ROOT, "src", "lib", "workers", "ocr-languages-proof.ts"),
     // The OCR deskew proof's verdict lines and fixture words (2026-11-01),

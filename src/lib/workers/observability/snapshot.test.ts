@@ -493,6 +493,7 @@ describe("advertised capabilities — the deploy gap becomes a reported state", 
     csvImportOptions: false,
     ocrOwnerPassword: false,
     requestSignatureLabels: false,
+    htmlAdBlock: false,
     ...extra,
   });
 

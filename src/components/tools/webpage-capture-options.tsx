@@ -18,6 +18,8 @@ import {
 /** The line under each checkbox: what ticking it does. */
 const HINTS: Readonly<Record<keyof WebpageCaptureOptions, string>> = {
   hideOverlays: `Hides the windows of common cookie-consent tools, and pop-ups covering at least ${Math.round(OVERLAY_MIN_SHARE * 100)}% of the screen. It can hide real content, so check the PDF.`,
+  hideAds:
+    "Blocks the largest ad networks and hides the ad spaces they use. Ads from other sources can still appear.",
   printStyles:
     "Untick to print the page as it looks in a browser window, ignoring the layout the site made for printing.",
   stamp:
@@ -28,8 +30,11 @@ export function WebpageCaptureGroup({
   value,
   onChange,
   disabled,
+  hidden = [],
 }: {
   value: WebpageCaptureOptions;
+  /** Choices the live worker cannot honour, left out (`hideAds`). */
+  hidden?: readonly (keyof WebpageCaptureOptions)[];
   onChange: (next: WebpageCaptureOptions) => void;
   disabled?: boolean;
 }) {
@@ -40,6 +45,7 @@ export function WebpageCaptureGroup({
         {WEBPAGE_CAPTURE_GROUP_LABEL}
       </legend>
       {WEBPAGE_CAPTURE_CHOICES.map((choice) => {
+        if (hidden.includes(choice.key)) return null;
         // The hint sits outside the label so the checkbox's name is the
         // label alone; it is read as the description instead.
         const hintId = `${id}-${choice.key}-hint`;

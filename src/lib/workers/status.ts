@@ -11,6 +11,14 @@
  */
 
 import type { WorkerMode } from "./mode";
+import type { WorkerPanelFlag } from "./heartbeat/factory";
+
+/**
+ * The capabilities a panel gates a control on (audit wave 2), each true
+ * only when an OBSERVED heartbeat proves it (`liveWorkerProves`). An image
+ * built before one publishes no key; absent reads as `false`.
+ */
+export type WorkerPanelFlags = { readonly [K in WorkerPanelFlag]?: boolean };
 import {
   DEEP_COMPRESSION_TOOLS,
   type CompressionTool,
@@ -196,6 +204,11 @@ export interface WorkerStatus {
    * the running worker. Optional: absent reads as `false`.
    */
   requestSignatureLabels?: boolean;
+  /**
+   * Webpage to PDF's "Hide common ads" (audit wave 2 webpage-to-pdf#1): the
+   * panel offers the box only while this is true.
+   */
+  htmlAdBlock?: boolean;
 }
 
 const NO_COMPRESS: CompressCapability = {
@@ -347,6 +360,8 @@ export function buildWorkerStatus(
    * (`liveWorkerWritesRequestSignatureLabels`).
    */
   workerRequestSignatureLabels?: boolean,
+  /** The panel flags the observed heartbeat proves (`liveWorkerProves`). */
+  workerPanelFlags: WorkerPanelFlags = {},
 ): WorkerStatus {
   const ocr = buildOcrCapability(
     mode,
@@ -388,6 +403,8 @@ export function buildWorkerStatus(
     workerObserved === true && workerOcrOwnerPassword === true;
   const requestSignatureLabels =
     workerObserved === true && workerRequestSignatureLabels === true;
+  const htmlAdBlock =
+    workerObserved === true && workerPanelFlags.htmlAdBlock === true;
 
   if (mode === "local-dev") {
     const engines = DEEP_COMPRESSION_TOOLS.filter((tool) => tools?.[tool]);
@@ -416,6 +433,7 @@ export function buildWorkerStatus(
       csvImportOptions,
       ocrOwnerPassword,
       requestSignatureLabels,
+      htmlAdBlock,
     };
   }
 
@@ -444,6 +462,7 @@ export function buildWorkerStatus(
       csvImportOptions,
       ocrOwnerPassword,
       requestSignatureLabels,
+      htmlAdBlock,
     };
   }
 
@@ -474,5 +493,6 @@ export function buildWorkerStatus(
     csvImportOptions,
     ocrOwnerPassword,
     requestSignatureLabels,
+    htmlAdBlock,
   };
 }

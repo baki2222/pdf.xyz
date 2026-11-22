@@ -253,6 +253,7 @@ function heartbeat(malwareScan: boolean): WorkerHeartbeat {
       csvImportOptions: true,
       ocrOwnerPassword: true,
       requestSignatureLabels: true,
+      htmlAdBlock: true,
     },
     at: Date.now(),
   });

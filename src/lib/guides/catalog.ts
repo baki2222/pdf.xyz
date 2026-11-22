@@ -3626,7 +3626,7 @@ export const guides: Guide[] = [
         heading: "What ends up in the PDF",
         body: [
           `${WEBPAGE_STAMP_SENTENCE} ${WEBPAGE_OUTLINE_SENTENCE} Backgrounds are printed. ${WEBPAGE_PRINT_STYLES_SENTENCE} Words a site draws as a picture or on a canvas stay pictures.`,
-          `Its scripts run within a fixed budget of time. ${WEBPAGE_SCROLL_SENTENCE} Adverts shown to a new visitor can appear too, and so can cookie notices and pop-ups, though ticking ${WEBPAGE_CAPTURE_LABELS.hideOverlays} removes the common ones.`,
+          `Its scripts run within a fixed budget of time. ${WEBPAGE_SCROLL_SENTENCE} Ads shown to a new visitor can appear too, though ticking ${WEBPAGE_CAPTURE_LABELS.hideAds} leaves out common ones, and so can cookie notices and pop-ups, though ticking ${WEBPAGE_CAPTURE_LABELS.hideOverlays} removes the common ones.`,
         ],
       },
       {

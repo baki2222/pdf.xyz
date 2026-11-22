@@ -671,6 +671,16 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /\btooltips?\b|\blabels?\b(?:[^.?!]|\.(?=\w)){0,160}\bprepared\.pdf\b|\bprepared\.pdf\b(?:[^.?!]|\.(?=\w)){0,160}\blabels?\b/i,
     catalogueCopy: true,
   },
+  htmlAdBlock: {
+    // Added 2026-11-22 with the key (audit wave 2 webpage-to-pdf#1). The
+    // sentences about ads on a captured page: the option's own name, or
+    // ads, adverts or advertisements.
+    // TRUE: Webpage to PDF's FAQ answer says what Hide common ads blocks and
+    // hides, with no hedge (the panel shows the box only on a worker that
+    // proves it).
+    subject: /\bHide common ads\b|\bads\b|\badverts?\b|\badvertisements?\b/i,
+    catalogueCopy: true,
+  },
 };
 
 /* ------------------------------------------------------------------ *

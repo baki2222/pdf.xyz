@@ -45,6 +45,7 @@ import {
   type WebpageCaptureOptions,
 } from "@/lib/jobs/webpage-capture-options";
 import { HIDE_OVERLAYS_SCRIPT } from "./overlays";
+import { HIDE_ADS_SCRIPT, isAdRequestUrl } from "./ads";
 import { answerArchiveRequest } from "./zip-site";
 import { stampFooterTemplate } from "./stamp";
 import {
@@ -594,6 +595,21 @@ export function createNativeChromiumPdfRunner(
         );
         return;
       }
+      // "Hide common ads" (audit wave 2 webpage-to-pdf#1): a request to a
+      // listed ad host is refused here, before the policy or the network
+      // sees it. `./ads` says exactly which hosts.
+      if (
+        target.kind === "url" &&
+        target.capture.hideAds &&
+        isAdRequestUrl(p.request.url)
+      ) {
+        await cdp.send(
+          "Fetch.failRequest",
+          { requestId: p.requestId, errorReason: "BlockedByClient" },
+          sessionId,
+        );
+        return;
+      }
       const decision = await network.handle(p.request);
       // Recorded BEFORE Chromium is answered: Page.navigate settles on that
       // answer, and the verdict must already be here when it does.
@@ -802,6 +818,9 @@ export function createNativeChromiumPdfRunner(
     // says exactly what it hides.
     if (target.kind === "url" && target.capture.hideOverlays)
       await isolated("pdfxyz-overlays", HIDE_OVERLAYS_SCRIPT);
+    // "Hide common ads": the slots, and the frames the blocked hosts left.
+    if (target.kind === "url" && target.capture.hideAds)
+      await isolated("pdfxyz-ads", HIDE_ADS_SCRIPT);
 
     // "Use the site's print styles" unticked (audit webpage-to-pdf#3): the
     // page is measured and printed with its SCREEN styles. Sent before the

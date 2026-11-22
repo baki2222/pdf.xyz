@@ -537,6 +537,23 @@ export function liveWorkerWritesRequestSignatureLabels(
   );
 }
 
+/**
+ * Does the RUNNING worker prove a capability this lane's panels gate on
+ * (audit wave 2)? Only a fresh, observed heartbeat carrying `key: true`
+ * says so; a stale, absent or unreachable beat, or an image that publishes
+ * no such key (parsed as false), says no. Read by `GET /api/worker/status`.
+ */
+export function liveWorkerProves(
+  liveness: HeartbeatLiveness,
+  key: WorkerPanelFlag,
+): boolean {
+  return liveness.observed && liveness.capabilities?.[key] === true;
+}
+
+/** The boolean capabilities the status route reports for panels to gate on. */
+export const WORKER_PANEL_FLAGS = ["htmlAdBlock"] as const;
+export type WorkerPanelFlag = (typeof WORKER_PANEL_FLAGS)[number];
+
 /** The admission gate's question, read from the broker. See {@link liveWorkerOcrsWithOwnerPassword}. */
 export async function runningWorkerOcrsWithOwnerPassword(
   env: EnvSource = process.env,

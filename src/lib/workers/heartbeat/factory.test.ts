@@ -133,6 +133,7 @@ describe("createHeartbeatPublisher", () => {
         csvImportOptions: true,
         ocrOwnerPassword: true,
         requestSignatureLabels: true,
+        htmlAdBlock: true,
       },
       deps: { client: fake, now: () => 1_000 },
     });
@@ -189,6 +190,7 @@ describe("createHeartbeatReader / readWorkerHeartbeatLiveness", () => {
             csvImportOptions: true,
             ocrOwnerPassword: true,
             requestSignatureLabels: true,
+            htmlAdBlock: true,
           },
           at: now,
         }),
