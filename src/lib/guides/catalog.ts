@@ -2839,7 +2839,7 @@ export const guides: Guide[] = [
         id: "when-flattening-is-refused",
         heading: "When flattening is refused",
         body: [
-          "A text field holding characters outside the basic PDF alphabet — Bengali, Chinese or Greek, for example — cannot be flattened yet, because the field is drawn with the form's own font. Instead of producing a page with those characters missing, the tool stops and says which characters it could not draw.",
+          "A text field whose answer has to be redrawn — one with no saved look, or on a form that asks readers to redraw its fields — is redrawn with the form's own font, which covers only Western European letters. If that answer holds Bengali, Chinese or Greek, for example, the tool stops and says which characters it could not draw, instead of producing a page with them missing. An answer that is already drawn, as Fill Forms draws one, is flattened as it is.",
         ],
       },
       {
@@ -2876,7 +2876,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-10-30",
+    updated: "2026-11-22",
   },
   {
     slug: "how-to-compare-two-pdf-files",

@@ -89,7 +89,7 @@ const content: ToolContent = {
     },
     {
       q: "How is this different from Flatten PDF?",
-      a: "Flatten PDF works on form fields only: it draws each field's answer into the page and then removes the field, and it leaves comments, highlights and other annotations as they are. Remove Annotations deletes the kinds you tick and draws nothing in their place, so a removed form field's answer is gone. Flatten first if you want to keep the answers.",
+      a: "Flatten PDF works on form fields only, unless you tick its Also flatten comments and markup: it draws each field's answer into the page and then removes the field, and it leaves comments, highlights and other annotations as they are. With that box ticked it draws those into the page too, so they can no longer be moved or deleted, and they still show. Remove Annotations deletes the kinds you tick and draws nothing in their place, so a removed form field's answer is gone. Flatten first if you want to keep the answers.",
     },
     {
       q: "What does it not remove?",

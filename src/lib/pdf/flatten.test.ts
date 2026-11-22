@@ -317,6 +317,7 @@ describe("flattenPdf", () => {
       signed: false,
       xfa: false,
       dynamicXfa: false,
+      annotations: 0,
     });
   });
 

@@ -29,7 +29,12 @@ import {
   SinglePdfRunner,
   type SinglePdfBatch,
 } from "./single-pdf-runner";
-import { PrivacyLine } from "./stamp-controls";
+import { CheckboxField, PrivacyLine } from "./stamp-controls";
+import {
+  FLATTEN_MARKUP_HINT,
+  FLATTEN_MARKUP_LABEL,
+  markupCount,
+} from "./flatten-markup-copy";
 import type { LoadedPdf } from "./use-single-pdf";
 
 /**
@@ -80,6 +85,9 @@ export function FlattenEditor({
   const { busy, error, result, run, reset } = useAsyncRun<FlattenResult>();
   const [inspection, setInspection] = useState<FormInspection | null>(null);
   const [countError, setCountError] = useState<string | null>(null);
+  // Off by default (audit flatten-pdf#3): fields only, as the page has
+  // always said; ticked, comments and markup are drawn in too.
+  const [markup, setMarkup] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -99,23 +107,35 @@ export function FlattenEditor({
   }, [pdf.bytes]);
 
   const onRun = () => {
-    void run(() => flattenPdf(pdf.bytes));
+    void run(() => flattenPdf(pdf.bytes, { annotations: markup }));
   };
 
   if (result) {
-    const flattened = result.flattenedFields > 0;
+    const flattened =
+      result.flattenedFields > 0 || result.flattenedAnnotations > 0;
+    const markupDone =
+      result.flattenedAnnotations > 0
+        ? ` · ${markupCount(result.flattenedAnnotations)} flattened`
+        : "";
+    const leftAsIs = [...result.skipped, ...result.annotationsLeft];
     const size = formatBytes(result.bytes.byteLength);
     const plural = (n: number) => (n === 1 ? "" : "s");
     return (
       <ResultPanel
-        title={flattened ? "Form fields flattened" : "PDF re-saved"}
+        title={
+          result.flattenedAnnotations > 0
+            ? "Flattened"
+            : flattened
+              ? "Form fields flattened"
+              : "PDF re-saved"
+        }
         tone={flattened ? "ok" : "neutral"}
         summary={
           !result.hadForm
-            ? `No fillable form fields found · ${size}`
+            ? `No fillable form fields found${markupDone} · ${size}`
             : result.flattenedFields === result.totalFields
-              ? `${result.flattenedFields} form field${plural(result.flattenedFields)} flattened · ${size}`
-              : `Flattened ${result.flattenedFields} of ${result.totalFields} form field${plural(result.totalFields)} · ${size}`
+              ? `${result.flattenedFields} form field${plural(result.flattenedFields)} flattened${markupDone} · ${size}`
+              : `Flattened ${result.flattenedFields} of ${result.totalFields} form field${plural(result.totalFields)}${markupDone} · ${size}`
         }
         onReset={onReset}
         output={outputFile(
@@ -126,20 +146,23 @@ export function FlattenEditor({
         expectedPages={pdf.pageCount}
       >
         <div className="flex flex-col gap-3">
-          {!result.hadForm && (
+          {!flattened && (
             <p className="border-warn/40 bg-warn/10 text-warn rounded-panel max-w-2xl border px-4 py-3 text-sm">
-              This PDF did not contain AcroForm fields to flatten, so nothing in
-              it was flattened. Comments, markup annotations, and
-              optional-content layers are not flattened by this browser tool.
+              {result.hadForm
+                ? "None of this PDF's form fields could be flattened, so nothing in it was flattened."
+                : "This PDF did not contain AcroForm fields to flatten, so nothing in it was flattened."}{" "}
+              {result.annotationsLeft.length > 0 || markup
+                ? "Optional-content layers are not flattened by this browser tool."
+                : `Optional-content layers are not flattened by this browser tool, and comments and markup are flattened only when "${FLATTEN_MARKUP_LABEL}" is ticked.`}
             </p>
           )}
-          {result.skipped.length > 0 && (
+          {leftAsIs.length > 0 && (
             <div className="border-line bg-wash rounded-panel max-w-2xl border px-4 py-3 text-sm">
               <p className="text-fg font-medium">
                 Left as-is, still interactive:
               </p>
               <ul className="text-muted mt-1 list-disc pl-5">
-                {result.skipped.map((skip, index) => (
+                {leftAsIs.map((skip, index) => (
                   // Field names repeat in malformed forms; the index keeps
                   // every row distinct.
                   <li key={`${index}:${skip.name}`}>
@@ -180,6 +203,9 @@ export function FlattenEditor({
     ? inspection.fields - inspection.signatureFields
     : null;
   const blocked = inspection?.dynamicXfa === true;
+  // Nothing this run would draw: no fields, and no markup it was asked for.
+  const resaveOnly =
+    fillable === 0 && !(markup && (inspection?.annotations ?? 0) > 0);
 
   return (
     <div className="flex flex-col gap-5">
@@ -200,7 +226,7 @@ export function FlattenEditor({
           <InfoTile
             icon={TriangleAlert}
             title="Honest scope"
-            body="This does not flatten comments, ink annotations, optional-content layers, or signature fields. Those stay as-is."
+            body={`Optional-content layers and signature fields stay as-is. Comments, highlights, ink and stamps stay too, unless "${FLATTEN_MARKUP_LABEL}" is ticked; links always stay clickable.`}
           />
         </div>
       </RunnerSection>
@@ -216,7 +242,14 @@ export function FlattenEditor({
           <p className="text-warn text-sm">{DYNAMIC_XFA_MESSAGE}</p>
         ) : (
           <div className="flex flex-col gap-2 text-sm">
-            {fillable === 0 ? (
+            {fillable === 0 && inspection.annotations > 0 ? (
+              <p className="text-warn">
+                No fillable AcroForm fields were detected. Tick &ldquo;
+                {FLATTEN_MARKUP_LABEL}&rdquo; to draw the comments and markup
+                into the page; otherwise the PDF is only re-saved and its
+                content will not change.
+              </p>
+            ) : fillable === 0 ? (
               <p className="text-warn">
                 No fillable AcroForm fields were detected, so there is nothing
                 for this tool to flatten. You can still re-save the PDF, but its
@@ -243,9 +276,21 @@ export function FlattenEditor({
             {inspection.signed && (
               <p className="text-warn">{SIGNED_PDF_WARNING}</p>
             )}
+            {inspection.annotations > 0 && (
+              <p className="text-muted">
+                Found {markupCount(inspection.annotations)}.
+              </p>
+            )}
           </div>
         )}
       </RunnerSection>
+
+      <CheckboxField
+        label="Also flatten comments and markup"
+        checked={markup}
+        onChange={setMarkup}
+        hint={FLATTEN_MARKUP_HINT}
+      />
 
       <PrivacyLine>
         Flattening happens on your device — the PDF never leaves your browser.
@@ -259,10 +304,16 @@ export function FlattenEditor({
             onClick={onRun}
             busy={busy}
             disabled={blocked}
-            busyLabel={fillable === 0 ? "Saving…" : "Flattening…"}
+            busyLabel={resaveOnly ? "Saving…" : "Flattening…"}
           >
             <Layers className="size-4" aria-hidden />
-            {fillable === 0 ? "Re-save PDF" : "Flatten form fields"}
+            {resaveOnly
+              ? "Re-save PDF"
+              : markup && (inspection?.annotations ?? 0) > 0
+                ? fillable === 0
+                  ? "Flatten comments and markup"
+                  : "Flatten fields and markup"
+                : "Flatten form fields"}
           </RunButton>
         </div>
       </RunBar>
