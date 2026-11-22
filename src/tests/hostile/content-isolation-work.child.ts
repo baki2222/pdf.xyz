@@ -53,11 +53,24 @@ const IMAGE = "BI /L 1 ID x\n";
 // ~30 MB decoded: just under the 32 MiB per-page budget.
 const BIG = "Q\n" + "1 0 0 1 0 0 cm\n".repeat(2_000_000);
 
+/**
+ * addPageNumbers on `doc`, with the scan steps (contentScanSteps) it took:
+ * the stamp loads content-isolation lazily, and that import is this
+ * module's own (one file, one instance), so its scans count here. A count
+ * no runner's speed moves: a page scanned to the end before it is refused,
+ * or a shared stream scanned once per page, shows as steps.
+ */
 async function stamp(doc: PDFDocument) {
   const bytes = await doc.save();
+  const before = contentScanSteps();
   const t0 = Date.now();
   const out = await addPageNumbers(bytes);
-  return { ms: Date.now() - t0, inBytes: bytes.length, outBytes: out.length };
+  return {
+    ms: Date.now() - t0,
+    inBytes: bytes.length,
+    outBytes: out.length,
+    steps: contentScanSteps() - before,
+  };
 }
 
 /** Each page's isolation outcome, as the engines' isolation sees it. */

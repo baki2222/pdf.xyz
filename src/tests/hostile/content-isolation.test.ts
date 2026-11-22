@@ -817,7 +817,13 @@ describe("decoding is bounded", () => {
 
 describe("review-l06 round 2: isolation work is bounded per stream and per document", () => {
   const WORK = "src/tests/hostile/content-isolation-work.child.ts";
-  type Stamped = { ms: number; inBytes: number; outBytes: number };
+  type Stamped = {
+    ms: number;
+    inBytes: number;
+    outBytes: number;
+    /** contentScanSteps across the stamp alone (the child's `stamp`). */
+    steps: number;
+  };
   const settle = async <T>(args: string[], bound: number): Promise<T> => {
     const r = await runBounded(WORK, args, bound, { maxOldSpaceMb: 2048 });
     expect(r.kind, JSON.stringify(r)).toBe("settled");
@@ -1036,12 +1042,26 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
       // 40-55 s on CI, under the 60 s kill).
       const kinds = got.kinds;
       expect(kinds).toEqual(Array(10).fill("skipped:budget"));
+      // `kinds` cannot see a page scanned to the END and only then refused
+      // (witness audit, 2026-11-22: with every early exit removed the
+      // verdicts stayed the same and eiless took 25 s against 10). The scan
+      // steps across the stamp can: an over-budget page may read its bytes
+      // once (the first EI search runs to the end), no more, and the
+      // document budget lets at most 8 of the 10 pages be scanned. Honest:
+      // eiless 260,767,616 steps (0.80 of the bound), dense 6,094,392. No
+      // early exit: eiless 480,086,136, dense 8,321,482,024 (102 s). A count,
+      // so it is the same on any runner.
+      const pageBytes = 31 * 2 ** 20;
+      const overScan = Math.max(0, got.steps - 1.25 * 8 * pageBytes);
+      expect(overScan, `${got.steps} steps across the stamp`).toBe(0);
+      // Positive control: the stamp's own isolation was counted.
+      expect(got.steps).toBeGreaterThan(1_000_000);
       // Measure mode until harvested: CI's test reached 5,566 ms (eiless,
       // 44321190257) and 4,688 ms (dense, 43629904891), fixture build and
       // spawn included; the stamp alone was never printed.
       measureTime("content-isolation-stamp-costly", got.ms, 10_000, {
         instance: shape,
-        witness: "kinds",
+        witness: "overScan",
       });
     }, 90_000);
   }
@@ -1140,16 +1160,22 @@ describe("review-l06 round 2: isolation work is bounded per stream and per docum
     // copies came out at 50x the input.
     const overThreeCopies = Math.max(0, got.outBytes - got.inBytes * 3);
     expect(overThreeCopies, `${got.outBytes} of ${got.inBytes}`).toBe(0);
-    // Measure mode, witness overThreeCopies (CI-flake audit lane 2): the
-    // test took up to 2,511 ms on CI (12 runs of 2026-11-18), so 10 s is 4x.
-    // The size check sees 50 rewrites that are KEPT; 50 rewrites thrown
-    // away but one only time sees. The raw `got.ms < 10_000` could not be
-    // restored (review 2026-11-22): the debt writer reads one remaining
-    // copy of that snippet as the detector going blind to the four other
-    // occurrences this lane routed (wall-clock-audit.ts `lostButPresent`
-    // matches by snippet, not by occurrence).
+    // The size check sees 50 rewrites that are KEPT, not 50 scans thrown
+    // away (witness audit, 2026-11-22: a cache that was read but still
+    // decoded and scanned every page's stream passed it, at 13 s against
+    // 10). The scan steps across the stamp see both: one scan of the
+    // 30,000,002-byte stream is 30,000,003 steps; the mutant read
+    // 1,500,000,101. Two scans' worth is the bound, and a count is the
+    // same on any runner.
+    const sharedBytes = 30_000_002;
+    const overOneScan = Math.max(0, got.steps - 2 * sharedBytes);
+    expect(overOneScan, `${got.steps} steps across the stamp`).toBe(0);
+    // Positive control: the stamp's scan of the shared stream was counted.
+    expect(got.steps).toBeGreaterThanOrEqual(sharedBytes);
+    // Measure mode (CI-flake audit lane 2): the test took up to 2,511 ms
+    // on CI (12 runs of 2026-11-18), so 10 s is 4x.
     measureTime("content-isolation-stamp-shared", got.ms, 10_000, {
-      witness: "overThreeCopies",
+      witness: "overOneScan",
     });
   }, 90_000);
 

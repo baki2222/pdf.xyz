@@ -485,14 +485,15 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
     // 64 KB walk-back takes 18 s, under the 20 s kill, so this bound is
     // what catches it there. CI's estimated preflightMs is about 0.5-1.2 s
     // (test max 3,759 ms in 43636213581, child start-up included), and it
-    // is now printed on every pass.
-    const scanned = v.bytes;
-    expect(scanned).toBe(4_500_015);
+    // is now printed on every pass. The input's length was named as its
+    // witness once; it cannot change, so a quarter-window walk-back passed
+    // it (witness audit, 2026-11-22). Pending (wall-clock-pending.ts): the
+    // raw bound below is what fails.
     measureTime(
       "pdfjs-guard-scan-unmatched-dict",
       v.preflightMs as number,
       3_000,
-      { witness: "scanned" },
+      {},
     );
     expect(v.preflightMs as number).toBeLessThan(3_000);
   }, 60_000);
@@ -509,14 +510,16 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
     // 4 MB preflight was about 5.0-5.8 s against this 8 s (test max 9,027
     // ms in 43632313634), 1.4x; at 1 MB a linear scan is about 1.5 s on CI
     // (over 5x), and the forward-to-EOF search is about 47 s on the dev
-    // box (7.5 s x 2.5^2): past the 20 s kill on every runner seen.
-    const scanned = v.bytes;
-    expect(scanned).toBe(1_000_015);
+    // box (7.5 s x 2.5^2): past the 20 s kill on every runner seen. The
+    // input's length was named as its witness once; it cannot change, so a
+    // capped forward search passed it at 87% of 8 s (witness audit,
+    // 2026-11-22). Pending (wall-clock-pending.ts): the raw bound below is
+    // what fails.
     measureTime(
       "pdfjs-guard-scan-no-endstream",
       v.preflightMs as number,
       8_000,
-      { witness: "scanned" },
+      {},
     );
     // The property is LINEAR, seconds and not minutes: the quadratic scan took
     // 7.5 s for 400 KB and did not finish 1.6 MB in 2 minutes. WAS 3,000 ms,
@@ -696,17 +699,21 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
       expect(v.notice as string).toContain(PDF_IMAGE_TOO_LARGE_MESSAGE);
       // Ink and notice cannot see the mask decoded (a zero mask paints white
       // either way). Memory can: decoding the 100 MP mask allocates 100 MB
-      // or more. The honest growth is printed here (CI-flake audit lane 2)
-      // so a dedicated bound can be set from CI's spread; a first guess of
-      // 64 MB read 77 MB honest on a loaded Windows box, so it waits for
-      // the harvest.
+      // or more. A first guess of 64 MB read 77 MB honest on a loaded
+      // Windows box, so the bound is this file's GROWTH_MB (300), the one
+      // every other decode in it is held to (witness audit, 2026-11-22:
+      // with masks no longer charged, the "with" instance grew 1,121 MB
+      // while ink stayed [765, 765]). Memory, not time: no runner's speed
+      // moves it.
+      const maskGrowth = Math.max(0, (v.growthMb as number) - GROWTH_MB);
+      expect(maskGrowth, `growth ${v.growthMb as number} MB`).toBe(0);
       // The 500 ms bound stays until its CI spread is read: it is printed
       // now, never before (CI's tests took up to 4,170 / 5,681 ms with the
       // fixture build and the open).
       measureTime("pdfjs-guard-softmask-render", v.renderMs as number, 500, {
         instance: typed,
         detail: `growth ${v.growthMb as number} MB`,
-        witness: "drawnInk",
+        witness: "maskGrowth",
       });
       expect(v.renderMs as number).toBeLessThan(500);
     }, 60_000);

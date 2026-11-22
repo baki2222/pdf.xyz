@@ -332,11 +332,12 @@ describe("the board's walk is bounded by the /Kids the file contains, not by its
       // only check that sees a uniform slowdown of pdf.js's walk. CI read
       // 4.2-21.0 s across the four cases (lie:10000:19950 21,024 ms, run
       // 43629904891-era logs, 27 of them): 2.85x. Printed on every pass.
-      const shape = v.pageCount;
-      expect(shape).toBe(pages);
+      // No count sees a uniform slowdown, by its nature: the page count was
+      // named as a witness once and stayed equal under a 3 ms-per-page spin
+      // (witness audit, 2026-11-22). So the record is pending
+      // (wall-clock-pending.ts), and the raw bound below is what fails.
       measureTime("board-pages-at-walk-bound", v.ms as number, 60_000, {
         instance: c,
-        witness: "shape",
       });
       expect(v.ms as number).toBeLessThan(60_000);
       const walk = charge(v, pages);
