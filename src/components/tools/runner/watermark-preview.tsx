@@ -192,7 +192,10 @@ export function WatermarkPreview(props: WatermarkPreviewProps) {
       <div
         ref={sheetRef}
         data-testid="watermark-preview"
-        className="rounded-sheet relative w-full overflow-hidden bg-white shadow-md ring-1 ring-black/10"
+        // No overflow clip here: the handle below is a sibling of the clipped
+        // sheet, so focusing it scrolls the PAGE (with its scroll padding for
+        // the run dock), not a clipping box that cannot scroll.
+        className="relative w-full"
         style={{
           aspectRatio: size ? `${size.width} / ${size.height}` : "3 / 4",
           maxWidth: PREVIEW_WIDTH,
@@ -227,61 +230,63 @@ export function WatermarkPreview(props: WatermarkPreviewProps) {
           drag.current = null;
         }}
       >
-        {picture.image && (
-          // eslint-disable-next-line @next/next/no-img-element -- a blob: URL of a local render
-          <img
-            src={picture.image.url}
-            alt={picture.image.note ?? ""}
-            draggable={false}
-            className="absolute inset-0 size-full"
-          />
-        )}
-        {size && layout && (
-          <svg
-            aria-hidden
-            className="absolute inset-0 size-full"
-            viewBox={`0 0 ${size.width} ${size.height}`}
-            style={{ pointerEvents: "none" }}
-          >
-            {layout.marks.map((m, i) => (
-              <g
-                key={i}
-                data-watermark-mark=""
-                transform={`translate(${m.cx} ${m.cy}) rotate(${-layout.tilt})`}
-                opacity={opacity / 100}
-              >
-                {mode === "text" ? (
-                  // Baseline at the bottom of the engine's box, from its
-                  // left edge, stretched to the measured width: the run
-                  // draws its text from that same corner.
-                  <text
-                    x={-layout.width / 2}
-                    y={layout.height / 2}
-                    fontSize={fontSize * layout.scale}
-                    fontFamily={SVG_FAMILY[font]}
-                    fontWeight="bold"
-                    fill={colorHex}
-                    textLength={layout.width}
-                    lengthAdjust="spacingAndGlyphs"
-                  >
-                    {text.trim()}
-                  </text>
-                ) : (
-                  art && (
-                    <image
-                      href={art.url}
+        <div className="rounded-sheet absolute inset-0 overflow-hidden bg-white shadow-md ring-1 ring-black/10">
+          {picture.image && (
+            // eslint-disable-next-line @next/next/no-img-element -- a blob: URL of a local render
+            <img
+              src={picture.image.url}
+              alt={picture.image.note ?? ""}
+              draggable={false}
+              className="absolute inset-0 size-full"
+            />
+          )}
+          {size && layout && (
+            <svg
+              aria-hidden
+              className="absolute inset-0 size-full"
+              viewBox={`0 0 ${size.width} ${size.height}`}
+              style={{ pointerEvents: "none" }}
+            >
+              {layout.marks.map((m, i) => (
+                <g
+                  key={i}
+                  data-watermark-mark=""
+                  transform={`translate(${m.cx} ${m.cy}) rotate(${-layout.tilt})`}
+                  opacity={opacity / 100}
+                >
+                  {mode === "text" ? (
+                    // Baseline at the bottom of the engine's box, from its
+                    // left edge, stretched to the measured width: the run
+                    // draws its text from that same corner.
+                    <text
                       x={-layout.width / 2}
-                      y={-layout.height / 2}
-                      width={layout.width}
-                      height={layout.height}
-                      preserveAspectRatio="none"
-                    />
-                  )
-                )}
-              </g>
-            ))}
-          </svg>
-        )}
+                      y={layout.height / 2}
+                      fontSize={fontSize * layout.scale}
+                      fontFamily={SVG_FAMILY[font]}
+                      fontWeight="bold"
+                      fill={colorHex}
+                      textLength={layout.width}
+                      lengthAdjust="spacingAndGlyphs"
+                    >
+                      {text.trim()}
+                    </text>
+                  ) : (
+                    art && (
+                      <image
+                        href={art.url}
+                        x={-layout.width / 2}
+                        y={-layout.height / 2}
+                        width={layout.width}
+                        height={layout.height}
+                        preserveAspectRatio="none"
+                      />
+                    )
+                  )}
+                </g>
+              ))}
+            </svg>
+          )}
+        </div>
         {size && first && !tiled && (
           <button
             type="button"
