@@ -510,17 +510,50 @@ export function searchPattern(
   return new RegExp(source, matchCase ? "gu" : "giu");
 }
 
+/**
+ * Where a Find or Detect step stopped: the page and the offset in that
+ * page's text of the first match it did NOT list. A step started `from` it
+ * lists the next ones (audit redact-pdf#4: until 2026-11-22 a search past
+ * {@link MAX_FOUND} said so, but nothing reached the matches after it).
+ */
+export interface FindCursor {
+  page: number;
+  offset: number;
+}
+
+/** One step of a search: up to {@link MAX_FOUND} matches, and where it stopped. */
+export interface FindStep {
+  matches: FoundText[];
+  /** More matches follow; `next` is where. */
+  capped: boolean;
+  next?: FindCursor;
+}
+
+/** Is a match at `start` on `page` before the cursor? */
+function beforeCursor(
+  from: FindCursor | undefined,
+  page: number,
+  start: number,
+): boolean {
+  return (
+    from !== undefined &&
+    (page < from.page || (page === from.page && start < from.offset))
+  );
+}
+
 export function findTextMatches(
   index: RedactTextIndex,
   query: string,
   options: SearchOptions,
-): { matches: FoundText[]; capped: boolean } {
+  from?: FindCursor,
+): FindStep {
   const pattern = searchPattern(query, options);
   if (!pattern) return { matches: [], capped: false };
   const matches: FoundText[] = [];
   for (const page of index.pages) {
+    if (from && page.page < from.page) continue;
     for (const m of page.text.matchAll(pattern)) {
-      if (m[0].length === 0) continue;
+      if (m[0].length === 0 || beforeCursor(from, page.page, m.index)) continue;
       const hit = found(
         page,
         "search",
@@ -529,7 +562,12 @@ export function findTextMatches(
         options,
       );
       if (!hit) continue;
-      if (matches.length >= MAX_FOUND) return { matches, capped: true };
+      if (matches.length >= MAX_FOUND)
+        return {
+          matches,
+          capped: true,
+          next: { page: page.page, offset: m.index },
+        };
       matches.push(hit);
     }
   }
@@ -682,18 +720,27 @@ export function detectInText(
 /**
  * Every detected item, in page order, up to {@link MAX_FOUND}; `capped` when
  * there were more — the panel must say so, or a long document reads as fully
- * detected while its later pages were never reached.
+ * detected while its later pages were never reached — and `next` is where
+ * a step started `from` it carries on.
  */
 export function detectPersonalData(
   index: RedactTextIndex,
   categories: readonly PiiCategory[],
-): { matches: FoundText[]; capped: boolean } {
+  from?: FindCursor,
+): FindStep {
   const matches: FoundText[] = [];
   for (const page of index.pages) {
+    if (from && page.page < from.page) continue;
     for (const d of detectInText(page.text, categories)) {
+      if (beforeCursor(from, page.page, d.start)) continue;
       const hit = found(page, d.kind, d.start, d.end, DETECT_MATCH);
       if (!hit) continue;
-      if (matches.length >= MAX_FOUND) return { matches, capped: true };
+      if (matches.length >= MAX_FOUND)
+        return {
+          matches,
+          capped: true,
+          next: { page: page.page, offset: d.start },
+        };
       matches.push(hit);
     }
   }

@@ -2,6 +2,7 @@ import type { ToolContent } from "./types";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { REDACT_DPI_PRESETS, redactPresetById } from "@/lib/pdf/redact";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
+import { MAX_FOUND } from "@/lib/pdf/redact-categories";
 
 /*
  * Every behavioral claim below was read from the code on 2026-09-27:
@@ -54,6 +55,11 @@ import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
  *    add one page-sized area per listed page (`wholePageRedactions`, in the
  *    displayed space; redact-whole-pages.test.ts runs Remove on a turned,
  *    cropped page, redact-runner.test.tsx the field to the engine).
+ *    2026-11-22 (audit redact-pdf#4): a Find or Detect lists at most
+ *    MAX_FOUND matches; past it the panel offers "Find more from page N",
+ *    which lists the next MAX_FOUND from where the last step stopped
+ *    (findTextMatches / detectPersonalData `from`), until "That is all of
+ *    them." (redact-find-more.test.ts, redact-find-more.dom.test.tsx).
  *    2026-11-22 (audit redact-pdf#1): Remove also decodes every attached
  *    file in the output and refuses to save while one still holds a ticked
  *    match, or cannot be read as text (redact-attachments.test.ts).
@@ -144,7 +150,7 @@ const content: ToolContent = {
     },
     {
       q: "Can it find and redact every instance of a word automatically?",
-      a: "Yes. Type it under Find text to redact and press Find: every place it appears on every page is listed, ticked, and each ticked one is boxed when you redact. Detect personal data does the same for email addresses, phone numbers, card numbers, IBANs and labelled dates of birth. Detection matches patterns and checksums, so it can miss a format it does not know — read the list before you redact. It reads the PDF's own text, so a scan with no text layer has nothing to find. The preview draws boxes on a blank outline of the page, not on its content, so open the downloaded file and check it.",
+      a: `Yes. Type it under Find text to redact and press Find: every place it appears on every page is listed, ticked, and each ticked one is boxed when you redact. The list takes ${MAX_FOUND} at a time; past that, a Find more from page button lists the next ones, until it says that is all of them. Detect personal data does the same for email addresses, phone numbers, card numbers, IBANs and labelled dates of birth. Detection matches patterns and checksums, so it can miss a format it does not know — read the list before you redact. It reads the PDF's own text, so a scan with no text layer has nothing to find. The preview draws boxes on a blank outline of the page, not on its content, so open the downloaded file and check it.`,
     },
     {
       q: "Why can't I select or search text in the redacted PDF?",
