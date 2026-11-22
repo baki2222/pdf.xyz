@@ -1523,6 +1523,12 @@ describe("Compare PDF's redline is a chunk of its own", () => {
  * the columns and drift checks, a scale's heads and a comb label's reach
  * and barrier. Inside 29.7, so the bound stands; stylesheet unchanged at
  * 15,328 B gz.
+ *
+ * S6's verify round (2026-11-22, zlib -9, Windows, merged with main
+ * e8421596): 30,358 B gz (29.65 KB), 85,019 B raw, +423 B over 29,935
+ * for reading a stack's instructions as lines (joined items, the passage
+ * over it, the note under it, a wrapped caption). Inside 29.7, so the
+ * bound stands; stylesheet unchanged at 15,328 B gz.
  */
 const FIND_FIELDS_FETCH_GZ_KB = 29.7;
 /*
