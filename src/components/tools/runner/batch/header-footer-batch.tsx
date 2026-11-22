@@ -99,7 +99,7 @@ export function HeaderFooterBatch(props: SinglePdfBatch) {
             />
           </div>
           <SegmentedControl
-            label="Position across the page"
+            label="Alignment"
             value={align}
             onChange={setAlign}
             options={[

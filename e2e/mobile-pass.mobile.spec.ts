@@ -677,8 +677,9 @@ const BATCH_VIEW_CONTROLS = [
   '[data-chunk="pdfxyz:lazy:batch-view"] fieldset [role="radiogroup"]:not([aria-label*="osition"]) [role="radio"]',
 ].join(", ");
 // Batch plan P2: Grayscale PDF (a settings batch) and the images batches.
-// Extract Images, like Flatten, has no settings.
-const NO_SETTINGS = new Set(["flatten-pdf", "extract-images"]);
+// Extract Images, like Flatten, has no settings. Audit platform#1
+// (2026-11-22): Crop PDF's batch has one number field and no choice row.
+const NO_SETTINGS = new Set(["flatten-pdf", "extract-images", "crop-pdf"]);
 for (const slug of [
   ...Object.keys(SETTINGS_BATCH_TOOLS),
   ...Object.keys(IMAGE_BATCH_TOOLS),
@@ -704,8 +705,10 @@ for (const slug of [
     const m = await measure(page, BATCH_VIEW_CONTROLS);
     // Health: two Removes and Run were seen, and every batch with settings
     // showed a choice row (Flatten has none).
+    // The rows' own Removes, by the file each names: Edit PDF Metadata's
+    // "Remove all metadata" choice also starts with "Remove " (2026-11-22).
     expect(
-      m.seen.filter((s) => s.startsWith("Remove ")),
+      m.seen.filter((s) => /^Remove (first|second)\.pdf /.test(s)),
       m.seen.join(" | "),
     ).toHaveLength(2);
     expect(

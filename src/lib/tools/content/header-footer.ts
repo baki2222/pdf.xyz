@@ -190,7 +190,7 @@ const content: ToolContent = {
   useCases: [
     {
       title: "Several files at once",
-      body: `Add two or more PDFs and they open as a batch list, with one Header line, one Footer line and one position across the page for them all; {n}, {total} and {date} work as in the single-file editor, and page numbers restart in each file. Font, size, margin and colour are the single-file defaults. Press Stamp with the number of files and each one is stamped in turn, in your browser, with nothing uploaded. Download a file from its row, or press “Download all” for ${SETTINGS_BATCH_TOOLS["header-footer"].zipName}. ${batchLimitsSentence()}`,
+      body: `Add two or more PDFs and they open as a batch list, with one Header line, one Footer line and one Alignment (Left, Center or Right) for them all; {n}, {total} and {date} work as in the single-file editor, and page numbers restart in each file. Font, size, margin and colour are the single-file defaults. Press Stamp with the number of files and each one is stamped in turn, in your browser, with nothing uploaded. Download a file from its row, or press “Download all” for ${SETTINGS_BATCH_TOOLS["header-footer"].zipName}. ${batchLimitsSentence()}`,
     },
     {
       title: "Page X of Y across a combined report",
