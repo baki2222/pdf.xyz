@@ -7611,7 +7611,7 @@
     },
     "guides/how-to-split-pdf-pages-in-half.html": {
       "title": "How to split PDF pages in half (scanned book spreads) — pdf.xyz",
-      "description": "Turn a scanned book with two pages on every sheet into single pages: cut each PDF page down the middle, in reading order, covers kept whole. In your browser.",
+      "description": "Turn a scanned book with two pages on every sheet into single pages: cut each PDF page at the fold, in reading order, covers kept whole. In your browser.",
       "canonical": "https://pdf.xyz/guides/how-to-split-pdf-pages-in-half",
       "robots": "index, follow",
       "h1": ["How to split PDF pages in half (scanned book spreads)"],
