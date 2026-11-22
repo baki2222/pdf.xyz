@@ -172,6 +172,11 @@ async function mount(
     },
   });
   await screen.findByText("report.pdf");
+  // The fixture's text is English: into English, the default, the panel now
+  // stops before upload (translate-pdf#1), so this run goes into Spanish.
+  fireEvent.change(screen.getByLabelText("Translate into"), {
+    target: { value: "es" },
+  });
   await waitFor(() =>
     expect(run.getAttribute("aria-disabled")).not.toBe("true"),
   );

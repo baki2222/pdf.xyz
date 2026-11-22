@@ -384,5 +384,5 @@ export function translateAlreadyInLanguageMessage(
   language: TranslateLanguage,
 ): string {
   const name = LANGUAGE_NAMES[language];
-  return `This PDF looks like it is already in ${name}, so nothing was uploaded and nothing was used from your daily AI allowance. Choose another language to translate into. If we guessed wrong, pick the language it is written in under Source language and press Translate again.`;
+  return `This PDF looks like it is already in ${name}, so nothing was uploaded and nothing was taken from the daily AI allowance. Choose another language to translate into. If we guessed wrong, pick the language it is written in under Source language and press Translate again.`;
 }

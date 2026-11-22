@@ -140,6 +140,11 @@ async function translate(
     },
   });
   await screen.findByText("document.pdf");
+  // The fixture's text is English: into English, the default, the panel now
+  // stops before upload (translate-pdf#1), so this run goes into Spanish.
+  fireEvent.change(screen.getByLabelText("Translate into"), {
+    target: { value: "es" },
+  });
   fireEvent.click(run);
   return network;
 }
