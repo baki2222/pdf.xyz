@@ -50,6 +50,7 @@ import {
 } from "@/lib/jobs/epub-render-options";
 import {
   DEFAULT_HTML_RENDER_OPTIONS,
+  HTML_START_VIEWPORT,
   HTML_PAGE_SIZES,
   htmlRenderOptionsBag,
   type HtmlPageSize,
@@ -270,7 +271,13 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
   const regional = useRegionalPaper();
   const [chosenLayout, setLayout] = useState<
     Omit<HtmlRenderOptions, "pageSize"> & { pageSize: HtmlPageSize | null }
-  >({ ...DEFAULT_HTML_RENDER_OPTIONS, pageSize: null });
+  >({
+    ...DEFAULT_HTML_RENDER_OPTIONS,
+    // Webpage to PDF starts on Desktop (audit webpage-to-pdf#5): sent in
+    // the bag, since it differs from the job API's default.
+    viewport: HTML_START_VIEWPORT[mode === "url" ? "site" : "file"],
+    pageSize: null,
+  });
   const layout = useMemo<HtmlRenderOptions>(
     () => ({
       ...chosenLayout,

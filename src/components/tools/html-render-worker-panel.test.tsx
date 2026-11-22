@@ -23,7 +23,10 @@ import { getProviderReadiness } from "@/lib/workers/providers";
 import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
 import { HtmlRenderWorkerPanel } from "./html-render-worker-panel";
-import { HTML_PAGE_SIZES } from "@/lib/jobs/html-render-options";
+import {
+  HTML_PAGE_SIZES,
+  HTML_START_VIEWPORT,
+} from "@/lib/jobs/html-render-options";
 import { imagePageSizeForLocales } from "@/lib/pdf/image-page-defaults";
 import { browserLocales, regionalChoice } from "./use-regional-paper";
 import {
@@ -393,12 +396,17 @@ describe("HtmlRenderWorkerPanel — the address is fixed or explained before any
  */
 describe("HtmlRenderWorkerPanel — Webpage to PDF capture options", () => {
   const urlTool = getToolBySlug("webpage-to-pdf")!;
-  /** The paper an untouched panel starts on in this browser (audit backlog #5). */
+  /**
+   * The paper an untouched panel starts on in this browser (audit backlog
+   * #5), and its Screen width, Desktop (audit wave 2 webpage-to-pdf#5):
+   * both travel, since both differ from the job API's defaults.
+   */
   const REGIONAL_PAPER = {
     pageSize: regionalChoice(
       HTML_PAGE_SIZES,
       imagePageSizeForLocales(browserLocales()),
     ),
+    viewport: HTML_START_VIEWPORT.site,
   };
   let fetchMock: ReturnType<typeof vi.fn>;
 

@@ -30,7 +30,10 @@ import { getProviderReadiness } from "@/lib/workers/providers";
 import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
 import { TEXT_PAGE_SIZES } from "@/lib/pdf/text-page-options";
-import { HTML_PAGE_SIZES } from "@/lib/jobs/html-render-options";
+import {
+  HTML_PAGE_SIZES,
+  HTML_START_VIEWPORT,
+} from "@/lib/jobs/html-render-options";
 
 import { PDFArray, PDFDocument, PDFName, PDFRawStream } from "pdf-lib";
 import { inflateSync } from "node:zlib";
@@ -369,7 +372,12 @@ describe("Webpage to PDF starts on the regional paper", () => {
     run();
     await vi.waitFor(() =>
       expect(sentOptions()).toEqual([
-        { pageSize: size, url: "https://example.com/" },
+        // Webpage to PDF also starts on Desktop (webpage-to-pdf#5).
+        {
+          pageSize: size,
+          viewport: HTML_START_VIEWPORT.site,
+          url: "https://example.com/",
+        },
       ]),
     );
   });
@@ -389,7 +397,11 @@ describe("Webpage to PDF starts on the regional paper", () => {
     run();
     await vi.waitFor(() =>
       expect(sentOptions()).toEqual([
-        { orientation: "landscape", url: "https://example.com/" },
+        {
+          orientation: "landscape",
+          viewport: HTML_START_VIEWPORT.site,
+          url: "https://example.com/",
+        },
       ]),
     );
   });
