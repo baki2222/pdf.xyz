@@ -659,7 +659,12 @@ describe("retrieval eval corpus", () => {
     let best = rows[0]!;
     for (const row of rows) if (row[1].all >= best[1].all) best = row;
     expect(CHAT_RETRIEVAL_ANCHOR_SHARE, printed).toBe(best[0]);
-  }, 30_000);
+    // Five full retrievals of the corpus; the time tracks runner speed and
+    // shows no trend. CI max 14,434 ms (44891504062, 11-21), 48% of the old
+    // 30 s; 14,224 ms over the 21 runs of 11-16..11-18. 60 s is 4.2x, so the
+    // headroom reporter warns at 30 s, before any red. Do not cut the grid:
+    // the grid is the property.
+  }, 60_000);
 
   it("COVERAGE SWEEP re-derives CHAT_RETRIEVAL_MIN_COVERAGE (the loosest gate with no class below main and the best overall recall)", () => {
     const grid = [0, 1 / 4, 1 / 3, 1 / 2, 2 / 3, 1];
@@ -695,5 +700,10 @@ describe("retrieval eval corpus", () => {
     // lexical facts are lost again.
     const shut = rows.find(([value]) => value === 1)![1];
     expect(shut.B, printed).toBeLessThan(RETRIEVAL.B);
-  }, 30_000);
+    // Six full retrievals of the corpus; the time tracks runner speed and
+    // shows no trend. CI max 18,319 ms (44891504062, 11-21), 61% of the old
+    // 30 s; 17,138 ms over the 21 runs of 11-16..11-18. 70 s is 3.8x, so the
+    // headroom reporter warns at 35 s, before any red. Do not cut the grid,
+    // and do not call selectPages directly: that skips retrieveGrounding.
+  }, 70_000);
 });
