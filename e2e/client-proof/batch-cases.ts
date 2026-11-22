@@ -5,7 +5,10 @@ import { SETTINGS_BATCH_TOOLS } from "../../src/lib/batch/tools";
 import { fileInput, waitForHydration } from "../helpers";
 import {
   captureDownload,
+  loadPdf,
+  pdfCropBoxes,
   pdfImages,
+  pdfInfo,
   pdfPageCount,
   pdfPageTexts,
   pdfRotations,
@@ -58,6 +61,11 @@ function entryNames(slug: Slug): string[] {
     "watermark-pdf": "watermarked",
     "split-pdf-pages-in-half": "halved",
     "grayscale-pdf": "grayscale",
+    "edit-pdf-metadata": "metadata",
+    "header-footer": "header-footer",
+    "crop-pdf": "cropped",
+    "resize-pdf": "resized",
+    "n-up-pdf": "2-up",
   };
   return [`report-${suffix[slug]}.pdf`, `report-${suffix[slug]} (2).pdf`];
 }
@@ -82,6 +90,7 @@ async function runBatch(
   ctx: CaseContext,
   slug: Slug,
   runName: RegExp,
+  setup?: (page: Page) => Promise<void>,
 ): Promise<Buffer> {
   const inputs = await payloads(slug);
   inputs.forEach((bytes, i) => (ctx.data[`input-${i}`] = Buffer.from(bytes)));
@@ -97,6 +106,7 @@ async function runBatch(
   );
   const run = ctx.page.getByRole("button", { name: runName });
   await expect(run).toBeVisible({ timeout: 20_000 });
+  await setup?.(ctx.page);
   await run.click();
   await expect(
     ctx.page.getByRole("heading", {
@@ -143,13 +153,14 @@ function batchCase(
   kind: VariantCase["kind"],
   runName: RegExp,
   check: (pdf: Buffer, index: number) => Promise<void>,
+  setup?: (page: Page) => Promise<void>,
 ): VariantCase {
   return {
     slug,
     name: "a batch of two PDFs with the same name",
     kind,
     artifact: "zip",
-    run: (ctx) => runBatch(ctx, slug, runName),
+    run: (ctx) => runBatch(ctx, slug, runName, setup),
     assert: async (buf, ctx) => {
       expect(
         ctx.data.requestsSeen,
@@ -183,6 +194,9 @@ function keepingArtifact(c: VariantCase): VariantCase {
 }
 
 const PAGE_TEXT = async (pdf: Buffer) => pdfPageTexts(pdf);
+
+/** The title Edit PDF Metadata's batch writes into every file. */
+const BATCH_TITLE = "Batch title";
 
 export const BATCH_VARIANTS: readonly VariantCase[] = [
   batchCase("rotate-pdf", "rotate", /^Rotate 2 PDFs$/, async (pdf, i) => {
@@ -252,4 +266,75 @@ export const BATCH_VARIANTS: readonly VariantCase[] = [
         );
     },
   ),
+  // Audit platform#1 (2026-11-22): the five page tools that opened only
+  // the first of several files. The inputs are makeTextPdf's 320 x 240
+  // pages, two and three of them.
+  batchCase(
+    "edit-pdf-metadata",
+    "metadata",
+    /^Update 2 PDFs$/,
+    async (pdf, i) => {
+      const { info } = await pdfInfo(pdf);
+      expect(info.Title, `${NOT_APPLIED} output ${i + 1}`).toBe(BATCH_TITLE);
+      expect(await pdfPageCount(pdf)).toBe(PAGES[i]!);
+    },
+    async (page) => {
+      await page.getByLabel("Title", { exact: true }).fill(BATCH_TITLE);
+    },
+  ),
+  batchCase(
+    "header-footer",
+    "header-footer",
+    /^Stamp 2 PDFs$/,
+    async (pdf, i) => {
+      const texts = await PAGE_TEXT(pdf);
+      // The default footer, counted in each file.
+      expect(texts[0], `${NOT_APPLIED} output ${i + 1}`).toContain(
+        `Page 1 of ${PAGES[i]}`,
+      );
+      expect(texts[0]).toContain(pageMarker(i === 0 ? "first" : "second", 1));
+    },
+  ),
+  batchCase("crop-pdf", "crop", /^Crop 2 PDFs$/, async (pdf, i) => {
+    const boxes = await pdfCropBoxes(pdf);
+    expect(boxes, `${NOT_APPLIED} output ${i + 1}`).toHaveLength(PAGES[i]!);
+    for (const box of boxes) {
+      // The default 24 pt off every edge of a 320 x 240 page.
+      expect(box.width, `${NOT_APPLIED} output ${i + 1}`).toBeCloseTo(272, 1);
+      expect(box.height, `${NOT_APPLIED} output ${i + 1}`).toBeCloseTo(192, 1);
+    }
+  }),
+  batchCase("resize-pdf", "resize", /^Resize 2 PDFs$/, async (pdf, i) => {
+    const doc = await loadPdf(pdf);
+    expect(doc.getPageCount(), `${NOT_APPLIED} output ${i + 1}`).toBe(
+      PAGES[i]!,
+    );
+    for (const page of doc.getPages()) {
+      // A4 by default, and Match each page keeps a landscape page landscape.
+      expect(page.getWidth(), `${NOT_APPLIED} output ${i + 1}`).toBeCloseTo(
+        841.89,
+        1,
+      );
+      expect(page.getHeight(), `${NOT_APPLIED} output ${i + 1}`).toBeCloseTo(
+        595.28,
+        1,
+      );
+    }
+  }),
+  batchCase("n-up-pdf", "n-up", /^Lay out 2 PDFs$/, async (pdf, i) => {
+    const doc = await loadPdf(pdf);
+    // Two pages to a sheet: two pages make one sheet, three make two.
+    expect(doc.getPageCount(), `${NOT_APPLIED} output ${i + 1}`).toBe(
+      Math.ceil(PAGES[i]! / 2),
+    );
+    for (const page of doc.getPages()) {
+      const sides = [page.getWidth(), page.getHeight()].sort((a, b) => a - b);
+      expect(sides[0], `${NOT_APPLIED} output ${i + 1}`).toBeCloseTo(595.28, 1);
+      expect(sides[1], `${NOT_APPLIED} output ${i + 1}`).toBeCloseTo(841.89, 1);
+    }
+    // Every page of the file is on its sheets.
+    const text = (await PAGE_TEXT(pdf)).join(" ");
+    for (let n = 1; n <= PAGES[i]!; n++)
+      expect(text).toContain(pageMarker(i === 0 ? "first" : "second", n));
+  }),
 ].map(keepingArtifact);

@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useId, useRef, useState } from "react";
 /* eslint-disable @next/next/no-img-element -- a rendered page is an ephemeral object URL */
 import {
@@ -46,7 +47,11 @@ import {
   useAsyncRun,
 } from "./runner-kit";
 import { RunBar } from "./run-bar";
-import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
+import {
+  FileHeader,
+  SinglePdfRunner,
+  type SinglePdfBatch,
+} from "./single-pdf-runner";
 import {
   PrivacyLine,
   RangeField,
@@ -110,10 +115,28 @@ type AutoState =
   | { status: "done"; plan: AutoCropPlan }
   | { status: "error"; message: string };
 
+/**
+ * Two or more PDFs: the batch (audit platform#1, 2026-11-22), its own chunk,
+ * fetched only when they arrive — never with a visit to this page.
+ */
+const CropBatch = dynamic(
+  () => import("./batch/crop-batch").then((m) => m.CropBatch),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+const batch = (props: SinglePdfBatch) => <CropBatch {...props} />;
+
 export function CropRunner() {
   return (
     <SinglePdfRunner
-      hint="One PDF · cropped locally in your browser"
+      hint="One or more PDFs · cropped locally in your browser"
+      batch={batch}
       handoffSlug="crop-pdf"
       toolName="Crop PDF"
     >

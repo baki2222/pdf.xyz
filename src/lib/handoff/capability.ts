@@ -11,7 +11,9 @@
  *               and since batch plan P1 rotate, flatten, page numbers,
  *               watermark and split in half, through their settings batch;
  *               since P2 grayscale, PDF to JPG and PNG, extract images and
- *               text to PDF).
+ *               text to PDF; since audit platform#1 (2026-11-22) Edit PDF
+ *               Metadata, Header & Footer, Crop, Resize and Multiple Pages
+ *               per Sheet).
  *               Since batch plan P6 also every worker panel with a batch
  *               (`WORKER_BATCH_TOOLS`): the panel opens its batch list with
  *               the carried files, which wait there, staged as below, and
@@ -70,8 +72,8 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   "pdf-to-image": "batch",
   "page-numbers": "batch",
   watermark: "batch",
-  "header-footer": "single",
-  crop: "single",
+  "header-footer": "batch",
+  crop: "batch",
   sign: "single",
   flatten: "batch",
   overlay: "single",
@@ -84,16 +86,33 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   "extract-images": "batch",
   compare: "collect",
   scan: "batch",
-  metadata: "single",
-  resize: "single",
-  "n-up": "single",
+  // Edit PDF Metadata's batch; the kind's other tools are `SINGLE_ON_KIND`.
+  metadata: "batch",
+  resize: "batch",
+  // Multiple Pages per Sheet's batch; Booklet is `SINGLE_ON_KIND`.
+  "n-up": "batch",
   "split-half": "batch",
   view: "single",
 };
 
+/**
+ * The tools on a batch runner kind that have no batch of their own: a batch
+ * is a tool's, and these share a runner with one (audit platform#1,
+ * 2026-11-22 — Edit PDF Metadata on the `metadata` kind, Multiple Pages
+ * per Sheet on `n-up`). `capability.test.ts` holds each to single, and
+ * `batch-claims.test.ts` holds the set to the runners: a tool here loads
+ * no batch, and every tool on a batch kind that loads none is here.
+ */
+export const SINGLE_ON_KIND: ReadonlySet<string> = new Set([
+  "remove-annotations",
+  "edit-pdf-bookmarks",
+  "booklet-pdf",
+]);
+
 /** Resolve a tool slug to its handoff capability. */
 export function handoffCapabilityFor(slug: string): HandoffCapability {
   const kind = getRunnerKind(slug);
+  if (kind && SINGLE_ON_KIND.has(slug)) return capabilityOfMode("single");
   return capabilityOfMode(kind ? MODE_BY_KIND[kind] : stagedMode(slug));
 }
 

@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { RunReason } from "@/components/tools/runner/run-reason";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, PanelTop } from "lucide-react";
@@ -40,7 +41,11 @@ import {
   useAsyncRun,
 } from "./runner-kit";
 import { RunBar } from "./run-bar";
-import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
+import {
+  FileHeader,
+  SinglePdfRunner,
+  type SinglePdfBatch,
+} from "./single-pdf-runner";
 import {
   CheckboxField,
   ColorField,
@@ -72,10 +77,28 @@ export const TOKENS = [
   { token: "{date}", label: "{date}" },
 ];
 
+/**
+ * Two or more PDFs: the batch (audit platform#1, 2026-11-22), its own chunk,
+ * fetched only when they arrive — never with a visit to this page.
+ */
+const HeaderFooterBatch = dynamic(
+  () => import("./batch/header-footer-batch").then((m) => m.HeaderFooterBatch),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+const batch = (props: SinglePdfBatch) => <HeaderFooterBatch {...props} />;
+
 export function HeaderFooterRunner() {
   return (
     <SinglePdfRunner
-      hint="One PDF · header & footer applied locally in your browser"
+      hint="One or more PDFs · header & footer applied locally in your browser"
+      batch={batch}
       handoffSlug="header-footer"
       toolName="PDF Header & Footer"
     >

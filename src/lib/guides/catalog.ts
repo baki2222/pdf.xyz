@@ -3209,7 +3209,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To crop a PDF, open ${nameOf("crop-pdf")}, add your file, and set how much to trim under Crop margins: one value for all four sides, a separate value for each side, or Auto, which finds the white margins around each page's content for you. Then press Crop PDF and download the result.`,
-      `You can measure in ${CROP_UNITS}, crop every page or only the pages you list, and check the result in the Crop preview before anything is cropped. ${nameOf("crop-pdf")} runs in your browser tab, so your PDF stays on your device; it opens one file at a time, up to ${ceilingMb("crop-pdf")} MB.`,
+      `You can measure in ${CROP_UNITS}, crop every page or only the pages you list, and check the result in the Crop preview before anything is cropped. ${nameOf("crop-pdf")} runs in your browser tab, so your PDF stays on your device; it takes files of up to ${ceilingMb("crop-pdf")} MB each, several at once as a batch.`,
       "Cropping hides the edges rather than deleting them: the tool shrinks each page's visible area, and the content outside it stays in the file, out of view. Selectable text stays selectable, because nothing is redrawn.",
     ],
     steps: [
@@ -3272,7 +3272,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-11-08",
+    updated: "2026-11-22",
   },
   {
     slug: "how-to-convert-pdf-to-excel",
@@ -3929,7 +3929,7 @@ export const guides: Guide[] = [
     intro: [
       `To edit a PDF's metadata, open ${nameOf("edit-pdf-metadata")}, add your file, and type over the values it shows: ${METADATA_TEXT_NAMES}, plus the ${METADATA_DATE_NAMES} dates. Press Save metadata and download the copy. To strip all of it before you share a file, choose Remove all metadata instead.`,
       "Metadata is the document information a PDF carries beside its pages. Many readers show the title in the window or tab instead of the file name, search tools index it, and anyone who opens the file's properties can read the author, which is often your name, filled in by the app that made the file.",
-      `It runs in your browser, so your PDF stays on your device. It opens one file at a time, up to ${ceilingMb("edit-pdf-metadata")} MB, and the pages themselves are not changed.`,
+      `It runs in your browser, so your PDF stays on your device. It takes files of up to ${ceilingMb("edit-pdf-metadata")} MB each, several at once as a batch, and the pages themselves are not changed.`,
     ],
     steps: [
       `Open the ${nameOf("edit-pdf-metadata")} tool and drop your PDF where it says Drop your PDF here, or click browse. It stays on your device.`,
@@ -4000,7 +4000,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
-    updated: "2026-11-06",
+    updated: "2026-11-22",
   },
   {
     slug: "how-to-resize-pdf-pages",
@@ -4018,7 +4018,7 @@ export const guides: Guide[] = [
     intro: [
       `To resize the pages of a PDF, open ${nameOf("resize-pdf")}, add your file, and pick the new page size: ${RESIZE_SIZE_NAMES}, or a custom width and height. Choose ${RESIZE_FIT} so nothing is cut off, press Resize PDF, and download the copy.`,
       `The usual reason is paper. A document laid out on ${RESIZE_LETTER} has to print on ${RESIZE_A4} in most of the world, or the other way round, and a printer left to sort it out may cut the edges off or shrink the page by its own rules. Resizing the file settles the size once, for every printer and reader.`,
-      `It runs in your browser, so your PDF stays on your device. It opens one file at a time, up to ${ceilingMb("resize-pdf")} MB.`,
+      `It runs in your browser, so your PDF stays on your device. It takes files of up to ${ceilingMb("resize-pdf")} MB each, several at once as a batch.`,
     ],
     steps: [
       `Open the ${nameOf("resize-pdf")} tool and drop your PDF where it says Drop your PDF here, or click browse. It stays on your device.`,
@@ -4080,7 +4080,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
-    updated: "2026-11-08",
+    updated: "2026-11-22",
   },
   {
     slug: "how-to-print-multiple-pages-per-sheet",
@@ -4098,7 +4098,7 @@ export const guides: Guide[] = [
     intro: [
       `To put several pages of a PDF on one sheet, open ${nameOf("n-up-pdf")}, add your file, and choose ${N_UP_COUNT_NAMES} per sheet. Press Create sheets and download a new PDF whose every page holds that many of the original pages, shrunk to fit.`,
       "It does what a print dialog's pages-per-sheet setting does, but saves the result as a file. You can check it on screen before printing, send it to someone else to print, or print it on a printer whose settings you cannot find; print it at one page per sheet, since the pages are already laid out.",
-      `It runs in your browser, so your PDF stays on your device. It opens one file at a time, up to ${ceilingMb("n-up-pdf")} MB.`,
+      `It runs in your browser, so your PDF stays on your device. It takes files of up to ${ceilingMb("n-up-pdf")} MB each, several at once as a batch.`,
     ],
     steps: [
       `Open the ${nameOf("n-up-pdf")} tool and drop your PDF where it says Drop your PDF here, or click browse. It stays on your device.`,
@@ -4159,7 +4159,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
-    updated: "2026-11-09",
+    updated: "2026-11-22",
   },
   {
     slug: "how-to-add-bates-numbers-to-a-pdf",
@@ -5946,7 +5946,7 @@ export const guides: Guide[] = [
     intro: [
       `To add a header and footer to a PDF, open ${nameOf("header-footer")}, add your PDF, type in the Header boxes, the Footer boxes, or both, and press Add header & footer. Each band has a Left, a Center and a Right box, the lines go on every page unless you change that under Pages, and you download the stamped copy.`,
       "The footer starts out as Page {n} of {total}, so a plain page count needs no typing at all. The {n}, {total} and {date} buttons under each band add a field that fills itself in page by page: {n} is the page number, {total} the number of pages in the file, and {date} today's date as your browser writes it.",
-      `The PDF is read and rewritten in your browser, so it stays on your device, and there is no account to create. It takes one PDF at a time, up to ${ceilingMb("header-footer")} MB.`,
+      `The PDF is read and rewritten in your browser, so it stays on your device, and there is no account to create. It takes files of up to ${ceilingMb("header-footer")} MB each, several at once as a batch.`,
     ],
     steps: [
       `Open the ${nameOf("header-footer")} tool.`,
@@ -6020,7 +6020,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-22",
   },
   {
     slug: "how-to-convert-a-text-file-to-pdf",

@@ -22,6 +22,13 @@ export const SETTINGS_BATCH_TOOLS = {
   "split-pdf-pages-in-half": { zipName: "pdfxyz-halved.zip" },
   // Batch plan P2: one grayscale PDF per file, at the raster cap.
   "grayscale-pdf": { zipName: "pdfxyz-grayscale.zip" },
+  // Audit platform#1 (2026-11-22): five page tools that opened only the
+  // first of several files.
+  "edit-pdf-metadata": { zipName: "pdfxyz-metadata.zip" },
+  "header-footer": { zipName: "pdfxyz-header-footer.zip" },
+  "crop-pdf": { zipName: "pdfxyz-cropped.zip" },
+  "resize-pdf": { zipName: "pdfxyz-resized.zip" },
+  "n-up-pdf": { zipName: "pdfxyz-n-up.zip" },
 } as const satisfies Record<string, { zipName: `pdfxyz-${string}.zip` }>;
 
 export type SettingsBatchSlug = keyof typeof SETTINGS_BATCH_TOOLS;

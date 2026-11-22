@@ -1,5 +1,6 @@
 import type { ToolContent } from "./types";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
+import { SETTINGS_BATCH_TOOLS, batchLimitsSentence } from "@/lib/batch/tools";
 
 // The byte ceiling the metadata runner's file gate refuses above.
 const MAX_MB = Math.round(RUNNER_FILE_CEILINGS.metadata / (1024 * 1024));
@@ -19,6 +20,10 @@ const content: ToolContent = {
   ],
 
   useCases: [
+    {
+      title: "Several files at once",
+      body: `Add two or more PDFs and they open as a batch list. Type a Title, Author, Subject or Keywords to put into every file; a field left blank keeps each file's own value, and the dates are kept. Or choose Remove all metadata to clear every file. Press Update with the number of files and each one is changed in turn, in your browser, with nothing uploaded. Download a file from its row, or press “Download all” for ${SETTINGS_BATCH_TOOLS["edit-pdf-metadata"].zipName}. ${batchLimitsSentence()}`,
+    },
     {
       title: "A proper title in the browser tab",
       body: "A report exported from Word often carries a leftover title such as Microsoft Word - draft_v7_final, and every reader's tab and search result shows it. Set a real title before you publish or send it.",
@@ -40,7 +45,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Open the PDF",
-      body: `Drop the PDF on the box or browse for it; it holds one file at a time, up to ${MAX_MB} MB. Its current title, author, subject, keywords, creator, producer and both dates load into the Document properties fields.`,
+      body: `Drop the PDF on the box or browse for it; it takes files of up to ${MAX_MB} MB each, and two or more open a batch list. Its current title, author, subject, keywords, creator, producer and both dates load into the Document properties fields.`,
     },
     {
       title: "Change the values",

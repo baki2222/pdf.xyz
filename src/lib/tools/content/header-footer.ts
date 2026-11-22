@@ -18,6 +18,7 @@ import {
   type HeaderFooterMargin,
 } from "@/lib/pdf/header-footer";
 import { STAMP_FONT_LABELS } from "@/lib/pdf/stamp";
+import { SETTINGS_BATCH_TOOLS, batchLimitsSentence } from "@/lib/batch/tools";
 
 /*
  * Every behavioral claim below was read from, or probed against, the code:
@@ -188,6 +189,10 @@ const content: ToolContent = {
 
   useCases: [
     {
+      title: "Several files at once",
+      body: `Add two or more PDFs and they open as a batch list, with one Header line, one Footer line and one position across the page for them all; {n}, {total} and {date} work as in the single-file editor, and page numbers restart in each file. Font, size, margin and colour are the single-file defaults. Press Stamp with the number of files and each one is stamped in turn, in your browser, with nothing uploaded. Download a file from its row, or press “Download all” for ${SETTINGS_BATCH_TOOLS["header-footer"].zipName}. ${batchLimitsSentence()}`,
+    },
+    {
       title: "Page X of Y across a combined report",
       body: "Keep the ready-made footer and the count runs across the whole file, even when its pages came from different programs.",
     },
@@ -212,7 +217,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Choose one PDF",
-      body: 'Drag the file onto "Drop your PDF here" or pick it with the browse link; the box takes a single PDF. Once it is read, a bar above the editor shows its name, page total and size.',
+      body: 'Drag the file onto "Drop your PDF here" or pick it with the browse link; two or more open a batch list. Once it is read, a bar above the editor shows its name, page total and size.',
     },
     {
       title: "Write the header and footer",

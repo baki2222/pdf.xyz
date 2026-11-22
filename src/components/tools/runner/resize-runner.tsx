@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useId, useState } from "react";
 import { regionalChoice, useRegionalPaper } from "../use-regional-paper";
 import { Download, Scaling } from "lucide-react";
@@ -37,7 +38,11 @@ import {
   useAsyncRun,
 } from "./runner-kit";
 import { RunBar } from "./run-bar";
-import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
+import {
+  FileHeader,
+  SinglePdfRunner,
+  type SinglePdfBatch,
+} from "./single-pdf-runner";
 import { PrivacyLine, SegmentedControl, TextField } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
 import { LazyPagePicker } from "./page-picker-lazy";
@@ -50,10 +55,28 @@ export const RESIZE_RUN_LABEL = "Resize PDF";
 /** The custom size's chip label. */
 export const CUSTOM_SIZE_LABEL = "Custom";
 
+/**
+ * Two or more PDFs: the batch (audit platform#1, 2026-11-22), its own chunk,
+ * fetched only when they arrive — never with a visit to this page.
+ */
+const ResizeBatch = dynamic(
+  () => import("./batch/resize-batch").then((m) => m.ResizeBatch),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+const batch = (props: SinglePdfBatch) => <ResizeBatch {...props} />;
+
 export function ResizeRunner() {
   return (
     <SinglePdfRunner
-      hint="One PDF · pages resized locally in your browser"
+      hint="One or more PDFs · pages resized locally in your browser"
+      batch={batch}
       handoffSlug="resize-pdf"
       toolName="Resize PDF"
     >

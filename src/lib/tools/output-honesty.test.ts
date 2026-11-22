@@ -47,6 +47,7 @@ import { SUMMARY_PACKAGE_FILES } from "@/lib/workers/summarize-package";
 import { AI_EXTRACT_PACKAGE_FILES } from "@/lib/workers/ai-extract-package";
 import { COMBINED_ZIP_FILES } from "@/lib/jobs/extract-tables-options";
 import { runnerModuleOf } from "@/tests/tool-panel-modules";
+import { slugHostsOf } from "@/tests/runner-slug-hosts";
 
 /**
  * A call that hands the user an archive in the browser: `zipFiles(` itself, or
@@ -300,7 +301,11 @@ describe("a tool's advertised outputs match what its engine writes", () => {
       // batch view, and the five tools behind the settings batch passed
       // this test without declaring ZIP — unread, not right: rotate-pdf's
       // positive control below went red at two.
-      if (callsZip(file, 3)) archiveSlugs.add(slug);
+      // A tool a shared runner hands to a host of its own is read from
+      // that host (audit platform#1, 2026-11-22): Booklet's page loads
+      // none of Multiple Pages per Sheet's batch, though both are "n-up".
+      const own = slugHostsOf(file).get(slug) ?? file;
+      if (callsZip(own, 3)) archiveSlugs.add(slug);
     }
     expect(
       resolved,

@@ -1,6 +1,7 @@
 "use client";
 
-import { SinglePdfRunner } from "./single-pdf-runner";
+import dynamic from "next/dynamic";
+import { SinglePdfRunner, type SinglePdfBatch } from "./single-pdf-runner";
 import { BookletRunner } from "./n-up/booklet-host";
 import { lazyPanel } from "./lazy-panel";
 import { useToolRun } from "./tool-context";
@@ -33,12 +34,30 @@ export function NUpRunner() {
   return <NUpSheetsRunner />;
 }
 
+/**
+ * Two or more PDFs: the batch (audit platform#1, 2026-11-22), its own chunk,
+ * fetched only when they arrive — never with a visit to this page.
+ */
+const NUpBatch = dynamic(
+  () => import("./batch/n-up-batch").then((m) => m.NUpBatch),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+const batch = (props: SinglePdfBatch) => <NUpBatch {...props} />;
+
 /** Multiple Pages per Sheet's drop box; its editor comes with a file. */
 function NUpSheetsRunner() {
   nUp.useIntent();
   return (
     <SinglePdfRunner
-      hint="One PDF · pages laid out on sheets locally in your browser"
+      hint="One or more PDFs · pages laid out on sheets locally in your browser"
+      batch={batch}
       handoffSlug="n-up-pdf"
       toolName="Multiple Pages per Sheet"
       prepare={nUp.prepare}

@@ -218,7 +218,14 @@ interface Expectation {
   check: (bytes: Uint8Array, entry: string) => Promise<void>;
   /** The first file, when the tool needs more than a plain one. */
   first?: () => Promise<Uint8Array>;
+  /** Settings to make before Run, for a batch with nothing to run untouched. */
+  setup?: (view: HTMLElement) => void;
 }
+
+/** An A4 page, either way up. */
+const A4_SIDES = [595.28, 841.89];
+const sidesOf = (page: { getWidth(): number; getHeight(): number }) =>
+  [page.getWidth(), page.getHeight()].sort((a, b) => a - b);
 
 const EXPECT: Record<keyof typeof SETTINGS_BATCH_TOOLS, Expectation> = {
   "rotate-pdf": {
@@ -293,6 +300,60 @@ const EXPECT: Record<keyof typeof SETTINGS_BATCH_TOOLS, Expectation> = {
       // Left page first: the first page is the left half.
       expect(box.x, entry).toBe(media.x);
       expect(box.width, entry).toBeCloseTo(media.width / 2, 3);
+    },
+  },
+  // Audit platform#1 (2026-11-22): the five page tools' batches.
+  "edit-pdf-metadata": {
+    run: /^update 2 pdfs$/i,
+    setup: (view) =>
+      fireEvent.change(within(view).getByLabelText("Title"), {
+        target: { value: "Batch title" },
+      }),
+    check: async (bytes, entry) => {
+      const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+      expect(doc.getTitle(), entry).toBe("Batch title");
+    },
+  },
+  "header-footer": {
+    run: /^stamp 2 pdfs$/i,
+    check: async (bytes, entry) => {
+      const total = (await PDFDocument.load(bytes)).getPageCount();
+      const first = (await readAsViewer(bytes, 1)).texts.map((t) => t.str);
+      // The default footer, counted in THIS file.
+      expect(first.join(" "), entry).toContain(`Page 1 of ${total}`);
+    },
+  },
+  "crop-pdf": {
+    run: /^crop 2 pdfs$/i,
+    check: async (bytes, entry) => {
+      const page = (await PDFDocument.load(bytes)).getPage(0);
+      const box = page.getCropBox();
+      const media = page.getMediaBox();
+      // The default 24 pt off every edge.
+      expect(box.width, entry).toBeCloseTo(media.width - 48, 3);
+      expect(box.height, entry).toBeCloseTo(media.height - 48, 3);
+    },
+  },
+  "resize-pdf": {
+    run: /^resize 2 pdfs$/i,
+    check: async (bytes, entry) => {
+      const doc = await PDFDocument.load(bytes);
+      for (const page of doc.getPages()) {
+        const [short, long] = sidesOf(page);
+        expect(short, entry).toBeCloseTo(A4_SIDES[0]!, 1);
+        expect(long, entry).toBeCloseTo(A4_SIDES[1]!, 1);
+      }
+    },
+  },
+  "n-up-pdf": {
+    run: /^lay out 2 pdfs$/i,
+    check: async (bytes, entry) => {
+      const doc = await PDFDocument.load(bytes);
+      // Two pages to an A4 sheet: a two-page file is one sheet.
+      expect(doc.getPageCount(), entry).toBe(1);
+      const [short, long] = sidesOf(doc.getPage(0));
+      expect(short, entry).toBeCloseTo(A4_SIDES[0]!, 1);
+      expect(long, entry).toBeCloseTo(A4_SIDES[1]!, 1);
     },
   },
 };
@@ -470,6 +531,7 @@ describe.each(Object.keys(SETTINGS_BATCH_TOOLS) as (keyof typeof EXPECT)[])(
           },
         });
         const view = await batchViewOf(container);
+        want.setup?.(view);
         // Three listed: 3 PDFs, so the button says 3.
         const run = await within(view).findByRole("button", {
           name: new RegExp(want.run.source.replace("2", "3"), "i"),

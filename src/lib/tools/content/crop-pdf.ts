@@ -2,6 +2,7 @@ import type { ToolContent } from "./types";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
 import { MIN_CROP_DIMENSION } from "@/lib/pdf/crop";
 import { AUTO_CROP_PAD_PT } from "@/lib/pdf/auto-crop";
+import { SETTINGS_BATCH_TOOLS, batchLimitsSentence } from "@/lib/batch/tools";
 
 /**
  * The Crop runner's own input gate (`useSinglePdf` -> `validatePdfFile` ->
@@ -79,6 +80,10 @@ const content: ToolContent = {
 
   useCases: [
     {
+      title: "Several files at once",
+      body: `Add two or more PDFs and they open as a batch list, with one margin for every edge of every page. Press Crop with the number of files and each one is cropped in turn, in your browser, with nothing uploaded. A file with a page too small for that margin fails on its own row, uncropped; to set each side, use Auto or choose pages, open one file on its own. Download a file from its row, or press “Download all” for ${SETTINGS_BATCH_TOOLS["crop-pdf"].zipName}. ${batchLimitsSentence()}`,
+    },
+    {
       title: "Remove the dark frame from a scan",
       body: "Flatbed scans often pick up a grey or black band where the lid did not meet the glass. Trimming just the affected edges in Per side mode makes the page look like paper again.",
     },
@@ -98,8 +103,8 @@ const content: ToolContent = {
 
   steps: [
     {
-      title: "Open one PDF",
-      body: "Drag the PDF into the drop area, or click it to pick the file from your device. When loading finishes, a strip above the margin controls gives the file name with its page total and size.",
+      title: "Open your PDF",
+      body: "Drag the PDF into the drop area, or click it to pick the file from your device; two or more open a batch list. When loading finishes, a strip above the margin controls gives the file name with its page total and size.",
     },
     {
       title: "Set the crop margins",
