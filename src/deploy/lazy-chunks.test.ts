@@ -1516,6 +1516,13 @@ describe("Compare PDF's redline is a chunk of its own", () => {
  * bound is this measurement plus 5%: 29.7 (28.2 to 29.7, the owner's to
  * approve in the PR). The page's first load is unchanged (first-load,
  * first-load-duplicates and bundle-budget tests green on the same build).
+ *
+ * S6's review round 1 (2026-11-22, zlib -9, Windows, same tree's .next
+ * rebuilt, merged with main 56414931): 29,935 B gz (29.23 KB), 83,858 B
+ * raw, +960 B over 28,975 for the multi-answer and own-statement words,
+ * the columns and drift checks, a scale's heads and a comb label's reach
+ * and barrier. Inside 29.7, so the bound stands; stylesheet unchanged at
+ * 15,328 B gz.
  */
 const FIND_FIELDS_FETCH_GZ_KB = 29.7;
 /*
