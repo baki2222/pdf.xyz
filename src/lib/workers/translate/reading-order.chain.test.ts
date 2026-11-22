@@ -511,7 +511,13 @@ describe("sent ≤ weighed (the next slice's page markers inherit this)", () => 
       cappedBudget,
       "capped plans with a budget fallback",
     ).toBeGreaterThanOrEqual(20);
-  });
+    // Seeded, fixed work, so its time is runner speed alone: CI max 3,456 ms
+    // (44899669004, 11-21), 69% of the old 5 s default; 1,633-3,166 ms over
+    // the 12 runs of 11-18. 30 s as chunking.markers (cbb7e3bd). It is checked
+    // when the test ends, so it catches a terminating cost regression of ~9x,
+    // never a synchronous hang. Do not shrink the generator to fit a smaller
+    // budget: the floors above count what it generates.
+  }, 30_000);
 });
 
 describe("the text-page set cannot change", () => {

@@ -242,7 +242,17 @@ function sourceCorpus(): Source[] {
   }));
 }
 
+/**
+ * How many files the TypeScript parser has been handed. The cost of every
+ * check below is this number, and it is what the health test pins: on CI the
+ * two CONTROL tests reached 24,086 ms and 19,003 ms of their 30 s (run
+ * 44910288854, 80% and 63%) when `limiterPackage` parsed the whole ~1,550-file
+ * corpus on each of its 9 and 8 calls. A count does not depend on the runner.
+ */
+let parses = 0;
+
 function parse(src: Source): TS.SourceFile {
+  parses++;
   return ts.createSourceFile(src.path, src.text, ts.ScriptTarget.Latest, true);
 }
 
@@ -264,6 +274,10 @@ function isExported(node: TS.FunctionDeclaration): boolean {
 /** The directory that defines `policyFor`, with a trailing slash. */
 function limiterPackage(corpus: readonly Source[]): string {
   const definers = corpus.filter((src) => {
+    // A file that never spells `policyFor` cannot declare a function named
+    // so: skipping it before the parse is sound, and it is what keeps this
+    // from parsing the whole corpus on every call (the health test counts).
+    if (!src.text.includes("policyFor")) return false;
     let found = false;
     each(parse(src), (n) => {
       if (
@@ -453,12 +467,29 @@ describe("docs/RATE_LIMITING.md — the policy table is the policy", () => {
     expect(spend?.action).toBe("ai.spend");
   });
 
-  // Each check here re-walks every source file with the TypeScript parser
-  // (~0.3-2 s alone). Under a full parallel run on the integrated tree they
-  // passed 5 s — vitest's default — intermittently, and a red that is really
-  // a clock is the kind that gets a guard deleted. Measured 2026-09-27.
+  // The 30 s below is the hang backstop, not the cost control. Until
+  // 2026-11-21 every `limiterPackage` call parsed the whole corpus, so the
+  // two CONTROL tests (9 and 8 calls) reached 24,086 ms and 19,003 ms of it
+  // on CI (run 44910288854; 59-68% in the 11-14..11-18 runs). The cost is
+  // now held by a COUNT in the health test — the files parsed per
+  // `limiterPackage` call — which no runner speed can move. Read the
+  // post-fix times from the default reporter's per-test listing under this
+  // file, not from the headroom block, which is silent below 50%.
   describe("SUPERSEDED is exactly the actions no call site enforces", () => {
     const corpus = sourceCorpus();
+
+    it("health: one limiterPackage call parses a handful of files, not the corpus", () => {
+      const before = parses;
+      expect(limiterPackage(corpus)).toBe("src/lib/ratelimit/");
+      const parsed = parses - before;
+      // At least the definer itself: a prefilter on a misspelt name parses
+      // nothing and then throws "expected ONE definition", so 0 cannot pass.
+      expect(parsed, "limiterPackage parsed nothing").toBeGreaterThanOrEqual(1);
+      expect(
+        parsed,
+        `limiterPackage parsed ${parsed} of ${corpus.length} files: the policyFor prefilter is gone, and every check below pays a full-corpus parse per call`,
+      ).toBeLessThan(corpus.length / 10);
+    });
 
     it("health: the corpus spans both source roots and is plausibly sized", () => {
       expect(

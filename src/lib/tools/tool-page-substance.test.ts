@@ -802,7 +802,11 @@ describe("the page tools' answers are what their engines produce", () => {
         ).toEqual(ALL_KEPT);
       }
     }
-  });
+    // Runs every mapped engine on the rich fixture: CI max 351 ms
+    // (44272458560), under 300 ms in the other 22 runs, but each engine's
+    // first call loads its module lazily, and that first load is where the
+    // stall at line 1364 landed. 15 s as that test.
+  }, 15_000);
 
   it("the loss patterns and the sentences that shipped catch each other (both directions)", async () => {
     for (const { slug, sentence } of [...SHIPPED_LOSS, ...PROBED_LOSS]) {
@@ -1390,7 +1394,15 @@ describe("the converters' pages describe the page they produce", () => {
       page("png-to-pdf").faq.find((e) => /transparent/.test(e.question))!
         .answer,
     ).toMatch(/white/);
-  });
+    // Under 300 ms in 20 of 23 CI runs; 1,911-2,739 ms in the other three
+    // (max 44299285879), 55% of the old 5 s default. Probably a stall while
+    // Vite inlined the TypeScript compiler and missed its source map: in
+    // that one log the miss fell inside this file's window, which is the
+    // whole of the evidence. The cause is now removed in vitest.config.ts
+    // (server.deps.external), and src/tests/typescript-external.test.ts,
+    // not this timeout, fails if it comes back: a returning 2.7 s stall is
+    // far under 15 s and would pass here. 15 s is 5.5x the CI max.
+  }, 15_000);
 
   /*
    * WHAT SHIPPED: JPG to PDF's first step quoted “Choose JPG images only.” and
