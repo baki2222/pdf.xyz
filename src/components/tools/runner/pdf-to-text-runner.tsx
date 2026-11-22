@@ -101,6 +101,13 @@ function PdfToTextEditor({
     // Pages the TXT has nothing from, listed under the result. The pages
     // label and the result line share one definition (./text-summary).
     const empty = pagesWithoutText(result.pages);
+    // The result's ONE output file, kept per result (`textOutputFile`): it
+    // encodes the text once, so the size on Download TXT costs nothing on a
+    // re-render. Encoding it inline here ran over the whole text on every
+    // render (audit pdf-to-text#4; pdf-to-text-encode-once.test.tsx).
+    const txt = result.hasText
+      ? textOutputFile(result, result.text, filename)
+      : null;
     return (
       <ResultPanel
         title={result.hasText ? "Text extracted" : "No selectable text found"}
@@ -116,11 +123,7 @@ function PdfToTextEditor({
         }
         onReset={onReset}
         tone={result.hasText ? "ok" : "warn"}
-        output={
-          result.hasText
-            ? textOutputFile(result, result.text, filename)
-            : NO_OUTPUT("no selectable text, so no TXT was written")
-        }
+        output={txt ?? NO_OUTPUT("no selectable text, so no TXT was written")}
         onAdjust={NO_ADJUST("PDF to Text has no settings to change")}
       >
         {result.hasText ? (
@@ -147,8 +150,7 @@ function PdfToTextEditor({
                 className={buttonVariants({ variant: "primary", size: "lg" })}
               >
                 <Download className="size-4" aria-hidden />
-                Download TXT (
-                {formatBytes(new TextEncoder().encode(result.text).byteLength)})
+                Download TXT ({formatBytes(txt?.size ?? 0)})
               </button>
               {/* The same text the TXT holds, in one press: the page's first
                   use is pasting it into an email or a spreadsheet, and
