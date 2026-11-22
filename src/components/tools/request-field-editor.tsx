@@ -17,12 +17,14 @@ import {
   moveField,
   nudgeField,
   readingOrder,
+  repeatField,
   resizeField,
   resizeFieldPt,
   signerColour,
   startingLayout,
   type LayoutField,
   type PresetKey,
+  type RepeatTarget,
 } from "@/lib/signatures/request-layout";
 import { announceOutcome } from "@/components/a11y/live-region";
 import { usePageImageState } from "./runner/use-page-image";
@@ -196,6 +198,12 @@ export function RequestFieldEditor({
   // since moving a node in the DOM would drop its pointer capture.
   const [frozen, setFrozen] = useState<number[] | null>(null);
   const sayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Repeat a box on other pages (audit request-signatures#3): which box,
+  // where, and the range when "Pages" is chosen.
+  const [repeatId, setRepeatId] = useState<number | null>(null);
+  const [repeatKind, setRepeatKind] = useState<RepeatTarget["kind"]>("all");
+  const [rangeFrom, setRangeFrom] = useState(1);
+  const [rangeTo, setRangeTo] = useState(pageCount);
 
   useEffect(
     () => () => {
@@ -321,6 +329,37 @@ export function RequestFieldEditor({
       pendingFocus.current = { kind: "row", id: stay?.id ?? null };
     } else if (after && f.page === shown) focusNext.current = after.id;
     else addRowRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+  };
+
+  // The box Repeat acts on: the one chosen, else the selected one, else the
+  // first in the list.
+  const repeatOf =
+    layout.find((f) => f.id === repeatId) ??
+    layout.find((f) => f.id === selected) ??
+    listed[0];
+  const repeat = () => {
+    if (!repeatOf) return;
+    const target: RepeatTarget =
+      repeatKind === "range"
+        ? { kind: "range", from: rangeFrom, to: rangeTo }
+        : { kind: repeatKind };
+    const {
+      layout: next,
+      added,
+      limited,
+    } = repeatField(layout, repeatOf.id, target, frames);
+    if (added.length === 0) {
+      announceOutcome(
+        limited
+          ? `A request can hold up to ${MAX_REQUEST_FIELDS} boxes, so no copy was added.`
+          : `${boxName(repeatOf)} is already on every page you chose.`,
+      );
+      return;
+    }
+    const pages = added.length === 1 ? "page" : "pages";
+    onCustom(next, {
+      say: `Repeated ${boxName(repeatOf)} on ${added.length} more ${pages} (${pages} ${added.join(", ")}).${limited ? ` A request can hold up to ${MAX_REQUEST_FIELDS} boxes, so it stopped there.` : ""}`,
+    });
   };
 
   const show = (f: LayoutField) => {
@@ -501,6 +540,79 @@ export function RequestFieldEditor({
           </p>
         )}
       </div>
+
+      {pageCount > 1 && repeatOf && (
+        <div className="flex flex-col gap-2">
+          <span className="text-faint kicker">Repeat a box on other pages</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-muted flex flex-col gap-1 text-xs">
+              Box
+              <select
+                aria-label="Box to repeat"
+                value={repeatOf.id}
+                onChange={(e) => setRepeatId(Number(e.target.value))}
+                className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
+              >
+                {listed.map((f, i) => (
+                  <option key={f.id} value={f.id}>
+                    {`Box ${i + 1} · Signer ${numberOf(f.owner)} ${TYPE_WORD[f.type]}, page ${f.page}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-muted flex flex-col gap-1 text-xs">
+              On
+              <select
+                aria-label="Repeat on"
+                value={repeatKind}
+                onChange={(e) =>
+                  setRepeatKind(e.target.value as RepeatTarget["kind"])
+                }
+                className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
+              >
+                <option value="all">All pages</option>
+                <option value="allButLast">All but the last page</option>
+                <option value="range">Some pages</option>
+              </select>
+            </label>
+            {repeatKind === "range" && (
+              <>
+                <label className="text-muted flex flex-col gap-1 text-xs">
+                  From page
+                  <input
+                    type="number"
+                    aria-label="Repeat from page"
+                    min={1}
+                    max={pageCount}
+                    value={rangeFrom}
+                    onChange={(e) => setRangeFrom(Number(e.target.value))}
+                    className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
+                  />
+                </label>
+                <label className="text-muted flex flex-col gap-1 text-xs">
+                  To page
+                  <input
+                    type="number"
+                    aria-label="Repeat to page"
+                    min={1}
+                    max={pageCount}
+                    value={rangeTo}
+                    onChange={(e) => setRangeTo(Number(e.target.value))}
+                    className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
+                  />
+                </label>
+              </>
+            )}
+            <ChipButton onClick={repeat} disabled={full}>
+              Repeat
+            </ChipButton>
+          </div>
+          <p className="text-muted text-xs leading-relaxed">
+            Each copy is its own box for the same signer, at the same place on
+            its page.
+          </p>
+        </div>
+      )}
 
       <div className="flex flex-col gap-2">
         <span className="text-faint kicker">
