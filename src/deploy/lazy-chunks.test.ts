@@ -1494,8 +1494,19 @@ describe("Compare PDF's redline is a chunk of its own", () => {
  * measurement plus 5%: 27.6. The raise (26.1 to 27.6) is the owner's to
  * approve, in the PR; the page's first load is unchanged (first-load and
  * bundle-budget tests green on the same build).
+ *
+ * That figure went stale inside the same PR: review round 1 (cells that
+ * hold a mark, filled rows, headerless data, lines drawn twice, heavy
+ * rules) grew the chunk after it was taken, and the bound still passed,
+ * so nothing said so. Re-measured on the build of the branch merged with
+ * main (2026-11-22, zlib -9, Windows, from an empty .next): 27,516 B gz
+ * (26.87 KB), 76,532 B raw, +2,040 B over main's 25,476. The bound is
+ * this measurement plus 5%: 28.2 (26.1 to 28.2 in all, the owner's to
+ * approve in the PR). Every page's first load moved by 1 B gz on that
+ * build, and only in the webpack runtime's map of chunk hashes: this
+ * chunk's and the preview's hashes changed, at the same length.
  */
-const FIND_FIELDS_FETCH_GZ_KB = 27.6;
+const FIND_FIELDS_FETCH_GZ_KB = 28.2;
 /*
  * HISTORY (review rounds 7 and 8, 2026-11-19). Round 7 added a bound here
  * for the press on a page whose preview chunk never arrived: every chunk
