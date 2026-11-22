@@ -17,7 +17,10 @@ import { FONT_PACKS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
  *    "Flatten after filling" checkbox (off by default), "Fill form" /
  *    "Filling…", the "Form filled" result ("N fields filled", plus
  *    "flattened to static content" only when result.flattened), "Download
- *    filled PDF", the "couldn't be applied" note (a COUNT, no field names),
+ *    filled PDF", the "couldn't be applied" note (SUPERSEDED 2026-11-22, audit
+ *    fill-forms#8: it was a COUNT with no field names; now a list, each
+ *    field by name with the engine's reason), the empty-required warning
+ *    (role alert, names each field, "Fill anyway"),
  *    and the two empty states ("No form fields detected" when hasFields is
  *    false / "No fillable form fields here" when every field is unsupported);
  *  - initialValues sends EVERY editable fillable field, pre-loaded or not, so
@@ -153,7 +156,7 @@ const content: ToolContent = {
     },
     {
       title: "Fill in the Form fields list",
-      body: "Each field is listed under the name stored in the PDF, which need not match the label printed beside the box, with its type and an asterisk if required. Type into text fields, tick checkboxes, and choose from radio groups, dropdowns and lists. Read-only fields show their value but stay unchanged.",
+      body: "Each field is listed under the name stored in the PDF, which need not match the label printed beside the box, with its type and an asterisk if required. If you press Fill form with a required field empty, the page names each one first, and Fill anyway goes ahead. Type into text fields, tick checkboxes, and choose from radio groups, dropdowns and lists. Read-only fields show their value but stay unchanged.",
     },
     {
       title: "Decide whether to flatten",
@@ -184,7 +187,7 @@ const content: ToolContent = {
     },
     {
       q: "Some values “couldn't be applied” — what happened?",
-      a: "Every value is checked again as it is written. Because the text boxes stop at a field's character limit, this usually comes from what the file already held: a stored answer longer than the limit, or a stored choice that is not among the field's options. Those fields keep their previous value, the rest are still filled, and the note gives a count rather than naming them.",
+      a: "Every value is checked again as it is written. Because the text boxes stop at a field's character limit, this usually comes from what the file already held: a stored answer longer than the limit, or a stored choice that is not among the field's options. Those fields keep their previous value and the rest are still filled. The note lists each one by its field name, with the reason, such as a choice that is not an option or text in a script that cannot be drawn.",
     },
     {
       q: "Does the form leave my computer, and what about a locked PDF?",

@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { Download, Info, Lock, PenLine, TriangleAlert } from "lucide-react";
 import { filledFormsOutputName, isFillableType } from "@/lib/pdf/forms-meta";
 import type {
+  FieldApplyStatus,
   FieldValue,
   FormFieldInfo,
   FormInspection,
@@ -176,6 +177,14 @@ function NoFieldsNotice({
  *  Fill stage — controls for each field, then produce the filled PDF.
  * ------------------------------------------------------------------ */
 
+/** What a not-applied value is told when the engine gave no reason. */
+const NOT_APPLIED_REASON: Record<FieldApplyStatus, string> = {
+  applied: "applied",
+  skipped: "skipped",
+  invalid: "the value could not be written",
+  missing: "no field has this name",
+};
+
 /** Build the initial working value for each fillable, editable field. */
 function initialValues(fields: FormFieldInfo[]): Record<string, FieldValue> {
   const out: Record<string, FieldValue> = {};
@@ -202,6 +211,30 @@ function initialValues(fields: FormFieldInfo[]): Record<string, FieldValue> {
     }
   }
   return out;
+}
+
+/**
+ * The required fields still empty in `values`, by name, in form order (audit
+ * fill-forms#8). Empty means what each kind can hold: no text but spaces, an
+ * unticked checkbox, no choice picked. Read-only fields are never counted:
+ * nobody here can fill them.
+ */
+export function emptyRequiredFields(
+  fields: readonly Pick<
+    FormFieldInfo,
+    "name" | "type" | "required" | "readOnly"
+  >[],
+  values: Record<string, FieldValue | undefined>,
+): string[] {
+  return fields
+    .filter((f) => f.required && !f.readOnly && isFillableType(f.type))
+    .filter((f) => {
+      const value = values[f.name];
+      if (f.type === "checkbox") return value !== true;
+      if (Array.isArray(value)) return value.every((v) => v.trim() === "");
+      return typeof value !== "string" || value.trim() === "";
+    })
+    .map((f) => f.name);
 }
 
 /**
@@ -232,6 +265,7 @@ function FieldsEditor({
   onReset: () => void;
 }) {
   const { busy, error, result, run, reset } = useAsyncRun<FillFormsResult>();
+  const resultId = useId();
   const protection = pdf.protection;
   const [unlocked, setUnlocked] = useState(() => protection?.unlocked ?? false);
   // Restricted: no owner password yet, so only what the author allows.
@@ -264,7 +298,23 @@ function FieldsEditor({
   const setValue = (name: string, value: FieldValue) =>
     setValues((prev) => ({ ...prev, [name]: value }));
 
+  // Required fields left empty are named before the run (audit
+  // fill-forms#8), never silently filled past; "Fill anyway" is the person's
+  // call, since a partial fill can be what they want.
+  const emptyRequired = emptyRequiredFields(inspection.fields, values);
+  const [askedAbout, setAskedAbout] = useState(false);
+  const warnEmpty = askedAbout && emptyRequired.length > 0;
+
+  const onFill = () => {
+    if (emptyRequired.length > 0) {
+      setAskedAbout(true);
+      return;
+    }
+    onRun();
+  };
+
   const onRun = () => {
+    setAskedAbout(false);
     void run(async () => {
       const { applyFormValues } = await import("@/lib/pdf/forms");
       if (!restricted || !protection)
@@ -281,6 +331,7 @@ function FieldsEditor({
 
   if (result) {
     const notApplied = result.outcomes.filter((o) => o.status !== "applied");
+    const notAppliedId = `${resultId}-not-applied`;
     // The request travels with the result (not the checkbox, which is gone by
     // now): "asked for a locked form, got an editable one" must be SAID, not
     // left as a missing " · flattened" suffix under a green "Form filled".
@@ -330,10 +381,23 @@ function FieldsEditor({
           Download filled PDF
         </button>
         {notApplied.length > 0 && (
-          <p className="text-muted text-xs">
-            {notApplied.length} value{notApplied.length === 1 ? "" : "s"}{" "}
-            couldn&apos;t be applied and were left unchanged.
-          </p>
+          <div className="text-muted flex flex-col gap-1 text-xs">
+            <p id={notAppliedId}>
+              {notApplied.length} value{notApplied.length === 1 ? "" : "s"}{" "}
+              couldn&apos;t be applied and{" "}
+              {notApplied.length === 1 ? "was" : "were"} left unchanged:
+            </p>
+            {/* Each by name, with the engine's reason (audit fill-forms#8):
+                a count alone gave no way to find the field. */}
+            <ul aria-labelledby={notAppliedId} className="flex flex-col gap-1">
+              {notApplied.map((o) => (
+                <li key={o.name}>
+                  <span className="text-fg">{o.name}</span>:{" "}
+                  {o.detail ?? NOT_APPLIED_REASON[o.status]}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </ResultPanel>
     );
@@ -420,6 +484,37 @@ function FieldsEditor({
 
       {error && <ErrorNote message={error} />}
 
+      {warnEmpty && (
+        <div
+          role="alert"
+          className="border-warn/40 bg-warn/10 rounded-panel flex flex-col gap-3 border p-4"
+        >
+          <p className="text-fg flex items-start gap-2 text-sm">
+            <TriangleAlert
+              className="text-warn mt-0.5 size-4 shrink-0"
+              aria-hidden
+            />
+            <span>
+              {emptyRequired.length === 1
+                ? "This required field is empty: "
+                : `These ${emptyRequired.length} required fields are empty: `}
+              {emptyRequired.join(", ")}. Fill{" "}
+              {emptyRequired.length === 1 ? "it" : "them"} in above, or fill the
+              form anyway.
+            </span>
+          </p>
+          <div>
+            <button
+              type="button"
+              onClick={onRun}
+              className={buttonVariants({ variant: "secondary", size: "sm" })}
+            >
+              Fill anyway
+            </button>
+          </div>
+        </div>
+      )}
+
       <PrivacyLine>
         Fields are read and filled on your device — your PDF never leaves the
         browser.
@@ -428,7 +523,7 @@ function FieldsEditor({
       <RunBar>
         <div className="flex justify-end">
           <RunButton
-            onClick={onRun}
+            onClick={onFill}
             busy={busy}
             disabled={!canFill}
             busyLabel="Filling…"
