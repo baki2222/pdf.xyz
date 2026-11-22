@@ -11,6 +11,7 @@ import {
   type ResizeMode,
   type ResizeOrientation,
 } from "@/lib/pdf/resize";
+import { regionalChoice, useRegionalPaper } from "../../use-regional-paper";
 import type { SinglePdfBatch } from "../single-pdf-runner";
 import { SegmentedControl } from "../stamp-controls";
 import { BatchChoice } from "./batch-choice";
@@ -51,7 +52,11 @@ export async function resizeOneFile(
 
 /** Resize PDF's batch: one size, orientation and mode for every file. */
 export function ResizeBatch(props: SinglePdfBatch) {
-  const [size, setSize] = useState<SizeId>("a4");
+  // A4, or US Letter where the browser's language names a Letter country,
+  // as the single-file editor starts (regional-paper.test.ts).
+  const regional = useRegionalPaper();
+  const [chosenSize, setSize] = useState<SizeId | null>(null);
+  const size = chosenSize ?? regionalChoice(RESIZE_SIZES, regional);
   const [orientation, setOrientation] = useState<ResizeOrientation>("match");
   const [mode, setMode] = useState<ResizeMode>("fit");
   const process = useCallback(

@@ -241,11 +241,26 @@ export function SplitHalfEditor({
     };
   }, [pdf.bytes]);
   // The first page the settings would split, drawn with the cut on it.
+  // Selected pages count once their list reads; until then, every page.
+  let listed: number[] | undefined;
+  if (scope === "range") {
+    try {
+      listed = parsePageList(rangeInput, pdf.pageCount);
+    } catch {
+      listed = undefined;
+    }
+  }
   const previewPage =
     sizes.length === pdf.pageCount
       ? (pagesToSplit(
           pdf.pageCount,
-          { keepFirstWhole, keepLastWhole, onlyWider, direction },
+          {
+            pages: listed,
+            keepFirstWhole,
+            keepLastWhole,
+            onlyWider,
+            direction,
+          },
           sizes,
         )[0] ?? null)
       : null;

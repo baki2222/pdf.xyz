@@ -195,6 +195,14 @@ function keepingArtifact(c: VariantCase): VariantCase {
 
 const PAGE_TEXT = async (pdf: Buffer) => pdfPageTexts(pdf);
 
+/** Pick A4 in a batch's size row: it starts on the browser's paper. */
+async function pickA4(page: Page, row: string): Promise<void> {
+  await page
+    .getByRole("radiogroup", { name: row })
+    .getByRole("radio", { name: "A4", exact: true })
+    .click();
+}
+
 /** The title Edit PDF Metadata's batch writes into every file. */
 const BATCH_TITLE = "Batch title";
 
@@ -304,37 +312,56 @@ export const BATCH_VARIANTS: readonly VariantCase[] = [
       expect(box.height, `${NOT_APPLIED} output ${i + 1}`).toBeCloseTo(192, 1);
     }
   }),
-  batchCase("resize-pdf", "resize", /^Resize 2 PDFs$/, async (pdf, i) => {
-    const doc = await loadPdf(pdf);
-    expect(doc.getPageCount(), `${NOT_APPLIED} output ${i + 1}`).toBe(
-      PAGES[i]!,
-    );
-    for (const page of doc.getPages()) {
-      // A4 by default, and Match each page keeps a landscape page landscape.
-      expect(page.getWidth(), `${NOT_APPLIED} output ${i + 1}`).toBeCloseTo(
-        841.89,
-        1,
+  batchCase(
+    "resize-pdf",
+    "resize",
+    /^Resize 2 PDFs$/,
+    async (pdf, i) => {
+      const doc = await loadPdf(pdf);
+      expect(doc.getPageCount(), `${NOT_APPLIED} output ${i + 1}`).toBe(
+        PAGES[i]!,
       );
-      expect(page.getHeight(), `${NOT_APPLIED} output ${i + 1}`).toBeCloseTo(
-        595.28,
-        1,
+      for (const page of doc.getPages()) {
+        // A4 by default, and Match each page keeps a landscape page landscape.
+        expect(page.getWidth(), `${NOT_APPLIED} output ${i + 1}`).toBeCloseTo(
+          841.89,
+          1,
+        );
+        expect(page.getHeight(), `${NOT_APPLIED} output ${i + 1}`).toBeCloseTo(
+          595.28,
+          1,
+        );
+      }
+    },
+    // The size starts on the browser's paper (US Letter in an en-US one).
+    (page) => pickA4(page, "Page size"),
+  ),
+  batchCase(
+    "n-up-pdf",
+    "n-up",
+    /^Lay out 2 PDFs$/,
+    async (pdf, i) => {
+      const doc = await loadPdf(pdf);
+      // Two pages to a sheet: two pages make one sheet, three make two.
+      expect(doc.getPageCount(), `${NOT_APPLIED} output ${i + 1}`).toBe(
+        Math.ceil(PAGES[i]! / 2),
       );
-    }
-  }),
-  batchCase("n-up-pdf", "n-up", /^Lay out 2 PDFs$/, async (pdf, i) => {
-    const doc = await loadPdf(pdf);
-    // Two pages to a sheet: two pages make one sheet, three make two.
-    expect(doc.getPageCount(), `${NOT_APPLIED} output ${i + 1}`).toBe(
-      Math.ceil(PAGES[i]! / 2),
-    );
-    for (const page of doc.getPages()) {
-      const sides = [page.getWidth(), page.getHeight()].sort((a, b) => a - b);
-      expect(sides[0], `${NOT_APPLIED} output ${i + 1}`).toBeCloseTo(595.28, 1);
-      expect(sides[1], `${NOT_APPLIED} output ${i + 1}`).toBeCloseTo(841.89, 1);
-    }
-    // Every page of the file is on its sheets.
-    const text = (await PAGE_TEXT(pdf)).join(" ");
-    for (let n = 1; n <= PAGES[i]!; n++)
-      expect(text).toContain(pageMarker(i === 0 ? "first" : "second", n));
-  }),
+      for (const page of doc.getPages()) {
+        const sides = [page.getWidth(), page.getHeight()].sort((a, b) => a - b);
+        expect(sides[0], `${NOT_APPLIED} output ${i + 1}`).toBeCloseTo(
+          595.28,
+          1,
+        );
+        expect(sides[1], `${NOT_APPLIED} output ${i + 1}`).toBeCloseTo(
+          841.89,
+          1,
+        );
+      }
+      // Every page of the file is on its sheets.
+      const text = (await PAGE_TEXT(pdf)).join(" ");
+      for (let n = 1; n <= PAGES[i]!; n++)
+        expect(text).toContain(pageMarker(i === 0 ? "first" : "second", n));
+    },
+    (page) => pickA4(page, "Sheet size"),
+  ),
 ].map(keepingArtifact);

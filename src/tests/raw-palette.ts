@@ -95,6 +95,12 @@ export const RAW_COLOUR_ALLOWANCE: Record<string, Record<string, string>> = {
     "bg-white/90": PAPER,
     "ring-black/10": `${PAPER} (its edge)`,
   },
+  // Split PDF Pages in Half's cut preview (audit split-pdf-pages-in-half#1,
+  // 2026-11-22): the same page sheet as Crop's preview, the cut drawn on it.
+  "src/components/tools/runner/split-half-runner.tsx": {
+    "bg-white/90": PAPER,
+    "ring-black/10": `${PAPER} (its edge)`,
+  },
   // Request Signatures' page sheet. Moved 2026-11-17 (audit #21) from
   // request-signatures-worker-panel.tsx, whose preview it was, to the
   // placement editor that draws the page now.

@@ -336,6 +336,13 @@ const EXPECT: Record<keyof typeof SETTINGS_BATCH_TOOLS, Expectation> = {
   },
   "resize-pdf": {
     run: /^resize 2 pdfs$/i,
+    // The size starts on the browser's paper; A4 is picked.
+    setup: (view) =>
+      fireEvent.click(
+        within(
+          within(view).getByRole("radiogroup", { name: "Page size" }),
+        ).getByRole("radio", { name: "A4" }),
+      ),
     check: async (bytes, entry) => {
       const doc = await PDFDocument.load(bytes);
       for (const page of doc.getPages()) {
@@ -347,6 +354,12 @@ const EXPECT: Record<keyof typeof SETTINGS_BATCH_TOOLS, Expectation> = {
   },
   "n-up-pdf": {
     run: /^lay out 2 pdfs$/i,
+    setup: (view) =>
+      fireEvent.click(
+        within(
+          within(view).getByRole("radiogroup", { name: "Sheet size" }),
+        ).getByRole("radio", { name: "A4" }),
+      ),
     check: async (bytes, entry) => {
       const doc = await PDFDocument.load(bytes);
       // Two pages to an A4 sheet: a two-page file is one sheet.

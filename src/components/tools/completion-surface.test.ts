@@ -45,6 +45,8 @@ const CARD_OWNER = path.join("runner", "runner-kit.tsx");
 
 /** Uses one of the shared outcome primitives, in any form. */
 const USES_PRIMITIVE = /\b(ResultPanel|ResultCard|useOutcomeFocus)\b/;
+/** A batch module: it renders the settings batch, whose outcome is the view's. */
+const VIA_SETTINGS_BATCH = /<SettingsBatchRunner\b/;
 
 /**
  * Exemptions, each with its reason. This list is the door left deliberately
@@ -179,9 +181,13 @@ describe("completion surfaces", () => {
         !USES_PRIMITIVE.test(source) && editors.length > 0
           ? editors.map((e) => ({ at: e, text: readFileSync(e, "utf8") }))
           : [{ at: file, text: source }];
+      // A lazily loaded BATCH (audit platform#1, 2026-11-22: Edit PDF
+      // Metadata's and Multiple Pages per Sheet's, beside their editors)
+      // reports through the settings batch, held to the batch view below.
       for (const { at, text } of sources)
         expect(
-          USES_PRIMITIVE.test(text),
+          USES_PRIMITIVE.test(text) ||
+            (at !== file && VIA_SETTINGS_BATCH.test(text)),
           `${path.relative(TOOLS_DIR, at)} runs a tool but never uses ResultPanel, ResultCard, or useOutcomeFocus — a finished run there is silent. Use one, or add an entry to EXEMPT with the reason.`,
         ).toBe(true);
     },
@@ -191,9 +197,26 @@ describe("completion surfaces", () => {
     const runner = path.join(TOOLS_DIR, "runner", "metadata-runner.tsx");
     const source = readFileSync(runner, "utf8");
     expect(USES_PRIMITIVE.test(source)).toBe(false);
-    expect(
-      lazyEditorsOf(runner, source).map((e) => path.relative(TOOLS_DIR, e)),
-    ).toEqual([path.join("runner", "metadata-editor.tsx")]);
+    const lazy = lazyEditorsOf(runner, source);
+    expect(lazy.map((e) => path.relative(TOOLS_DIR, e)).sort()).toEqual(
+      [
+        path.join("runner", "metadata-editor.tsx"),
+        // Since audit platform#1 (2026-11-22): its batch, a lazy chunk too.
+        path.join("runner", "batch", "metadata-batch.tsx"),
+      ].sort(),
+    );
+    // The editor reports through a primitive; the batch through the
+    // settings batch, and that one is held to the batch view below.
+    const [editor, batch] = [
+      lazy.find((e) => e.endsWith("metadata-editor.tsx"))!,
+      lazy.find((e) => e.endsWith("metadata-batch.tsx"))!,
+    ].map((e) => readFileSync(e, "utf8"));
+    expect(USES_PRIMITIVE.test(editor!)).toBe(true);
+    expect(USES_PRIMITIVE.test(batch!)).toBe(false);
+    expect(VIA_SETTINGS_BATCH.test(batch!)).toBe(true);
+    expect(NO_OUTCOME_OF_ITS_OWN["settings-batch-runner.tsx"]).toMatch(
+      /^renders <BatchView>/,
+    );
   });
 
   it("the shared editor's runners report through it", () => {

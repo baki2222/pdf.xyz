@@ -11,6 +11,7 @@ import {
   type NUpCount,
   type NUpSheetId,
 } from "@/lib/pdf/n-up";
+import { regionalChoice, useRegionalPaper } from "../../use-regional-paper";
 import type { SinglePdfBatch } from "../single-pdf-runner";
 import { BatchChoice } from "./batch-choice";
 import {
@@ -51,7 +52,11 @@ export function NUpBatch(props: SinglePdfBatch) {
   const [perSheet, setPerSheet] = useState<string>(
     String(DEFAULT_N_UP_OPTIONS.perSheet),
   );
-  const [sheet, setSheet] = useState<NUpSheetId>(DEFAULT_N_UP_OPTIONS.sheet);
+  // A4, or US Letter where the browser's language names a Letter country,
+  // as the single-file editor starts (regional-paper.test.ts).
+  const regional = useRegionalPaper();
+  const [chosenSheet, setSheet] = useState<NUpSheetId | null>(null);
+  const sheet = chosenSheet ?? regionalChoice(N_UP_SHEETS, regional);
   const process = useCallback(
     (opened: OpenedPdf) =>
       nUpOneFile(opened, { perSheet: Number(perSheet) as NUpCount, sheet }),
