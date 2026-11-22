@@ -28,7 +28,14 @@ import {
   type OptimizeRecommendation,
 } from "@/lib/pdf/analyze";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { removedLine } from "@/lib/pdf/compress-cleanup";
+import {
+  CLEANUP_EXTRA_OPTIONS,
+  NO_EXTRAS,
+  extrasLine,
+  removedAnyExtra,
+  removedLine,
+  type CleanupExtras,
+} from "@/lib/pdf/compress-cleanup";
 import { LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
 import { DEEP_COMPRESSION_PRESETS } from "@/lib/pdf/offered-kinds";
 import { DEEP_COMPRESSION_GRAYSCALE_HINT } from "@/lib/pdf/compress-grayscale";
@@ -533,6 +540,32 @@ function CompressEditor({
   }>({ result: null, error: null, busy: true });
   // Keyed by file (see CompressSingle), so a new file always starts unconfirmed.
   const [signaturesConfirmed, setSignaturesConfirmed] = useState(false);
+  // REMOVE EXTRAS (audit compress-pdf#6): opt-in, each off by default. A
+  // ticked option runs the same browser pass again with it; the first run's
+  // result stays on screen meanwhile, and the downloads wait for the new one.
+  const [extras, setExtras] = useState<CleanupExtras>(NO_EXTRAS);
+  const anyExtras = Object.values(extras).some(Boolean);
+  const [cleaned, setCleaned] = useState<{
+    extras: CleanupExtras;
+    result: AnalyzeResult | null;
+    error: string | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!Object.values(extras).some(Boolean)) return;
+    let active = true;
+    void analyzePdf(pdf.bytes, extras).then(
+      (r) => {
+        if (active) setCleaned({ extras, result: r, error: null });
+      },
+      (err: unknown) => {
+        if (active)
+          setCleaned({ extras, result: null, error: errorMessage(err) });
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [pdf.bytes, extras]);
 
   useEffect(() => {
     let active = true;
@@ -613,13 +646,22 @@ function CompressEditor({
     );
   }
 
-  const { analysis } = result;
+  // What is shown and downloaded: the first run, or the run with the ticked
+  // extras once it is in. Until it is, nothing is offered for download.
+  const cleanedNow = anyExtras && cleaned?.extras === extras ? cleaned : null;
+  const extrasPending = anyExtras && cleanedNow === null;
+  const shown = cleanedNow?.result ?? result;
+  const { analysis } = shown;
+  const extrasSaved = result.analysis.optimizedBytes - analysis.optimizedBytes;
   const summary = summarizeAnalysis(analysis);
   const headline = HEADLINES[summary.recommendation];
   const HeadlineIcon = headline.icon;
   const title = headlineTitle(summary.recommendation, analysis.signatureCount);
   const signed = analysis.signatureCount > 0;
-  const canDownload = summary.savedBytes > 0;
+  // A file the person asked to clean is offered even when it is no smaller.
+  const cleanedByRequest = removedAnyExtra(analysis.extras);
+  const canDownload = summary.savedBytes > 0 || cleanedByRequest;
+  const offerDownload = !extrasPending && !cleanedNow?.error;
 
   return (
     <div className="flex flex-col gap-5">
@@ -705,6 +747,46 @@ function CompressEditor({
 
       {/* What the repack dropped that no page shows (audit compress-pdf#6),
           counted from the run itself; nothing is said when it was nothing. */}
+      <div
+        role="group"
+        aria-label="Remove extras"
+        className="flex flex-col gap-3"
+      >
+        <p className="text-fg text-sm font-medium">Remove extras (optional)</p>
+        {CLEANUP_EXTRA_OPTIONS.map((option) => (
+          <label
+            key={option.key}
+            className="text-muted flex items-start gap-2.5 text-sm"
+          >
+            <input
+              type="checkbox"
+              checked={extras[option.key]}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setExtras((was) => ({ ...was, [option.key]: checked }));
+              }}
+              className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
+            />
+            <span className="flex flex-col gap-0.5">
+              <span className="text-fg font-medium">{option.label}</span>
+              <span className="text-muted text-xs leading-relaxed">
+                {option.hint}
+              </span>
+            </span>
+          </label>
+        ))}
+        {extrasPending && <Pending>Removing what you ticked…</Pending>}
+        {cleanedNow?.error && <ErrorNote message={cleanedNow.error} />}
+        {cleanedNow?.result && extrasLine(analysis.extras, extrasSaved) && (
+          <p
+            data-extras-removed=""
+            className="text-muted text-xs leading-relaxed"
+          >
+            {extrasLine(analysis.extras, extrasSaved)}
+          </p>
+        )}
+      </div>
+
       {removedLine(analysis.removed) && (
         <p className="text-muted text-xs leading-relaxed">
           {removedLine(analysis.removed)}
@@ -719,7 +801,7 @@ function CompressEditor({
           analysis ended at "Analyze another file" (batch C review). Not
           gated on a signature's confirmation: these are the file's own
           bytes, its signatures as they were. */}
-      {!canDownload && (
+      {offerDownload && !canDownload && (
         <>
           <div className="flex flex-col gap-1.5">
             <DownloadCta
@@ -748,13 +830,13 @@ function CompressEditor({
         </>
       )}
 
-      {canDownload && (!signed || signaturesConfirmed) && (
+      {offerDownload && canDownload && (!signed || signaturesConfirmed) && (
         <>
           <DownloadCta
             size="lg"
             onClick={() =>
               downloadBytes(
-                result.optimized,
+                shown.optimized,
                 outputName(pdf.file.name, "optimized"),
               )
             }
@@ -770,7 +852,7 @@ function CompressEditor({
               pages re-counted — and where the smaller file can go next. */}
           <RunEnding
             output={outputFile(
-              result.optimized,
+              shown.optimized,
               outputName(pdf.file.name, "optimized"),
             )}
             inputBytes={analysis.originalBytes}

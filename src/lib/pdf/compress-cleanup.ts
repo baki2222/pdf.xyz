@@ -12,10 +12,11 @@
  *    array and stream dictionary; anything not reached is not part of the
  *    document a reader can open.
  *
- * Not dropped, on purpose: embedded attachments, bookmarks, form fields,
- * annotations and metadata. Those are content someone may want, and removing
- * them would need the person's say-so (see the lane report: attachments are
- * deferred until there is an opt-in control).
+ * Not dropped by the repack itself: embedded attachments, bookmarks, form
+ * fields, annotations and metadata. Those are content someone may want.
+ * Attachments, metadata and comments can be removed with the person's say-so:
+ * the opt-in "Remove extras" checkboxes below (`removeExtras`, 2026-11-22).
+ * Bookmarks and form fields are never removed.
  *
  * pdf-lib's classes come from the caller's lazily loaded module (`lib`), so
  * this leaf adds no static import of the engine to whoever imports it.
@@ -114,4 +115,171 @@ export function dropUnseen(lib: PdfLibModule, doc: PDFDocument): RepackRemoved {
     }
   }
   return { thumbnails, unreferenced };
+}
+
+/**
+ * THE EXTRAS, BY THE PERSON'S SAY-SO (audit compress-pdf#6, 2026-11-22). The
+ * repack above drops only what no page shows; these three are content someone
+ * may want, so each is a checkbox in the browser pass, OFF by default, and each
+ * removes exactly what its label names. `compress-extras.test.ts` decodes the
+ * output for every option and for the all-off control.
+ */
+export interface CleanupExtras {
+  /** Files attached to the PDF (the document's EmbeddedFiles). */
+  attachments: boolean;
+  /** The document's title, author and other details (Info and XMP). */
+  metadata: boolean;
+  /** Comments, sticky notes, highlights and other annotations, except links and form fields. */
+  comments: boolean;
+}
+
+export const NO_EXTRAS: CleanupExtras = {
+  attachments: false,
+  metadata: false,
+  comments: false,
+};
+
+/**
+ * The checkboxes, in the order the panel draws them: a list, so the panel maps
+ * over it and the tick-label guard reads the labels it renders.
+ */
+export const CLEANUP_EXTRA_OPTIONS: readonly {
+  key: keyof CleanupExtras;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    key: "attachments",
+    label: "Remove attached files",
+    hint: "Removes files attached inside the PDF, such as a spreadsheet sent along with a report.",
+  },
+  {
+    key: "metadata",
+    label: "Remove document details",
+    hint: "Removes the title, author, subject, keywords and dates stored in the file, including its XMP metadata.",
+  },
+  {
+    key: "comments",
+    label: "Remove comments",
+    hint: "Removes comments, sticky notes, highlights and drawings added on top of pages. Links and form fields stay.",
+  },
+];
+
+/** What the extras removed in one run. */
+export interface ExtrasRemoved {
+  attachments: number;
+  metadata: boolean;
+  comments: number;
+}
+
+export const NOTHING_EXTRA_REMOVED: ExtrasRemoved = {
+  attachments: 0,
+  metadata: false,
+  comments: 0,
+};
+
+/** True when the run removed anything the person asked to remove. */
+export function removedAnyExtra(removed: ExtrasRemoved): boolean {
+  return removed.attachments > 0 || removed.metadata || removed.comments > 0;
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/**
+ * The panel's line for what the ticked options removed, with what that saved
+ * when it is known (`savedBytes`, the cleaned file against the same pass with
+ * every option off); `null` when nothing was removed.
+ */
+export function extrasLine(
+  removed: ExtrasRemoved,
+  savedBytes?: number,
+): string | null {
+  const parts: string[] = [];
+  if (removed.attachments > 0)
+    parts.push(plural(removed.attachments, "attached file"));
+  if (removed.metadata) parts.push("the document's metadata");
+  if (removed.comments > 0) parts.push(plural(removed.comments, "comment"));
+  if (parts.length === 0) return null;
+  const list =
+    parts.length === 1
+      ? parts[0]!
+      : `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)!}`;
+  const saved =
+    savedBytes !== undefined && savedBytes > 0
+      ? ` That saved ${formatKb(savedBytes)}.`
+      : "";
+  return `Removed ${list}.${saved}`;
+}
+
+/** Whole KB (1 KB = 1,024 bytes), the unit every size on the site uses. */
+function formatKb(bytes: number): string {
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, "")} MB`;
+  }
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+/** Annotation kinds the comments option keeps: they are not comments. */
+const KEPT_ANNOTS = new Set(["/Link", "/Widget"]);
+
+/**
+ * Remove what the person ticked. Call before `dropUnseen`, which then sweeps
+ * the objects these removals left unreferenced (the attached bytes, the XMP
+ * stream, a note's popup), and after the producer stamp, so that removing
+ * the metadata removes the stamp too.
+ */
+export function removeExtras(
+  lib: PdfLibModule,
+  doc: PDFDocument,
+  extras: CleanupExtras,
+): ExtrasRemoved {
+  const { PDFArray, PDFDict, PDFName } = lib;
+  const removed: ExtrasRemoved = { ...NOTHING_EXTRA_REMOVED };
+  const catalog = doc.catalog;
+  if (extras.attachments) {
+    const names = catalog.lookupMaybe(PDFName.of("Names"), PDFDict);
+    const tree = names?.lookupMaybe(PDFName.of("EmbeddedFiles"), PDFDict);
+    if (names && tree) {
+      // Count the leaves of the name tree: each /Names array holds pairs.
+      const stack = [tree];
+      while (stack.length > 0) {
+        const node = stack.pop()!;
+        const leaf = node.lookupMaybe(PDFName.of("Names"), PDFArray);
+        if (leaf) removed.attachments += Math.floor(leaf.size() / 2);
+        const kids = node.lookupMaybe(PDFName.of("Kids"), PDFArray);
+        for (let i = 0; i < (kids?.size() ?? 0); i++) {
+          const kid = kids!.lookupMaybe(i, PDFDict);
+          if (kid) stack.push(kid);
+        }
+      }
+      names.delete(PDFName.of("EmbeddedFiles"));
+    }
+    // PDF 2.0's associated files point at the same file specifications.
+    catalog.delete(PDFName.of("AF"));
+  }
+  if (extras.metadata) {
+    const hadInfo = !!doc.context.trailerInfo.Info;
+    const hadXmp = !!catalog.get(PDFName.of("Metadata"));
+    delete doc.context.trailerInfo.Info;
+    catalog.delete(PDFName.of("Metadata"));
+    for (const page of doc.getPages()) page.node.delete(PDFName.of("Metadata"));
+    removed.metadata = hadInfo || hadXmp;
+  }
+  if (extras.comments) {
+    for (const page of doc.getPages()) {
+      const annots = page.node.lookupMaybe(PDFName.of("Annots"), PDFArray);
+      if (!annots) continue;
+      const kept: PDFObject[] = [];
+      for (let i = 0; i < annots.size(); i++) {
+        const annot = annots.lookupMaybe(i, PDFDict);
+        const subtype = annot ? String(annot.get(PDFName.of("Subtype"))) : "";
+        if (KEPT_ANNOTS.has(subtype)) kept.push(annots.get(i));
+        // A popup is a comment's window, not a comment of its own.
+        else if (subtype !== "/Popup") removed.comments += 1;
+      }
+      if (kept.length === 0) page.node.delete(PDFName.of("Annots"));
+      else page.node.set(PDFName.of("Annots"), doc.context.obj(kept));
+    }
+  }
+  return removed;
 }

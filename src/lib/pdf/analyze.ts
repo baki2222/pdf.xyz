@@ -2,7 +2,14 @@ import { isImageStream } from "./image-stream";
 import { loadPdfLib } from "./pdf-lib";
 import { loadPdf } from "./engine";
 import { countSignatures } from "./signed";
-import { dropUnseen, type RepackRemoved } from "./compress-cleanup";
+import {
+  NO_EXTRAS,
+  dropUnseen,
+  removeExtras,
+  type CleanupExtras,
+  type ExtrasRemoved,
+  type RepackRemoved,
+} from "./compress-cleanup";
 
 /**
  * Honest compression analysis for the "Compress PDF" tool.
@@ -49,6 +56,11 @@ export interface PdfAnalysis {
    * page thumbnails and objects nothing refers to (`./compress-cleanup`).
    */
   removed: RepackRemoved;
+  /**
+   * What the person's ticked "Remove extras" options removed (audit
+   * compress-pdf#6): nothing unless they asked (`./compress-cleanup`).
+   */
+  extras: ExtrasRemoved;
 }
 
 /** Analysis plus the actual losslessly-optimized bytes, ready to download. */
@@ -116,7 +128,10 @@ export async function optimizeLossless(
  * Inspect a PDF and losslessly repack it, returning both the numeric analysis
  * and the optimized bytes. Does a single parse for the analysis and one repack.
  */
-export async function analyzePdf(bytes: Uint8Array): Promise<AnalyzeResult> {
+export async function analyzePdf(
+  bytes: Uint8Array,
+  extras: CleanupExtras = NO_EXTRAS,
+): Promise<AnalyzeResult> {
   const lib = await loadPdfLib();
   const doc = await loadPdf(bytes);
   // Counted BEFORE the save below: it reads the document as the user gave it.
@@ -135,6 +150,9 @@ export async function analyzePdf(bytes: Uint8Array): Promise<AnalyzeResult> {
   doc.setCreator(PRODUCER);
   // Images were counted above, in the file as given; the repack then drops
   // what no page shows (`./compress-cleanup`, audit compress-pdf#6).
+  // The person's extras go first, so the sweep below also takes what they
+  // left unreferenced (the attached bytes, the XMP stream).
+  const removedExtras = removeExtras(lib, doc, extras);
   const removed = dropUnseen(lib, doc);
   const optimized = await doc.save({ useObjectStreams: true });
 
@@ -147,6 +165,7 @@ export async function analyzePdf(bytes: Uint8Array): Promise<AnalyzeResult> {
       optimizedBytes: optimized.byteLength,
       signatureCount,
       removed,
+      extras: removedExtras,
     },
     optimized,
   };
@@ -155,7 +174,7 @@ export async function analyzePdf(bytes: Uint8Array): Promise<AnalyzeResult> {
 /** Pure: derive display metrics + an honest recommendation from raw findings. */
 export function summarizeAnalysis(
   // What was removed does not move the verdict, so callers need not say.
-  analysis: Omit<PdfAnalysis, "removed">,
+  analysis: Omit<PdfAnalysis, "removed" | "extras">,
 ): OptimizationSummary {
   const originalBytes = Math.max(0, analysis.originalBytes);
   const imageShare =
