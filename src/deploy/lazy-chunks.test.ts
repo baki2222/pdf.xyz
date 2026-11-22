@@ -1505,8 +1505,19 @@ describe("Compare PDF's redline is a chunk of its own", () => {
  * approve in the PR). Every page's first load moved by 1 B gz on that
  * build, and only in the webpack runtime's map of chunk hashes: this
  * chunk's and the preview's hashes changed, at the same length.
+ *
+ * Slice S6 (2026-11-22, zlib -9, Windows, from an empty .next, built on
+ * S5's reviewed head 7913d83c): 28,975 B gz (28.30 KB), 81,107 B raw,
+ * +1,459 B over S5's 27,516 for combs and radio clusters: comb rows (runs
+ * joined across a date's gaps, graph paper refused, a row label or a
+ * caption over it), radio stacks (a column at the builder's gap, right
+ * labels, a caption, buttons sized to the printed pitch), and Add making
+ * a card with its Max length or its choices. That is over 28.2, so the
+ * bound is this measurement plus 5%: 29.7 (28.2 to 29.7, the owner's to
+ * approve in the PR). The page's first load is unchanged (first-load,
+ * first-load-duplicates and bundle-budget tests green on the same build).
  */
-const FIND_FIELDS_FETCH_GZ_KB = 28.2;
+const FIND_FIELDS_FETCH_GZ_KB = 29.7;
 /*
  * HISTORY (review rounds 7 and 8, 2026-11-19). Round 7 added a bound here
  * for the press on a page whose preview chunk never arrived: every chunk
