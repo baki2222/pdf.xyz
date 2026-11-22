@@ -319,12 +319,12 @@ export function WatermarkPreview(props: WatermarkPreviewProps) {
           >
             <span
               aria-hidden
-              className="rounded-full"
+              className="rounded-tag"
               style={{
                 width: 12,
                 height: 12,
-                border: "2px solid #1d4ed8",
-                background: "rgba(255,255,255,0.85)",
+                border: "2px solid var(--sf-accent)",
+                background: "var(--sf-panel)",
               }}
             />
           </button>

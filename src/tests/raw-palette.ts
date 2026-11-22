@@ -107,4 +107,9 @@ export const RAW_COLOUR_ALLOWANCE: Record<string, Record<string, string>> = {
     "bg-white": PAPER,
     "ring-black/10": `${PAPER} (its edge)`,
   },
+  // Add Watermark's live page preview (audit watermark-pdf#1, 2026-11-22).
+  "src/components/tools/runner/watermark-preview.tsx": {
+    "bg-white": PAPER,
+    "ring-black/10": `${PAPER} (its edge)`,
+  },
 };
