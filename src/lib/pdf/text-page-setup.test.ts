@@ -19,7 +19,13 @@
  * Bengali and Chinese go through the same layout with the shipped Noto
  * faces at every combination, and one real PDF each at the tightest corner.
  */
-import { PDFArray, PDFDocument, PDFName, PDFRawStream } from "pdf-lib";
+import {
+  PDFArray,
+  PDFDocument,
+  PDFName,
+  PDFRawStream,
+  type PDFFont,
+} from "pdf-lib";
 import { inflateSync } from "node:zlib";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { layoutPlainText, textToPdf } from "./text-to-pdf";
@@ -262,7 +268,54 @@ const BENGALI = String.fromCodePoint(
 );
 const CHINESE = String.fromCodePoint(0x673a, 0x5bc6, 0x6587, 0x4ef6);
 
+/** The combinations on one page size: the slice one test lays out. */
+const combosOf = (pageSize: string) =>
+  COMBOS.filter((o) => o.pageSize === pageSize);
+
+/**
+ * Lays `text` out at every combination in `combos`, holding each layout.
+ * `font` is embedded once per script and shared by its slices, so the split
+ * costs no more than the single walk did.
+ */
+async function everyLineFits(
+  script: string,
+  text: string,
+  combos: readonly TextPageOptions[],
+  font: PDFFont,
+): Promise<void> {
+  // Health: an empty slice would pass every check below vacuously.
+  expect(combos.length, `${script}: no combination in this slice`).toBe(
+    TEXT_ORIENTATIONS.length * TEXT_FONT_SIZES.length,
+  );
+  for (const o of combos) {
+    const g = textPageGeometry(o);
+    const layout = layoutPlainText(text, font, g);
+    const pages = layout.pages;
+    expect(pages.length, name(o)).toBeGreaterThan(1);
+    for (const page of pages.slice(0, -1))
+      expect(page.lines.length, name(o)).toBe(g.linesPerPage);
+    expect(pages.at(-1)!.lines.length).toBeLessThanOrEqual(g.linesPerPage);
+    for (const line of pages.flatMap((p) => p.lines))
+      expect(
+        font.widthOfTextAtSize(line, g.fontSize),
+        `${name(o)}: a ${script} line is wider than the column`,
+      ).toBeLessThanOrEqual(g.maxWidth + 1e-6);
+    const squash = (s: string) => s.replace(/\s+/g, "");
+    expect(squash(pages.flatMap((p) => p.lines).join(""))).toBe(squash(text));
+  }
+}
+
 describe("Text to PDF page setup: Bengali and Chinese wrap and paginate at every combination", () => {
+  it("health: the per-page-size slices are non-empty and cover every combination once", () => {
+    const slices = TEXT_PAGE_SIZES.map((s) => combosOf(s.id));
+    for (const [i, slice] of slices.entries())
+      expect(slice.length, TEXT_PAGE_SIZES[i]!.id).toBeGreaterThan(0);
+    expect(slices.flat()).toEqual(COMBOS);
+    // Positive control: a size the table does not have is an empty slice,
+    // which `everyLineFits` refuses before it lays anything out.
+    expect(combosOf("no-such-size")).toHaveLength(0);
+  });
+
   let previous: Parameters<typeof setFontByteSource>[0];
   beforeAll(() => {
     previous = setFontByteSource(async (pack) => readNotoTtf(pack));
@@ -285,28 +338,25 @@ describe("Text to PDF page setup: Bengali and Chinese wrap and paginate at every
       ...Array.from({ length: 90 }, (_, i) => `${sample} ${i}`),
     ].join("\n");
 
-    it(`${script}: no line wider than the column, full pages hold the line count`, async () => {
-      const doc = await PDFDocument.create();
-      const font = await embedDrawingFont(doc, [text, "notes"], "mono");
-      for (const o of COMBOS) {
-        const g = textPageGeometry(o);
-        const layout = layoutPlainText(text, font, g);
-        const pages = layout.pages;
-        expect(pages.length, name(o)).toBeGreaterThan(1);
-        for (const page of pages.slice(0, -1))
-          expect(page.lines.length, name(o)).toBe(g.linesPerPage);
-        expect(pages.at(-1)!.lines.length).toBeLessThanOrEqual(g.linesPerPage);
-        for (const line of pages.flatMap((p) => p.lines))
-          expect(
-            font.widthOfTextAtSize(line, g.fontSize),
-            `${name(o)}: a ${script} line is wider than the column`,
-          ).toBeLessThanOrEqual(g.maxWidth + 1e-6);
-        const squash = (s: string) => s.replace(/\s+/g, "");
-        expect(squash(pages.flatMap((p) => p.lines).join(""))).toBe(
-          squash(text),
-        );
-      }
-    }, 240_000);
+    // One test per page size, not one for all of them. This does NOT lower
+    // the file's cost: the same combinations are laid out with one font per
+    // script, embedded once by the first slice, as the single test did. It
+    // lowers each TEST's cost, which is what a per-test timeout sees: the
+    // single walk took up to 85,092 ms of its 240 s on CI (run 44891504062,
+    // 11-21; 73,952 ms over the 12 runs of 11-18), and each slice is about
+    // a third of it. No slice can cost more than the whole walk, so 180 s is
+    // at least 2.1x any slice's CI time even if one slice held all of it.
+    // The timeout is the hang backstop, checked when the test ends; it is no
+    // guard on the shaping cost, which a count would have to hold.
+    let embedded: Promise<PDFFont> | undefined;
+    const font = () =>
+      (embedded ??= PDFDocument.create().then((doc) =>
+        embedDrawingFont(doc, [text, "notes"], "mono"),
+      ));
+    for (const size of TEXT_PAGE_SIZES)
+      it(`${script} on ${size.id}: no line wider than the column, full pages hold the line count`, async () => {
+        await everyLineFits(script, text, combosOf(size.id), await font());
+      }, 180_000);
 
     it(`${script}: a real PDF at the tightest corner draws every glyph`, async () => {
       const bytes = await textToPdf(text, {
