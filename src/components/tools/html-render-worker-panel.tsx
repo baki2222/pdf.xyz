@@ -43,6 +43,7 @@ import {
 } from "@/lib/jobs/webpage-capture-options";
 import { EpubLayoutOptions } from "./epub-layout-options";
 import { EpubFilePicker } from "./epub-file-picker";
+import { EpubResultNote } from "./epub-result-note";
 import {
   DEFAULT_EPUB_RENDER_OPTIONS,
   epubRenderOptionsBag,
@@ -530,6 +531,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
           inputBytes={mode === "url" ? undefined : file?.size}
         >
           <p className="text-ok text-sm">Your PDF is ready.</p>
+          {mode === "epub" && <EpubResultNote job={outcome.job} />}
           <DownloadCta
             onClick={() =>
               downloadBytes(outcome.output, outcome.artifact.filename)

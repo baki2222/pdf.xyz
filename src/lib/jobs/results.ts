@@ -47,6 +47,11 @@ import {
   type TableExtractResultMeta,
 } from "./table-extract-results";
 import {
+  buildEpubResultMeta,
+  isEpubResultMeta,
+  type EpubResultMeta,
+} from "./epub-results";
+import {
   buildAiResultMeta,
   isAiWindowMeta,
   type AiResultMeta,
@@ -109,6 +114,14 @@ export interface JobResults {
    * report", not "nothing was found". See {@link TableExtractResultMeta}.
    */
   tables?: TableExtractResultMeta;
+  /**
+   * What an EPUB to PDF job printed beyond the reading order, and which of
+   * the book's obfuscated fonts it could use. Present on a completed
+   * `epub-to-pdf` job from a worker that reports it (since 2026-11-22); a
+   * missing block means "this worker did not report". See
+   * {@link EpubResultMeta}.
+   */
+  epub?: EpubResultMeta;
 }
 
 /** True when a {@link JobResults} carries at least one populated block. */
@@ -181,6 +194,11 @@ export function sanitizeJobResults(
   const tables = results.tables;
   if (isTableExtractResultMeta(tables)) {
     clean.tables = buildTableExtractResultMeta(tables);
+  }
+
+  const epub = results.epub;
+  if (isEpubResultMeta(epub)) {
+    clean.epub = buildEpubResultMeta(epub);
   }
 
   return hasJobResults(clean) ? clean : undefined;
