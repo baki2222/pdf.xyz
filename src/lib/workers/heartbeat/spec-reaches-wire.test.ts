@@ -89,6 +89,7 @@ const SPEC = {
     csvImportOptions: true,
     ocrOwnerPassword: true,
     requestSignatureLabels: true,
+    pdfaUnicodeDocInfo: true,
     htmlAdBlock: true,
     chatRetrieval: true,
     summarizePages: true,

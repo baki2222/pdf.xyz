@@ -7,7 +7,11 @@ import { factFaq } from "@/lib/tools/tool-facts";
 import { getToolBySlug } from "@/lib/tools";
 import { PdfANotes } from "@/components/tools/pdfa-notes";
 import type { Job } from "@/lib/jobs/types";
-import { CARRIED_DOCINFO_RULE, CARRIED_DOCINFO_WORDS } from "./docinfo-words";
+import {
+  CARRIED_DOCINFO_RULE,
+  CARRIED_DOCINFO_RULE_ASCII,
+  CARRIED_DOCINFO_WORDS,
+} from "./docinfo-words";
 
 /**
  * Review 2026-11-08 (audit pdf-to-pdfa#3): the page intro said the server
@@ -43,7 +47,8 @@ function paragraphs(): Array<{ where: string; text: string }> {
   const job = {
     results: { pdfa: { hadNotes: true, notes: ["discarding DOCINFO"] } },
   } as unknown as Job;
-  const { container } = render(<PdfANotes job={job} />);
+  // On a worker that proves `pdfaUnicodeDocInfo` (audit wave 2).
+  const { container } = render(<PdfANotes job={job} wideFields />);
   container
     .querySelectorAll("p")
     .forEach((p) =>
@@ -62,6 +67,20 @@ describe("every sentence that says the fields are carried states the rule", () =
     expect(naming.map((p) => p.where)).toHaveLength(6);
     for (const p of naming)
       expect(p.text, p.where).toContain(CARRIED_DOCINFO_RULE);
+  });
+
+  it("the notes block states the plain-ASCII rule on a worker that does not prove the wider one", () => {
+    const job = {
+      results: { pdfa: { hadNotes: true, notes: ["discarding DOCINFO"] } },
+    } as unknown as Job;
+    const { container } = render(<PdfANotes job={job} />);
+    expect(container.textContent).toContain(CARRIED_DOCINFO_RULE_ASCII);
+    expect(container.textContent).not.toContain(CARRIED_DOCINFO_RULE);
+  });
+
+  it("the wider rule names brackets and accents; the narrow one leaves them out", () => {
+    expect(CARRIED_DOCINFO_RULE).toMatch(/accented letters, round brackets/);
+    expect(CARRIED_DOCINFO_RULE_ASCII).toMatch(/plain ASCII/);
   });
 
   it("no surface says the notice does not mean the fields are gone, unqualified", () => {

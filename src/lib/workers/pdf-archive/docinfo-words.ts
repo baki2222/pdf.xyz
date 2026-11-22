@@ -24,7 +24,19 @@ export const CARRIED_DOCINFO_WORDS = (() => {
 })();
 
 /**
- * The condition under which a field is carried, as ONE sentence every
+ * The condition under which a field is carried by a worker that WRITES THE
+ * FIELDS AFTER GHOSTSCRIPT (audit wave 2, pdf-to-pdfa#3, `./docinfo-xmp`,
+ * kept by `widenedValue` in `./docinfo`): any text, brackets, accents and
+ * other scripts included, at most {@link MAX_CARRIED_FIELD_CHARS} characters,
+ * from a PDF that is not encrypted. Every static surface states this one.
+ * The panel's notes block states it only while the live worker proves
+ * `pdfaUnicodeDocInfo`, and {@link CARRIED_DOCINFO_RULE_ASCII} otherwise.
+ */
+export const CARRIED_DOCINFO_RULE = `A field is carried as written, including accented letters, round brackets and other alphabets, when it is at most ${MAX_CARRIED_FIELD_CHARS.toLocaleString("en-US")} characters long and comes from a PDF that is not encrypted; the copy's document properties and its XMP metadata then hold the same text.`;
+
+/**
+ * The narrower rule an image built before the after-Ghostscript writer
+ * keeps. Until 2026-11-22 this was CARRIED_DOCINFO_RULE: the condition under which a field is carried, as ONE sentence every
  * surface uses (page intro, FAQ, notes block, tool facts, guide), so none of
  * them can say "carried" without it. Review 2026-11-08: two sentences said
  * the fields were carried with no condition, and were false for a curly
@@ -38,4 +50,4 @@ export const CARRIED_DOCINFO_WORDS = (() => {
  * octal Latin-1 or as UTF-16; plain ASCII ("Smith's report & co: 50% -
  * ok?") arrived in both. The verdicts are a fixture in `./docinfo.test.ts`.
  */
-export const CARRIED_DOCINFO_RULE = `A field is carried only when it is plain ASCII text with no round brackets or backslash, at most ${MAX_CARRIED_FIELD_CHARS.toLocaleString("en-US")} characters long, from a PDF that is not encrypted; one with an accented letter, a curly quote, an en dash or another script is left out rather than altered, because Ghostscript drops such text from a PDF/A file.`;
+export const CARRIED_DOCINFO_RULE_ASCII = `A field is carried only when it is plain ASCII text with no round brackets or backslash, at most ${MAX_CARRIED_FIELD_CHARS.toLocaleString("en-US")} characters long, from a PDF that is not encrypted; one with an accented letter, a curly quote, an en dash or another script is left out rather than altered, because Ghostscript drops such text from a PDF/A file.`;

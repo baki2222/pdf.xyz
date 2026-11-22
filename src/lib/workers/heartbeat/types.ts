@@ -544,6 +544,21 @@ export interface HeartbeatCapabilities {
    * absence parses as `false`.
    */
   readonly htmlAdBlock: boolean;
+  /**
+   * This image's PDF to PDF/A carries a Title, Author, Subject or Keywords
+   * that Ghostscript 10.00.0 drops — a round bracket, a backslash, an accent,
+   * another script — into the copy's Info dictionary AND its XMP packet,
+   * written after Ghostscript (audit wave 2 pdf-to-pdfa#3,
+   * `pdf-archive/docinfo-xmp.ts`). An older image carries plain ASCII only.
+   *
+   * PROVEN AT START-UP (`pdf-archive/docinfo-capability.ts`,
+   * `provesPdfaUnicodeDocInfo`): one real job through the executor's order
+   * on `nativePdfArchiveDeps(env)` — this image's real Ghostscript — read
+   * back with pdf-lib and as XMP text; true only when all four fields hold
+   * the exact strings in both. The panel's notes state the wider rule only
+   * while a fresh beat carries this. The absence parses as `false`.
+   */
+  readonly pdfaUnicodeDocInfo: boolean;
 }
 
 /**

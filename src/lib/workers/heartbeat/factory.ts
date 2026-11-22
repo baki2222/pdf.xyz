@@ -551,7 +551,10 @@ export function liveWorkerProves(
 }
 
 /** The boolean capabilities the status route reports for panels to gate on. */
-export const WORKER_PANEL_FLAGS = ["htmlAdBlock"] as const;
+export const WORKER_PANEL_FLAGS = [
+  "htmlAdBlock",
+  "pdfaUnicodeDocInfo",
+] as const;
 export type WorkerPanelFlag = (typeof WORKER_PANEL_FLAGS)[number];
 
 /** The admission gate's question, read from the broker. See {@link liveWorkerOcrsWithOwnerPassword}. */

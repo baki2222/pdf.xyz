@@ -455,6 +455,14 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "Webpage to PDF refuses requests to the listed ad hosts and hides the ad slots they use when Hide common ads is ticked, instead of ignoring the box",
     proves: provenByFlag,
   },
+  pdfaUnicodeDocInfo: {
+    label: "PDF to PDF/A's titles with brackets or accents",
+    promise:
+      // Audit wave 2 pdf-to-pdfa#3. The panel's notes state the wider rule
+      // only while this reads true on a fresh heartbeat.
+      "PDF to PDF/A carries a title, author, subject or keywords with round brackets, a backslash or accented letters into the copy's document properties and XMP, instead of leaving them out",
+    proves: provenByFlag,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */

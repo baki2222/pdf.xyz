@@ -44,6 +44,7 @@ const CAPS: HeartbeatCapabilities = {
   csvImportOptions: true,
   ocrOwnerPassword: true,
   requestSignatureLabels: true,
+  pdfaUnicodeDocInfo: true,
   htmlAdBlock: true,
 };
 
@@ -123,6 +124,7 @@ describe("buildHeartbeat / serialize / parse", () => {
       csvImportOptions: false,
       ocrOwnerPassword: false,
       requestSignatureLabels: false,
+      pdfaUnicodeDocInfo: false,
       htmlAdBlock: false,
     });
     expect(JSON.stringify(hb)).not.toContain("evil.example.com");
@@ -286,6 +288,7 @@ describe("buildHeartbeat / serialize / parse", () => {
         csvImportOptions: false,
         ocrOwnerPassword: false,
         requestSignatureLabels: false,
+        pdfaUnicodeDocInfo: false,
         htmlAdBlock: false,
       },
       at: 1234,

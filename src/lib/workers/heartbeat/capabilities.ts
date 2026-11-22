@@ -80,6 +80,7 @@ export function emptyCapabilities(): HeartbeatCapabilities {
     csvImportOptions: false,
     ocrOwnerPassword: false,
     requestSignatureLabels: false,
+    pdfaUnicodeDocInfo: false,
     htmlAdBlock: false,
   };
 }

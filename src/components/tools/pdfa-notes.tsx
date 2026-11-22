@@ -4,6 +4,7 @@ import { Scissors } from "lucide-react";
 import type { Job } from "@/lib/jobs/types";
 import {
   CARRIED_DOCINFO_RULE,
+  CARRIED_DOCINFO_RULE_ASCII,
   CARRIED_DOCINFO_WORDS,
 } from "@/lib/workers/pdf-archive/docinfo-words";
 
@@ -40,7 +41,18 @@ import {
  * and a classifier that quietly stopped matching after an upgrade would render
  * an empty list — "nothing was removed" — while meaning "I no longer understand".
  */
-export function PdfANotes({ job }: { job: Job | undefined }) {
+export function PdfANotes({
+  job,
+  wideFields = false,
+}: {
+  job: Job | undefined;
+  /**
+   * The live worker proves `pdfaUnicodeDocInfo` (audit wave 2
+   * pdf-to-pdfa#3): state the wider rule; otherwise the plain-ASCII one an
+   * older image keeps.
+   */
+  wideFields?: boolean;
+}) {
   const pdfa = job?.results?.pdfa;
   if (!pdfa || !pdfa.hadNotes) return null;
 
@@ -72,8 +84,8 @@ export function PdfANotes({ job }: { job: Job | undefined }) {
         A line ending in &quot;discarding DOCINFO&quot; is routine: it is about
         your original&apos;s copy of the document information. Its{" "}
         {CARRIED_DOCINFO_WORDS} are written into this file separately.{" "}
-        {CARRIED_DOCINFO_RULE} Read the list if any of it matters to your
-        archive.
+        {wideFields ? CARRIED_DOCINFO_RULE : CARRIED_DOCINFO_RULE_ASCII} Read
+        the list if any of it matters to your archive.
       </p>
     </div>
   );

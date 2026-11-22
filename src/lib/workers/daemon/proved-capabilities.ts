@@ -60,6 +60,7 @@ import { provesOcrOwnerPassword } from "@/lib/workers/ocr-owner-capability";
 import { provesRequestSignatureLabels } from "@/lib/workers/request-signatures/labels-capability";
 import { provesHtmlZip } from "@/lib/workers/html-render/zip-capability";
 import { provesHtmlAdBlock } from "@/lib/workers/html-render/ads-capability";
+import { provesPdfaUnicodeDocInfo } from "@/lib/workers/pdf-archive/docinfo-capability";
 import { provesChatRetrieval } from "@/lib/workers/chat-with-pdf/retrieval-capability";
 import { provesSummarizePages } from "@/lib/workers/summarize/pages-capability";
 import { translatePdfLanguages } from "@/lib/workers/translate/pdf-capability";
@@ -213,6 +214,12 @@ export const PROVED_CAPABILITIES = defineProvers({
   // through the daemon's own registry, and the renderer's request test and
   // slot script cover the in-house lists. A stub Chromium; pure, in-process.
   htmlAdBlock: { prove: () => provesHtmlAdBlock(), parse: bool },
+  // Audit wave 2 pdf-to-pdfa#3: one real PDF/A job with this image's own
+  // Ghostscript, its Info and XMP read back for a bracket and accents.
+  pdfaUnicodeDocInfo: {
+    prove: (env) => provesPdfaUnicodeDocInfo(env),
+    parse: bool,
+  },
 });
 
 export type ProvedKey = keyof typeof PROVED_CAPABILITIES;

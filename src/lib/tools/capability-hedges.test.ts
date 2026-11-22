@@ -681,6 +681,18 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     subject: /\bHide common ads\b|\bads\b|\badverts?\b|\badvertisements?\b/i,
     catalogueCopy: true,
   },
+  pdfaUnicodeDocInfo: {
+    // Added 2026-11-22 with the key (audit wave 2 pdf-to-pdfa#3). The
+    // sentences about a PDF/A copy's carried document properties: the
+    // carried-fields words, DOCINFO, or a field "carried" with accents or
+    // brackets named.
+    // TRUE: CARRIED_DOCINFO_RULE on PDF to PDF/A's intro, FAQ, facts and
+    // guide says fields with accents and brackets are carried, with no
+    // hedge (the panel's notes state it only on a worker that proves it).
+    subject:
+      /\btitle, author, subject and keywords\b|\bDOCINFO\b|\bcarried\b[^.]{0,120}\b(?:accented|brackets?)\b/i,
+    catalogueCopy: true,
+  },
 };
 
 /* ------------------------------------------------------------------ *

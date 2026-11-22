@@ -209,6 +209,11 @@ export interface WorkerStatus {
    * panel offers the box only while this is true.
    */
   htmlAdBlock?: boolean;
+  /**
+   * PDF to PDF/A carries fields with brackets or accents (audit wave 2
+   * pdf-to-pdfa#3): the panel's notes state the wider rule only when true.
+   */
+  pdfaUnicodeDocInfo?: boolean;
 }
 
 const NO_COMPRESS: CompressCapability = {
@@ -405,6 +410,8 @@ export function buildWorkerStatus(
     workerObserved === true && workerRequestSignatureLabels === true;
   const htmlAdBlock =
     workerObserved === true && workerPanelFlags.htmlAdBlock === true;
+  const pdfaUnicodeDocInfo =
+    workerObserved === true && workerPanelFlags.pdfaUnicodeDocInfo === true;
 
   if (mode === "local-dev") {
     const engines = DEEP_COMPRESSION_TOOLS.filter((tool) => tools?.[tool]);
@@ -434,6 +441,7 @@ export function buildWorkerStatus(
       ocrOwnerPassword,
       requestSignatureLabels,
       htmlAdBlock,
+      pdfaUnicodeDocInfo,
     };
   }
 
@@ -463,6 +471,7 @@ export function buildWorkerStatus(
       ocrOwnerPassword,
       requestSignatureLabels,
       htmlAdBlock,
+      pdfaUnicodeDocInfo,
     };
   }
 
@@ -494,5 +503,6 @@ export function buildWorkerStatus(
     ocrOwnerPassword,
     requestSignatureLabels,
     htmlAdBlock,
+    pdfaUnicodeDocInfo,
   };
 }
