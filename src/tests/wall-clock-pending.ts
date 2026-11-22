@@ -23,18 +23,18 @@ export const WALL_CLOCK_PENDING: readonly PendingEntry[] = [
     id: "S4 entry boxes",
     file: "src/lib/pdf/form-detect-boxes-cost.test.ts",
     reason:
-      "Create Forms' entry-box reading must stay linear in the page's boxes, and only this ratio sees a quadratic step. The test's health checks cover what is found, not what it costs. Back to assert once 5 CI runs calibrate the id (bound 45 against 16.7 to 21.6 measured; mutants 74 to 232).",
+      "The entry-box rule's cost must stay linear in the page's boxes, and only this ratio sees a quadratic step: the test's health checks cover what the rule returns, not what it costs. Back to assert once 5 CI runs calibrate the id (bound 45 against 16.7 to 21.6 measured; mutants 74 to 232).",
   },
   {
     id: "S4 stacks",
     file: "src/lib/pdf/form-detect-boxes-cost.test.ts",
     reason:
-      "Create Forms' stacked-line reading must stay linear in the page's stacks, and only this ratio sees a quadratic step. The test's health checks cover what is found, not what it costs. Back to assert once 5 CI runs calibrate the id (bound 45 against 17.1 to 20.5 measured; mutants 74 to 94).",
+      "The stacked-line rule's cost must stay linear in the page's stacks, and only this ratio sees a quadratic step: the test's health checks cover what the rule returns, not what it costs. Back to assert once 5 CI runs calibrate the id (bound 45 against 17.1 to 20.5 measured; mutants 74 to 94).",
   },
   {
     id: "S5 tables",
     file: "src/lib/pdf/form-detect-tables-cost.test.ts",
     reason:
-      "Create Forms' table reading must stay linear in the page's tables. This ratio sees a quadratic read of each cell's words, but NOT any one of the three band lookups S5 added put back alone (each reads under the bound at 16x; all three together read over it), so those rest on review and the before-and-after readings. The test's health checks cover what the page yields, not what it costs. Back to assert once 5 CI runs calibrate the id (readings in the test file).",
+      "The table rule's cost must stay linear in the page's tables. This ratio sees a quadratic read of each cell's words, but NOT any one of the three band lookups S5 added put back alone (each reads under the bound at 16x; all three together read over it), so those rest on review and the before-and-after readings. The test's health checks cover what the rule returns, not what it costs. Back to assert once 5 CI runs calibrate the id (readings in the test file).",
   },
 ];
