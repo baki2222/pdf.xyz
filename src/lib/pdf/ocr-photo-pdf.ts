@@ -33,6 +33,7 @@ import {
   type RasterImageFormat,
 } from "./pdf-lib";
 import { loadPdf } from "./engine";
+import { assemblePages, type PageSource } from "./page-copy";
 import { storedImageDpi } from "./image-density";
 import { baseName } from "./files";
 import { OCR_IMAGE_PAGE_BOUND } from "@/lib/jobs/ocr";
@@ -85,20 +86,28 @@ export async function buildOcrPdf(
   sources: readonly OcrPdfSource[],
 ): Promise<Uint8Array> {
   const lib = await loadPdfLib();
-  const doc = await lib.PDFDocument.create();
-  doc.setProducer("pdf.xyz");
-  doc.setCreator("pdf.xyz");
+  // Every source becomes a document of its own, then the clean assembler
+  // (`./page-copy`, the one path that copies pages: page-copy.test.ts holds
+  // that no other code calls copyPages) joins them in order as a merge.
+  const parts: PageSource[] = [];
   for (const source of sources) {
     const format = rasterFormat(source);
     if (format) {
-      const image = await embedRasterImage(doc, source.bytes, format);
+      const one = await lib.PDFDocument.create();
+      const image = await embedRasterImage(one, source.bytes, format);
       const shown = rasterDisplaySize(image);
       const declared = storedImageDpi(source.bytes) ?? null;
       const k = 72 / ocrPageDpi(shown.width, shown.height, declared);
       const width = shown.width * k;
       const height = shown.height * k;
-      const page = doc.addPage([width, height]);
+      const page = one.addPage([width, height]);
       await drawRasterImage(page, image, { x: 0, y: 0, width, height });
+      // Saved and read back, so the embedded image is a written object the
+      // assembler can copy (pdf-lib writes an embedded image on save).
+      parts.push({
+        doc: await lib.PDFDocument.load(await one.save()),
+        indices: [0],
+      });
       continue;
     }
     if (
@@ -106,15 +115,17 @@ export async function buildOcrPdf(
       source.name.toLowerCase().endsWith(".pdf")
     ) {
       const from = await loadPdf(source.bytes);
-      const pages = await doc.copyPages(from, from.getPageIndices());
-      for (const page of pages) doc.addPage(page);
+      parts.push({ doc: from, indices: from.getPageIndices() });
       continue;
     }
     throw new Error(
       `${source.name} is not a PDF, JPG or PNG, so it cannot be added.`,
     );
   }
-  return doc.save();
+  const { out } = await assemblePages(lib, parts, { documentState: "merge" });
+  out.setProducer("pdf.xyz");
+  out.setCreator("pdf.xyz");
+  return out.save();
 }
 
 /** The name the made PDF is uploaded under, so the result is named after it. */
