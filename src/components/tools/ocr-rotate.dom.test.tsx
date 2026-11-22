@@ -33,6 +33,7 @@ import {
 } from "@/lib/workers/ocr-native";
 import type { NativeOcrConfig } from "@/lib/workers/ocr-native-config";
 import { readyFileInput } from "@/tests/worker-ready";
+import { JPEG_30X20 } from "@/tests/jpeg-fixtures";
 import { OcrWorkerPanel } from "./ocr-worker-panel";
 
 const ocrTool = getToolBySlug("ocr-pdf")!;
@@ -193,7 +194,11 @@ function stubNetwork(contentType: string) {
   return { sent, argv, failures };
 }
 
-async function addFile(name: string, type: string) {
+async function addFile(
+  name: string,
+  type: string,
+  bytes: Uint8Array = new Uint8Array([1, 2, 3]),
+) {
   render(
     <InToolPage tool={ocrTool}>
       <OcrWorkerPanel tool={ocrTool} />
@@ -205,7 +210,7 @@ async function addFile(name: string, type: string) {
     return found;
   });
   fireEvent.change(input, {
-    target: { files: [new File([new Uint8Array([1, 2, 3])], name, { type })] },
+    target: { files: [new File([bytes.slice()], name, { type })] },
   });
   await screen.findByText(name);
 }
@@ -316,23 +321,32 @@ describe("OCR PDF: Turn pages upright, panel → job → processor → argv", ()
     expect(net.argv[0]!.args).toContain("--deskew");
   });
 
-  it("an image is read by Tesseract as it is: the box is off for it, with the reason, and no rotation travels", async () => {
-    const net = stubNetwork("image/png");
-    await addFile("photo.png", "image/png");
-    expect(rotateBox()).toHaveAttribute("aria-disabled", "true");
-    // Guarded, not merely marked: a press on the blocked box changes nothing.
+  // INVERTED 2026-11-22 (audit ocr-pdf#2). Until then this test pinned the
+  // defect: "an image is read by Tesseract as it is: the box is off for it,
+  // with the reason, and no rotation travels". A photo with the box ticked
+  // now goes as a one-page PDF made in the browser, so OCRmyPDF turns it.
+  it("a photo with Turn ticked is sent as a PDF made in the browser, and OCRmyPDF gets --rotate-pages", async () => {
+    // The worker reads what the browser declared: a PDF.
+    const net = stubNetwork("application/pdf");
+    await addFile("photo.jpg", "image/jpeg", JPEG_30X20);
+    expect(rotateBox()).not.toHaveAttribute("aria-disabled");
     fireEvent.click(rotateBox());
-    expect(rotateBox()).not.toBeChecked();
-    expect(
-      screen.getByText(
-        /off for this file\. a phone photo is still read the way up/i,
-      ),
-    ).toBeInTheDocument();
+    expect(rotateBox()).toBeChecked();
     run();
     await screen.findByText(/OCR complete/);
-    expect(net.sent).toEqual([expect.objectContaining({ rotatePages: false })]);
-    expect(net.argv[0]!.command).toBe("tesseract");
-    expect(net.argv[0]!.args.some((a) => /rotate/i.test(a))).toBe(false);
+    const reserve = vi
+      .mocked(globalThis.fetch)
+      .mock.calls.find(([url]) => url === "/api/uploads")!;
+    const body = JSON.parse(
+      new TextDecoder().decode(reserve[1]!.body as ArrayBuffer),
+    ) as { files: { contentType: string; filename: string }[] };
+    expect(body.files[0]).toMatchObject({
+      contentType: "application/pdf",
+      filename: "photo.pdf",
+    });
+    expect(net.sent).toEqual([expect.objectContaining({ rotatePages: true })]);
+    expect(net.argv[0]!.command).toBe("ocrmypdf");
+    expectRotateFlags(net.argv[0]!.args);
   });
 
   it("a forged job asking an image to be turned is read as it is: Tesseract gets no rotation", async () => {

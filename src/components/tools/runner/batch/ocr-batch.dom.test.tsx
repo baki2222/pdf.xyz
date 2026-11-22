@@ -46,6 +46,7 @@ import { resetUnsavedForTests } from "@/lib/intent/unsaved";
 import { READY_WORKER_STATUS } from "@/tests/ready-worker-status";
 import { OcrWorkerPanel } from "../../ocr-worker-panel";
 import { WorkerPanelShell } from "../../worker-panel-shell";
+import { solidPng } from "@/tests/epub-fixtures";
 import { OcrBatch } from "./ocr-batch";
 
 const tool = getToolBySlug("ocr-pdf")!;
@@ -61,8 +62,9 @@ function statusWith(languages: readonly OcrLanguage[]): WorkerStatus {
 
 const pdf = (name: string) =>
   new File(["%PDF-1.7\n%%EOF\n"], `${name}.pdf`, { type: "application/pdf" });
+/** A real PNG: a photo with a box ticked is drawn onto a PDF page. */
 const png = (name: string) =>
-  new File([new Uint8Array([137, 80, 78, 71])], `${name}.png`, {
+  new File([solidPng().slice()], `${name}.png`, {
     type: "image/png",
   });
 
@@ -290,7 +292,10 @@ describe("OCR PDF's batch, through its page's own panel", () => {
       );
   });
 
-  it("a PNG in the batch is sent without straighten and turn; the PDFs keep them", async () => {
+  // INVERTED 2026-11-22 (audit ocr-pdf#2). Until then this test pinned the
+  // defect: "a PNG in the batch is sent without straighten and turn; the
+  // PDFs keep them". A photo now goes as a PDF made in the browser, with both.
+  it("a PNG in the batch is sent as a PDF made in the browser, with straighten and turn like the PDFs", async () => {
     const net = worker(statusWith(["eng"]));
     await drop([pdf("a"), png("photo"), pdf("c")]);
     fireEvent.click(
@@ -306,8 +311,24 @@ describe("OCR PDF's batch, through its page's own panel", () => {
     );
     expect(options.map((o) => [o.deskew, o.rotatePages])).toEqual([
       [true, true],
-      [false, false],
       [true, true],
+      [true, true],
+    ]);
+    const declared = vi
+      .mocked(globalThis.fetch)
+      .mock.calls.filter(([url]) => String(url) === "/api/uploads")
+      .map(
+        ([, init]) =>
+          (
+            JSON.parse(new TextDecoder().decode(init!.body as ArrayBuffer)) as {
+              files: { contentType: string }[];
+            }
+          ).files[0]!.contentType,
+      );
+    expect(declared).toEqual([
+      "application/pdf",
+      "application/pdf",
+      "application/pdf",
     ]);
   });
 

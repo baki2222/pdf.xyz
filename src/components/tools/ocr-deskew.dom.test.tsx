@@ -35,6 +35,8 @@ import {
 } from "@/lib/workers/ocr-native";
 import type { NativeOcrConfig } from "@/lib/workers/ocr-native-config";
 import { readyFileInput } from "@/tests/worker-ready";
+import { PDFDocument } from "pdf-lib";
+import { JPEG_30X20 } from "@/tests/jpeg-fixtures";
 import { OcrWorkerPanel } from "./ocr-worker-panel";
 
 const ocrTool = getToolBySlug("ocr-pdf")!;
@@ -118,6 +120,10 @@ function worker() {
 function stubNetwork(contentType: string) {
   const { processor, argv } = worker();
   const sent: Record<string, unknown>[] = [];
+  const uploaded: { contentType: string | null; bytes: Uint8Array | null } = {
+    contentType: null,
+    bytes: null,
+  };
   const failures: string[] = [];
   const json = (body: unknown) => ({
     ok: true,
@@ -129,7 +135,11 @@ function stubNetwork(contentType: string) {
     "fetch",
     vi.fn(async (url: string, init?: { body?: ArrayBuffer }) => {
       if (url === "/api/worker/status") return json(STATUS);
-      if (url === "/api/uploads")
+      if (url === "/api/uploads") {
+        const reserve = JSON.parse(
+          new TextDecoder().decode(init!.body as ArrayBuffer),
+        ) as { files: { contentType: string }[] };
+        uploaded.contentType = reserve.files[0]!.contentType;
         return json({
           sessionId: "s1",
           tool: "ocr-pdf",
@@ -143,7 +153,11 @@ function stubNetwork(contentType: string) {
             },
           ],
         });
-      if (url === "/upload/f1") return json({});
+      }
+      if (url === "/upload/f1") {
+        uploaded.bytes = new Uint8Array(init!.body as ArrayBuffer);
+        return json({});
+      }
       if (url === "/api/jobs") {
         const body = JSON.parse(
           new TextDecoder().decode(init!.body as ArrayBuffer),
@@ -156,7 +170,7 @@ function stubNetwork(contentType: string) {
             {
               fileId: "f1",
               filename: "scan",
-              contentType,
+              contentType: uploaded.contentType ?? contentType,
               bytes: new Uint8Array([1, 2, 3]),
             },
           ],
@@ -192,10 +206,14 @@ function stubNetwork(contentType: string) {
       throw new Error(`unexpected fetch ${url}`);
     }),
   );
-  return { sent, argv, failures };
+  return { sent, argv, failures, uploaded };
 }
 
-async function addFile(name: string, type: string) {
+async function addFile(
+  name: string,
+  type: string,
+  bytes: Uint8Array = new Uint8Array([1, 2, 3]),
+) {
   render(
     <InToolPage tool={ocrTool}>
       <OcrWorkerPanel tool={ocrTool} />
@@ -207,7 +225,7 @@ async function addFile(name: string, type: string) {
     return found;
   });
   fireEvent.change(input, {
-    target: { files: [new File([new Uint8Array([1, 2, 3])], name, { type })] },
+    target: { files: [new File([bytes.slice()], name, { type })] },
   });
   await screen.findByText(name);
 }
@@ -289,19 +307,34 @@ describe("OCR PDF: Straighten crooked pages, panel → job → processor → arg
     expect(redoBox()).toBeChecked();
   });
 
-  it("an image is read by Tesseract as it is: the box is off for it and no deskew travels", async () => {
-    const net = stubNetwork("image/png");
-    await addFile("photo.png", "image/png");
-    expect(deskewBox()).toHaveAttribute("aria-disabled", "true");
+  // INVERTED 2026-11-22 (audit ocr-pdf#2). Until then this test pinned the
+  // defect: "an image is read by Tesseract as it is: the box is off for it
+  // and no deskew travels". A photo with the box ticked is now put on a PDF
+  // page in the browser and sent as a PDF, so OCRmyPDF straightens it.
+  it("a photo with Straighten ticked is sent as a one-page PDF made in the browser, and OCRmyPDF gets --deskew", async () => {
+    const net = stubNetwork("image/jpeg");
+    await addFile("photo.jpg", "image/jpeg", JPEG_30X20);
+    expect(deskewBox()).not.toHaveAttribute("aria-disabled");
     fireEvent.click(deskewBox());
-    expect(deskewBox()).not.toBeChecked();
-    expect(
-      screen.getByText(
-        /off for this file\. a phone photo is still read the way up/i,
-      ),
-    ).toBeInTheDocument();
+    expect(deskewBox()).toBeChecked();
     run();
     await screen.findByText(/OCR complete/);
+    expect(net.uploaded.contentType).toBe("application/pdf");
+    const doc = await PDFDocument.load(net.uploaded.bytes!);
+    expect(doc.getPageCount()).toBe(1);
+    expect(net.sent).toEqual([expect.objectContaining({ deskew: true })]);
+    expect(net.argv[0]!.command).toBe("ocrmypdf");
+    expect(net.argv[0]!.args).toContain("--deskew");
+  });
+
+  it("CONTROL: a photo with the box unticked goes as it is, to Tesseract, with no deskew", async () => {
+    const net = stubNetwork("image/jpeg");
+    await addFile("photo.jpg", "image/jpeg", JPEG_30X20);
+    expect(deskewBox()).not.toBeChecked();
+    run();
+    await screen.findByText(/OCR complete/);
+    expect(net.uploaded.contentType).toBe("image/jpeg");
+    expect(net.uploaded.bytes).toEqual(JPEG_30X20);
     expect(net.sent).toEqual([expect.objectContaining({ deskew: false })]);
     expect(net.argv[0]!.command).toBe("tesseract");
     expect(net.argv[0]!.args.some((a) => /deskew/i.test(a))).toBe(false);

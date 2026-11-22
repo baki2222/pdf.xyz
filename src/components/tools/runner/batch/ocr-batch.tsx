@@ -9,12 +9,12 @@ import {
 } from "react";
 import {
   OCR_BATCH_LOW_CONFIDENCE_NOTE,
-  OCR_BATCH_PDF_ONLY_NOTE,
   ocrBatchLanguageSentence,
 } from "@/lib/batch/ocr-copy";
 import {
   describeOcrLanguage,
   ocrConfidenceLooksLow,
+  ocrSendsPhotoAsPdf,
   type OcrOptions,
 } from "@/lib/jobs/ocr";
 import type { Tool } from "@/lib/tools/types";
@@ -50,9 +50,10 @@ import {
  * paused file runs again with what was frozen.
  *
  * Per file, one rule of the single-file panel's is applied to the frozen
- * request: a JPG or PNG (by the content type the upload sends) goes to
- * Tesseract, which has no straighten or turn step, so for one both are
- * sent off — the panel turns those boxes off for an image the same way.
+ * request: a JPG or PNG with "Straighten crooked pages" or "Turn pages
+ * upright" ticked is put on a PDF page in the browser and sent as a PDF
+ * (`ocrUploadFor`, audit ocr-pdf#2), so both boxes reach it as they reach a
+ * scan. Until 2026-11-22 both were sent off for an image.
  *
  * OUTPUTS. A job can make two files ("PDF + text"); both are the row's, and
  * then each row's files sit in a folder of the ZIP named after its input.
@@ -78,14 +79,25 @@ export interface OcrBatchProps {
 export const NO_OCR_REQUEST_FROZEN =
   "This file's recognition settings were not ready, so it was not sent. Press Retry failed.";
 
-/** What one file's job sends: the frozen request, with the image rule. */
-export function ocrRequestForFile(
-  frozen: OcrOptions,
+/**
+ * What one file's job uploads: the file as it is, or, for a photo with
+ * Straighten or Turn ticked, a one-page PDF of it made here (ocr-pdf#2).
+ */
+export async function ocrUploadFor(
+  input: { filename: string; bytes: Uint8Array },
   contentType: string,
-): OcrOptions {
-  return contentType.toLowerCase().startsWith("image/")
-    ? { ...frozen, deskew: false, rotatePages: false }
-    : frozen;
+  frozen: OcrOptions,
+): Promise<{ filename: string; bytes: Uint8Array; contentType: string }> {
+  if (!ocrSendsPhotoAsPdf(contentType, frozen))
+    return { ...input, contentType };
+  const { buildOcrPdf, ocrPdfName } = await import("@/lib/pdf/ocr-photo-pdf");
+  return {
+    filename: ocrPdfName([{ name: input.filename }]),
+    bytes: await buildOcrPdf([
+      { name: input.filename, type: contentType, bytes: input.bytes },
+    ]),
+    contentType: "application/pdf",
+  };
 }
 
 /** The OCR client's result, as a worker batch's row reads it. */
@@ -148,16 +160,18 @@ export function OcrBatch({
     async (input, controls, file) => {
       const frozen = frozenRef.current;
       if (!frozen) throw new BatchItemError(NO_OCR_REQUEST_FROZEN);
-      const contentType = contentTypeOf(file);
+      // A photo that cannot be put on a page is this row's failure, in words.
+      const upload = await ocrUploadFor(
+        input,
+        contentTypeOf(file),
+        frozen,
+      ).catch((err: unknown) => {
+        throw new BatchItemError(
+          err instanceof Error ? err.message : String(err),
+        );
+      });
       return ocrAsWorkerResult(
-        await runWorkerOcr(
-          {
-            ...input,
-            contentType,
-            options: ocrRequestForFile(frozen, contentType),
-          },
-          controls,
-        ),
+        await runWorkerOcr({ ...upload, options: frozen }, controls),
       );
     },
     [contentTypeOf],
@@ -187,11 +201,6 @@ export function OcrBatch({
           >
             {ocrBatchLanguageSentence(languages)}
           </p>
-          {(request.deskew || request.rotatePages) && (
-            <p className="text-muted text-xs leading-relaxed">
-              {OCR_BATCH_PDF_ONLY_NOTE}
-            </p>
-          )}
         </>
       }
       runBlocked={runBlocked}

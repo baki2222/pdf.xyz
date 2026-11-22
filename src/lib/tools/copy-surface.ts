@@ -411,6 +411,8 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "pdf", "compress-batch-copy.ts"),
     // Compress PDF's lossless cleanup sentence and line (2026-11-08).
     path.join(ROOT, "src", "lib", "pdf", "compress-cleanup.ts"),
+    // OCR PDF's photo-to-PDF step and its refusal (2026-11-22, ocr-pdf#2/#3).
+    path.join(ROOT, "src", "lib", "pdf", "ocr-photo-pdf.ts"),
     // Split PDF's "By file size" field label (2026-11-17, audit #2): the
     // runner draws it and the Compress size guide quotes it.
     path.join(ROOT, "src", "lib", "pdf", "split-size.ts"),

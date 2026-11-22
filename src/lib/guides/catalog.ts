@@ -6751,9 +6751,11 @@ export const guides: Guide[] = [
   // OCR PDF's "Straighten crooked pages" (#262): OCRmyPDF --deskew, read off
   // ocr-native.ts, jobs/ocr.ts and ocr-worker-panel.tsx. Only pages with no
   // text yet (--skip-text copies a page with text through); not with Redo
-  // existing OCR (the route refuses the pair); PDF only (a JPG or PNG goes to
-  // Tesseract, which has no deskew step); a page it straightens is saved as a
-  // new image. Proven on production 2026-11-01 (worker 5f1aa6bb5884): a 3.5°
+  // existing OCR (the route refuses the pair); a page it straightens is saved
+  // as a new image. CHANGED 2026-11-22 (audit ocr-pdf#2): until then "PDF
+  // only (a JPG or PNG goes to Tesseract, which has no deskew step)"; with
+  // the box ticked the browser now puts a photo on a PDF page and sends that
+  // (src/lib/pdf/ocr-photo-pdf.ts), so it is straightened too. Proven on production 2026-11-01 (worker 5f1aa6bb5884): a 3.5°
   // scan came back at 0.09° with deskew on and 3.50° with it off, both
   // searchable, 388,248 B against 256,037 B. No angle range is claimed.
   // WAS "nothing turns a sideways page upright" and sent readers to Rotate
@@ -6792,7 +6794,7 @@ export const guides: Guide[] = [
         heading: "Which pages it straightens",
         body: [
           "Straightening works on scanned pages that have no text yet, which is what a scanner or a phone app usually produces. A page that already has text, typed or recognised before, is kept exactly as it is, so it is not straightened. That is why it cannot be combined with “Redo existing OCR”, which would recognise those pages again.",
-          "It takes a PDF. A JPG or PNG added to the same tool is read as it is, without straightening, and the tickbox turns itself off for one. Each page it straightens is saved as a new, level image of that page rather than the original picture, so the downloaded file can be larger than the scan you started with.",
+          "It takes a PDF, a JPG or a PNG. With the box ticked, your browser first puts a photo on a PDF page of its own, so it is straightened the same way. Each page it straightens is saved as a new, level image of that page rather than the original picture, so the downloaded file can be larger than the scan you started with.",
         ],
       },
       {
@@ -6812,7 +6814,7 @@ export const guides: Guide[] = [
       {
         question: "Why was a page not straightened?",
         answer:
-          "Usually because it already had text, which keeps a page exactly as it was. A page that is sideways or upside down needs “Turn pages upright” ticked as well. And a JPG or PNG is never straightened: only PDFs are.",
+          "Usually because it already had text, which keeps a page exactly as it was. A page that is sideways or upside down needs “Turn pages upright” ticked as well.",
       },
       {
         question: "Can I straighten a scan without making it searchable?",
@@ -6825,6 +6827,6 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-11-01",
-    updated: "2026-11-01",
+    updated: "2026-11-22",
   },
 ];
