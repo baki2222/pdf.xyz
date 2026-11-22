@@ -486,10 +486,15 @@ export async function writePdfMetadata(
     if (xmp instanceof lib.PDFRef) doc.context.delete(xmp);
     doc.catalog.delete(metadataKey);
     const pieceInfo = PDFName.of("PieceInfo");
+    // A page thumbnail (/Thumb) is a small picture of the page as it was
+    // when the thumbnail was made, which can show content since edited out
+    // (audit edit-pdf-metadata#5). Its image object goes in the pruning.
+    const thumb = PDFName.of("Thumb");
     doc.catalog.delete(pieceInfo);
     for (const page of doc.getPages()) {
       page.node.delete(metadataKey);
       page.node.delete(pieceInfo);
+      page.node.delete(thumb);
     }
     pruneUnreachable(lib, doc);
   } else {
