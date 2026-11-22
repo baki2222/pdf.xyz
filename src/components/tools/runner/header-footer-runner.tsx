@@ -127,19 +127,19 @@ function BandFields({
   // Each box's wrapper, to read its input's caret: an input keeps its
   // selection after it loses focus to the field button.
   const boxes = useRef<Partial<Record<HAlign, HTMLDivElement | null>>>({});
-  // Where the caret goes once the inserted text has rendered.
-  const [caret, setCaret] = useState<{ box: HAlign; at: number } | null>(
-    null,
-  );
+  // Where the caret goes once the inserted text has rendered: placed after
+  // the render that shows it, then forgotten.
+  const caret = useRef<{ box: HAlign; at: number } | null>(null);
   useEffect(() => {
-    if (!caret) return;
-    const input = boxes.current[caret.box]?.querySelector("input");
+    const want = caret.current;
+    if (!want) return;
+    caret.current = null;
+    const input = boxes.current[want.box]?.querySelector("input");
     if (input) {
       input.focus();
-      input.setSelectionRange(caret.at, caret.at);
+      input.setSelectionRange(want.at, want.at);
     }
-    setCaret(null);
-  }, [caret]);
+  });
   // A field goes in at the caret of the box it fills, over any selection,
   // and the caret lands after it (audit header-footer#7: it was appended to
   // the end of the box, wherever the caret was).
@@ -152,7 +152,7 @@ function BandFields({
       ...text,
       [target]: current.slice(0, start) + token + current.slice(end),
     });
-    setCaret({ box: target, at: start + token.length });
+    caret.current = { box: target, at: start + token.length };
   };
   return (
     <div className="flex flex-col gap-3">
