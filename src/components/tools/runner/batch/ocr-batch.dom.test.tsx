@@ -16,6 +16,7 @@
 import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -218,7 +219,7 @@ async function readyRun(n: number): Promise<HTMLElement> {
 const done = (ok: number, failed: number) =>
   screen.findByText(
     `Batch complete. ${ok} done, ${failed} failed.`,
-    undefined,
+    {},
     {
       timeout: 5000,
     },
@@ -312,7 +313,7 @@ describe("OCR PDF's batch, through its page's own panel", () => {
 
   it("Run waits on the panel's own language rule, and says why", async () => {
     // Available, but with no pack at all: the single-file Run is held too.
-    worker(statusWith([]));
+    const net = worker(statusWith([]));
     const view = await drop([pdf("a"), pdf("b")]);
     const run = await screen.findByRole(
       "button",
@@ -326,7 +327,15 @@ describe("OCR PDF's batch, through its page's own panel", () => {
     );
     expect(run).toHaveAttribute("aria-disabled", "true");
     fireEvent.click(run);
-    await new Promise((r) => setTimeout(r, 100));
+    // Nothing started, read at once: a press that starts the batch redraws
+    // INSIDE the click (start dispatches before its first await, and the
+    // control below proves it). Until 2026-11-21 this slept 100 ms and then
+    // looked for the END of a batch, which a slow or cold runner had not
+    // reached yet — a green that said nothing.
+    expect(run).toHaveAttribute("aria-disabled", "true");
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    await act(async () => {});
+    expect(net.log).toEqual([]);
     expect(screen.queryByText(/Batch complete/)).toBeNull();
   });
 
@@ -334,6 +343,9 @@ describe("OCR PDF's batch, through its page's own panel", () => {
     const net = worker(statusWith(["eng"]));
     await drop([pdf("a"), pdf("b")]);
     fireEvent.click(await readyRun(2));
+    // Positive control for the held test's synchronous read: a Run that
+    // starts has drawn Cancel before the click returns.
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
     await done(2, 0);
     expect(net.bodies).toHaveLength(2);
   });

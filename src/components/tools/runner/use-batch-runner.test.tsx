@@ -14,9 +14,20 @@
  * No module is mocked (`src/tests/mock-isolation.test.ts`): telemetry is read
  * at its sink, the one place every report reaches.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { useLayoutEffect, useRef } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { BatchSkip, withNote } from "@/lib/batch";
+import { currentActivity, resetActivityForTests } from "@/lib/activity/bus";
+import { observeFor } from "@/tests/time-bound";
 import {
   configureTelemetry,
   resetTelemetry,
@@ -29,6 +40,7 @@ import {
   type BatchRunnerOptions,
   type BatchUnit,
 } from "./use-batch-runner";
+import { warmEnding } from "./runner-kit";
 
 const unitsOf = (...names: string[]): BatchUnit[] =>
   names.map((name) => ({
@@ -36,6 +48,16 @@ const unitsOf = (...names: string[]): BatchUnit[] =>
     name,
     file: new File([name], name, { type: "application/pdf" }),
   }));
+
+// The last file of every run awaits endingReady(): the result-ending chunk,
+// raced against ENDING_WAIT_MS (800 ms). Cold, that put up to 800 ms under
+// a 1 s default wait, and a still-pending import spilled into the next
+// test. Loaded once here with no cap, every wait below covers microtasks.
+beforeAll(async () => {
+  const ending = await warmEnding();
+  // Positive control: endingReady swallows a failed load; prove it came.
+  expect(ending.ContinueWith).toBeDefined();
+});
 
 let events: RedactedEvent[] = [];
 let leave: () => void = () => {};
@@ -162,6 +184,53 @@ describe("retryFailed — runs the failed rows again, and only them", () => {
   });
 });
 
+describe("the files and the rows a press reads come from the same commit", () => {
+  // A new selection re-seeds the rows in a PASSIVE effect, so for one
+  // commit the old rows are still drawn under the new `units`. runIds takes
+  // its ids from the rows (stateRef, synced in a layout effect) and looks
+  // each up in the files (unitsRef). If unitsRef ran ahead of the rows (a
+  // layout effect), a press in that commit looked the drawn rows up among
+  // files they are not in, and ran nothing: the HEAD of 6e84169e did that.
+  it("a press in the commit that brings new files runs the rows still drawn, and the new files then cancel it and re-seed", async () => {
+    const before = unitsOf("a.pdf");
+    const after = unitsOf("x.pdf", "y.pdf");
+    const calls: { name: string; signal: AbortSignal }[] = [];
+    const process: BatchProcess<string> = (file, signal) => {
+      calls.push({ name: file.name, signal });
+      return new Promise<string>(() => {});
+    };
+    let rowsAtPress: string[] | null = null;
+    const { result, rerender } = renderHook(
+      ({ units }: { units: BatchUnit[] }) => {
+        const runner = useBatchRunner<string>(units, process);
+        // Declared after the hook, so its layout effects (stateRef) have run.
+        const pressed = useRef(false);
+        useLayoutEffect(() => {
+          if (units !== after || pressed.current) return;
+          pressed.current = true;
+          rowsAtPress = runner.state.items.map((i) => i.name);
+          runner.start();
+        });
+        return runner;
+      },
+      { initialProps: { units: before } },
+    );
+    act(() => rerender({ units: after }));
+    // Health check: the press landed in the commit that still drew the old
+    // rows, before the re-seed (otherwise this proves nothing).
+    expect(rowsAtPress).toEqual(["a.pdf"]);
+    // The drawn row ran (not nothing) ...
+    expect(calls.map((c) => c.name)).toEqual(["a.pdf"]);
+    // ... and the new selection cancelled it and re-seeded the rows.
+    expect(calls[0]!.signal.aborted).toBe(true);
+    expect(result.current.state.items.map((i) => i.name)).toEqual([
+      "x.pdf",
+      "y.pdf",
+    ]);
+    expect(result.current.state.phase).toBe("idle");
+  });
+});
+
 describe("remove — before Run, and it stays out", () => {
   it("a removed file is never run, and Run again keeps it out", async () => {
     const units = unitsOf("a.pdf", "b.pdf", "c.pdf");
@@ -229,6 +298,21 @@ describe("pauseOn — a rate limit pauses, and the batch carries on from the sam
   const pauseOn = (err: unknown) =>
     err instanceof Limited ? err.resumeAt : null;
 
+  // Only `Date` is faked, so "Continue now" judges the wait over against a
+  // clock this test moves, while setTimeout stays real: RTL's polling and
+  // the hook's own timer still run, and that timer is 60 s away, so only a
+  // press can carry the batch on inside a test. Before 2026-11-21 the pause
+  // was 400 ms of REAL time, and an early press, a 100 ms sleep and two
+  // reads had to fit inside it: a slow runner let the hook's timer win, and
+  // the batch read as resumed — red for speed, not for a defect.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    resetActivityForTests();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("puts the file back, runs nothing until the wait is over, then runs it again and finishes", async () => {
     const calls: string[] = [];
     let limitedOnce = false;
@@ -237,7 +321,7 @@ describe("pauseOn — a rate limit pauses, and the batch carries on from the sam
       calls.push(file.name);
       if (file.name === "b.pdf" && !limitedOnce) {
         limitedOnce = true;
-        resumeAt = Date.now() + 400;
+        resumeAt = Date.now() + 60_000;
         throw new Limited(resumeAt);
       }
       return `${file.name}:ok`;
@@ -254,15 +338,26 @@ describe("pauseOn — a rate limit pauses, and the batch carries on from the sam
       "queued",
     ]);
     expect(result.current.resumeAt).toBe(resumeAt);
-    // "Continue now" before the wait is over does nothing: given time to
-    // run the file again, it has not.
+    // "Continue now" a millisecond before the wait is over does nothing.
+    // The window is KEPT, not drained: a wake deferred by a macrotask
+    // (setTimeout(wake, 0)) lands after an act drain but inside 100 ms, so
+    // only a real window sees it. Nothing legitimate can happen in it now,
+    // so a slower runner only lengthens it.
+    vi.setSystemTime(resumeAt - 1);
     act(() => result.current.continueNow());
-    await act(() => new Promise((r) => setTimeout(r, 100)));
+    await act(() =>
+      observeFor(
+        "use-batch-runner.early-continue",
+        100,
+        "an early 'Continue now' must not wake the pause, even a macrotask later",
+      ),
+    );
     expect(result.current.state.phase).toBe("paused");
     expect(calls).toEqual(["a.pdf", "b.pdf"]);
-    await waitFor(() => expect(result.current.state.phase).toBe("done"), {
-      timeout: 3000,
-    });
+    // At resumeAt the press carries on: the same file again, then the rest.
+    vi.setSystemTime(resumeAt);
+    act(() => result.current.continueNow());
+    await waitFor(() => expect(result.current.state.phase).toBe("done"));
     expect(calls).toEqual(["a.pdf", "b.pdf", "b.pdf", "c.pdf"]);
     expect(result.current.state.items.map((i) => i.status)).toEqual([
       "done",
@@ -275,20 +370,26 @@ describe("pauseOn — a rate limit pauses, and the batch carries on from the sam
   });
 
   it("'Continue now' once the wait is over carries on without the timer", async () => {
+    // INVERTED 2026-11-21: this threw Limited(Date.now() - 1), so the hook's
+    // own setTimeout(wake, 0) had resumed the batch before the press, and a
+    // continueNow that did nothing stayed green. The timer is now 60 s
+    // away: only the press can carry the batch on.
     const calls: string[] = [];
     let limited = false;
+    let resumeAt = 0;
     const process = async (file: File) => {
       calls.push(file.name);
       if (file.name === "a.pdf" && !limited) {
         limited = true;
-        // Already over: the press may carry on at once, timer or no timer.
-        throw new Limited(Date.now() - 1);
+        resumeAt = Date.now() + 60_000;
+        throw new Limited(resumeAt);
       }
       return `${file.name}:ok`;
     };
     const { result } = setup(units, process, { pauseOn });
     act(() => result.current.start());
-    await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
+    await waitFor(() => expect(result.current.state.phase).toBe("paused"));
+    vi.setSystemTime(resumeAt);
     act(() => result.current.continueNow());
     await waitFor(() => expect(result.current.state.phase).toBe("done"));
     expect(calls).toEqual(["a.pdf", "a.pdf", "b.pdf", "c.pdf"]);
@@ -296,25 +397,72 @@ describe("pauseOn — a rate limit pauses, and the batch carries on from the sam
 
   it("a cancel while paused cancels the paused file and every file after it, and nothing runs", async () => {
     const calls: string[] = [];
-    const process = async (file: File) => {
+    let seen: AbortSignal | null = null;
+    const process = async (file: File, signal: AbortSignal) => {
       calls.push(file.name);
+      seen = signal;
       if (file.name === "b.pdf") throw new Limited(Date.now() + 60_000);
       return `${file.name}:ok`;
     };
     const { result } = setup(units, process, { pauseOn });
     act(() => result.current.start());
     await waitFor(() => expect(result.current.state.phase).toBe("paused"));
+    // Positive control: the run is in progress while it waits.
+    expect(currentActivity().state).toBe("busy");
     act(() => result.current.cancel());
-    await waitFor(() => expect(result.current.running).toBe(false));
     expect(result.current.state.phase).toBe("canceled");
     expect(result.current.state.items.map((i) => i.status)).toEqual([
       "done",
       "canceled",
       "canceled",
     ]);
-    // Give a stray timer the chance to run something: it must not.
-    await new Promise((r) => setTimeout(r, 50));
+    // The loop has LEFT, which the 50 ms sleep here never showed (the only
+    // timer that could resume it is 60 s away): abort wakes the wait, the
+    // loop breaks, and only then does the run end without news. Abort, wake
+    // and break are synchronous plus microtasks, so one drain is enough.
+    await act(async () => {});
+    expect(seen!.aborted).toBe(true);
+    expect(currentActivity().state).toBe("idle");
     expect(calls).toEqual(["a.pdf", "b.pdf"]);
+  });
+
+  it("left to itself, the pause ends at resumeAt, never before, and the same file runs again", async () => {
+    // The timer path, on real time: the Date fake is lifted for it.
+    vi.useRealTimers();
+    const calls: { name: string; at: number }[] = [];
+    let limitedOnce = false;
+    let resumeAt = 0;
+    const process = async (file: File) => {
+      calls.push({ name: file.name, at: Date.now() });
+      if (file.name === "b.pdf" && !limitedOnce) {
+        limitedOnce = true;
+        resumeAt = Date.now() + 400;
+        throw new Limited(resumeAt);
+      }
+      return `${file.name}:ok`;
+    };
+    const { result } = setup(units, process, {
+      reportsOutcome: false,
+      pauseOn,
+    });
+    act(() => result.current.start());
+    // 3000 ms: the earlier form of this real-timer test waited this same
+    // 400 ms pause and took at most 465 ms in all on CI (failed run
+    // 44228410852, the max over 33 CI runs of 11-09..11-21; 425 ms among
+    // the 12 passing runs of 11-18, run 44264031662), so > 6x; and it stays
+    // under the 5 s test timeout, so this wait's own message wins.
+    await waitFor(() => expect(result.current.state.phase).toBe("done"), {
+      timeout: 3000,
+    });
+    expect(calls.map((c) => c.name)).toEqual([
+      "a.pdf",
+      "b.pdf",
+      "b.pdf",
+      "c.pdf",
+    ]);
+    // One-directional: a slower runner only makes the second run later. A
+    // Node timer may fire up to 1 ms early against Date.now().
+    expect(calls[2]!.at).toBeGreaterThanOrEqual(resumeAt - 1);
   });
 
   it("control: without pauseOn the same error fails its row", async () => {
