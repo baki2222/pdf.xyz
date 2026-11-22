@@ -7,7 +7,7 @@
  * becoming event-driven, or a declared observation window (`observeFor`).
  * Held both ways by wall-clock-bounds.test.ts.
  */
-export const FIXED_SLEEP_DEBT_CEILING = 137;
+export const FIXED_SLEEP_DEBT_CEILING = 136;
 
 /** lane, file, occurrence index, collapsed snippet — one per line. */
 export const FIXED_SLEEP_DEBT_TSV = `
