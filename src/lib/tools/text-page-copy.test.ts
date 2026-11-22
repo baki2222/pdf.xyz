@@ -4,6 +4,8 @@
  *  - text-to-pdf#7: a tab moves to the next tab stop (`expandTabs`), where it
  *    used to become four spaces. "tabs become spaces" was true of the old
  *    engine and is too vague of the new one.
+ *  - text-to-pdf#3: the margins are a choice (Narrow, Normal, Wide), where
+ *    they were one fixed 0.75 in that three sentences called fixed.
  *
  * In both directions (CLAUDE.md "Guards — house style", rule 1): every
  * sentence that shipped is caught by some ban, every ban catches some
@@ -31,13 +33,22 @@ import {
   stepText,
 } from "./page-copy";
 import { TEXT_TAB_PHRASE, toolFacts } from "./tool-facts";
-import { TEXT_TAB_STOP } from "@/lib/pdf/text-page-options";
+import {
+  TEXT_MARGINS,
+  TEXT_PAGE_SETUP_LABELS,
+  TEXT_TAB_STOP,
+} from "@/lib/pdf/text-page-options";
+import { inches } from "@/lib/pdf/page-geometry";
 import type { Tool } from "./types";
 
 /** The sentences that shipped, verbatim. */
 const SHIPPED = [
   "Every page carries a small heading, the file's name without its extension, or “text” for pasted text, and a page-of-total count in the footer. Long lines wrap at spaces, a word too long for one line is broken, tabs become spaces, and blank lines and leading indentation are kept.",
   "Long lines wrap at spaces, a word too long for one line is broken, tabs become spaces, Windows and old Mac line endings are normalised, and blank lines and leading indentation are kept.",
+  // text-to-pdf#3: true until the margins became a choice.
+  "The font and the margins are fixed.",
+  "The margins and the font cannot be changed.",
+  "Every page has 0.75 in margins and a page number (1 / N) at the foot.",
 ];
 
 const BANS: Record<string, (s: string) => boolean> = {
@@ -45,6 +56,11 @@ const BANS: Record<string, (s: string) => boolean> = {
     /\btabs? (?:become|turns? into|are replaced (?:by|with)) (?:\w+ )?spaces\b/i.test(
       s,
     ) && !/\btab stop\b/i.test(s),
+  "margins fixed or unchangeable": (s) =>
+    /\bmargins?\b[^.]*\b(?:are|is) fixed\b/i.test(s) ||
+    /\bmargins?\b[^.]*\bcannot be changed\b/i.test(s),
+  "one margin width stated for every page": (s) =>
+    /\bevery page has [\d.]+ ?in(?:ch(?:es)?)? margins?\b/i.test(s),
 };
 
 const sentences = (texts: readonly string[]) =>
@@ -120,5 +136,19 @@ describe("text page copy: what the pages serve now", () => {
       expect(servedTool(tool).join("\n")).toContain(TEXT_TAB_PHRASE);
     for (const guide of GUIDES)
       expect(servedGuide(guide).join("\n")).toContain(TEXT_TAB_PHRASE);
+  });
+
+  it("the tool page and its guides name every margin choice and its width", () => {
+    const named = (text: string) =>
+      text.includes(TEXT_PAGE_SETUP_LABELS.margin) &&
+      TEXT_MARGINS.every((m) =>
+        text
+          .toLowerCase()
+          .includes(`${m.label.toLowerCase()} (${inches(m.points)} in)`),
+      );
+    for (const tool of TEXT_TOOLS)
+      expect(named(servedTool(tool).join("\n")), tool.slug).toBe(true);
+    for (const guide of GUIDES)
+      expect(named(servedGuide(guide).join("\n")), guide.slug).toBe(true);
   });
 });

@@ -129,6 +129,7 @@ import {
 import {
   DEFAULT_TEXT_PAGE_OPTIONS,
   TEXT_FONT_SIZES,
+  TEXT_MARGINS,
   TEXT_ORIENTATIONS,
   TEXT_PAGE_SETUP_LABELS,
   TEXT_PAGE_SIZES,
@@ -414,6 +415,18 @@ export const TIFF_FACT = `Every page of a TIFF becomes a PDF page, in order, sto
  */
 export const MARKDOWN_PAGE_FACT = `${US_LETTER_LABEL} portrait pages with ${inches(TEXT_PAGE_MARGIN_PT)} in margins and a page number (1 / N) at the foot of each page.`;
 
+const TEXT_DEFAULT_MARGIN = TEXT_MARGINS.find(
+  (m) => m.id === DEFAULT_TEXT_PAGE_OPTIONS.margin,
+)!;
+/** "Narrow (0.5 in), Normal (0.75 in) or Wide (1 in)", from the chips' table. */
+const textMarginChoices = (lower: boolean) =>
+  orJoin(
+    TEXT_MARGINS.map(
+      (m) =>
+        `${lower ? m.label.toLowerCase() : m.label} (${inches(m.points)} in)`,
+    ),
+  );
+
 const TEXT_DEFAULT_ORIENTATION = TEXT_ORIENTATIONS.find(
   (o) => o.id === DEFAULT_TEXT_PAGE_OPTIONS.orientation,
 )!.label.toLowerCase();
@@ -424,13 +437,13 @@ const TEXT_DEFAULT_ORIENTATION = TEXT_ORIENTATIONS.find(
  * (the browser region's, as JPG/PNG to PDF: `imageDefaultPaperCopy`) and
  * the rest of its start, the page this tool always drew.
  */
-export const TEXT_PAGE_FACT = `${TEXT_PAGE_SETUP_LABELS.pageSize}: ${orJoin(TEXT_PAGE_SIZES.map((s) => s.label))}, starting on ${imageDefaultPaperCopy()}. ${TEXT_PAGE_SETUP_LABELS.orientation}: ${orJoin(TEXT_ORIENTATIONS.map((o) => o.label))}, starting on ${TEXT_DEFAULT_ORIENTATION}. ${TEXT_PAGE_SETUP_LABELS.fontSize}: ${orJoin(TEXT_FONT_SIZES.map(String))} pt, starting on ${DEFAULT_TEXT_PAGE_OPTIONS.fontSize} pt. Every page has ${inches(TEXT_PAGE_MARGIN_PT)} in margins and a page number (1 / N) at the foot.`;
+export const TEXT_PAGE_FACT = `${TEXT_PAGE_SETUP_LABELS.pageSize}: ${orJoin(TEXT_PAGE_SIZES.map((s) => s.label))}, starting on ${imageDefaultPaperCopy()}. ${TEXT_PAGE_SETUP_LABELS.orientation}: ${orJoin(TEXT_ORIENTATIONS.map((o) => o.label))}, starting on ${TEXT_DEFAULT_ORIENTATION}. ${TEXT_PAGE_SETUP_LABELS.fontSize}: ${orJoin(TEXT_FONT_SIZES.map(String))} pt, starting on ${DEFAULT_TEXT_PAGE_OPTIONS.fontSize} pt. ${TEXT_PAGE_SETUP_LABELS.margin}: ${textMarginChoices(false)}, starting on ${TEXT_DEFAULT_MARGIN.label}. Every page has a page number (1 / N) at the foot.`;
 
 /**
  * The same choices as one sentence for prose: what a reader can change, and
  * where each starts. Read by Text to PDF's page and its guide.
  */
-export const TEXT_PAGE_SETUP_SENTENCE = `Under ${TEXT_PAGE_SETUP_LABELS.pageSize}, choose ${orJoin(TEXT_PAGE_SIZES.map((s) => s.label))}; under ${TEXT_PAGE_SETUP_LABELS.orientation}, ${orJoin(TEXT_ORIENTATIONS.map((o) => o.label.toLowerCase()))}; and under ${TEXT_PAGE_SETUP_LABELS.fontSize}, ${orJoin(TEXT_FONT_SIZES.map(String))} pt. The paper starts on ${imageDefaultPaperCopy()}, and the text on ${DEFAULT_TEXT_PAGE_OPTIONS.fontSize} pt.`;
+export const TEXT_PAGE_SETUP_SENTENCE = `Under ${TEXT_PAGE_SETUP_LABELS.pageSize}, choose ${orJoin(TEXT_PAGE_SIZES.map((s) => s.label))}; under ${TEXT_PAGE_SETUP_LABELS.orientation}, ${orJoin(TEXT_ORIENTATIONS.map((o) => o.label.toLowerCase()))}; under ${TEXT_PAGE_SETUP_LABELS.fontSize}, ${orJoin(TEXT_FONT_SIZES.map(String))} pt; and under ${TEXT_PAGE_SETUP_LABELS.margin}, ${textMarginChoices(true)}. The paper starts on ${imageDefaultPaperCopy()}, the text on ${DEFAULT_TEXT_PAGE_OPTIONS.fontSize} pt, and the margins on ${TEXT_DEFAULT_MARGIN.label}.`;
 
 /**
  * What Text to PDF does with a tab, from the stop the engine expands to
@@ -1365,7 +1378,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: `What does the PDF from ${tool.name} look like?`,
-          answer: `${TEXT_PAGE_FACT} The margins and the font cannot be changed.`,
+          answer: `${TEXT_PAGE_FACT} The font cannot be changed.`,
         },
       ];
     case "markdown-to-pdf":

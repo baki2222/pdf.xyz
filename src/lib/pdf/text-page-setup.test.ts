@@ -53,6 +53,8 @@ const COMBOS: TextPageOptions[] = TEXT_PAGE_SIZES.flatMap((s) =>
       pageSize: s.id,
       orientation: o.id,
       fontSize,
+      // The margin has its own file (./text-page-margins.test.ts).
+      margin: DEFAULT_TEXT_PAGE_OPTIONS.margin,
     })),
   ),
 );

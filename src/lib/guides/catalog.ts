@@ -6036,14 +6036,14 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To convert a text file to PDF, open ${nameOf("text-to-pdf")}, drop your .txt file on the page or paste the text into the Text content box, press Create PDF, then press Download PDF. You get a paginated PDF. The paper starts on ${imageDefaultPaperCopy()}.`,
-      `Every page carries a small heading, the file's name without its extension, or “text” for pasted text, and a page-of-total count in the footer. Long lines wrap at spaces, a word too long for one line is broken, ${TEXT_TAB_PHRASE}, and blank lines and leading indentation are kept. ${TEXT_PAGE_SETUP_SENTENCE} The font and the margins are fixed.`,
+      `Every page carries a small heading, the file's name without its extension, or “text” for pasted text, and a page-of-total count in the footer. Long lines wrap at spaces, a word too long for one line is broken, ${TEXT_TAB_PHRASE}, and blank lines and leading indentation are kept. ${TEXT_PAGE_SETUP_SENTENCE} The font is fixed.`,
       `The PDF is made in your browser, so your text stays on your device and there is no account to create. The text can be up to ${MAX_SOURCE_MB} MB.`,
     ],
     steps: [
       `Open the ${nameOf("text-to-pdf")} tool.`,
       "Drop a .txt file on the box that says “Drop TXT files here, or browse”, or click browse to choose one. Loading a file replaces whatever is in the box; two or more files open a batch list instead, one PDF per file.",
       "Or paste or type straight into the Text content box. The figure beside its heading counts the characters and the size as you go, and you can edit the text before converting.",
-      `To change the paper size, orientation or text size, use ${TEXT_PAGE_SETUP_LABELS.pageSize}, ${TEXT_PAGE_SETUP_LABELS.orientation} and ${TEXT_PAGE_SETUP_LABELS.fontSize} below the box.`,
+      `To change the paper size, orientation, text size or margins, use ${TEXT_PAGE_SETUP_LABELS.pageSize}, ${TEXT_PAGE_SETUP_LABELS.orientation}, ${TEXT_PAGE_SETUP_LABELS.fontSize} and ${TEXT_PAGE_SETUP_LABELS.margin} below the box.`,
       "Press Create PDF. The button reads Creating PDF… while the pages are set.",
       `Under “PDF created”, press Download PDF. notes.txt is saved as ${TXT_EXAMPLE_OUT}, and pasted text as ${TXT_PASTED_OUT}.`,
       "Press Start over to clear the box for the next text.",
@@ -6087,7 +6087,7 @@ export const guides: Guide[] = [
       {
         question:
           "Can I make the PDF on A4 paper, in landscape or with bigger text?",
-        answer: `Yes. ${TEXT_PAGE_SETUP_SENTENCE} The font and the margins are fixed, and the page heading is also the document's Title property. For more control over the look, write Markdown and use ${nameOf("markdown-to-pdf")}.`,
+        answer: `Yes. ${TEXT_PAGE_SETUP_SENTENCE} The font is fixed, and the page heading is also the document's Title property. For more control over the look, write Markdown and use ${nameOf("markdown-to-pdf")}.`,
       },
       {
         question: "Which languages come out correctly?",

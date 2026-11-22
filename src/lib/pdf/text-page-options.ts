@@ -25,6 +25,7 @@ export type TextPageSizeId = Extract<
   "a4" | "letter" | "legal"
 >;
 export type TextOrientationId = "portrait" | "landscape";
+export type TextMarginId = "narrow" | "normal" | "wide";
 
 export interface TextPageSize {
   id: TextPageSizeId;
@@ -57,7 +58,24 @@ export const TEXT_PAGE_SETUP_LABELS = {
   pageSize: "Page size",
   orientation: "Orientation",
   fontSize: "Text size",
+  margin: "Margins",
 } as const;
+
+/**
+ * The white space around the text block (audit wave 2, text-to-pdf#3).
+ * Normal is the {@link TEXT_PAGE_MARGIN_PT} this tool always drew, and the
+ * one it starts on; Narrow and Wide are the half-inch and inch most word
+ * processors offer under the same names.
+ */
+export const TEXT_MARGINS: readonly {
+  id: TextMarginId;
+  label: string;
+  points: number;
+}[] = [
+  { id: "narrow", label: "Narrow", points: 36 },
+  { id: "normal", label: "Normal", points: TEXT_PAGE_MARGIN_PT },
+  { id: "wide", label: "Wide", points: 72 },
+];
 
 /** A tab moves to the next multiple of this many characters on its line. */
 export const TEXT_TAB_STOP = 8;
@@ -75,6 +93,7 @@ export interface TextPageOptions {
   pageSize: TextPageSizeId;
   orientation: TextOrientationId;
   fontSize: number;
+  margin: TextMarginId;
 }
 
 /** The engine's default: the page Text to PDF drew before it had options. */
@@ -82,6 +101,7 @@ export const DEFAULT_TEXT_PAGE_OPTIONS: Readonly<TextPageOptions> = {
   pageSize: "letter",
   orientation: "portrait",
   fontSize: LEADING.fontSize,
+  margin: "normal",
 };
 
 export interface TextPageGeometry {
@@ -111,7 +131,10 @@ export function textPageGeometry(
   const { width: short, height: long } = paper.size;
   const [width, height] =
     options.orientation === "landscape" ? [long, short] : [short, long];
-  const margin = TEXT_PAGE_MARGIN_PT;
+  const chosenMargin = TEXT_MARGINS.find((m) => m.id === options.margin);
+  if (!chosenMargin)
+    throw new Error(`text-to-pdf: no margin "${options.margin}"`);
+  const margin = chosenMargin.points;
   const lineHeight = (options.fontSize * LEADING.lineHeight) / LEADING.fontSize;
   return {
     width,

@@ -141,6 +141,7 @@ function pageOf(options: TextToPdfOptions): Partial<TextPageOptions> {
   if (options.pageSize !== undefined) page.pageSize = options.pageSize;
   if (options.orientation !== undefined) page.orientation = options.orientation;
   if (options.fontSize !== undefined) page.fontSize = options.fontSize;
+  if (options.margin !== undefined) page.margin = options.margin;
   return page;
 }
 
@@ -186,7 +187,9 @@ export async function textToPdf(
     const page = doc.addPage([g.width, g.height]);
     page.drawText(title, {
       x: g.margin,
-      y: g.height - 34,
+      // 34 pt from the top on the Normal and Wide margins, as it always was;
+      // closer to the edge on Narrow so it stays clear of the first line.
+      y: g.height - Math.min(34, g.margin - 16),
       size: 9,
       font: bold,
       color: rgb(0.35, 0.38, 0.45),
@@ -194,7 +197,7 @@ export async function textToPdf(
     });
     page.drawText(`${index + 1} / ${layout.pages.length}`, {
       x: g.width - g.margin - 32,
-      y: 28,
+      y: Math.min(28, g.margin - 14),
       size: 8,
       font,
       color: rgb(0.45, 0.48, 0.55),

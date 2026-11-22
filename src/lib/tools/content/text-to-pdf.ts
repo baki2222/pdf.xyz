@@ -148,7 +148,7 @@ const content: ToolContent = {
     },
     {
       title: "Check and edit it",
-      body: 'Edit in the box if needed; the figure beside the Text content heading shows the character count and size as you type. The PDF heading is the loaded file\'s name even after you edit the text, or "text" if you only pasted. Below the box, set the Page size, Orientation and Text size if you want to change them.',
+      body: 'Edit in the box if needed; the figure beside the Text content heading shows the character count and size as you type. The PDF heading is the loaded file\'s name even after you edit the text, or "text" if you only pasted. Below the box, set the Page size, Orientation, Text size and Margins if you want to change them.',
     },
     {
       title: "Convert the text",
@@ -174,8 +174,8 @@ const content: ToolContent = {
       a: `Beyond Western European characters, text in ${scripts} gets a bundled face embedded in the file: the Geist Mono monospace face where it can draw every character, as for Polish or Russian, and otherwise a Noto face.${rtlSentence}${emojiSentence} Any other script without a bundled font is refused with the offending characters shown; the converter never swaps a character it cannot draw for a placeholder. One document cannot mix scripts that need different fonts, and the file name counts as part of the document here, so put, say, Chinese and Bengali passages in separate files.`,
     },
     {
-      q: "Can I choose A4, landscape, a bigger text size or another font?",
-      a: `Yes for the paper size, the orientation and the text size, but not the font. ${TEXT_PAGE_SETUP_SENTENCE} The font and the margins are fixed, and the page heading doubles as the document's Title property. For headings, lists or code blocks, write Markdown and use Markdown to PDF.`,
+      q: "Can I choose A4, landscape, a bigger text size, narrower margins or another font?",
+      a: `Yes for the paper size, the orientation, the text size and the margins, but not the font. ${TEXT_PAGE_SETUP_SENTENCE} The font is fixed, and the page heading doubles as the document's Title property. For headings, lists or code blocks, write Markdown and use Markdown to PDF.`,
     },
     {
       q: "My file is .log, .csv or saved in another encoding. What do I do?",
