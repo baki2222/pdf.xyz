@@ -6,7 +6,12 @@ import {
   batchLimitsSentence,
 } from "@/lib/batch/tools";
 import { FONT_PACKS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
-import { TILE_FIT, WATERMARK_FIT } from "@/lib/pdf/watermark";
+import {
+  DEFAULT_IMAGE_ROTATION,
+  DEFAULT_TEXT_ROTATION,
+  TILE_FIT,
+  WATERMARK_FIT,
+} from "@/lib/pdf/watermark";
 import {
   STAMP_FONT_FAMILIES,
   STAMP_FONT_LABELS,
@@ -140,7 +145,7 @@ const content: ToolContent = {
     "Stamp CONFIDENTIAL, DRAFT or your logo on PDF pages: any position or tiled, chosen pages, opacity, angle, font and color. Your PDF stays in your browser.",
 
   intro: [
-    `Add Watermark stamps a line of text or a picture on the pages of a PDF: CONFIDENTIAL, DRAFT, a recipient's name, or your logo as a PNG or JPEG. The Text field starts with CONFIDENTIAL typed in, and switching the Watermark type to Image takes a picture instead. Opacity, Rotation and Max font size sliders shape a text mark, which can be set in ${FONT_NAMES} and in Gray, Red, Blue or a Custom color; for a picture, the Image size slider replaces Max font size. By default the mark sits diagonally in the middle of every page. The position grid moves it to any of ${POSITION_COUNT} spots, Tile across the page repeats it in rows, and Pages and layer picks which pages get it and whether it goes over or behind the page's content. Each page is measured on its own, so in a document mixing portrait and landscape sheets every mark lands where it should on its page, and on pages saved with a rotation flag the angle is corrected so the diagonal leans the same way as on upright pages.`,
+    `Add Watermark stamps a line of text or a picture on the pages of a PDF: CONFIDENTIAL, DRAFT, a recipient's name, or your logo as a PNG or JPEG. The Text field starts with CONFIDENTIAL typed in, and switching the Watermark type to Image takes a picture instead. Opacity, Rotation and Max font size sliders shape a text mark, which can be set in ${FONT_NAMES} and in Gray, Red, Blue or a Custom color; for a picture, the Image size slider replaces Max font size. By default a text mark sits diagonally in the middle of every page, and a picture sits upright there. The position grid moves it to any of ${POSITION_COUNT} spots, Tile across the page repeats it in rows, and Pages and layer picks which pages get it and whether it goes over or behind the page's content. Each page is measured on its own, so in a document mixing portrait and landscape sheets every mark lands where it should on its page, and on pages saved with a rotation flag the angle is corrected so the diagonal leans the same way as on upright pages.`,
     `Your browser does the stamping, using pdf-lib, and the PDF and the picture never leave the tab. Western European text, accents like é and ü included, is set in the font you pick, one built into the PDF format. Letters outside that set, such as a Polish Ł, and ${EXTRA_SCRIPTS} text first make the page download the matching Noto typeface, served by pdf.xyz: the font travels to you, the document stays put. ${RTL_REFUSED} stop the run with an error that lists the characters, rather than being stamped with the letters in reverse order. The page takes PDFs of up to ${CEILING_MB} MB each, and a password-protected one has to go through Unlock PDF before it will open here.`,
     `The mark is real text, or an embedded picture, drawn into each page's content: over it by default, or under it with Behind content, where anything opaque on the page covers it. Page order and rotation, the title and author, and fillable form fields with their typed values all come through, and the fields stay editable; a field's own box is drawn above the page, so a filled one can cover part of the mark. The saved copy names pdf.xyz as its producer and creator, and because the saved file is rebuilt around new page content, a digital signature on the original stops validating in the watermarked copy.`,
   ],
@@ -179,7 +184,7 @@ const content: ToolContent = {
     },
     {
       title: "Set the appearance",
-      body: `Under Appearance, drag Opacity for how faint the mark is, Rotation for its angle (positive runs uphill from lower left, negative runs downhill, zero lies flat) and Max font size in points, the largest size used (a page too small for it gets the largest size that fits). A picture has Image size instead: its width as a share of the page width, also shrunk where it would not fit. For text, pick ${FONT_NAMES_OR}, and Gray, Red, Blue or Custom for any color.`,
+      body: `Under Appearance, drag Opacity for how faint the mark is, Rotation for its angle (positive runs uphill from lower left, negative runs downhill, zero lies flat; it starts at ${DEFAULT_TEXT_ROTATION} for text and at ${DEFAULT_IMAGE_ROTATION} for a picture, and each keeps its own angle) and Max font size in points, the largest size used (a page too small for it gets the largest size that fits). A picture has Image size instead: its width as a share of the page width, also shrunk where it would not fit. For text, pick ${FONT_NAMES_OR}, and Gray, Red, Blue or Custom for any color.`,
     },
     {
       title: "Place it",

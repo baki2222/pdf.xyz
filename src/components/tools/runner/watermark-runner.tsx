@@ -5,7 +5,9 @@ import { RunReason } from "@/components/tools/runner/run-reason";
 import { useState } from "react";
 import { Download, ImageIcon, Stamp, X } from "lucide-react";
 import {
+  DEFAULT_IMAGE_ROTATION,
   DEFAULT_IMAGE_SCALE,
+  DEFAULT_TEXT_ROTATION,
   watermarkImageProblem,
   watermarkPdf,
   watermarkedOutputName,
@@ -111,7 +113,16 @@ export function WatermarkEditor({
   const [imageError, setImageError] = useState<string | null>(null);
   const [imageScale, setImageScale] = useState(DEFAULT_IMAGE_SCALE);
   const [opacity, setOpacity] = useState(kept.opacity ?? 18);
-  const [rotation, setRotation] = useState(kept.rotation ?? 45);
+  // Text and image marks each keep their own angle (audit watermark-pdf#6):
+  // a diagonal word reads as a watermark, a tilted logo reads as a mistake.
+  const [textRotation, setTextRotation] = useState(
+    kept.rotation ?? DEFAULT_TEXT_ROTATION,
+  );
+  const [imageRotation, setImageRotation] = useState(
+    kept.imageRotation ?? DEFAULT_IMAGE_ROTATION,
+  );
+  const rotation = mode === "image" ? imageRotation : textRotation;
+  const setRotation = mode === "image" ? setImageRotation : setTextRotation;
   const [fontSize, setFontSize] = useState(60);
   const [font, setFont] = useState<StampFontFamily>("helvetica");
   const [color, setColor] = useState<ColorChoice>("gray");
@@ -147,7 +158,11 @@ export function WatermarkEditor({
     color === "custom" ? (hexToRgb(customHex) ?? WATERMARK_INK) : COLORS[color];
 
   const onRun = () => {
-    rememberOptions("watermark", { opacity, rotation });
+    rememberOptions("watermark", {
+      opacity,
+      rotation: textRotation,
+      imageRotation,
+    });
     return run(() =>
       watermarkPdf(pdf.bytes, mode === "text" ? text : "", {
         opacity: opacity / 100,

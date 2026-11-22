@@ -7,8 +7,11 @@ import {
   WATERMARK_BATCH_PAGES_NOTE,
 } from "@/lib/batch/tools";
 import { parseRanges } from "@/lib/pdf/ranges";
+import type { StampPosition } from "@/lib/pdf/stamp";
 import {
+  DEFAULT_IMAGE_ROTATION,
   DEFAULT_IMAGE_SCALE,
+  DEFAULT_TEXT_ROTATION,
   watermarkImageProblem,
   watermarkPdf,
   watermarkedOutputName,
@@ -95,9 +98,12 @@ export function WatermarkBatch(props: SinglePdfBatch) {
   } | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
   const [opacity, setOpacity] = useState(18);
-  const [rotation, setRotation] = useState(45);
-  const [position, setPosition] =
-    useState<NonNullable<WatermarkOptions["position"]>>("middle-center");
+  // Each mark type keeps its own angle, starting where the editor's do.
+  const [textRotation, setTextRotation] = useState(DEFAULT_TEXT_ROTATION);
+  const [imageRotation, setImageRotation] = useState(DEFAULT_IMAGE_ROTATION);
+  const rotation = mode === "image" ? imageRotation : textRotation;
+  const setRotation = mode === "image" ? setImageRotation : setTextRotation;
+  const [position, setPosition] = useState<StampPosition>("middle-center");
   const [tile, setTile] = useState(false);
   const [pageMode, setPageMode] = useState<"all" | "some">("all");
   const [pageList, setPageList] = useState("");
@@ -230,7 +236,7 @@ export function WatermarkBatch(props: SinglePdfBatch) {
           <div className="flex flex-wrap items-start gap-6">
             <PositionPicker
               label="Watermark position"
-              value={position === "tile" ? "middle-center" : position}
+              value={position}
               onChange={setPosition}
               disabled={tile}
             />

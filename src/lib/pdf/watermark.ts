@@ -91,6 +91,15 @@ export type WatermarkLayer = "over" | "behind";
 /** Default width of an image mark, as a percentage of the visible page width. */
 export const DEFAULT_IMAGE_SCALE = 50;
 
+/** Where Rotation starts for a text mark in the runner: the classic diagonal. */
+export const DEFAULT_TEXT_ROTATION = 45;
+
+/**
+ * Where Rotation starts for an image mark in the runner: upright, as a logo
+ * is drawn (audit watermark-pdf#6). The engine's own default stays 45.
+ */
+export const DEFAULT_IMAGE_ROTATION = 0;
+
 export interface WatermarkImage {
   /** PNG or JPEG bytes; the format is read from the bytes, not a name. */
   bytes: Uint8Array;
