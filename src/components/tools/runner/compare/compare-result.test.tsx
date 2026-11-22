@@ -186,9 +186,16 @@ describe("the changes view draws a bounded number of rows", () => {
     expect(document.activeElement?.getAttribute("data-row")).toBe(
       `0:${Math.floor((total - 1) / ROWS_SHOWN) * ROWS_SHOWN}`,
     );
+    // Unmounted HERE, inside the test's 30 s, not by the afterEach above:
+    // tearing down the rows drawn here runs in a hook whose timeout is the
+    // 10 s default and which no headroom line can see, and the test's CI
+    // time (max 6,141 ms, run 43998624497) includes it. It must stay the
+    // last statement: placed before the row checks, they read 0 and fail.
+    cleanup();
     // Explicit timeout (2026-11-16): drawing 2,000 rows in jsdom, 400 at a
     // press, timed out at the 5 s default on Linux CI (run 43826798688) with
-    // nothing wrong. The assertions above are unchanged.
+    // nothing wrong. CI max since 5,145 ms (44910288854), 17%. The
+    // assertions above are unchanged.
   }, 30_000);
 
   it("the last Show more changes moves focus to the first change it drew", () => {
