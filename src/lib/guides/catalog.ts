@@ -393,6 +393,9 @@ import { webOptimizedOutputName } from "@/lib/workers/processor/pdf-structure";
 import {
   SPLIT_DIRECTIONS,
   SPLIT_HALF_RUN_LABEL,
+  BOOKLET_ORDER,
+  ONLY_WIDER_LABELS,
+  SPLIT_POSITION,
   SPLIT_ORDERS,
   SPLIT_ORDER_CHOICES,
   splitHalfOutputName,
@@ -6672,7 +6675,7 @@ export const guides: Guide[] = [
     slug: "how-to-split-pdf-pages-in-half",
     title: "How to split PDF pages in half (scanned book spreads)",
     description:
-      "Turn a scanned book with two pages on every sheet into single pages: cut each PDF page down the middle, in reading order, covers kept whole. In your browser.",
+      "Turn a scanned book with two pages on every sheet into single pages: cut each PDF page at the fold, in reading order, covers kept whole. In your browser.",
     tools: ["split-pdf-pages-in-half", "crop-pdf", "redact-pdf"],
     keywords: [
       "split pdf pages in half",
@@ -6690,6 +6693,7 @@ export const guides: Guide[] = [
       `Open the ${nameOf("split-pdf-pages-in-half")} tool and drop your PDF on the box that says “Drop your PDF here, or”, or click browse to pick it. Its name and page count appear.`,
       `Under Direction, keep ${HALF_LEFT_RIGHT} for a cut down the middle of each page, or choose ${HALF_TOP_BOTTOM} for pages laid out one above the other.`,
       `Set Page order: for ${HALF_LEFT_RIGHT}, ${HALF_LEFT_FIRST} for most books, or ${HALF_RIGHT_FIRST} for a book read right to left; for ${HALF_TOP_BOTTOM}, ${HALF_TOP_FIRST} or ${HALF_BOTTOM_FIRST}.`,
+      `Under Where to cut, leave Cut position at ${SPLIT_POSITION.middle}% for the middle, or move it, or drag the dashed line on the picture of the first page to be split, until it sits in the gap between the two pages.`,
       "Under Pages, keep All pages, or choose Selected pages and type the pages to split, such as 2-9. Tick Keep the first page whole or Keep the last page whole if a cover was scanned on its own.",
       `Press ${SPLIT_HALF_RUN_LABEL}. When “Pages split in half” appears, check how many pages were split and how many the new file has, then press Download split PDF. book.pdf is saved as ${HALF_EXAMPLE_OUT}.`,
     ],
@@ -6699,6 +6703,7 @@ export const guides: Guide[] = [
         heading: "Reading order and covers",
         body: [
           `With ${HALF_LEFT_FIRST}, the left half of each page comes first, which is the reading order of a book in English and most other languages. A book in Arabic, Hebrew, Persian or Japanese is read from the right-hand page, so choose ${HALF_RIGHT_FIRST} and each spread comes out in the order it is read. With ${HALF_TOP_BOTTOM}, ${HALF_TOP_FIRST} is the default, and ${HALF_BOTTOM_FIRST} puts each sheet's lower page before its upper one.`,
+          `A stapled booklet taken apart and scanned one sheet at a time has its pages paired as printed: for 8 pages, 8 and 1, 2 and 7, 6 and 3, 4 and 5. Choose ${BOOKLET_ORDER.label} as the Page order and the halves come out 1 to 8. A cover scanned on its own can stay whole at either end.`,
           "Covers are often scanned as single pages while everything between them is a spread. Keep the first page whole and Keep the last page whole leave those pages as they are, in their place, and only the spreads are split. To split only part of a document, choose Selected pages and list the pages, such as 3-40 or 2, 4, 6; every page you leave out stays whole, between the split ones.",
         ],
       },
@@ -6706,8 +6711,8 @@ export const guides: Guide[] = [
         id: "off-centre",
         heading: "When the gutter is not in the middle",
         body: [
-          "The cut is always at the exact middle of the page as your viewer shows it, after any rotation setting and inside any crop the file already has. A book scanned slightly off centre has its gutter, the gap between the two pages, a little to one side, and a middle cut then takes a sliver of one page onto the other.",
-          `Crop the margins first with ${nameOf("crop-pdf")}, trimming more on one side so the gutter sits in the middle of what is left, then split the cropped file. A page whose halves would be narrower or shorter than the tool's minimum is refused with its page number rather than split into slivers.`,
+          `The cut starts in the middle of the page as your viewer shows it, after any rotation setting and inside any crop the file already has. A book scanned slightly off centre has its gutter, the gap between the two pages, a little to one side, and a middle cut would take a sliver of one page onto the other. Move Cut position, anywhere from ${SPLIT_POSITION.min}% to ${SPLIT_POSITION.max}% of the page from the left (or the top), or drag the dashed line on the picture of the first page to be split, until the line sits in the gutter. The same position is used on every page that is split.`,
+          `A page whose halves would be narrower or shorter than the tool's minimum is refused with its page number rather than split into slivers. If your scan mixes spreads with single upright pages, tick ${ONLY_WIDER_LABELS["left-right"]} and the single pages stay whole. To trim scanner edges off the halves afterwards, use ${nameOf("crop-pdf")}.`,
         ],
       },
       {
@@ -6746,7 +6751,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-11-01",
-    updated: "2026-11-08",
+    updated: "2026-11-22",
   },
   // OCR PDF's "Straighten crooked pages" (#262): OCRmyPDF --deskew, read off
   // ocr-native.ts, jobs/ocr.ts and ocr-worker-panel.tsx. Only pages with no

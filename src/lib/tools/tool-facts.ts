@@ -1022,7 +1022,9 @@ export const RUNNER_MID_RUN_FETCHES: Readonly<
   // The page picker under Selected pages renders thumbnails (2026-11-08).
   resize: ["image-decoder", "character-map"],
   "n-up": [],
-  "split-half": [],
+  // The cut preview draws the first page to be split through pdf.js
+  // (audit split-pdf-pages-in-half#1, 2026-11-22).
+  "split-half": ["image-decoder", "character-map"],
   // Every page is drawn and its text read for search and selection
   // (2026-11-10): pdf.js fetches an image decoder or a character map when
   // a page needs one.

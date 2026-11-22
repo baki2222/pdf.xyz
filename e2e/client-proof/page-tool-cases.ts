@@ -1,7 +1,8 @@
 import { expect, type Page } from "@playwright/test";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, StandardFonts, degrees } from "pdf-lib";
 import { cropPdf } from "../../src/lib/pdf/crop";
 import { addHeaderFooter } from "../../src/lib/pdf/header-footer";
+import { splitPagesInHalf } from "../../src/lib/pdf/split-half";
 import { fileInput, waitForHydration } from "../helpers";
 import { captureDownload, loadPdf, pdfPageTexts } from "./artifacts";
 import { makeTextPdf } from "./fixtures";
@@ -153,7 +154,209 @@ const cropDeepRight: VariantCase = {
   rejectsBecause: [DEEP_CUT],
 };
 
+/* ------------------------------------------------------------------ *
+ *  Split PDF Pages in Half
+ * ------------------------------------------------------------------ */
+
+/** Each page as a viewer shows it: CropBox size, turned by /Rotate. */
+async function displayedSizes(buf: Buffer): Promise<[number, number][]> {
+  const doc = await loadPdf(buf);
+  return doc.getPages().map((page) => {
+    const { width, height } = page.getCropBox();
+    const turned = page.getRotation().angle % 180 !== 0;
+    return [
+      Math.round(turned ? height : width),
+      Math.round(turned ? width : height),
+    ];
+  });
+}
+
+/** Spreads with each half stamped with its page number ("PAGE-8"). */
+async function stampedSpreads(
+  sheets: [number, number][],
+  [w, h]: [number, number] = [800, 560],
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (const [left, right] of sheets) {
+    const page = doc.addPage([w, h]);
+    page.drawText(`PAGE-${left}`, { x: 60, y: h / 2, size: 18, font });
+    page.drawText(`PAGE-${right}`, { x: w / 2 + 60, y: h / 2, size: 18, font });
+  }
+  return doc.save();
+}
+
+/** The page number each output page shows, read by pdf.js. */
+async function pageNumbersOf(buf: Buffer): Promise<number[][]> {
+  return (await pdfPageTexts(buf)).map((text) =>
+    [...text.matchAll(/PAGE-([0-9]+)/g)].map((m) => Number(m[1])),
+  );
+}
+
+/** Open the split tool on `bytes`, apply `setup`, run and save. */
+async function splitThroughPage(
+  ctx: CaseContext,
+  name: string,
+  bytes: Uint8Array,
+  setup: (page: Page) => Promise<void>,
+): Promise<Buffer> {
+  ctx.data.input = Buffer.from(bytes);
+  await uploadPdf(ctx.page, name, bytes);
+  await setup(ctx.page);
+  return runAndSave(
+    ctx.page,
+    /^split pages$/i,
+    /pages split in half/i,
+    /download split pdf/i,
+  );
+}
+
+const inputOf = (ctx: CaseContext) => new Uint8Array(ctx.data.input as Buffer);
+
+/** Why the cut-position variant rejects an artifact. */
+const CUT_AT_40 = "each half is 40% and 60% of the spread, with its own text";
+
+/** A spread whose gutter is at 40% of its width. */
+async function offCentreSpread(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([1000, 600]);
+  page.drawText("LEFTPAGE", { x: 40, y: 300, size: 20, font });
+  page.drawText("RIGHTPAGE", { x: 600, y: 300, size: 20, font });
+  return doc.save();
+}
+
+const splitAt40: VariantCase = {
+  slug: "split-pdf-pages-in-half",
+  name: "the cut moved to 40%",
+  kind: "split-half",
+  artifact: "pdf",
+  run: (ctx) =>
+    offCentreSpread().then((bytes) =>
+      splitThroughPage(ctx, "gutter.pdf", bytes, async (page) => {
+        // The line on the page is the same value as the slider.
+        const line = page.getByRole("slider", { name: "Cut line" });
+        await expect(line).toHaveAttribute("aria-valuenow", "50");
+        await page.getByLabel("Cut position").fill("40");
+        await expect(line).toHaveAttribute("aria-valuenow", "40");
+      }),
+    ),
+  assert: async (buf) => {
+    expect(await displayedSizes(buf), CUT_AT_40).toEqual([
+      [400, 600],
+      [600, 600],
+    ]);
+    const texts = await pdfPageTexts(buf);
+    expect(texts[0], CUT_AT_40).toContain("LEFTPAGE");
+    expect(texts[0], CUT_AT_40).not.toContain("RIGHTPAGE");
+    expect(texts[1], CUT_AT_40).toContain("RIGHTPAGE");
+    expect(texts[1], CUT_AT_40).not.toContain("LEFTPAGE");
+  },
+  // The same spread cut in the middle, as before the option.
+  control: async (ctx) =>
+    Buffer.from(
+      (
+        await splitPagesInHalf(inputOf(ctx), {
+          direction: "left-right",
+          order: "left-first",
+        })
+      ).bytes,
+    ),
+  rejectsBecause: [CUT_AT_40],
+};
+
+/** Why the booklet variant rejects an artifact. */
+const READING_ORDER = "the booklet's halves read 1 to 8";
+
+const splitBooklet: VariantCase = {
+  slug: "split-pdf-pages-in-half",
+  name: "Booklet scan order",
+  kind: "split-half",
+  artifact: "pdf",
+  run: async (ctx) =>
+    splitThroughPage(
+      ctx,
+      "booklet.pdf",
+      await stampedSpreads([
+        [8, 1],
+        [2, 7],
+        [6, 3],
+        [4, 5],
+      ]),
+      async (page) => {
+        await page
+          .getByRole("radiogroup", { name: "Page order" })
+          .getByRole("radio", { name: "Booklet scan" })
+          .click();
+      },
+    ),
+  assert: async (buf) => {
+    expect(await pageNumbersOf(buf), READING_ORDER).toEqual(
+      [1, 2, 3, 4, 5, 6, 7, 8].map((n) => [n]),
+    );
+  },
+  // The same scan split in source order: 8 1 2 7 6 3 4 5.
+  control: async (ctx) =>
+    Buffer.from(
+      (
+        await splitPagesInHalf(inputOf(ctx), {
+          direction: "left-right",
+          order: "left-first",
+        })
+      ).bytes,
+    ),
+  rejectsBecause: [READING_ORDER],
+};
+
+/** Why the shape variant rejects an artifact. */
+const SHAPES_KEPT = "only the spreads were split; the portrait plate is whole";
+
+/** A landscape spread, a portrait plate, and a spread stored upright. */
+async function mixedScan(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  doc.addPage([800, 560]);
+  doc.addPage([420, 600]);
+  doc.addPage([560, 800]).setRotation(degrees(90));
+  return doc.save();
+}
+
+const splitOnlyWide: VariantCase = {
+  slug: "split-pdf-pages-in-half",
+  name: "Only split pages wider than tall",
+  kind: "split-half",
+  artifact: "pdf",
+  run: async (ctx) =>
+    splitThroughPage(ctx, "mixed.pdf", await mixedScan(), async (page) => {
+      await page
+        .getByRole("checkbox", { name: /^Only split pages wider than tall/ })
+        .check();
+    }),
+  assert: async (buf) => {
+    expect(await displayedSizes(buf), SHAPES_KEPT).toEqual([
+      [400, 560],
+      [400, 560],
+      [420, 600],
+      [400, 560],
+      [400, 560],
+    ]);
+  },
+  // Every page split, the plate too.
+  control: async (ctx) =>
+    Buffer.from(
+      (
+        await splitPagesInHalf(inputOf(ctx), {
+          direction: "left-right",
+          order: "left-first",
+        })
+      ).bytes,
+    ),
+  rejectsBecause: [SHAPES_KEPT],
+};
+
 export const PAGE_TOOL_VARIANTS: readonly VariantCase[] = [
   headerFooterAtCaret,
   cropDeepRight,
+  splitAt40,
+  splitBooklet,
+  splitOnlyWide,
 ];
