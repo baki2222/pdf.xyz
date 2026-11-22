@@ -46,6 +46,7 @@ import {
 } from "@/lib/tools/page-copy";
 import { categoryHref } from "@/lib/tools/category-href";
 import { formatsLine, formatsText } from "@/lib/tools/formats-line";
+import { toolHeadline } from "@/lib/tools/headline";
 import { ViewTransition } from "@/components/motion/vt";
 
 export function generateStaticParams() {
@@ -334,7 +335,7 @@ export default async function ToolPage({
         <div className="flex min-w-0 flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="font-display text-fg text-4xl font-medium tracking-tight sm:text-5xl">
-              {tool.name}
+              {toolHeadline(tool)}
             </h1>
             {tool.badge && <ToolBadgePill badge={tool.badge} />}
           </div>

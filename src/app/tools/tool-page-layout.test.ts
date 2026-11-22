@@ -36,6 +36,7 @@ import {
   pageUseCases,
 } from "@/lib/tools/page-copy";
 import { visibleText } from "@/tests/rendered-tool-pages";
+import { TOOL_HEADLINES, toolHeadline } from "@/lib/tools/headline";
 
 const ROOT = process.cwd();
 const TOOL_PAGE = path.join(ROOT, "src", "app", "tools", "[slug]", "page.tsx");
@@ -92,6 +93,29 @@ describe("every tool page: head, facts, panel, then the details", () => {
       expect(visibleText(html.slice(0, panel)), tool.slug).not.toContain(intro);
       expect(visibleText(html.slice(panel)), tool.slug).toContain(intro);
     }
+  });
+
+  // search-demand#3: the H1 reads `toolHeadline`, which is the short name
+  // for every tool except those with a headline (PDF to PowerPoint names
+  // PPT and PPTX). Read from the rendered markup of every page.
+  it("each page's one H1 reads its headline, which names PPT on PDF to PowerPoint", () => {
+    const withHeadline: string[] = [];
+    for (const tool of tools) {
+      const html = markup.get(tool.slug)!;
+      const h1s = [...html.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/g)];
+      expect(h1s, tool.slug).toHaveLength(1);
+      const text = visibleText(h1s[0]![1]!);
+      expect(text, tool.slug).toBe(toolHeadline(tool));
+      if (text !== tool.name) withHeadline.push(tool.slug);
+    }
+    expect(withHeadline).toEqual(Object.keys(TOOL_HEADLINES).sort());
+    expect(
+      visibleText(
+        /<h1\b[^>]*>([\s\S]*?)<\/h1>/.exec(
+          markup.get("pdf-to-powerpoint")!,
+        )![1]!,
+      ),
+    ).toMatch(/\bPPT\b/);
   });
 
   it("the facts row says where the tool runs and what goes in and out", () => {
