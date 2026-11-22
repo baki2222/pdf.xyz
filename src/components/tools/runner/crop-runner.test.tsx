@@ -86,10 +86,7 @@ async function samplePdf(
 }
 
 /** Render the runner and load a one-page PDF into it by dropping it. */
-async function openRunner(
-  rotation = 0,
-  pages?: [number, number][],
-) {
+async function openRunner(rotation = 0, pages?: [number, number][]) {
   const view = render(withRouter(<CropRunner />));
   await dropSheetsLive(view.container);
   const input = view.container.querySelector('input[type="file"]');
@@ -436,10 +433,7 @@ describe("CropRunner limits come from the page", () => {
     fireEvent.change(screen.getByLabelText("Right in pt"), {
       target: { value: "600" },
     });
-    expect(screen.getByLabelText("Right")).toHaveAttribute(
-      "max",
-      String(most),
-    );
+    expect(screen.getByLabelText("Right")).toHaveAttribute("max", String(most));
     const box = await croppedBox();
     // Clamped to the most, not taken: the page keeps its smallest strip.
     expect(box.width).toBeCloseTo(24, 6);
@@ -451,7 +445,9 @@ describe("CropRunner limits come from the page", () => {
     await sizesRead();
     chooseMode("Per side");
     const scope = screen.getByRole("radiogroup", { name: "Page scope" });
-    fireEvent.click(within(scope).getByRole("radio", { name: "Selected pages" }));
+    fireEvent.click(
+      within(scope).getByRole("radio", { name: "Selected pages" }),
+    );
     fireEvent.change(screen.getByLabelText("Pages"), {
       target: { value: "1" },
     });

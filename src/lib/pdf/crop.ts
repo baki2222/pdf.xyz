@@ -149,7 +149,9 @@ export function edgeLimits(size: PageSize, margins: CropMargins): CropMargins {
 export function uniformLimit(size: PageSize): number {
   return Math.max(
     0,
-    floorHundredth((Math.min(size.width, size.height) - MIN_CROP_DIMENSION) / 2),
+    floorHundredth(
+      (Math.min(size.width, size.height) - MIN_CROP_DIMENSION) / 2,
+    ),
   );
 }
 
