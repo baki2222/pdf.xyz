@@ -1464,8 +1464,28 @@ describe("Compare PDF's redline is a chunk of its own", () => {
  * from +451 B. That is over 23.1, S3's first measurement plus 5%, so the
  * bound is this measurement plus 5%: 24.3. Both raises (20.6 to 23.1 and
  * 23.1 to 24.3) are the owner's to approve, in the PR.
+ *
+ * Slice S4 (2026-11-21, Windows, empty .next): 24,663 B gz (24.08 KB),
+ * +987 B for entry boxes, stacked lines and the filled-box question;
+ * inside the bound, which was unchanged. CORRECTED in S4's review round 1:
+ * this paragraph first said 24,498 B and +822 B, which are GNU `gzip -9`
+ * figures for the same file; this test measures with node's zlib at level
+ * 9 (`gzipSync`), which reads 24,663 B there and 23,676 B on the base, the
+ * method every figure above used. The bound measures zlib, so this
+ * comment does.
+ *
+ * S4's review round 1 (2026-11-21, zlib -9, Windows, empty .next):
+ * 25,476 B gz (24.88 KB), 70,645 B raw, +813 B over S4's first cut for
+ * what the review found missing: the reader keeping painted curves' boxes
+ * (a logo, a pie, a scribble in a box), pictures clipped to or bleeding
+ * past a frame, lined comment boxes, double frames, a caption over a box's
+ * top beating one under its foot, column headings over a ledger, and a
+ * stack's caption a blank line up. That is over 24.3, so the bound is
+ * this measurement plus 5%, as before: 26.1. The raise (24.3 to 26.1) is
+ * the owner's to approve, in the PR; the page's first load is unchanged
+ * (first-load and bundle-budget tests green on the same build).
  */
-const FIND_FIELDS_FETCH_GZ_KB = 24.3;
+const FIND_FIELDS_FETCH_GZ_KB = 26.1;
 /*
  * HISTORY (review rounds 7 and 8, 2026-11-19). Round 7 added a bound here
  * for the press on a page whose preview chunk never arrived: every chunk

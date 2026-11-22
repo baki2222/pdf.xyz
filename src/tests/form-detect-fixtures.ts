@@ -37,6 +37,7 @@ import {
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import { PRECISION_CASES } from "./form-detect-precision-fixtures";
+import { BOX_CASES } from "./form-detect-boxes-fixtures";
 
 /**
  * TEST ONLY. The Create Forms field finder's corpus: every case is a small
@@ -60,6 +61,11 @@ export interface Expect {
   box: Box;
   /** The name `nameFor` must give it, when the case is about naming. */
   name?: string;
+  /**
+   * A field for several lines (slice S4). Compared both ways by
+   * {@link matches}: a proposal is multiline exactly when this is true.
+   */
+  multiline?: boolean;
 }
 
 export interface DetectCase {
@@ -2772,8 +2778,13 @@ export const DETECT_CASES: readonly DetectCase[] = [
   {
     id: "P43",
     kind: "positive",
-    note: 'empty outlined boxes captioned just above their tops ("Dietary requirements", "Comments:"): a field inside each box, at its bottom',
-    // Review round 4 fixes, finding 22: both boxes got nothing.
+    note: 'empty outlined boxes captioned just above their tops ("Dietary requirements", "Comments:"): a field filling each box, multiline (70 and 60 pt tall)',
+    // Review round 4 fixes, finding 22: both boxes got nothing. Then (until
+    // slice S4, 2026-11-21) one line along each box's bottom edge
+    // (labelled-rule, 14 pt tall, ruleBox(72, 540, y, 10)): a box drawn to
+    // write in was offered one line at its foot. INVERTED by S4: an empty
+    // labelled box of an entry box's size is an entry box, its field fills
+    // it inset 1 pt, and at 36 pt or more it is multiline.
     build: async () => {
       const d = await doc();
       const page = d.addPage(LETTER);
@@ -2791,11 +2802,12 @@ export const DETECT_CASES: readonly DetectCase[] = [
       return save(d);
     },
     expect: P43.map((b) => ({
-      rule: "labelled-rule" as const,
+      rule: "entry-box" as const,
       type: "text" as const,
       label: b.caption.replace(/:$/, ""),
       page: 1,
-      box: ruleBox(72, 540, b.y, 10),
+      box: cellBox(72, 540, b.y, b.y + b.h),
+      multiline: true,
     })),
   },
   {
@@ -2834,7 +2846,11 @@ export const DETECT_CASES: readonly DetectCase[] = [
     note: 'labels set vertically centred beside boxes: "Total hours" on a 22 pt box, "Received by:" on an 18 pt one, "Reference:" on a 30 pt one',
     // Review round 4 fixes, finding 24: only the 18 pt box (the control)
     // was labelled; a taller box's centred label sat above its bottom
-    // edge's label band.
+    // edge's label band. Until slice S4 (2026-11-21) each field was one
+    // 14 pt line along the box's bottom edge (labelled-rule,
+    // ruleBox(140, 140 + w, y, 10)). INVERTED by S4: each box is an entry
+    // box, its field fills it inset 1 pt; all three are under 36 pt, so one
+    // line each.
     build: async () => {
       const d = await doc();
       const page = d.addPage(LETTER);
@@ -2852,11 +2868,11 @@ export const DETECT_CASES: readonly DetectCase[] = [
       return save(d);
     },
     expect: P44.map((b) => ({
-      rule: "labelled-rule" as const,
+      rule: "entry-box" as const,
       type: "text" as const,
       label: b.label.replace(/:$/, ""),
       page: 1,
-      box: ruleBox(140, 140 + b.w, b.y, 10),
+      box: cellBox(140, 140 + b.w, b.y, b.y + b.h),
     })),
   },
   {
@@ -3506,6 +3522,8 @@ export const DETECT_CASES: readonly DetectCase[] = [
   },
   // Slice S3 (rows of dots, box symbols): src/tests/form-detect-precision-fixtures.ts.
   ...PRECISION_CASES,
+  // Slice S4 (entry boxes, stacked lines): src/tests/form-detect-boxes-fixtures.ts.
+  ...BOX_CASES,
 ];
 
 /* ------------------------------------------------------------------ *
@@ -3574,6 +3592,7 @@ export function matches(p: FieldProposal, e: Expect): boolean {
     p.type === e.type &&
     p.label === e.label &&
     p.page === e.page &&
+    (p.multiline === true) === (e.multiline === true) &&
     near(p.x, e.box.x) &&
     near(p.y, e.box.y) &&
     near(p.width, e.box.width) &&
