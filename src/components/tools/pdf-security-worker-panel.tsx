@@ -604,9 +604,12 @@ function SecurityRunArea({
         value={password}
         onChange={setPassword}
         busy={busy}
-        // "new-password" avoids the browser offering a saved login for unlock, and
-        // avoids prompting to save the just-set encryption password for protect.
-        autoComplete="new-password"
+        // Protect sets a NEW password: "new-password" keeps the browser from
+        // offering a saved login and lets a password manager store it. Unlock
+        // asks for an EXISTING one, and "new-password" there made browsers
+        // offer a generated password that can never open the file (audit
+        // unlock-pdf#5), so it says "off".
+        autoComplete={mode === "protect" ? "new-password" : "off"}
       />
       <p
         id="pdf-security-password-hint"

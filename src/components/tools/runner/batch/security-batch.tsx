@@ -546,6 +546,9 @@ function PasswordFields({
         label={
           label ?? (mode === "protect" ? "New password" : "Current password")
         }
+        // An existing password in Unlock: never the sign-up hint, on which
+        // browsers offer a generated password (audit unlock-pdf#5).
+        autoComplete={mode === "protect" ? "new-password" : "off"}
         onInput={(v) => onInput("password", v)}
         note={[hint, check.passwordWarning].filter(Boolean).join(" ")}
         warn={check.passwordWarning !== null}
@@ -598,6 +601,7 @@ function SecretField({
   note,
   warn = false,
   onBlur,
+  autoComplete = "new-password",
 }: {
   id: string;
   label: string;
@@ -605,6 +609,7 @@ function SecretField({
   note?: string;
   warn?: boolean;
   onBlur?: () => void;
+  autoComplete?: "new-password" | "off";
 }) {
   const [reveal, setReveal] = useState(false);
   return (
@@ -618,7 +623,7 @@ function SecretField({
           type={reveal ? "text" : "password"}
           onChange={(event) => onInput(event.target.value)}
           onBlur={onBlur}
-          autoComplete="new-password"
+          autoComplete={autoComplete}
           spellCheck={false}
           aria-describedby={note ? `${id}-hint` : undefined}
           className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 focus:bg-wash rounded-ctl w-full border px-3 py-3 pr-11 text-sm transition outline-none"
