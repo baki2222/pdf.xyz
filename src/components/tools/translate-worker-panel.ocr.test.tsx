@@ -22,6 +22,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -45,6 +46,19 @@ import { imageOnlyPdf, textPdf } from "@/tests/pdf-text-fixtures";
 import { stubJobNetwork, type JobNetwork } from "@/tests/stub-job-network";
 import { InToolPage } from "@/tests/in-tool-page";
 import { TranslateWorkerPanel } from "./translate-worker-panel";
+import { observeFor } from "@/tests/time-bound";
+
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
+ *
+ * CI: the slowest test here took 733 ms (run 44171428723, a passing run; 108 CI
+ * runs, passing and failing, to 11-21). A wait cannot outlast its test, so 3 s
+ * is at least 4x any wait in it, and it stays below the test's own timeout, so
+ * a wait that times out fails with its DOM dump.
+ */
+const WAIT_MS = 3_000;
 
 const legacy = async () =>
   (await import("pdfjs-dist/legacy/build/pdf.mjs")) as unknown as Pick<
@@ -52,6 +66,30 @@ const legacy = async () =>
     "getDocument"
   >;
 const realExtract = (bytes: Uint8Array) => extractPdfText(bytes, legacy);
+
+/**
+ * Every extraction the panel starts through its `extractText` seam, kept, so
+ * a test can wait for the one it started to land instead of sleeping (CI-flake
+ * lane 3: these were 300 ms sleeps, "time to settle", which a slow runner
+ * could outrun and so read the absence before the extraction decided it).
+ */
+const extractions: Promise<unknown>[] = [];
+const trackedExtract = (bytes: Uint8Array) => {
+  const p = realExtract(bytes);
+  extractions.push(p);
+  return p;
+};
+/** The chosen file's extraction started, finished, and its result rendered. */
+async function extracted() {
+  await vi.waitFor(
+    () =>
+      expect(extractions.length, "an extraction started").toBeGreaterThan(0),
+    { timeout: WAIT_MS },
+  );
+  await act(async () => {
+    await Promise.allSettled(extractions);
+  });
+}
 
 const translateTool = getToolBySlug("translate-pdf")!;
 const providers = getProviderReadiness("remote-configured");
@@ -115,10 +153,14 @@ async function choose(
   // the row the server computes (`InToolPage`), and refuses without it.
   render(
     <InToolPage tool={translateTool}>
-      <TranslateWorkerPanel tool={translateTool} extractText={realExtract} />
+      <TranslateWorkerPanel tool={translateTool} extractText={trackedExtract} />
     </InToolPage>,
   );
-  const run = await screen.findByRole("button", { name: /translate pdf/i });
+  const run = await screen.findByRole(
+    "button",
+    { name: /translate pdf/i },
+    { timeout: WAIT_MS },
+  );
   const input = document.querySelector('input[type="file"]');
   expect(input).not.toBeNull();
   fireEvent.change(input!, {
@@ -128,7 +170,7 @@ async function choose(
       ],
     },
   });
-  await screen.findByText("document.pdf");
+  await screen.findByText("document.pdf", {}, { timeout: WAIT_MS });
   return { network, run };
 }
 
@@ -138,6 +180,7 @@ const ocrSection = () =>
 afterEach(() => {
   resetTelemetry();
   vi.unstubAllGlobals();
+  extractions.length = 0;
 });
 
 describe("TranslateWorkerPanel — a scan, when the running worker translates scans", () => {
@@ -161,7 +204,7 @@ describe("TranslateWorkerPanel — a scan, when the running worker translates sc
     ).toBeNull();
     expect(network.uploads()).toBe(0);
     expect(network.jobBodies).toEqual([]);
-  });
+  }, 20_000);
 
   it("Run sends the OCR request in the job options, with the chosen languages and NO declared count", async () => {
     const { network, run } = await choose(await imageOnlyPdf(2), true);
@@ -193,8 +236,8 @@ describe("TranslateWorkerPanel — a scan, when the running worker translates sc
 
   it("control: a typed PDF shows no picker and is sent counted, with no OCR request", async () => {
     const { network, run } = await choose(await textPdf([1_200]), true);
-    // Give the chosen-file extraction time to settle before asserting absence.
-    await new Promise((r) => setTimeout(r, 300));
+    // The chosen file's extraction has landed: only now is the absence read.
+    await extracted();
     expect(ocrSection()).toBeNull();
     fireEvent.click(run);
     await waitFor(() => expect(network.jobBodies).toHaveLength(1), {
@@ -221,14 +264,14 @@ describe.each([
         await imageOnlyPdf(2),
         translateOcr,
       );
-      await new Promise((r) => setTimeout(r, 300));
+      await extracted();
       expect(ocrSection()).toBeNull();
       fireEvent.click(run);
       const alert = await screen.findByRole("alert", {}, { timeout: 5_000 });
       expect(alert.textContent ?? "").toContain(TRANSLATE_NO_TEXT_MESSAGE);
       expect(network.uploads()).toBe(0);
       expect(network.jobBodies).toEqual([]);
-    });
+    }, 20_000);
   },
 );
 
@@ -253,11 +296,18 @@ describe("TranslateWorkerPanel — a scan's OCR is sent only after the reader ha
       { name: /recognise the scan/i },
       { timeout: 5_000 },
     );
-    await waitFor(() =>
-      expect(section.contains(document.activeElement)).toBe(true),
+    await waitFor(
+      () => expect(section.contains(document.activeElement)).toBe(true),
+      { timeout: WAIT_MS },
     );
-    // Give a run that was (wrongly) started time to reach the job route.
-    await new Promise((r) => setTimeout(r, 500));
+    // A declared absence window: a run that was (wrongly) started would
+    // reserve its upload within a few stubbed round trips; 500 ms as main
+    // had, and the slowest test here took 712 ms on CI (run 44299285879).
+    await observeFor(
+      "translate-ocr-unshown-scan-not-sent",
+      500,
+      "a scan's OCR is not sent before the reader has been shown it",
+    );
     expect(network.uploads()).toBe(0);
     expect(network.jobBodies).toEqual([]);
     expect(screen.queryByRole("alert")).toBeNull();

@@ -255,9 +255,10 @@ describe("rule tables", () => {
     // 3 until review round 4 added table-cell (the owner's decision on the
     // Word-style two-column table, round 3's finding 9); 4 and 17 until
     // slice S3 added dot-leader, box-glyph, toc-leader and ticked-box; 6
-    // and 19 until slice S4 added entry-box and filled-box.
-    expect(DETECTION_RULES).toHaveLength(7);
-    expect(EXCLUSION_RULES).toHaveLength(20);
+    // and 19 until slice S4 added entry-box and filled-box; 7 and 20 until
+    // slice S5 added header-cell, filled-cells and large-table.
+    expect(DETECTION_RULES).toHaveLength(8);
+    expect(EXCLUSION_RULES).toHaveLength(22);
   });
 
   // The independent second bound on every threshold (CLAUDE.md, guards
@@ -3181,19 +3182,39 @@ describe("table-cell: a two-column table of labels and empty cells", () => {
     expect(cells(of(41))).toEqual([]);
   });
 
-  it("a header row (text in both cells) keeps the whole grid a table", () => {
+  // INVERTED by slice S5 (2026-11-22). This read "a header row (text in
+  // both cells) keeps the whole grid a table" and asserted no proposal: a
+  // header row now reads its table's cells (`header-cell`, corpus N39).
+  // It is no LABEL table still (no table-cell), and its rules stay
+  // table-grid.
+  it("a header row (text in both cells) is no label table: its empty cells are header cells", () => {
     const p = table({
       text: [txt("Your answer", 184, 584, { size: 10, width: 55 })],
     });
-    expect(props(p)).toEqual([]);
+    expect(props(p).map((x) => [x.rule, x.label])).toEqual([
+      ["header-cell", "Address"],
+      ["header-cell", "Telephone"],
+      ["header-cell", "Email"],
+    ]);
     expect(grid(p)).toBe(5);
   });
 
-  it("any text in any right cell keeps it a table (a filled-in answer, a value column)", () => {
-    for (const y of [584, 560, 536, 512]) {
+  // S5 changed the first row's case: text in the TOP right cell makes that
+  // row a header row ("Name | x" cannot be told from "Question | Answer"),
+  // so the rows under it, labelled and empty, are header cells. Until S5
+  // all four positions asserted no proposal. Text in any lower right cell
+  // still leaves the grid with no label table and no header row.
+  it("any text in a lower right cell keeps it a table; in the top one it makes a header row (S5)", () => {
+    for (const y of [560, 536, 512]) {
       const p = table({ text: [txt("x", 300, y, { size: 10, width: 5 })] });
       expect(props(p), `text at ${y}`).toEqual([]);
     }
+    const top = table({ text: [txt("x", 300, 584, { size: 10, width: 5 })] });
+    expect(props(top).map((x) => [x.rule, x.label])).toEqual([
+      ["header-cell", "Address"],
+      ["header-cell", "Telephone"],
+      ["header-cell", "Email"],
+    ]);
   });
 
   it("three or more columns stay a table", () => {
@@ -3395,16 +3416,15 @@ describe("table-cell: a two-column table of labels and empty cells", () => {
     expect(grid(p)).toBe(3);
   });
 
-  // KNOWN MISS (review round 4 fixes, finding 26): an empty ruled table
-  // with a header row (a timesheet's Day | Start | Finish, a job
-  // application's employment history) gets no fields: every row is
-  // table-grid. The product wants a field per empty body cell labelled
-  // "<row head> <column head>" ("Monday Start"); that needs cell
-  // detection beyond the two-column label table, not a threshold. Invert
-  // this test when it lands; corpus N45 (the timesheet), P45 (tiled
-  // customs boxes) and N46 (a filled data table that must stay none) are
-  // its targets.
-  it("KNOWN MISS: an empty ruled table under a header row proposes nothing", () => {
+  // INVERTED by slice S5 (2026-11-22, tables: empty ruled cells). Until
+  // then this read "KNOWN MISS: an empty ruled table under a header row
+  // proposes nothing" (review round 4 fixes, finding 26): every row was
+  // table-grid, and it asserted props(p) toEqual([]) with the wanted
+  // fields in a comment. The grid's rules are still table-grid (4); its
+  // empty cells are now fields named "<row head> <column head>". Corpus
+  // N45 (the timesheet) is inverted with it; P45 (tiled customs boxes, no
+  // regular grid) and N46 (a filled data table) stay as they were.
+  it("an empty ruled table under a header row: one field per empty body cell, named by row and column", () => {
     const xs = [72, 170, 250, 330];
     const ys = [600, 580, 558, 536];
     const p = pg({
@@ -3421,8 +3441,12 @@ describe("table-cell: a two-column table of labels and empty cells", () => {
         ),
       ],
     });
-    // Wanted: Monday Start, Monday Finish, Tuesday Start, Tuesday Finish.
-    expect(props(p)).toEqual([]);
+    expect(props(p).map((x) => [x.rule, x.label])).toEqual([
+      ["header-cell", "Monday Start"],
+      ["header-cell", "Monday Finish"],
+      ["header-cell", "Tuesday Start"],
+      ["header-cell", "Tuesday Finish"],
+    ]);
     expect(grid(p)).toBe(4);
   });
 
@@ -3568,9 +3592,16 @@ describe("table-cell: a two-column table of labels and empty cells", () => {
     // (the rewrite keeps the old walk's answer: a reach starting at the
     // lower rule already meets the upper), with a border ending under the
     // pair so that only the starting reach can join them.
-    it("KNOWN MISS: a top rule doubled 0.8 pt over itself loses the table (a thin row with no label)", () => {
+    //
+    // INVERTED in slice S5 (review round 1): the grid finder now reads lines
+    // within GRID_TOUCH_EPS of each other as ONE line drawn twice (two boxes
+    // touching 1 pt apart drew every border twice and lost the table), so
+    // the doubled top rule no longer makes a thin row and the table is read.
+    // The test no longer tells the walk's starting reach apart: either way
+    // the pair is one line.
+    it("a top rule doubled 0.8 pt over itself is one line: the table is read (was a KNOWN MISS)", () => {
       expect(bordered([vseg(72, 504, 599.5)], [hseg(72, 400, 600.8)])).toEqual(
-        [],
+        LABELS,
       );
       // Control: not doubled, the same border is a table.
       expect(bordered([vseg(72, 504, 599.5)])).toEqual(LABELS);

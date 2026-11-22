@@ -38,6 +38,7 @@ import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import { PRECISION_CASES } from "./form-detect-precision-fixtures";
 import { BOX_CASES } from "./form-detect-boxes-fixtures";
+import { TABLE_CASES } from "./form-detect-tables-fixtures";
 
 /**
  * TEST ONLY. The Create Forms field finder's corpus: every case is a small
@@ -2326,8 +2327,12 @@ export const DETECT_CASES: readonly DetectCase[] = [
   },
   {
     id: "N39",
-    kind: "negative",
-    note: 'N38 with a header row ("Question" | "Answer"): text in a right cell, so the grid stays a table',
+    // INVERTED by slice S5 (2026-11-22): a header row now reads its cells.
+    // Until then: kind "negative", expect "none", decided by table-grid at
+    // (300, 581), its seam also disabling no-clearance ("text in a right
+    // cell, so the grid stays a table"). The id is kept.
+    kind: "positive",
+    note: 'N38 with a header row ("Question" | "Answer"): each empty Answer cell a field, named by its row label alone (a table of two columns)',
     build: async () => {
       const d = await doc();
       const page = d.addPage(LETTER);
@@ -2340,13 +2345,13 @@ export const DETECT_CASES: readonly DetectCase[] = [
         await text(page, H, s, 76, N38_YS[i]! - 16, 10);
       return save(d);
     },
-    expect: "none",
-    decidedBy: "table-grid",
-    at: { page: 1, x: 300, y: 581 },
-    // Read without the grid as strips, each rule takes the caption of the
-    // row above it, and that row's own label leaves it no room to type:
-    // no-clearance would decide it next.
-    seamAlsoDisable: ["no-clearance"],
+    expect: N38_LABELS.map((label, i) => ({
+      rule: "header-cell" as const,
+      type: "text" as const,
+      label,
+      page: 1,
+      box: cellBox(180, 400, N38_YS[i + 1]!, N38_YS[i]!),
+    })),
   },
   {
     id: "P33",
@@ -2877,12 +2882,14 @@ export const DETECT_CASES: readonly DetectCase[] = [
   },
   {
     id: "N45",
-    kind: "negative",
-    note: "KNOWN MISS: a timesheet's empty ruled grid (Day | Start | Finish | Break | Hours, Monday to Sunday): no fields yet",
-    // Review round 4 fixes, finding 26, recorded as a KNOWN MISS: the
-    // product wants a field per empty body cell ("Monday Start"); that
-    // needs cell detection beyond the two-column label table. Invert this
-    // case (keeping its id) when it lands.
+    // INVERTED by slice S5 (2026-11-22, tables: empty ruled cells). Review
+    // round 4 fixes, finding 26, recorded it as a KNOWN MISS: kind
+    // "negative", expect "none", decided by table-grid at (300, ys[4] + 2),
+    // its seam also disabling no-clearance; the product wanted a field per
+    // empty body cell ("Monday Start"). The id is kept (as N17's and
+    // N38's are), so the history reads in one place.
+    kind: "positive",
+    note: "a timesheet's empty ruled grid (Day | Start | Finish | Break | Hours, Monday to Sunday): one field per empty cell, named by its day and its column",
     build: async () => {
       const d = await doc();
       const page = d.addPage(LETTER);
@@ -2895,12 +2902,20 @@ export const DETECT_CASES: readonly DetectCase[] = [
         await text(page, H, s, xs[0]! + 3, ys[r + 2]! + 5, 9);
       return save(d);
     },
-    expect: "none",
-    decidedBy: "table-grid",
-    at: { page: 1, x: 300, y: N45.ys[4]! + 2 },
-    // Read without the grid, each rule takes the caption of a row, whose
-    // own text leaves its field no room to type.
-    seamAlsoDisable: ["no-clearance"],
+    expect: N45.days.flatMap((day, r) =>
+      N45.head.slice(1).map((h, i) => ({
+        rule: "header-cell" as const,
+        type: "text" as const,
+        label: `${day} ${h}`,
+        page: 1,
+        box: cellBox(
+          N45.xs[i + 1]!,
+          N45.xs[i + 2]!,
+          N45.ys[r + 2]!,
+          N45.ys[r + 1]!,
+        ),
+      })),
+    ),
   },
   {
     id: "P45",
@@ -3524,6 +3539,8 @@ export const DETECT_CASES: readonly DetectCase[] = [
   ...PRECISION_CASES,
   // Slice S4 (entry boxes, stacked lines): src/tests/form-detect-boxes-fixtures.ts.
   ...BOX_CASES,
+  // Slice S5 (tables: empty ruled cells): src/tests/form-detect-tables-fixtures.ts.
+  ...TABLE_CASES,
 ];
 
 /* ------------------------------------------------------------------ *

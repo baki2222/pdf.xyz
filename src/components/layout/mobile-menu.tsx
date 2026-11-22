@@ -51,7 +51,10 @@ export function MobileMenu() {
   const pathname = usePathname();
   const [openOn, setOpenOn] = useState<string | null>(null);
   const open = openOn !== null && openOn === pathname;
-  const [recent, setRecent] = useState<Recent[]>([]);
+  // null until this open has read its recents (`data-recents`): what a
+  // test waits on, since an absent list looks the same before the read as
+  // after it. One state, not a second flag: this ships on every page.
+  const [recent, setRecent] = useState<Recent[] | null>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const headingId = useId();
@@ -97,6 +100,7 @@ export function MobileMenu() {
     );
     return () => {
       live = false;
+      setRecent(null);
     };
   }, [open]);
 
@@ -122,6 +126,7 @@ export function MobileMenu() {
         id="mobile-menu"
         aria-labelledby={headingId}
         data-motion-ui=""
+        data-recents={recent && "read"}
         onKeyDown={(e) => {
           if (e.key !== "Escape") return;
           e.preventDefault();
@@ -165,7 +170,7 @@ export function MobileMenu() {
               <NavLinks variant="menu" onNavigate={close} />
             </nav>
 
-            {recent.length > 0 && (
+            {!!recent?.length && (
               <div className="border-line flex flex-col gap-1 border-t pt-4">
                 <h3
                   id={`${headingId}-recent`}

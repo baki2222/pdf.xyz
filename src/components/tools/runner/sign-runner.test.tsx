@@ -35,6 +35,31 @@ afterEach(() => {
   cleanup();
 });
 
+/**
+ * Every wait here that passed none of its own: a decode across the image
+ * pipeline's lazy chunks (cold per file in the native-canvas project), the
+ * editor's status line, a page's pointer handling.
+ *
+ * CI: five wait-headroom blocks saw the two checkbox waits (:225 and :293
+ * on main) take, slowest first, 1855/1826 ms (run 44931945692, main at
+ * eea2c3ca), 1059/1278 (44941026100), 881/1264 (44938151052), 1097/1212
+ * (44917160721) and 1101/1068 (44924793701): nearly every time past the 1 s
+ * default they ran under, and 1.7x apart between consecutive runs. 5 s is
+ * 2.7x the slowest, kept above 2x against that spread (review of lane 3:
+ * 4 s was 2.16x from three samples), and below every test's own timeout
+ * (20 s or more), so a wait that times out fails with its DOM dump, not
+ * "test timed out". Re-harvest it first if these waits grow.
+ */
+const WAIT_MS = 5_000;
+/**
+ * The decode-and-encode waits, 5 s on main: the second upload's (:260 on
+ * main) took 2815 ms in run 44931945692 — 56% of 5 s, under the 2x this
+ * programme holds a bound to; the other four blocks did not list it, so it
+ * stayed under 2.5 s there. One high sample, so 7 s (2.5x), below the
+ * tests' 30 s.
+ */
+const ENCODE_MS = 7_000;
+
 async function openSignRunner() {
   const doc = await PDFDocument.create();
   doc.addPage([612, 792]);
@@ -82,7 +107,8 @@ describe("Sign PDF signature panel", () => {
     source("Draw");
     expect(screen.getByLabelText("Signature drawing area")).toBe(pad);
     expect(pad).toBeVisible();
-  });
+    // openSignRunner's own wait is 8 s, past vitest's 5 s default.
+  }, 20_000);
 });
 
 /* ------------------------------------------------------------------ *
@@ -222,10 +248,16 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     const { encoded } = stubBrowserImaging();
     source("Upload");
     uploadSignature("first.jpg");
-    const keep = await screen.findByRole("checkbox", {
-      name: "Remove paper background",
+    const keep = await screen.findByRole(
+      "checkbox",
+      {
+        name: "Remove paper background",
+      },
+      { timeout: WAIT_MS },
+    );
+    await vi.waitFor(() => expect(encoded.length).toBe(1), {
+      timeout: ENCODE_MS,
     });
-    await vi.waitFor(() => expect(encoded.length).toBe(1), { timeout: 5000 });
     expect(encoded[0]!.width / encoded[0]!.height).toBeCloseTo(
       encodedAspect(PHOTO),
       1,
@@ -242,10 +274,16 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     uploadSignature("second.jpg");
 
     // While it decodes, the FIRST signature must not be the one used.
-    await vi.waitFor(() => expect(held!.length).toBe(1), { timeout: 5000 });
+    await vi.waitFor(() => expect(held!.length).toBe(1), {
+      timeout: ENCODE_MS,
+    });
     useSignature();
     expect(
-      await screen.findByText("Choose a picture of your signature first."),
+      await screen.findByText(
+        "Choose a picture of your signature first.",
+        {},
+        { timeout: WAIT_MS },
+      ),
       "the previous file would have been used",
     ).toBeInTheDocument();
     expect(placing()).toBe(false);
@@ -257,7 +295,9 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     release.forEach((load) => load());
 
     // The second file lands, honouring the toggle; the first is not re-encoded.
-    await vi.waitFor(() => expect(encoded.length).toBe(2), { timeout: 5000 });
+    await vi.waitFor(() => expect(encoded.length).toBe(2), {
+      timeout: ENCODE_MS,
+    });
     expect(
       encoded.slice(1).map((e) => ({
         type: e.type,
@@ -267,9 +307,11 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
       { type: "image/jpeg", aspect: Number(encodedAspect(second).toFixed(1)) },
     ]);
     // Positive control: once its preview shows, it is the one used.
-    await screen.findByAltText("Signature preview");
+    await screen.findByAltText("Signature preview", {}, { timeout: WAIT_MS });
     useSignature();
-    await vi.waitFor(() => expect(placing()).toBe(true), { timeout: 5000 });
+    await vi.waitFor(() => expect(placing()).toBe(true), {
+      timeout: ENCODE_MS,
+    });
   }, 30_000);
 
   it("decodes at a bounded size, crops to the ink, and keys out the paper — or keeps it as a JPEG", async () => {
@@ -290,9 +332,13 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
       },
     });
 
-    const keep = await screen.findByRole("checkbox", {
-      name: "Remove paper background",
-    });
+    const keep = await screen.findByRole(
+      "checkbox",
+      {
+        name: "Remove paper background",
+      },
+      { timeout: WAIT_MS },
+    );
     expect(keep).toBeChecked();
 
     // Decoded at 3000 px on the long side, not the photo's 8000.
@@ -301,7 +347,9 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     // Encoded: the ink (1500 × 225 at that size) plus 3 % of 1500 = 45 px on
     // each side, bounded to 1200 px — as a PNG, because the paper is now
     // transparent. The whole photo would have been 3000 × 2250.
-    await vi.waitFor(() => expect(encoded.length).toBe(1), { timeout: 5000 });
+    await vi.waitFor(() => expect(encoded.length).toBe(1), {
+      timeout: ENCODE_MS,
+    });
     const keyed = encoded[0]!;
     expect(keyed.type).toBe("image/png");
     expect(keyed.width).toBe(1200);
@@ -310,7 +358,9 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     // Paper kept: still cropped and bounded, but a JPEG — not a lossless PNG
     // of a photograph.
     fireEvent.click(keep);
-    await vi.waitFor(() => expect(encoded.length).toBe(2), { timeout: 5000 });
+    await vi.waitFor(() => expect(encoded.length).toBe(2), {
+      timeout: ENCODE_MS,
+    });
     expect(encoded[1]).toEqual({ ...keyed, type: "image/jpeg" });
     expect(screen.getByAltText("Signature preview")).toBeInTheDocument();
     // Budget, not assertion (2026-10-30): up to 3.4 s on CI's slower 4-vCPU
@@ -347,7 +397,9 @@ describe("Sign PDF says when 'Save for next time' could not save", () => {
     // "Use signature", pressed directly: the file's `useSignature` helper is
     // a hook by name to the linter when called from another helper.
     fireEvent.click(screen.getByRole("button", { name: "Use signature" }));
-    await vi.waitFor(() => expect(editorSaid()).toBeDefined());
+    await vi.waitFor(() => expect(editorSaid()).toBeDefined(), {
+      timeout: WAIT_MS,
+    });
     return editorSaid()!;
   }
 
@@ -368,14 +420,14 @@ describe("Sign PDF says when 'Save for next time' could not save", () => {
     expect(said).toMatch(/^Signature ready: tap or click a page to place it\./);
     expect(said).toMatch(/couldn.t be saved for next time/);
     expect(said).toMatch(/storage is full or blocked/);
-  });
+  }, 20_000);
 
   it("CONTROL: storage that keeps it — no notice", async () => {
     const said = await typeAndUse();
     expect(said).toBe("Signature ready: tap or click a page to place it");
     // Health check: the save really happened, so the control is not vacuous.
     expect(localStorage.length).toBeGreaterThan(0);
-  });
+  }, 20_000);
 });
 
 /*
@@ -415,10 +467,13 @@ describe("Sign PDF repeats a signature on every page", () => {
       { name: "Page 1 of 3" },
       { timeout: 8000 },
     );
-    await vi.waitFor(() => {
-      fireEvent.pointerDown(page1, { button: 0, clientX: 5, clientY: 5 });
-      expect(screen.getByLabelText("Repeat on")).toBeTruthy();
-    });
+    await vi.waitFor(
+      () => {
+        fireEvent.pointerDown(page1, { button: 0, clientX: 5, clientY: 5 });
+        expect(screen.getByLabelText("Repeat on")).toBeTruthy();
+      },
+      { timeout: WAIT_MS },
+    );
     fireEvent.click(screen.getByRole("button", { name: "Repeat" }));
     fireEvent.click(screen.getByRole("button", { name: /Apply & download/ }));
     await vi.waitFor(() => expect(blobs.length).toBeGreaterThan(0), {
@@ -490,15 +545,18 @@ describe("Sign PDF countersigns without breaking an earlier signature", () => {
     );
     const apply = () =>
       screen.getByRole("button", { name: /Apply & download/ });
-    await vi.waitFor(() => {
-      if (
-        apply().hasAttribute("disabled") ||
-        apply().getAttribute("aria-disabled") === "true"
-      )
-        fireEvent.pointerDown(page1, { button: 0, clientX: 5, clientY: 5 });
-      expect(apply().hasAttribute("disabled")).toBe(false);
-      expect(apply().getAttribute("aria-disabled")).not.toBe("true");
-    });
+    await vi.waitFor(
+      () => {
+        if (
+          apply().hasAttribute("disabled") ||
+          apply().getAttribute("aria-disabled") === "true"
+        )
+          fireEvent.pointerDown(page1, { button: 0, clientX: 5, clientY: 5 });
+        expect(apply().hasAttribute("disabled")).toBe(false);
+        expect(apply().getAttribute("aria-disabled")).not.toBe("true");
+      },
+      { timeout: WAIT_MS },
+    );
     fireEvent.click(apply());
     await vi.waitFor(() => expect(blobs.length).toBeGreaterThan(0), {
       timeout: 15000,
@@ -527,7 +585,11 @@ describe("Sign PDF countersigns without breaking an earlier signature", () => {
       .join("\n");
     expect(text).toMatch(/\bTj\b|\bTJ\b/);
     expect(
-      await screen.findByText(/1 existing signature left intact/),
+      await screen.findByText(
+        /1 existing signature left intact/,
+        {},
+        { timeout: WAIT_MS },
+      ),
     ).toBeTruthy();
   }, 60_000);
 });
@@ -580,13 +642,16 @@ describe("A redaction on a signed PDF rewrites it, and says so", () => {
       { timeout: 8000 },
     );
     expect(container.querySelector("[data-signed-rewrite]")).toBeNull();
-    await vi.waitFor(() => {
-      if (!container.querySelector("[data-signed-rewrite]")) {
-        fireEvent.pointerDown(page1, { button: 0, clientX: 40, clientY: 40 });
-        fireEvent.pointerUp(window, { button: 0, clientX: 40, clientY: 40 });
-      }
-      expect(container.querySelector("[data-signed-rewrite]")).not.toBeNull();
-    });
+    await vi.waitFor(
+      () => {
+        if (!container.querySelector("[data-signed-rewrite]")) {
+          fireEvent.pointerDown(page1, { button: 0, clientX: 40, clientY: 40 });
+          fireEvent.pointerUp(window, { button: 0, clientX: 40, clientY: 40 });
+        }
+        expect(container.querySelector("[data-signed-rewrite]")).not.toBeNull();
+      },
+      { timeout: WAIT_MS },
+    );
     expect(
       container.querySelector("[data-signed-rewrite]")!.textContent,
     ).toMatch(/a redaction.*will no longer verify/s);
@@ -603,7 +668,11 @@ describe("A redaction on a signed PDF rewrites it, and says so", () => {
         out.subarray(0, original.length).every((v, i) => v === original[i]),
     ).toBe(false);
     expect(
-      await screen.findByText(/1 existing signature no longer verifies/),
+      await screen.findByText(
+        /1 existing signature no longer verifies/,
+        {},
+        { timeout: WAIT_MS },
+      ),
     ).toBeTruthy();
     expect(screen.queryByText(/left intact/)).toBeNull();
   }, 60_000);

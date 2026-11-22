@@ -36,6 +36,18 @@ import { selectExtraction } from "@/lib/pdf/page-selection";
 import { summarizeRunDeps } from "@/lib/workers/summarize-client";
 import { SummarizeWorkerPanel } from "./summarize-worker-panel";
 
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
+ *
+ * CI: the slowest test here took 675 ms (run 44331878323, a passing run; 108 CI
+ * runs, passing and failing, to 11-21). A wait cannot outlast its test, so 3 s
+ * is at least 4.4x any wait in it, and it stays below the test's own timeout,
+ * so a wait that times out fails with its DOM dump.
+ */
+const WAIT_MS = 3_000;
+
 /** What the stubbed extractor does in the current test. */
 const extraction = {
   run: (async () => {
@@ -139,11 +151,14 @@ async function summarize() {
       <SummarizeWorkerPanel tool={tool} />
     </InToolPage>,
   );
-  const input = await waitFor(() => {
-    const found = document.querySelector('input[type="file"]');
-    if (!found) throw new Error("no input");
-    return found;
-  });
+  const input = await waitFor(
+    () => {
+      const found = document.querySelector('input[type="file"]');
+      if (!found) throw new Error("no input");
+      return found;
+    },
+    { timeout: WAIT_MS },
+  );
   fireEvent.change(input, {
     target: {
       files: [
@@ -154,7 +169,7 @@ async function summarize() {
     },
   });
   fireEvent.click(screen.getByRole("button", { name: /summarize pdf/i }));
-  return screen.findByRole("alert");
+  return screen.findByRole("alert", {}, { timeout: WAIT_MS });
 }
 
 afterEach(() => {

@@ -576,10 +576,16 @@ export function SummaryResultBody({
     </DownloadCta>
   );
 
+  // `data-summary-read` says whether the read has settled: before it and
+  // after a read that found no summary, this card is the same, so a test of
+  // "claims no summary" waits on this instead of a sleep.
   if (!summary || !views) {
     return (
       <>
-        <p className="text-ok text-sm">
+        <p
+          className="text-ok text-sm"
+          data-summary-read={read?.from === output ? "unavailable" : "pending"}
+        >
           Your AI summary package is ready — the summary in Markdown and plain
           text, plus a manifest recording the model and honest scope.
         </p>
@@ -600,7 +606,7 @@ export function SummaryResultBody({
   });
   return (
     <>
-      <p className="text-ok text-sm">
+      <p className="text-ok text-sm" data-summary-read="shown">
         Your AI summary is ready — read it below, copy it, or save it as plain
         text or Markdown. The ZIP adds a manifest recording the model and honest
         scope.

@@ -21,6 +21,23 @@ import {
 } from "@/lib/pdf/grayscale";
 import { ToolRunner } from "./tool-runner";
 import { runnerMounted } from "@/tests/runner-mounted";
+import { observeFor } from "@/tests/time-bound";
+
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
+ *
+ * CI: the wait-headroom blocks of the 5 instrumented runs (44917160721,
+ * 44924793701, 44931945692, 44938151052, 44941026100) list no wait in this file
+ * above 500 ms, half the 1 s default most of them ran under. Its slowest test
+ * took 1888 ms (run 44899669004, a passing run, "Cancel while busy stops
+ * rendering"; 108 CI runs, passing and failing, to 11-21), most of it outside
+ * any wait, so the test alone does not hold its waits to 2x. 3 s is 6x the
+ * waits seen (five samples; re-harvest before tightening), and stays below
+ * every test's own timeout, so a wait that times out fails with its DOM dump.
+ */
+const WAIT_MS = 3_000;
 
 /**
  * The Grayscale PDF tool, driven the way a visitor drives it, with the Title
@@ -226,10 +243,14 @@ async function convertThroughTheUi(
   });
   fireEvent.change(input!, { target: { files: [file] } });
 
-  const run = await screen.findByRole("button", {
-    name: /convert to grayscale/i,
-  });
-  await waitFor(() => expect(run).toBeEnabled());
+  const run = await screen.findByRole(
+    "button",
+    {
+      name: /convert to grayscale/i,
+    },
+    { timeout: WAIT_MS },
+  );
+  await waitFor(() => expect(run).toBeEnabled(), { timeout: WAIT_MS });
   if (preset !== undefined) {
     const radio = screen.getByRole("radio", { name: preset });
     fireEvent.click(radio);
@@ -365,7 +386,11 @@ describe("grayscale-pdf: the 300 DPI preset reaches the page images", () => {
         ],
       },
     });
-    await screen.findByRole("button", { name: /convert to grayscale/i });
+    await screen.findByRole(
+      "button",
+      { name: /convert to grayscale/i },
+      { timeout: WAIT_MS },
+    );
     const region = container.querySelector(
       '[aria-live="polite"][data-preset-tradeoff]',
     );
@@ -459,10 +484,14 @@ describe("grayscale-pdf: Cancel stops the run", () => {
         ],
       },
     });
-    const run = await screen.findByRole("button", {
-      name: /convert to grayscale/i,
-    });
-    await waitFor(() => expect(run).toBeEnabled());
+    const run = await screen.findByRole(
+      "button",
+      {
+        name: /convert to grayscale/i,
+      },
+      { timeout: WAIT_MS },
+    );
+    await waitFor(() => expect(run).toBeEnabled(), { timeout: WAIT_MS });
     const before = canvasesMade;
     fireEvent.click(run);
     // Rendering is under way: two pages drawn, most still to come.
@@ -489,14 +518,22 @@ describe("grayscale-pdf: Cancel stops the run", () => {
     const atCancel = canvasesMade - before;
     expect(atCancel, "the run finished before Cancel").toBeLessThan(PAGES);
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: /convert to grayscale/i }),
-      ).toBeEnabled(),
+    await waitFor(
+      () =>
+        expect(
+          screen.getByRole("button", { name: /convert to grayscale/i }),
+        ).toBeEnabled(),
+      { timeout: WAIT_MS },
     );
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
-    // Long enough for several more pages, had the renderer not been told.
-    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    // Long enough for several more pages, had the renderer not been told: a
+    // declared absence window, as main had (the whole test took 1888 ms at
+    // most on CI, run 44899669004).
+    await observeFor(
+      "grayscale-cancel-stops-rendering",
+      1_500,
+      "after Cancel, no further page is rendered",
+    );
     // At most the page already being drawn when Cancel was pressed.
     expect(canvasesMade - before).toBeLessThanOrEqual(atCancel + 1);
     expect(
