@@ -297,7 +297,7 @@ function toSpec(p: Pending, name: string): NewTextField | NewCheckBoxField {
     height: p.height,
   };
   return p.type === "text"
-    ? { type: "text", ...at }
+    ? { type: "text", ...at, ...(p.multiline ? { multiline: true } : {}) }
     : { type: "checkbox", ...at, checked: false };
 }
 
@@ -357,6 +357,8 @@ export interface DraftLike {
   y: number;
   width: number;
   height: number;
+  /** A text card's "Multiple lines" (a multiline suggestion turns it on). */
+  multiline?: boolean;
 }
 
 /** The suggestions waiting, and a note from the last Add, if any. */
@@ -445,7 +447,18 @@ export function addKeys<D extends DraftLike>(f: Finder<D>, keys: string[]) {
   );
   const made = added.map(({ spec }) => {
     const { type, name, page, x, y, width, height } = spec;
-    return { ...f.make(`s${++series}`), type, name, page, x, y, width, height };
+    const multiline = spec.type === "text" && spec.multiline === true;
+    return {
+      ...f.make(`s${++series}`),
+      type,
+      name,
+      page,
+      x,
+      y,
+      width,
+      height,
+      multiline,
+    };
   });
   // The starter card goes only when something takes its place: a refused
   // Add left the builder with no card at all (review round 7).

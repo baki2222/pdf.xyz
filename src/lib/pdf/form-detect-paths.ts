@@ -88,6 +88,12 @@ export interface PathScan {
   rects: Rect[];
   /** Boxes images were painted into (for the "likely a scan" outcome). */
   images: ImageBox[];
+  /**
+   * The bounding boxes (control points included) of painted subpaths with a
+   * curve in them: a logo, a pie, a seal, a scribble. Never rules or boxes;
+   * read only to ask whether an outlined box holds something.
+   */
+  curves: ImageBox[];
   /** Operators walked. */
   ops: number;
   /**
@@ -323,6 +329,8 @@ interface SubPath {
   closed: boolean;
   /** A curve was part of it: never a rectangle. */
   curved: boolean;
+  /** Every point's box, control points included (a curve's hull). */
+  box: [number, number, number, number];
 }
 
 /** Split DrawOPS path data into subpaths under `m`. */
@@ -332,8 +340,21 @@ function subPaths(data: ArrayLike<number>, m: Matrix): SubPath[] {
   let start: [number, number] = [0, 0];
   let at: [number, number] = [0, 0];
   const open = (p: [number, number]) => {
-    cur = { pts: [p], lines: [], closed: false, curved: false };
+    cur = {
+      pts: [p],
+      lines: [],
+      closed: false,
+      curved: false,
+      box: [...p, ...p],
+    };
     out.push(cur);
+  };
+  const grow = (sp: SubPath, [x, y]: [number, number]) => {
+    const b = sp.box;
+    b[0] = Math.min(b[0], x);
+    b[1] = Math.min(b[1], y);
+    b[2] = Math.max(b[2], x);
+    b[3] = Math.max(b[3], y);
   };
   for (let i = 0; i < data.length;) {
     const op = data[i++]!;
@@ -347,13 +368,15 @@ function subPaths(data: ArrayLike<number>, m: Matrix): SubPath[] {
       const sp = cur as unknown as SubPath;
       sp.pts.push(p);
       sp.lines.push([sp.pts.length - 2, sp.pts.length - 1]);
+      grow(sp, p);
       at = p;
     } else if (op === 2 || op === 3) {
       const n = op === 2 ? 3 : 2;
-      let end: [number, number] = at;
-      for (let k = 0; k < n; k++) end = apply(m, data[i++]!, data[i++]!);
       if (!cur) open(at);
       const sp = cur as unknown as SubPath;
+      let end: [number, number] = at;
+      for (let k = 0; k < n; k++)
+        grow(sp, (end = apply(m, data[i++]!, data[i++]!)));
       sp.curved = true;
       // The curve ends the straight run: the next lineTo starts from its end.
       sp.pts.push(end);
@@ -411,6 +434,7 @@ export function scanPaths(
   const segs: Seg[] = [];
   const rects: Rect[] = [];
   const images: ImageBox[] = [];
+  const curves: ImageBox[] = [];
   let painted = 0;
   let ignored = 0;
   let capped: PathScan["capped"] = false;
@@ -589,6 +613,13 @@ export function scanPaths(
     for (const sp of subPaths(data as ArrayLike<number>, st.ctm)) {
       // A fill closes every subpath, `h` or not (PDF 32000-1 8.5.3.3).
       const r = asRect(filled ? { ...sp, closed: true } : sp);
+      // Its straight runs are still read below, as before; the curves'
+      // boxes are a work-bounded extra (never past the primitive cap's
+      // count), so a page of outlined glyphs caps nothing it did not.
+      if (sp.curved && curves.length < maxPrimitives) {
+        const [x0, y0, x1, y1] = sp.box;
+        curves.push({ x0, y0, x1, y1 });
+      }
       if (r) {
         // Its level edges and its plumb edges.
         pushRect(r, across(1, 0), across(0, 1), stroked, filled, lum);
@@ -706,5 +737,5 @@ export function scanPaths(
     }
   }
 
-  return { segs, rects, images, ops: i, painted, ignored, capped };
+  return { segs, rects, images, curves, ops: i, painted, ignored, capped };
 }
