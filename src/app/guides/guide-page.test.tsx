@@ -169,7 +169,10 @@ describe("guide body copy is set for reading", () => {
       if (!article || !steps || after.length === 0) wrong.push(slug);
     }
     expect(wrong).toEqual([]);
-  });
+    // Renders every guide, as the test above: CI max 2,237 ms over 31 runs
+    // (43629904891), 2,057 ms on 11-21 (44893447461), of the old 5 s default.
+    // 30 s as the test above (cbb7e3bd).
+  }, 30_000);
 });
 
 describe("the policy pages keep the measure their shell promises", () => {

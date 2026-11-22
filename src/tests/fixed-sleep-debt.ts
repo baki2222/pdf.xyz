@@ -7,7 +7,7 @@
  * becoming event-driven, or a declared observation window (`observeFor`).
  * Held both ways by wall-clock-bounds.test.ts.
  */
-export const FIXED_SLEEP_DEBT_CEILING = 117;
+export const FIXED_SLEEP_DEBT_CEILING = 116;
 
 /** lane, file, occurrence index, collapsed snippet — one per line. */
 export const FIXED_SLEEP_DEBT_TSV = `
@@ -123,7 +123,6 @@ export const FIXED_SLEEP_DEBT_TSV = `
 4	src/components/tools/runner/use-batch-runner.test.tsx	0	new Promise((r) => setTimeout(r, 100))
 4	src/components/tools/runner/use-batch-runner.test.tsx	0	new Promise((r) => setTimeout(r, 50))
 4	src/components/tools/summary-result.test.tsx	0	new Promise((resolve) => setTimeout(resolve, 20))
-1a	src/lib/workers/engines-honour-abort.test.ts	0	new Promise((resolve) => setTimeout(resolve, 750))
 1a	src/lib/workers/slot-upload.test.ts	0	new Promise((r) => setTimeout(r, 5))
 1a	src/tests/long-child.ts	0	new Promise((resolve) => setTimeout(resolve, 20))
 1a	src/tests/long-child.ts	1	new Promise((resolve) => setTimeout(resolve, 20))
