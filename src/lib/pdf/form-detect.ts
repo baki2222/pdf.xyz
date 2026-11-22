@@ -535,6 +535,27 @@ export const DETECT_COMBS = {
    */
   COMB_CAPTION_ABOVE: 14,
   /**
+   * A comb row's label on its LEFT: the nearest upright lettered text on
+   * its row ending at most this far from the first box, with no printed
+   * line or square between them. Within `DETECT.LABEL_LEFT_GAP` it wins;
+   * farther, a caption over the row wins over it. Review round 1 of S6:
+   * the search had no limit, so in a two-column form "Name ____" named a
+   * comb captioned "PIN" 260 pt away, and "Office use only" one 430 pt
+   * away.
+   */
+  COMB_LABEL_GAP: 180,
+  /**
+   * A SCALE, not a comb: two or more DISTINCT heads ("1 2 3 4 5",
+   * "Strongly disagree ... Strongly agree") on one baseline over a run,
+   * up to this far over its top, the run's stack sharing them (runs of one
+   * x, length and cell size, each at most COMB_STACK_GAP_CELLS cells under
+   * the one above). A rating row is ticked once, never typed into, so its
+   * boxes stay `comb`. Heads that repeat ("D D M M") or are a date's
+   * ("DD", "MM", "YYYY") are no scale. Review round 1 of S6.
+   */
+  COMB_SCALE_ABOVE: 40,
+  COMB_STACK_GAP_CELLS: 2,
+  /**
    * A RADIO STACK: RADIO_MIN or more equal squares in one column, each
    * labelled on its right with a label of its own, each the next one's
    * pitch apart with a gap of RADIO_STACK_GAP +- RADIO_GAP_EPS: one radio
@@ -549,7 +570,47 @@ export const DETECT_COMBS = {
   RADIO_GAP_EPS: 1,
   /** A stack's caption: upright text whose descent is 0 to this over its top square. */
   RADIO_CAPTION_ABOVE: 14,
+  /**
+   * Text up to this far over a stack that asks for more than one answer
+   * ({@link MULTI_ANSWER}: "Tick all that apply") leaves it checkboxes, as
+   * do options in the first person ({@link OWN_CHOICE}: "I agree to the
+   * terms"). Two stacks side by side on the same rows stay checkboxes too,
+   * unless each has a caption of its own (a list in columns). A radio
+   * group allows ONE answer, so a multi-answer list made one would lose
+   * answers. Review round 1 of S6, false-positives HIGH.
+   */
+  RADIO_VETO_ABOVE: 28,
+  /**
+   * The builder stacks buttons at whole points, RADIO_STACK_GAP apart, so
+   * at a fractional pitch they drift off the printed squares row by row: a
+   * stack whose buttons' centres would fall farther than this from their
+   * squares' stays checkboxes. Review round 1 of S6 (8 options at a 17.5
+   * pt pitch hung 3.8 pt off the last square).
+   */
+  RADIO_CENTRE_EPS: 1,
 } as const;
+
+/**
+ * Words over an option stack that ask for MORE than one answer: each shape
+ * a way of saying it, each caught by one of form-detect-combs.test.ts'
+ * multi-answer captions, and each of those caught (house rule 1).
+ */
+export const MULTI_ANSWER: readonly RegExp[] = [
+  // Plural only: "Which of these applies to you?" asks for one.
+  /\b(?:that|which) apply\b/i,
+  // Not "Select any one", which asks for one.
+  /\b(?:tick|check|select|choose|mark|circle)\s+(?:all|any|each|every|several|multiple)\b(?!\s+one\b)/i,
+  /\b(?:one or more|more than one|as many as)\b/i,
+];
+
+/**
+ * Options that are the person's own statement, ticked each on its own
+ * ("I agree to the terms", "Send me the newsletter"), never one of a set.
+ */
+export const OWN_CHOICE: readonly RegExp[] = [
+  /^(?:I|we)\b/i,
+  /^(?:send|email|keep|sign|add|contact|call|text) me\b/i,
+];
 
 /** Box symbols, empty: a ballot box and a white square. */
 export const EMPTY_BOXES: readonly string[] = [cp(0x2610), cp(0x25a1)];
@@ -3326,9 +3387,23 @@ function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
     lGap: number;
   };
   const sides = new Map<CardRect, Sides>();
+  // Each square's side text read from its baseline band, in page order, so
+  // every test and tie-break is unchanged: scanning every text item for
+  // every square was quadratic on a page of labelled squares (S6 review
+  // round 1; form-detect-combs-cost.test.ts read 70x at 16x the page).
+  const tix = textIndex(p.text);
   for (const sq of lines.squares) {
     const right: LabelHit[] = [];
-    for (const t of p.text) {
+    const band = ySlice(
+      tix,
+      sq.y0 -
+        Math.max(
+          DETECT.RUN_BASELINE_EMS * tix.maxSize,
+          12 * DETECT.RUN_BASELINE_EMS,
+        ),
+      sq.y1,
+    );
+    for (const t of band) {
       const gap = t.x - sq.x1;
       if (gap < -1 || gap > DETECT.LABEL_LEFT_GAP) continue;
       if (t.y < sq.y0 - DETECT.RUN_BASELINE_EMS * t.size || t.y > sq.y1)
@@ -3338,7 +3413,7 @@ function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
     }
     right.sort((a, b) => a.text.x - b.text.x);
     const left = leftOf(
-      p.text,
+      band,
       sq.x0,
       DETECT.LABEL_LEFT_GAP,
       sq.y0 - DETECT.RUN_BASELINE_EMS * 12,
@@ -4585,34 +4660,126 @@ function rightLabel(tix: TextIndex, sq: CardRect): LabelHit | undefined {
   return hits.find((h) => h.text.upright);
 }
 
+/** A date's position heads ("DD", "MM", "YYYY"), which differ yet are no scale. */
+const DATE_HEAD = /^(?:d+|m+|y+)$/i;
+
+/**
+ * Comb runs that are a SCALE's ({@link DETECT_COMBS}.COMB_SCALE_ABOVE): a
+ * rating row of touching boxes under distinct heads, and every run in its
+ * STACK (same first x, cell count and cell size, each at most
+ * COMB_STACK_GAP_CELLS cells under the one above), which shares the top
+ * run's heads. The heads are the upright text items centred over the top
+ * run, on the lowest baseline over it (within `DETECT.GRID_ROW_EPS`), up
+ * to COMB_SCALE_ABOVE over it: two or more, all different, not all a
+ * date's. Review round 1 of S6: three "Strongly disagree ... Strongly
+ * agree" rows of five touching boxes became 5-character text fields.
+ */
+function scaleRuns(
+  tix: TextIndex,
+  runs: readonly CardRect[][],
+): Set<CardRect[]> {
+  const eps = DETECT.COMB_EPS;
+  const side = (r: CardRect[]) => r[0]!.x1 - r[0]!.x0;
+  const top = (r: CardRect[]) => Math.max(...r.map((s) => s.y1));
+  const bottom = (r: CardRect[]) => Math.min(...r.map((s) => s.y0));
+  const out = new Set<CardRect[]>();
+  // Columns by first x (within COMB_EPS of the group's first), then by
+  // cell count and size; each column's runs top down, chained.
+  const byX: CardRect[][][] = [];
+  for (const r of [...runs].sort((a, b) => a[0]!.x0 - b[0]!.x0)) {
+    const g = byX[byX.length - 1];
+    if (g && r[0]!.x0 - g[0]![0]!.x0 <= eps) g.push(r);
+    else byX.push([r]);
+  }
+  const heads = (r: CardRect[]): boolean => {
+    const y1 = top(r);
+    const x0 = r[0]!.x0;
+    const x1 = r[r.length - 1]!.x1;
+    const over = ySlice(tix, y1, y1 + DETECT_COMBS.COMB_SCALE_ABOVE).filter(
+      (t) => {
+        const c = t.x + Math.max(0, t.width) / 2;
+        return t.upright && t.y > y1 && c >= x0 && c <= x1 && cleanLabel(t.str);
+      },
+    );
+    if (over.length < 2) return false;
+    const base = Math.min(...over.map((t) => t.y));
+    const strs = over
+      .filter((t) => t.y - base <= DETECT.GRID_ROW_EPS)
+      .map((t) => cleanLabel(t.str)!);
+    return (
+      strs.length >= 2 &&
+      new Set(strs).size === strs.length &&
+      !strs.every((s) => DATE_HEAD.test(s))
+    );
+  };
+  for (const g of byX) {
+    const kinds = new Map<number, CardRect[][]>();
+    for (const r of g) {
+      const k = kinds.get(r.length);
+      if (k) k.push(r);
+      else kinds.set(r.length, [r]);
+    }
+    for (const same of kinds.values()) {
+      same.sort((a, b) => side(a) - side(b) || top(b) - top(a));
+      let stack: CardRect[][] = [];
+      const close = () => {
+        if (stack.length > 0 && heads(stack[0]!))
+          for (const r of stack) out.add(r);
+        stack = [];
+      };
+      for (const r of same) {
+        const prev = stack[stack.length - 1];
+        if (
+          prev &&
+          Math.abs(side(r) - side(prev)) <= eps &&
+          bottom(prev) - top(r) <=
+            DETECT_COMBS.COMB_STACK_GAP_CELLS * side(prev) + 1e-9
+        )
+          stack.push(r);
+        else {
+          close();
+          stack = [r];
+        }
+      }
+      close();
+    }
+  }
+  return out;
+}
+
 /**
  * Slice S6, combs: ROWS of comb runs ({@link combRuns} of COMB_MIN or
  * more, every cell outlined and unfilled, none a headed grid's cell, none
  * on graph paper), runs on one row joined when they stand up to
  * COMB_GROUP_GAP_CELLS cell widths apart with nothing lettered between
- * them (a date's "DD / MM / YYYY"). A row of COMB_FIELD_MIN or more cells
- * with a label (the nearest upright lettered text to its left on its row,
- * at any distance; else a caption over it, wider than one cell, see
- * {@link DETECT_COMBS}) gives one text field per run, over the run edge to
- * edge, limited to its cell count, named from that label. Its cells are
- * `used`: no checkbox and no `comb` for them. Any other row is left to the
- * square rules, which exclude its cells as `comb`.
+ * them (a date's "DD / MM / YYYY"); runs under a scale's heads are no
+ * comb ({@link scaleRuns}). A row of COMB_FIELD_MIN or more cells with a
+ * label gives one text field per run, over the run edge to edge, limited
+ * to its cell count, named from that label: the nearest upright lettered
+ * text to its left on its row, when it ends within LABEL_LEFT_GAP; else a
+ * caption over the row, wider than one cell; else that left text if it
+ * ends within COMB_LABEL_GAP with no printed line or square between (see
+ * {@link DETECT_COMBS}). Its cells are `used`: no checkbox and no `comb`
+ * for them. Any other row is left to the square rules, which exclude its
+ * cells as `comb`.
  */
 function combFields(
   tix: TextIndex,
   runs: readonly CardRect[][],
-  squares: readonly CardRect[],
+  lines: PageLines,
   gridCell: ReadonlySet<CardRect>,
 ): { cands: Candidate[]; used: Set<CardRect> } {
   const eps = DETECT.COMB_EPS;
   const side = (s: CardRect) => s.x1 - s.x0;
-  const stacked = stackedSquares(squares);
-  const ok = runs.filter(
+  const stacked = stackedSquares(lines.squares);
+  const shaped = runs.filter(
     (r) =>
       r.length >= DETECT.COMB_MIN &&
       r.every((s) => s.stroked && !s.filled && !gridCell.has(s)) &&
       !r.some((s) => stacked.has(s)),
   );
+  const scale = scaleRuns(tix, shaped);
+  const ok = shaped.filter((r) => !scale.has(r));
   // Rows: runs by bottom (within COMB_EPS of the band's first), then by x.
   ok.sort((a, b) => a[0]!.y0 - b[0]!.y0);
   const rows: CardRect[][][] = [];
@@ -4653,6 +4820,35 @@ function combFields(
   }
   const cands: Candidate[] = [];
   const used = new Set<CardRect>();
+  // Rules and squares by height, built on first need (most pages have no
+  // comb row), so asking what stands between a label and its row is a
+  // band lookup, never a scan of the page per row.
+  let byY: { rules: YIndex<Line>; squares: YIndex<CardRect> } | undefined;
+  const between = (x: number, first: CardRect): boolean => {
+    byY ??= {
+      rules: yIndex(
+        lines.rules,
+        (r) => r.y,
+        () => 0,
+      ),
+      squares: yIndex(
+        lines.squares,
+        (s) => s.y0,
+        () => 0,
+      ),
+    };
+    if (
+      ySlice(byY.rules, first.y0 - 3, first.y1 + 1).some(
+        (r) => overlap(r.x0, r.x1, x, first.x0) > 1,
+      )
+    )
+      return true;
+    return ySlice(byY.squares, first.y0 - DETECT.SQUARE_MAX, first.y1).some(
+      (s) =>
+        overlap(s.y0, s.y1, first.y0, first.y1) > 0 &&
+        overlap(s.x0, s.x1, x, first.x0 - eps) > 0,
+    );
+  };
   for (const row of rows) {
     const cells = row.flat();
     if (cells.length < DETECT_COMBS.COMB_FIELD_MIN) continue;
@@ -4661,25 +4857,31 @@ function combFields(
     const right = lastRun[lastRun.length - 1]!.x1;
     const top = Math.max(...cells.map((s) => s.y1));
     const lo = first.y0 - DETECT.RUN_BASELINE_EMS * 12;
-    const left = leftOf(
+    let left = leftOf(
       ySlice(tix, lo, first.y1),
       first.x0,
-      Infinity,
+      DETECT_COMBS.COMB_LABEL_GAP,
       lo,
       () => first.y1,
     ).find((h) => h.text.upright && LETTER.test(h.str));
-    let label = left?.str ?? null;
-    if (!label) {
-      const span = first.x0 + DETECT.CAPTION_SPAN * (right - first.x0);
-      let best: CardText | undefined;
+    // A printed line or square between it and the row: it labels that.
+    if (left && between(left.text.x + Math.max(0, left.text.width), first))
+      left = undefined;
+    const near =
+      left !== undefined &&
+      first.x0 - (left.text.x + Math.max(0, left.text.width)) <=
+        DETECT.LABEL_LEFT_GAP;
+    const span = first.x0 + DETECT.CAPTION_SPAN * (right - first.x0);
+    let caption: CardText | undefined;
+    if (!near)
       for (const t of ySlice(tix, top, top + DETECT_COMBS.COMB_CAPTION_ABOVE)) {
         if (!t.upright || t.y <= top || !cleanLabel(t.str)) continue;
         if (t.width <= side(first)) continue;
         if (overlap(t.x, t.x + t.width, first.x0, span) <= 0) continue;
-        if (!best || t.y < best.y) best = t;
+        if (!caption || t.y < caption.y) caption = t;
       }
-      label = best ? cleanLabel(best.str) : null;
-    }
+    if (caption) left = undefined;
+    const label = caption ? cleanLabel(caption.str) : (left?.str ?? null);
     if (!label) continue;
     for (const r of row) {
       const a = r[0]!;
@@ -4715,11 +4917,18 @@ function combFields(
  * RADIO_STACK_GAP +- RADIO_GAP_EPS under the one above, each labelled on
  * its right (and that label the one the square rules chose for it), the
  * labels distinct: ONE radio group, its choices those labels top to
- * bottom, named from a caption over the top square if there is one. Its
- * buttons are the printed pitch less the builder's gap, centred on the
- * printed squares, so the builder's own stack (`fieldBoxes`, at
- * RADIO_STACK_GAP) lands where the stack is printed. Any other cluster is
- * left to the square rules: checkboxes.
+ * bottom, named from a caption over the top square if there is one (never
+ * another square's own label). Its buttons are the printed pitch less the
+ * builder's gap, at whole points, centred on the printed squares, so the
+ * builder's own stack (`fieldBoxes`, at RADIO_STACK_GAP) lands where the
+ * stack is printed; where that would put a button farther than
+ * RADIO_CENTRE_EPS from its square (a fractional pitch), it is no group.
+ * Nor is a stack under words asking for more than one answer
+ * ({@link MULTI_ANSWER}), one whose options are the person's own
+ * statements ({@link OWN_CHOICE}), or one of two or more side by side on
+ * the same rows without a caption each (review round 1 of S6). Any other
+ * cluster is left to the square rules: checkboxes. Held by
+ * form-detect-combs.test.ts and form-detect-combs-review.test.ts.
  */
 function radioStacks(
   tix: TextIndex,
@@ -4740,6 +4949,35 @@ function radioStacks(
   }
   const cands: Candidate[] = [];
   const used = new Set<CardRect>();
+  const found: {
+    chain: CardRect[];
+    caption: string | null;
+    cand: Candidate;
+  }[] = [];
+  // The text items that are some square's own label (on its right or its
+  // left, as the square rules chose), read once and only when a stack is
+  // there to ask: a checkbox's "Big" over a stack named the group.
+  let owned: Set<CardText> | undefined;
+  const ownLabels = (): Set<CardText> => {
+    if (owned) return owned;
+    owned = new Set();
+    for (const c of squares) {
+      const sq = c.square;
+      if (!sq || c.labelState !== "found" || !c.label) continue;
+      const r = rightLabel(tix, sq);
+      if (r && r.str === c.label) owned.add(r.text);
+      const lo = sq.y0 - DETECT.RUN_BASELINE_EMS * 12;
+      const l = leftOf(
+        ySlice(tix, lo, sq.y1),
+        sq.x0,
+        DETECT.LABEL_LEFT_GAP,
+        lo,
+        () => sq.y1,
+      ).find((h) => h.text.upright);
+      if (l && l.str === c.label) owned.add(l.text);
+    }
+    return owned;
+  };
   const height = (s: CardRect) => s.y1 - s.y0;
   for (const col of squareGroups([...label.keys()], (s) => s.x0)) {
     col.sort((a, b) => b.y1 - a.y1);
@@ -4761,24 +4999,27 @@ function radioStacks(
       if (chain.length < DETECT_COMBS.RADIO_MIN) continue;
       const options = chain.map((s) => label.get(s)!);
       if (new Set(options).size !== options.length) continue;
+      if (options.some((o) => OWN_CHOICE.some((re) => re.test(o)))) continue;
       const top = chain[0]!;
       const bottom = chain[chain.length - 1]!;
       const x0 = Math.min(...chain.map((s) => s.x0));
       const x1 = Math.max(...chain.map((s) => s.x1));
-      // A caption: upright text whose descent is 0..RADIO_CAPTION_ABOVE
-      // over the top square, across the stack and its labels.
+      // Text over the stack, across it and its labels: a caption (descent
+      // 0..RADIO_CAPTION_ABOVE over the top square, never another square's
+      // own label), and any words up to RADIO_VETO_ABOVE asking for more
+      // than one answer.
       const reach = Math.max(...chain.map((s) => ends.get(s)!));
       let caption: CardText | undefined;
+      let multi = false;
       for (const t of ySlice(
         tix,
         top.y1,
         top.y1 +
-          DETECT_COMBS.RADIO_CAPTION_ABOVE +
+          DETECT_COMBS.RADIO_VETO_ABOVE +
           DETECT.TEXT_DESCENT_EMS * tix.maxSize,
       )) {
         const rise = t.y - DETECT.TEXT_DESCENT_EMS * t.size - top.y1;
-        if (!t.upright || rise < 0 || rise > DETECT_COMBS.RADIO_CAPTION_ABOVE)
-          continue;
+        if (!t.upright || rise < 0) continue;
         if (!cleanLabel(t.str)) continue;
         if (
           overlap(
@@ -4789,31 +5030,89 @@ function radioStacks(
           ) <= 0
         )
           continue;
+        if (
+          rise <= DETECT_COMBS.RADIO_VETO_ABOVE &&
+          MULTI_ANSWER.some((re) => re.test(t.str))
+        )
+          multi = true;
+        if (rise > DETECT_COMBS.RADIO_CAPTION_ABOVE) continue;
+        if (ownLabels().has(t)) continue;
         if (!caption || t.y < caption.y) caption = t;
       }
+      if (multi) continue;
+      // Buttons the printed pitch less the builder's gap, at whole points,
+      // the stack's drift split above and below (anchored on the mean of
+      // where each square puts the top one): any centre farther than
+      // RADIO_CENTRE_EPS from its square's leaves checkboxes.
       const pitch = (top.y0 - bottom.y0) / (chain.length - 1);
-      const side = Math.round(pitch) - DETECT_COMBS.RADIO_STACK_GAP;
-      const bx = Math.round((top.x0 + top.x1) / 2 - side / 2);
-      const by = Math.round((top.y0 + top.y1) / 2 - side / 2);
-      cands.push({
-        rule: "radio-stack",
-        type: "radio",
-        box: { x0, y0: bottom.y0, x1, y1: top.y1 },
-        line: null,
-        square: null,
-        label: caption ? cleanLabel(caption.str) : null,
-        labelState: "found",
-        leftLabel: false,
-        ownPiece: null,
-        order: 0,
-        radio: {
-          options,
-          top: { x0: bx, y0: by, x1: bx + side, y1: by + side },
+      const step = Math.round(pitch);
+      const side = step - DETECT_COMBS.RADIO_STACK_GAP;
+      const mid = (a: number, b: number) => (a + b) / 2;
+      const anchor =
+        chain.reduce((sum, s, k) => sum + mid(s.y0, s.y1) + k * step, 0) /
+        chain.length;
+      const bx = Math.round(mid(top.x0, top.x1) - side / 2);
+      const by = Math.round(anchor - side / 2);
+      const drift = Math.max(
+        ...chain.map((s, k) =>
+          Math.max(
+            Math.abs(bx + side / 2 - mid(s.x0, s.x1)),
+            Math.abs(by + side / 2 - k * step - mid(s.y0, s.y1)),
+          ),
+        ),
+      );
+      if (drift > DETECT_COMBS.RADIO_CENTRE_EPS + 1e-9) continue;
+      found.push({
+        chain,
+        caption: caption ? cleanLabel(caption.str) : null,
+        cand: {
+          rule: "radio-stack",
+          type: "radio",
+          box: { x0, y0: bottom.y0, x1, y1: top.y1 },
+          line: null,
+          square: null,
+          label: caption ? cleanLabel(caption.str) : null,
+          labelState: "found",
+          leftLabel: false,
+          ownPiece: null,
+          order: 0,
+          radio: {
+            options,
+            top: { x0: bx, y0: by, x1: bx + side, y1: by + side },
+          },
+          fixed: true,
         },
-        fixed: true,
       });
-      for (const s of chain) used.add(s);
     }
+  }
+  // Stacks side by side on the same rows (tops and pitch within COMB_EPS,
+  // as many squares): a list in columns, unless each has a caption of its
+  // own. Sorted by top, so each group is a run of neighbours.
+  found.sort((a, b) => a.chain[0]!.y1 - b.chain[0]!.y1);
+  const pitchOf = (c: CardRect[]) =>
+    (c[0]!.y0 - c[c.length - 1]!.y0) / (c.length - 1);
+  for (let i = 0; i < found.length;) {
+    let j = i + 1;
+    const a = found[i]!.chain;
+    while (
+      j < found.length &&
+      found[j]!.chain[0]!.y1 - a[0]!.y1 <= eps &&
+      found[j]!.chain.length === a.length &&
+      Math.abs(pitchOf(found[j]!.chain) - pitchOf(a)) <= eps
+    )
+      j++;
+    const group = found.slice(i, j);
+    const captions = group.map((g) => g.caption);
+    const columns =
+      group.length > 1 &&
+      (captions.some((c) => c === null) ||
+        new Set(captions).size !== captions.length);
+    if (!columns)
+      for (const g of group) {
+        cands.push(g.cand);
+        for (const s of g.chain) used.add(s);
+      }
+    i = j;
   }
   return { cands, used };
 }
@@ -4994,7 +5293,7 @@ export function classifyPage(
   const combs = combFields(
     tix,
     squareRuns,
-    lines.squares,
+    lines,
     new Set(squares.filter((c) => c.gridCell).map((c) => c.square!)),
   );
   const comb = new Set(

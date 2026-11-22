@@ -86,10 +86,17 @@ describe("DETECT_COMBS: the values the brief set, and the builder's gap", () => 
       COMB_FIELD_MIN: 4,
       COMB_GROUP_GAP_CELLS: 1,
       COMB_CAPTION_ABOVE: 14,
+      // Review round 1 (2026-11-22): a left label's reach, a scale's heads
+      // and its stack, the multi-answer window and the drift bound.
+      COMB_LABEL_GAP: 180,
+      COMB_SCALE_ABOVE: 40,
+      COMB_STACK_GAP_CELLS: 2,
       RADIO_MIN: 3,
       RADIO_STACK_GAP: 6,
       RADIO_GAP_EPS: 1,
       RADIO_CAPTION_ABOVE: 14,
+      RADIO_VETO_ABOVE: 28,
+      RADIO_CENTRE_EPS: 1,
     });
   });
 
@@ -312,15 +319,26 @@ describe("comb labels: left on its row, else a caption over it", () => {
     expect(run(pg({ rects: cells, text: heads })).proposals).toEqual([]);
   });
 
-  it("a row label far to the left (the gap is no limit on its own row)", () => {
-    expect(
+  // CHANGED by review round 1 (2026-11-22): this read "a row label far to
+  // the left (the gap is no limit on its own row)", and pinned the defect:
+  // with no limit, "Name ____" in a form's left column named a comb 260 pt
+  // away (captioned "PIN"), and "Office use only" one 430 pt away. The
+  // same label 163 pt away still names it; past COMB_LABEL_GAP it does not.
+  it("a row label far to the left names the row within COMB_LABEL_GAP (180 pt), not past it", () => {
+    const at = (gap: number) =>
       run(
         pg({
           rects: cells,
-          text: [txt("Membership no", 72, 603, { width: 65 })],
+          text: [txt("Membership no", 300 - gap - 65, 603, { width: 65 })],
         }),
-      ).proposals,
-    ).toEqual([expect.objectContaining({ label: "Membership no" })]);
+      ).proposals;
+    expect(at(163)).toEqual([
+      expect.objectContaining({ label: "Membership no" }),
+    ]);
+    expect(at(180)).toEqual([
+      expect.objectContaining({ label: "Membership no" }),
+    ]);
+    expect(at(181)).toEqual([]);
   });
 });
 
@@ -501,7 +519,18 @@ beforeAll(async () => {
 }, 120_000);
 
 /** Radio-shaped cases that must stay checkboxes (each a decision, pinned). */
-const NOT_RADIO = ["P97", "P98", "P99", "P100", "P101"];
+const NOT_RADIO = [
+  "P97",
+  "P98",
+  "P99",
+  "P100",
+  "P101",
+  // Review round 1 (2026-11-22): a multi-answer caption, a consent stack,
+  // a fractional pitch the builder's stack would drift off.
+  "P102",
+  "P103",
+  "P105",
+];
 
 describe("the S6 corpus (health first)", () => {
   it("is exactly these cases, every one in DETECT_CASES, every one run", () => {
@@ -511,6 +540,9 @@ describe("the S6 corpus (health first)", () => {
       "N92",
       "N93",
       "N94",
+      // Review round 1 (2026-11-22).
+      ...Array.from({ length: 5 }, (_, i) => `P${102 + i}`),
+      "N95",
     ]);
     for (const c of COMB_CASES) expect(DETECT_CASES).toContain(c);
     expect(RUNS.size).toBe(COMB_CASES.length);
@@ -521,8 +553,8 @@ describe("the S6 corpus (health first)", () => {
       COMB_CASES.filter((c) =>
         RUNS.get(c.id)!.proposals.some((p) => p.rule === rule),
       ).map((c) => c.id);
-    expect(got("comb-boxes")).toEqual(["P90", "P91", "P92", "P96"]);
-    expect(got("radio-stack")).toEqual(["P93", "P94", "P95"]);
+    expect(got("comb-boxes")).toEqual(["P90", "P91", "P92", "P96", "P106"]);
+    expect(got("radio-stack")).toEqual(["P93", "P94", "P95", "P104"]);
   });
 
   it("health: `comb` still decides negatives here (the exclusion lives on for short and unlabelled runs, and graph paper)", () => {
@@ -532,7 +564,7 @@ describe("the S6 corpus (health first)", () => {
         c.at &&
         decidingAt(RUNS.get(c.id)!, c.at)?.rule === "comb",
     ).map((c) => c.id);
-    expect(decided).toEqual(["N91", "N92", "N94"]);
+    expect(decided).toEqual(["N91", "N92", "N94", "N95"]);
   });
 
   it("every radio-shaped negative proposes checkboxes and no radio group", () => {
@@ -633,8 +665,23 @@ const COMB_FLAG = 1 << 24;
 
 describe("composed chain: detect -> Add -> Create form -> pdf.js reads the saved fields", () => {
   it("health: the chain runs over every printed case", () => {
+    // P102-P106 (review round 1) run through the same chain in
+    // form-detect-combs-review.test.ts.
     expect(Object.keys(PRINTED).sort()).toEqual(
-      ["P90", "P91", "P92", "P93", "P94", "P95", "P97"].sort(),
+      [
+        "P90",
+        "P91",
+        "P92",
+        "P93",
+        "P94",
+        "P95",
+        "P97",
+        "P102",
+        "P103",
+        "P104",
+        "P105",
+        "P106",
+      ].sort(),
     );
   });
 
@@ -848,6 +895,9 @@ describe("what the page says about combs and radio groups is what the reader doe
     expect(sentence).toMatch(/\bsuggested\b/);
     expect(sentence).toMatch(/\bcheck\b/i);
     // ...and the comb half of the same sentence, bound to P90 above.
-    expect(sentence).toMatch(/four or more boxes for one character each/);
+    // (Review round 1, 2026-11-22: "for one character each" became "for
+    // single characters", and the sentence now names the multi-answer
+    // exception, held to the reader in form-detect-combs-review.test.ts.)
+    expect(sentence).toMatch(/four or more boxes for single characters/);
   });
 });

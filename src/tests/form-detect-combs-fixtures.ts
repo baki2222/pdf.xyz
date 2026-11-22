@@ -136,9 +136,17 @@ function radioField(
 ): Expect {
   const top = stack[0]!;
   const pitch = (top.y0 - stack[stack.length - 1]!.y0) / (stack.length - 1);
-  const s = Math.round(pitch) - BUILDER_GAP;
+  const step = Math.round(pitch);
+  const s = step - BUILDER_GAP;
   const x = Math.round((top.x0 + top.x1) / 2 - s / 2);
-  const y = Math.round((top.y0 + top.y1) / 2 - s / 2);
+  // The top button's centre: where each printed square puts it (its own
+  // centre, raised by its place in the stack at the builder's whole-point
+  // step), averaged, so a fractional pitch's drift splits above and below
+  // (review round 1). At a whole-point pitch it is the top square's centre.
+  const centre =
+    stack.reduce((sum, p, k) => sum + (p.y0 + p.y1) / 2 + k * step, 0) /
+    stack.length;
+  const y = Math.round(centre - s / 2);
   return {
     rule: "radio-stack",
     type: "radio",
@@ -229,6 +237,43 @@ export const S6 = {
     label: "Code",
   },
   N94: { x: 150, top: 600, side: 12, rows: 6, cols: 10, label: "Sketch" },
+  // Review round 1 (2026-11-22): the corpus had no multi-answer stack at
+  // the radio gap, no fractional pitch, no far-left text beside a
+  // captioned comb, and no rating row of touching boxes.
+  P102: {
+    stack: column(72, 650, 12, 18, 4),
+    options: ["Fever", "Cough", "Headache", "Fatigue"],
+    caption: "Tick all that apply",
+  },
+  P103: {
+    stack: column(300, 650, 12, 18, 3),
+    options: [
+      "I agree to the terms of service",
+      "Send me the newsletter",
+      "I consent to data processing",
+    ],
+  },
+  /** 12.4 pt squares, gap 6: a pitch of 18.4, three of them (drift 0.4 a row). */
+  P104: {
+    stack: column(72, 500, 12.4, 18.4, 3),
+    options: ["Small", "Medium", "Large"],
+  },
+  /** The same pitch, six of them: the last button would sit 2 pt off. */
+  P105: {
+    stack: column(300, 500, 12.4, 18.4, 6),
+    options: ["One", "Two", "Three", "Four", "Five", "Six"],
+  },
+  P106: {
+    cells: run(480, 300, 14, 4),
+    caption: "PIN",
+    far: "Office use only",
+  },
+  N95: {
+    ys: [200, 180, 160],
+    rows: ["Service quality", "Value for money", "Staff"],
+    heads: ["1", "2", "3", "4", "5"],
+    x: 250,
+  },
 } as const;
 
 /** Where the composed chain must find each saved widget, by case. */
@@ -240,6 +285,11 @@ export const PRINTED: Record<string, readonly Printed[]> = {
   P94: S6.P94.stack,
   P95: S6.P95.stack,
   P97: S6.P97.stack,
+  P102: S6.P102.stack,
+  P103: S6.P103.stack,
+  P104: S6.P104.stack,
+  P105: S6.P105.stack,
+  P106: S6.P106.cells,
 };
 
 /* ------------------------------------------------------------------ *
@@ -466,5 +516,93 @@ export const COMB_CASES: readonly DetectCase[] = [
     expect: "none",
     decidedBy: "comb",
     at: { page: 1, x: 156, y: 606 },
+  },
+  {
+    id: "P102",
+    kind: "positive",
+    note: '"Tick all that apply" over four 12 pt boxes stacked 6 pt apart, labelled on the right: four checkboxes, never one radio group (a radio group would allow one answer)',
+    build: () =>
+      onePage(async (page) => {
+        await text(page, S6.P102.caption, 72, 668);
+        for (const [k, c] of S6.P102.stack.entries()) {
+          square(page, c.x0, c.y0, 12);
+          await text(page, S6.P102.options[k]!, 88, c.y0 + 2);
+        }
+      }),
+    expect: S6.P102.stack.map((c, k) => checkbox(S6.P102.options[k]!, c)),
+  },
+  {
+    id: "P103",
+    kind: "positive",
+    note: 'a consent stack at the radio gap ("I agree to the terms of service", "Send me the newsletter", "I consent to data processing"): three checkboxes, each ticked on its own',
+    build: () =>
+      onePage(async (page) => {
+        for (const [k, c] of S6.P103.stack.entries()) {
+          square(page, c.x0, c.y0, 12);
+          await text(page, S6.P103.options[k]!, 316, c.y0 + 2);
+        }
+      }),
+    expect: S6.P103.stack.map((c, k) => checkbox(S6.P103.options[k]!, c)),
+  },
+  {
+    id: "P104",
+    kind: "positive",
+    note: "three 12.4 pt boxes 6 pt apart (a fractional 18.4 pt pitch), labelled on the right: one radio group, its whole-point buttons within 1 pt of each printed square's centre",
+    build: () =>
+      onePage(async (page) => {
+        for (const [k, c] of S6.P104.stack.entries()) {
+          square(page, c.x0, c.y0, c.x1 - c.x0);
+          await text(page, S6.P104.options[k]!, 89, c.y0 + 2);
+        }
+      }),
+    expect: [radioField(null, S6.P104.stack, [...S6.P104.options])],
+  },
+  {
+    id: "P105",
+    kind: "positive",
+    note: "six 12.4 pt boxes at the same fractional pitch: six checkboxes (the builder's whole-point stack would end 2 pt off the last square)",
+    build: () =>
+      onePage(async (page) => {
+        for (const [k, c] of S6.P105.stack.entries()) {
+          square(page, c.x0, c.y0, c.x1 - c.x0);
+          await text(page, S6.P105.options[k]!, 317, c.y0 + 2);
+        }
+      }),
+    expect: S6.P105.stack.map((c, k) => checkbox(S6.P105.options[k]!, c)),
+  },
+  {
+    id: "P106",
+    kind: "positive",
+    note: '"PIN" over four comb boxes, "Office use only" 400 pt to their left on the same row: one 4-character field named from its caption, never from the far text',
+    build: () =>
+      onePage(async (page) => {
+        await text(page, S6.P106.far, 50, 303);
+        await text(page, S6.P106.caption, 480, 318, 9);
+        for (const c of S6.P106.cells) square(page, c.x0, c.y0, 14);
+      }),
+    expect: [combField(S6.P106.caption, S6.P106.cells)],
+  },
+  {
+    id: "N95",
+    kind: "negative",
+    note: 'a rating grid of touching boxes: three labelled rows of five 14 pt boxes, 6 pt apart, under the heads "1" to "5" 26 pt over the top row: no text fields (a scale is ticked, not typed into), every box `comb`',
+    build: () =>
+      onePage(async (page) => {
+        const { ys, rows, heads, x } = S6.N95;
+        for (const [r, y] of ys.entries()) {
+          await text(page, rows[r]!, 100, y + 3);
+          for (const c of run(x, y, 14, 5)) square(page, c.x0, c.y0, 14);
+        }
+        // The heads 26 pt over the top row: past a headed grid's reach
+        // (GRID_HEAD_ABOVE 20, which would make these checkboxes), so only
+        // the scale's own reach (40) leaves them out.
+        for (const [k, h] of heads.entries())
+          await text(page, h, x + 14 * k + 5, ys[0]! + 40, 8);
+      }),
+    expect: "none",
+    decidedBy: "comb",
+    at: { page: 1, x: 257, y: 187 },
+    // Its row label is 80 pt off, past a square's label reach, as N91's.
+    seamAlsoDisable: ["unlabelled"],
   },
 ];

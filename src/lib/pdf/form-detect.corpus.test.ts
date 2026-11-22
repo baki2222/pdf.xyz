@@ -103,17 +103,18 @@ describe("corpus health (FATAL when it fails)", () => {
       // Slice S6 (2026-11-22): combs and radio clusters, from
       // src/tests/form-detect-combs-fixtures.ts (N5, N33 and N47 were
       // inverted in place to positives, keeping their ids).
-      ...range("P", 90, 101),
-      ...range("N", 91, 94),
+      // P102-P106 and N95 added by S6's review round 1 (2026-11-22).
+      ...range("P", 90, 106),
+      ...range("N", 91, 95),
       // O8 and O9 added in review round 7 (2026-11-19): a page the reader
       // sees sideways, and a scan with an OCR text layer.
       ...range("O", 1, 9),
     ];
-    expect(expected).toHaveLength(206);
+    expect(expected).toHaveLength(212);
     expect([...DETECT_CASES.map((c) => c.id)].sort()).toEqual(expected.sort());
     for (const [k, n] of [
-      ["positive", 111],
-      ["negative", 86],
+      ["positive", 116],
+      ["negative", 87],
       ["outcome", 9],
     ] as const)
       expect(kind(k).length, k).toBe(n);
@@ -133,7 +134,8 @@ describe("corpus health (FATAL when it fails)", () => {
   // added 9 cases and 17 proposals (190 and 320), inside both bounds.
   // Raised by slice S6 (was 200 cases and 330 proposals; S6 added 16
   // cases and, with N5, N33 and N47 inverted to positives, 30
-  // proposals, taking them to 206 and 350).
+  // proposals, taking them to 206 and 350). S6's review round 1 added 6
+  // cases and 15 proposals (212 and 365), inside both bounds.
   it("the corpus is not implausibly large", () => {
     expect(DETECT_CASES.length, "corpus implausibly large").toBeLessThanOrEqual(
       220,
