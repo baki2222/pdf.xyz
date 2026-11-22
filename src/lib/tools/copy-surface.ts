@@ -384,6 +384,9 @@ export function copyFiles(): string[] {
     // PDF to PDF/A's colour sentence (2026-11-08, audit pdf-to-pdfa#5),
     // drawn by the panel, the page and the guide.
     path.join(ROOT, "src", "lib", "workers", "pdf-archive", "colour.ts"),
+    // PDF to PDF/A's carried-fields rules (audit wave 2 pdf-to-pdfa#3), drawn
+    // by the notes block, the page, the facts and the guide.
+    path.join(ROOT, "src", "lib", "workers", "pdf-archive", "docinfo-words.ts"),
     // Translate PDF's warning when Auto-detect meets a PDF already in the
     // target language (2026-11-06, audit #38), drawn by the panel.
     path.join(ROOT, "src", "lib", "jobs", "translate-script.ts"),
