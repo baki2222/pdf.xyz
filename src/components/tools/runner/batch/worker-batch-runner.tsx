@@ -25,7 +25,6 @@ import {
 } from "@/lib/batch/tools";
 import {
   COMBINE_PDFS_HINT,
-  COMBINE_PDFS_LABEL,
   combinedDownloadLabel,
   WORKER_BATCH_PAUSED,
   workerBatchJobsSentence,
@@ -358,7 +357,9 @@ export function WorkerBatchRunner({
           }}
           className="accent-accent size-4"
         />
-        {COMBINE_PDFS_LABEL}
+        {/* The page copy names it as COMBINE_PDFS_LABEL; tick-label-claims
+            reads this text to hold every "Tick …" to a box that exists. */}
+        Combine into one PDF
       </label>
       <p id={combineHintId} className="text-muted text-xs leading-relaxed">
         {COMBINE_PDFS_HINT}
