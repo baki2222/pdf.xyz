@@ -14,6 +14,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -313,6 +314,62 @@ describe("Summarize PDF result — the summary is on the page", () => {
     expect(screen.queryByRole("region", { name: "Summary" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Copy summary" })).toBeNull();
     expect(screen.queryByText(/read it below/)).toBeNull();
+  });
+});
+
+/**
+ * `data-summary-read` is the sync point the fallback test waits on instead of
+ * a sleep, so the wait is only as honest as the attribute. The checks above
+ * see it at the first render and after it settles; this one HOLDS the read
+ * open and sees the attribute while it is in flight, after every other part
+ * of the read (the views chunk) has arrived. An attribute that settled one
+ * step early — on the chunk, before the package read resolved — or that was
+ * written as the settled value from the start, reads wrong here.
+ *
+ * The hold is a spy on JSZip's own `loadAsync` (the package read's first
+ * await on the bytes), not a `vi.mock` of the package module: with
+ * `isolate: false` a panel module evaluated under such a mock stays bound to
+ * the stub for every later file (src/tests/mock-isolation.test.ts).
+ */
+describe("Summary read state — pending while the read is in flight", () => {
+  it("reads pending while the package read is held, and flips to shown only when it settles", async () => {
+    const pkg = await realPackage();
+    // The views chunk, loaded before the render: during the hold, the
+    // package read is the ONLY part of the read still outstanding.
+    await import("./ai-result-views");
+    const realLoad = JSZip.loadAsync.bind(JSZip);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const load = vi
+      .spyOn(JSZip, "loadAsync")
+      .mockImplementation(async (...args: Parameters<typeof realLoad>) => {
+        await gate;
+        return realLoad(...args);
+      });
+    const { container } = render(
+      <SummaryResultBody output={pkg} filename={ZIP} />,
+    );
+    expect(readState(container)).toBe("pending");
+    // Health check: the hold is on the read the card makes, and it is held.
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    expect(load.mock.calls[0]![0]).toBe(pkg);
+    // Let every other promise in the read run out while the gate stays shut.
+    await act(async () => {
+      for (let turn = 0; turn < 50; turn += 1) await Promise.resolve();
+    });
+    expect(readState(container)).toBe("pending");
+    expect(screen.queryByRole("region", { name: "Summary" })).toBeNull();
+    await act(async () => {
+      release();
+      await gate;
+    });
+    await waitFor(() => expect(readState(container)).toBe("shown"));
+    // Positive control: the held read, once released, is the real one.
+    expect(screen.getByRole("region", { name: "Summary" }).textContent).toBe(
+      SHOWN,
+    );
   });
 });
 
