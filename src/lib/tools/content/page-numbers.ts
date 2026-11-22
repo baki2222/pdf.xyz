@@ -250,7 +250,7 @@ const content: ToolContent = {
     },
     {
       q: "Will the numbers cover text already on the page?",
-      a: `They can. The label is drawn over the page's existing content with no background box, so a page that already has a footer or a scanned image reaching the margin may overlap. Pick another of the ${positionCount} positions, another Margin (Small, Medium and Large are ${marginFigures} from the edge) or a smaller font size and number the original again, not the numbered copy, or pages will carry two numbers.`,
+      a: `They can. The label is drawn over the page's existing content, so a page that already has a footer or a scanned image reaching the margin may overlap. Tick Box behind the number, under Placement, to draw a white box behind each number, or pick its color and opacity, so the number reads on a dark scan; the box hides whatever is under it. Or pick another of the ${positionCount} positions, another Margin (Small, Medium and Large are ${marginFigures} from the edge) or a smaller font size and number the original again, not the numbered copy, or pages will carry two numbers.`,
     },
     {
       q: "Can I skip the last pages, or number a document printed as a book?",
