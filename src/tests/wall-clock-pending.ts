@@ -35,6 +35,6 @@ export const WALL_CLOCK_PENDING: readonly PendingEntry[] = [
     id: "watermark-open-range-checked-not-expanded",
     file: "src/components/tools/runner/batch/settings-batch-behaviour.dom.test.tsx",
     reason:
-      "Typing an open range ('1-', '3-') must be checked as ranges, never expanded, and only this time sees work that grows with the range: the test's Set.add count pins the old mechanism, and the same expansion into an array (30M entries) or a Map (5M entries) keeps it at 0 while the typing time grows 2x to 4.8x. Back to assert once 5 CI runs calibrate the id (bound 500; CI maximum 367 ms).",
+      "Typing an open range ('1-', '3-') must be checked as ranges, not expanded, and only this time sees work that grows with the range: the test's Set.add count pins the old mechanism, and the same expansion into an array (30M entries) or a Map (5M entries) keeps it at 0 while the typing time grows 2x to 4.8x. Back to assert once 5 CI runs calibrate the id (bound 500; CI maximum 367 ms).",
   },
 ];
