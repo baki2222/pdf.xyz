@@ -103,7 +103,11 @@ describe("contents", () => {
       }
     }
     expect(wrong).toEqual([]);
-  });
+    // Renders every guide, so the time is runner speed times the guide count:
+    // CI max 2,801 ms over 31 runs (43629904891), 56% of the old 5 s default.
+    // 30 s as line 134 (cbb7e3bd); kept inside the test, where the headroom
+    // reporter sees it, not in a beforeAll it cannot see.
+  }, 30_000);
 });
 
 describe("the sticky open bar", () => {
@@ -127,7 +131,8 @@ describe("the sticky open bar", () => {
         wrong.push(`${slug}: the bar does not open ${primary.name}`);
     }
     expect(wrong).toEqual([]);
-  });
+    // Every guide rendered: CI max 2,364 ms (44899669004) of the old 5 s.
+  }, 30_000);
 });
 
 describe("body copy is 16px at every width, in the reading colour", () => {
@@ -207,5 +212,6 @@ describe("related guides", () => {
     expect(wrong).toEqual([]);
     // Health: the walk saw real lists.
     expect(listedAnywhere).toBeGreaterThanOrEqual(slugs.length);
-  });
+    // Every guide rendered: CI max 2,084 ms (44899669004) of the old 5 s.
+  }, 30_000);
 });
