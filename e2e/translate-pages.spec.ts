@@ -153,6 +153,9 @@ async function choose(page: Page, bytes: Uint8Array) {
     buffer: Buffer.from(bytes),
   });
   await expect(page.getByText("report.pdf", { exact: true })).toBeVisible();
+  // The fixture is English: into English (the default) the page now stops
+  // before upload (translate-pdf#1), so these runs go into Spanish.
+  await page.getByLabel("Translate into").selectOption("es");
   const run = page.getByRole("button", { name: "Translate PDF" });
   await expect(run).not.toHaveAttribute("aria-disabled", "true");
   return run;
