@@ -96,6 +96,13 @@ describe("DETECT_COMBS: the values the brief set, and the builder's gap", () => 
       RADIO_GAP_EPS: 1,
       RADIO_CAPTION_ABOVE: 14,
       RADIO_VETO_ABOVE: 28,
+      // The verify round (2026-11-22): the veto reads lines, on past
+      // RADIO_VETO_ABOVE through the passage, and the note under the stack.
+      RADIO_VETO_LEADING: 3,
+      RADIO_VETO_REACH: 72,
+      RADIO_VETO_BELOW: 20,
+      WORD_GAP_EMS: 0.1,
+      RADIO_PHRASE_GAP_EMS: 1,
       RADIO_CENTRE_EPS: 1,
     });
   });
@@ -541,7 +548,8 @@ describe("the S6 corpus (health first)", () => {
       "N93",
       "N94",
       // Review round 1 (2026-11-22).
-      ...Array.from({ length: 5 }, (_, i) => `P${102 + i}`),
+      // P107-P109: the verify round (2026-11-22).
+      ...Array.from({ length: 8 }, (_, i) => `P${102 + i}`),
       "N95",
     ]);
     for (const c of COMB_CASES) expect(DETECT_CASES).toContain(c);
@@ -666,7 +674,8 @@ const COMB_FLAG = 1 << 24;
 describe("composed chain: detect -> Add -> Create form -> pdf.js reads the saved fields", () => {
   it("health: the chain runs over every printed case", () => {
     // P102-P106 (review round 1) run through the same chain in
-    // form-detect-combs-review.test.ts.
+    // form-detect-combs-review.test.ts; P107-P109 (the verify round) in
+    // form-detect-combs-veto.test.ts.
     expect(Object.keys(PRINTED).sort()).toEqual(
       [
         "P90",
@@ -681,6 +690,9 @@ describe("composed chain: detect -> Add -> Create form -> pdf.js reads the saved
         "P104",
         "P105",
         "P106",
+        "P107",
+        "P108",
+        "P109",
       ].sort(),
     );
   });

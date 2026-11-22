@@ -268,6 +268,27 @@ export const S6 = {
     caption: "PIN",
     far: "Office use only",
   },
+  // Verify round (2026-11-22): the multi-answer veto read each text item
+  // on its own, only over the stack and its labels, and only above it.
+  /** "Symptoms (tick all that apply)" drawn one word per call. */
+  P107: {
+    stack: column(72, 650, 12, 18, 4),
+    options: ["Fever", "Cough", "Headache", "Fatigue"],
+    caption: "Symptoms (tick all that apply)",
+  },
+  /** The question wrapped over two lines, the asking words split by the wrap. */
+  P108: {
+    stack: column(72, 650, 12, 18, 4),
+    options: ["Measles", "Mumps", "Rubella", "Chickenpox"],
+    lines: ["Which have you had? Select one or", "more."],
+  },
+  /** A plain caption over the stack, the note asking for many under it. */
+  P109: {
+    stack: column(72, 650, 12, 18, 3),
+    options: ["Tea", "Coffee", "Juice"],
+    caption: "Drinks",
+    note: "You may tick more than one.",
+  },
   N95: {
     ys: [200, 180, 160],
     rows: ["Service quality", "Value for money", "Staff"],
@@ -290,7 +311,43 @@ export const PRINTED: Record<string, readonly Printed[]> = {
   P104: S6.P104.stack,
   P105: S6.P105.stack,
   P106: S6.P106.cells,
+  P107: S6.P107.stack,
+  P108: S6.P108.stack,
+  P109: S6.P109.stack,
 };
+
+/**
+ * `s` drawn one word per call, three spaces wide apart, as a justified,
+ * word-positioned line is drawn: pdf.js then keeps each word its own item
+ * (at one or two spaces it joins them into one, which the old veto read).
+ */
+async function words(
+  page: PDFPage,
+  s: string,
+  x: number,
+  y: number,
+  size = 10,
+): Promise<void> {
+  const font = await embedDrawingFont(page.doc, [s], "sans");
+  let at = x;
+  for (const w of s.split(" ")) {
+    page.drawText(w, { x: at, y, size, font, color: rgb(0, 0, 0) });
+    at +=
+      font.widthOfTextAtSize(w, size) + 3 * font.widthOfTextAtSize(" ", size);
+  }
+}
+
+/** A stack of 12 pt squares, each option to its right (P102's layout). */
+async function optionStack(
+  page: PDFPage,
+  stack: readonly Printed[],
+  options: readonly string[],
+): Promise<void> {
+  for (const [k, c] of stack.entries()) {
+    square(page, c.x0, c.y0, 12);
+    await text(page, options[k]!, c.x1 + 4, c.y0 + 2);
+  }
+}
 
 /* ------------------------------------------------------------------ *
  *  The cases
@@ -581,6 +638,41 @@ export const COMB_CASES: readonly DetectCase[] = [
         for (const c of S6.P106.cells) square(page, c.x0, c.y0, 14);
       }),
     expect: [combField(S6.P106.caption, S6.P106.cells)],
+  },
+  {
+    id: "P107",
+    kind: "positive",
+    note: '"Symptoms (tick all that apply)" drawn one word per call, words three spaces apart (pdf.js keeps them five items), over four 12 pt boxes stacked 6 pt apart: four checkboxes (the words are read as the line they print, not item by item)',
+    build: () =>
+      onePage(async (page) => {
+        await words(page, S6.P107.caption, 72, 668);
+        await optionStack(page, S6.P107.stack, S6.P107.options);
+      }),
+    expect: S6.P107.stack.map((c, k) => checkbox(S6.P107.options[k]!, c)),
+  },
+  {
+    id: "P108",
+    kind: "positive",
+    note: '"Which have you had? Select one or" / "more." wrapped over four boxes stacked 6 pt apart: four checkboxes (the wrap splits "one or more", read across it)',
+    build: () =>
+      onePage(async (page) => {
+        await text(page, S6.P108.lines[0], 72, 681);
+        await text(page, S6.P108.lines[1], 72, 668);
+        await optionStack(page, S6.P108.stack, S6.P108.options);
+      }),
+    expect: S6.P108.stack.map((c, k) => checkbox(S6.P108.options[k]!, c)),
+  },
+  {
+    id: "P109",
+    kind: "positive",
+    note: '"Drinks" over three boxes stacked 6 pt apart, "You may tick more than one." printed under them: three checkboxes (a note under a stack asks as plainly as one over it)',
+    build: () =>
+      onePage(async (page) => {
+        await text(page, S6.P109.caption, 72, 668);
+        await optionStack(page, S6.P109.stack, S6.P109.options);
+        await text(page, S6.P109.note, 72, S6.P109.stack[2]!.y0 - 14);
+      }),
+    expect: S6.P109.stack.map((c, k) => checkbox(S6.P109.options[k]!, c)),
   },
   {
     id: "N95",

@@ -581,6 +581,23 @@ export const DETECT_COMBS = {
    */
   RADIO_VETO_ABOVE: 28,
   /**
+   * The veto reads LINES, not pdf.js items, and reads on past
+   * RADIO_VETO_ABOVE while lines follow at this many sizes apart (a line
+   * and a blank one at 1.5 leading), up to RADIO_VETO_REACH over the top
+   * square or under the bottom one; under the stack it starts at a line
+   * within RADIO_VETO_BELOW ("You may tick more than one."). Verify round
+   * of S6: an instruction drawn a word per call, wrapped, at the end of
+   * the caption's line or two lines over it, or under the stack, went
+   * unread, and the list was made one radio group.
+   */
+  RADIO_VETO_LEADING: 3,
+  RADIO_VETO_REACH: 72,
+  RADIO_VETO_BELOW: 20,
+  /** Items this many sizes apart or less are one word; farther, a space. */
+  WORD_GAP_EMS: 0.1,
+  /** Items this many sizes apart or less are one phrase (a caption's words). */
+  RADIO_PHRASE_GAP_EMS: 1,
+  /**
    * The builder stacks buttons at whole points, RADIO_STACK_GAP apart, so
    * at a fractional pitch they drift off the printed squares row by row: a
    * stack whose buttons' centres would fall farther than this from their
@@ -4911,6 +4928,73 @@ function combFields(
   return { cands, used };
 }
 
+/** Upright text on one baseline, left to right, read as one string. */
+interface TextLine {
+  y: number;
+  /** The largest item's size. */
+  size: number;
+  items: CardText[];
+  str: string;
+}
+
+/** Items left to right as one string: a space wherever they do not touch. */
+function joinItems(items: readonly CardText[]): string {
+  let s = "";
+  let end = -Infinity;
+  for (const t of items) {
+    if (s && t.x - end > DETECT_COMBS.WORD_GAP_EMS * t.size) s += " ";
+    s += t.str;
+    end = t.x + Math.max(0, t.width);
+  }
+  return s;
+}
+
+/**
+ * The upright items as lines: an item joins the line whose baseline is
+ * within half the smaller size of its own (pdf.js gives a line drawn one
+ * word per call, or with wide word spacing, as an item a word).
+ */
+function textLines(items: readonly CardText[]): TextLine[] {
+  const lines: TextLine[] = [];
+  for (const t of items) {
+    if (!t.upright || !Number.isFinite(t.y) || !Number.isFinite(t.x)) continue;
+    const l = lines.find(
+      (l) => Math.abs(l.y - t.y) <= Math.min(l.size, t.size) / 2,
+    );
+    if (l) {
+      l.items.push(t);
+      l.size = Math.max(l.size, t.size);
+    } else lines.push({ y: t.y, size: t.size, items: [t], str: "" });
+  }
+  for (const l of lines) {
+    l.items.sort((a, b) => a.x - b.x);
+    l.str = joinItems(l.items);
+  }
+  return lines;
+}
+
+/**
+ * Lines nearest first, kept while each is `first` (within the first
+ * reach) or follows the one kept before it at RADIO_VETO_LEADING of their
+ * size: one passage, read on past the first reach.
+ */
+function passage(
+  lines: readonly TextLine[],
+  first: (l: TextLine) => boolean,
+): TextLine[] {
+  const out: TextLine[] = [];
+  for (const l of lines) {
+    const prev = out[out.length - 1];
+    const follows =
+      prev !== undefined &&
+      Math.abs(l.y - prev.y) <=
+        DETECT_COMBS.RADIO_VETO_LEADING * Math.max(l.size, prev.size);
+    if (first(l) || follows) out.push(l);
+    else break;
+  }
+  return out;
+}
+
 /**
  * Slice S6, radio clusters: a COLUMN of RADIO_MIN or more equal squares
  * (x and side within COMB_EPS), each the next one's gap
@@ -5004,42 +5088,79 @@ function radioStacks(
       const bottom = chain[chain.length - 1]!;
       const x0 = Math.min(...chain.map((s) => s.x0));
       const x1 = Math.max(...chain.map((s) => s.x1));
-      // Text over the stack, across it and its labels: a caption (descent
-      // 0..RADIO_CAPTION_ABOVE over the top square, never another square's
-      // own label), and any words up to RADIO_VETO_ABOVE asking for more
-      // than one answer.
+      // The text over the stack and under it, as LINES (each baseline's
+      // items joined left to right), each line touching the stack or its
+      // labels and read whole. Over it: the lines up to RADIO_VETO_ABOVE,
+      // and the lines that follow on up from them at RADIO_VETO_LEADING
+      // (the passage the caption ends). Under it: the line within
+      // RADIO_VETO_BELOW, and the lines that follow it down. Either passage
+      // asking for more than one answer, joined across its lines, leaves
+      // checkboxes (verify round of S6: item by item, a line drawn a word
+      // per call, a wrap or the end of the caption's line went unread).
       const reach = Math.max(...chain.map((s) => ends.get(s)!));
-      let caption: CardText | undefined;
-      let multi = false;
-      for (const t of ySlice(
-        tix,
-        top.y1,
-        top.y1 +
-          DETECT_COMBS.RADIO_VETO_ABOVE +
-          DETECT.TEXT_DESCENT_EMS * tix.maxSize,
-      )) {
-        const rise = t.y - DETECT.TEXT_DESCENT_EMS * t.size - top.y1;
-        if (!t.upright || rise < 0) continue;
-        if (!cleanLabel(t.str)) continue;
-        if (
-          overlap(
-            t.x,
-            t.x + Math.max(0, t.width),
-            x0 - DETECT.LABEL_LEFT_GAP,
-            reach,
-          ) <= 0
-        )
-          continue;
-        if (
-          rise <= DETECT_COMBS.RADIO_VETO_ABOVE &&
-          MULTI_ANSWER.some((re) => re.test(t.str))
-        )
-          multi = true;
-        if (rise > DETECT_COMBS.RADIO_CAPTION_ABOVE) continue;
-        if (ownLabels().has(t)) continue;
-        if (!caption || t.y < caption.y) caption = t;
+      const near = (t: CardText) =>
+        t.upright &&
+        cleanLabel(t.str) !== null &&
+        overlap(
+          t.x,
+          t.x + Math.max(0, t.width),
+          x0 - DETECT.LABEL_LEFT_GAP,
+          reach,
+        ) > 0;
+      const far = DETECT_COMBS.RADIO_VETO_REACH;
+      const descent = DETECT.TEXT_DESCENT_EMS * tix.maxSize;
+      const rise = (l: TextLine) =>
+        l.y - DETECT.TEXT_DESCENT_EMS * l.size - top.y1;
+      const above = passage(
+        textLines(ySlice(tix, top.y1, top.y1 + far + descent))
+          .filter((l) => rise(l) >= 0 && l.items.some(near))
+          .sort((a, b) => a.y - b.y),
+        (l) => rise(l) <= DETECT_COMBS.RADIO_VETO_ABOVE,
+      );
+      const drop = (l: TextLine) => bottom.y0 - l.y;
+      const below = passage(
+        textLines(ySlice(tix, bottom.y0 - far, bottom.y0))
+          .filter((l) => drop(l) >= l.size / 2 && l.items.some(near))
+          .sort((a, b) => b.y - a.y),
+        (l) => drop(l) <= DETECT_COMBS.RADIO_VETO_BELOW,
+      );
+      const asks = (ls: readonly TextLine[]) => {
+        const s = ls.map((l) => l.str).join(" ");
+        return MULTI_ANSWER.some((re) => re.test(s));
+      };
+      if (asks([...above].reverse()) || asks(below)) continue;
+      // The caption: the lowest line of that passage with a descent 0 to
+      // RADIO_CAPTION_ABOVE over the top square, its phrase that touches
+      // the stack (never another square's own label), with the line over
+      // it when it reads on from it (a wrap: it starts in lower case).
+      const phraseOf = (l: TextLine | undefined): string | null => {
+        if (!l) return null;
+        const own = ownLabels();
+        const words = l.items.filter((t) => !own.has(t));
+        const at = words.findIndex(near);
+        if (at < 0) return null;
+        const gap = DETECT_COMBS.RADIO_PHRASE_GAP_EMS * l.size;
+        const end = (t: CardText) => t.x + Math.max(0, t.width);
+        let i = at;
+        let j = at;
+        while (i > 0 && words[i]!.x - end(words[i - 1]!) <= gap) i--;
+        while (j + 1 < words.length && words[j + 1]!.x - end(words[j]!) <= gap)
+          j++;
+        return cleanLabel(joinItems(words.slice(i, j + 1)));
+      };
+      let low = 0;
+      let caption: string | null = null;
+      while (
+        !caption &&
+        low < above.length &&
+        rise(above[low]!) <= DETECT_COMBS.RADIO_CAPTION_ABOVE
+      )
+        caption = phraseOf(above[low++]);
+      low--;
+      if (caption && /^\p{Ll}/u.test(caption)) {
+        const over = phraseOf(above[low + 1]);
+        if (over) caption = cleanLabel(`${over} ${caption}`);
       }
-      if (multi) continue;
       // Buttons the printed pitch less the builder's gap, at whole points,
       // the stack's drift split above and below (anchored on the mean of
       // where each square puts the top one): any centre farther than
@@ -5064,14 +5185,14 @@ function radioStacks(
       if (drift > DETECT_COMBS.RADIO_CENTRE_EPS + 1e-9) continue;
       found.push({
         chain,
-        caption: caption ? cleanLabel(caption.str) : null,
+        caption,
         cand: {
           rule: "radio-stack",
           type: "radio",
           box: { x0, y0: bottom.y0, x1, y1: top.y1 },
           line: null,
           square: null,
-          label: caption ? cleanLabel(caption.str) : null,
+          label: caption,
           labelState: "found",
           leftLabel: false,
           ownPiece: null,
