@@ -22,6 +22,11 @@ import { HTML_DOCUMENT_URL } from "../html-render/document-url";
 import { EPUB_MAX_SPINE_ITEMS, EPUB_MAX_XML_BYTES } from "./native-config";
 import { openBoundedZip, ZipEntryError, type BoundedZip } from "./zip";
 import {
+  ADOBE_FONT_ALGORITHM,
+  deobfuscateFont,
+  IDPF_FONT_ALGORITHM,
+} from "./font-deobfuscate";
+import {
   childElements,
   findAll,
   findFirst,
@@ -36,8 +41,8 @@ import {
  * they protect nothing else, and a book that uses only these is NOT DRM.
  */
 export const FONT_OBFUSCATION_ALGORITHMS: readonly string[] = [
-  "http://www.idpf.org/2008/embedding",
-  "http://ns.adobe.com/pdf/enc#RC",
+  IDPF_FONT_ALGORITHM,
+  ADOBE_FONT_ALGORITHM,
 ];
 
 export type EpubRefusal =
@@ -61,6 +66,12 @@ export interface EpubChapter {
    * chapter, and for a fixed-layout page that declares none.
    */
   viewport: { width: number; height: number } | null;
+  /**
+   * False for an item the spine marks `linear="no"` (endnotes, answer keys,
+   * pop-up footnotes): a reader opens it from a link rather than paging into
+   * it, so it is printed AFTER the reading order (audit epub-to-pdf#3).
+   */
+  linear: boolean;
 }
 
 /** A table-of-contents entry, already pointed at a chapter. */
@@ -75,12 +86,19 @@ export interface EpubBook {
   zip: BoundedZip;
   title: string | null;
   language: string | null;
+  /** Every dc:creator, joined with ", " (the PDF's Author). */
+  creator: string | null;
+  /** Every dc:subject joined with ", ", else dc:description (the PDF's Subject). */
+  subject: string | null;
+  /** The reading order, then the non-linear items, each once. */
   chapters: EpubChapter[];
   toc: EpubTocEntry[];
   /** Where the outline came from. */
   tocSource: "nav" | "ncx" | null;
-  /** Font files scrambled by font obfuscation: never served. */
-  obfuscatedFonts: ReadonlySet<string>;
+  /** Obfuscated fonts restored (`./font-deobfuscate`) and served restored. */
+  fontsRestored: number;
+  /** Obfuscated fonts that could not be restored: never served. */
+  fontsLeftOut: ReadonlySet<string>;
   /** True when the package says the whole book is pre-paginated. */
   fixedLayout: boolean;
   /** An entry's bytes and type for a URL Chromium asked for; null = 404. */
@@ -176,6 +194,8 @@ const TYPE_BY_EXTENSION: Record<string, string> = {
 const SNIFF_BYTES = 4096;
 const MAX_TOC_ENTRIES = 5_000;
 const MAX_TOC_DEPTH = 16;
+/** The longest Author or Subject written to the PDF, in characters. */
+const METADATA_MAX_CHARS = 1_000;
 
 function readXml(zip: BoundedZip, path: string): XmlElement | null {
   const size = zip.sizeOf(path);
@@ -236,7 +256,9 @@ export function openEpub(bytes: Uint8Array): OpenEpubResult {
 
   // DRM first: an encrypted book's package may itself be readable, but its
   // chapters are not, and printing their ciphertext is not a conversion.
-  const obfuscatedFonts = new Set<string>();
+  // Obfuscated fonts, by path, with their algorithm: restored below, once
+  // the package's identifiers (their key) are read.
+  const obfuscated = new Map<string, string>();
   if (zip.has("META-INF/encryption.xml")) {
     const enc = readXml(zip, "META-INF/encryption.xml");
     if (!enc) return { ok: false, refusal: { kind: "drm" } };
@@ -246,7 +268,7 @@ export function openEpub(bytes: Uint8Array): OpenEpubResult {
       if (!algorithm || !FONT_OBFUSCATION_ALGORITHMS.includes(algorithm))
         return { ok: false, refusal: { kind: "drm" } };
       const path = uri ? resolveInBook("", uri) : null;
-      if (path) obfuscatedFonts.add(path);
+      if (path) obfuscated.set(path, algorithm);
     }
   }
   if (zip.names.some((name) => zip.isEncrypted(name)))
@@ -268,6 +290,45 @@ export function openEpub(bytes: Uint8Array): OpenEpubResult {
   const metadata = findFirst(opf, "metadata");
   const title = metadata ? findFirst(metadata, "title") : undefined;
   const language = metadata ? findFirst(metadata, "language") : undefined;
+  const texts = (name: string) =>
+    (metadata ? childElements(metadata, name) : [])
+      .map((el) => textOf(el).replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+  const joined = (values: string[], max: number) =>
+    values.length > 0 ? values.join(", ").slice(0, max) : null;
+  // dc:description may be HTML in a text node; its tags are dropped.
+  const description = texts("description").map((d) =>
+    d
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
+  const creator = joined(texts("creator"), METADATA_MAX_CHARS);
+  const subject =
+    joined(texts("subject"), METADATA_MAX_CHARS) ??
+    joined(description.filter(Boolean).slice(0, 1), METADATA_MAX_CHARS);
+
+  // The fonts' key: the identifier the package names as unique, and all.
+  const identifiers = metadata ? childElements(metadata, "identifier") : [];
+  const uniqueId = opf.attrs["unique-identifier"];
+  const uniqueEl = identifiers.find((el) => el.attrs.id === uniqueId);
+  const ids = {
+    unique: uniqueEl ? textOf(uniqueEl).trim() : null,
+    all: identifiers.map((el) => textOf(el).trim()),
+  };
+  const restoredFonts = new Map<string, Uint8Array>();
+  const fontsLeftOut = new Set<string>();
+  for (const [path, algorithm] of obfuscated) {
+    let bytes: Uint8Array | null = null;
+    try {
+      bytes = zip.read(path);
+    } catch (error) {
+      if (!(error instanceof ZipEntryError)) throw error;
+    }
+    const restored = bytes ? deobfuscateFont(algorithm, bytes, ids) : null;
+    if (restored) restoredFonts.set(path, restored);
+    else fontsLeftOut.add(path);
+  }
   const fixedLayout = (metadata ? findAll(metadata, "meta") : []).some(
     (m) =>
       m.attrs.property === "rendition:layout" && textOf(m) === "pre-paginated",
@@ -297,8 +358,12 @@ export function openEpub(bytes: Uint8Array): OpenEpubResult {
 
   const spine = findFirst(opf, "spine");
   const chapters: EpubChapter[] = [];
+  // Non-linear items (endnotes, answer keys) go AFTER the reading order, in
+  // spine order: until 2026-11-22 they were skipped, and links to them
+  // removed, while the page said "the whole book" (audit epub-to-pdf#3).
+  const extra: EpubChapter[] = [];
   for (const ref of spine ? childElements(spine, "itemref") : []) {
-    if ((ref.attrs.linear ?? "yes").trim().toLowerCase() === "no") continue;
+    const linear = (ref.attrs.linear ?? "yes").trim().toLowerCase() !== "no";
     const item = ref.attrs.idref ? items.get(ref.attrs.idref) : undefined;
     if (!item) return { ok: false, refusal: { kind: "missing_item" } };
     if (item.path === null)
@@ -320,10 +385,18 @@ export function openEpub(bytes: Uint8Array): OpenEpubResult {
       : props.includes("rendition:layout-reflowable")
         ? false
         : fixedLayout;
-    chapters.push({
+    (linear ? chapters : extra).push({
       path: item.path,
       viewport: fixed ? viewportOf(zip, item.path) : null,
+      linear,
     });
+  }
+  // Each item once: one the spine also lists as linear prints in place.
+  const printed = new Set(chapters.map((c) => c.path));
+  for (const item of extra) {
+    if (printed.has(item.path)) continue;
+    printed.add(item.path);
+    chapters.push(item);
   }
   if (chapters.length === 0)
     return { ok: false, refusal: { kind: "no_chapters" } };
@@ -364,17 +437,20 @@ export function openEpub(bytes: Uint8Array): OpenEpubResult {
     zip,
     title: title ? textOf(title) || null : null,
     language: language ? textOf(language) || null : null,
+    creator,
+    subject,
     chapters,
     toc,
     tocSource,
-    obfuscatedFonts,
+    fontsRestored: restoredFonts.size,
+    fontsLeftOut,
     fixedLayout,
     serve(url) {
       const path = entryPathOfUrl(url);
-      if (path === null || obfuscatedFonts.has(path)) return null;
+      if (path === null || fontsLeftOut.has(path)) return null;
       let body: Uint8Array | null;
       try {
-        body = zip.read(path);
+        body = restoredFonts.get(path) ?? zip.read(path);
       } catch (error) {
         if (error instanceof ZipEntryError) return null;
         throw error;
@@ -420,8 +496,9 @@ interface RawEntry {
 }
 
 /**
- * Point raw entries at chapters. An entry whose target is not a chapter
- * (a non-linear file, a file outside the book, no target at all) is kept
+ * Point raw entries at chapters (non-linear items included: they are
+ * printed after the reading order). An entry whose target is not a chapter
+ * (a file outside the book, no target at all) is kept
  * only as the heading of entries that are, and then opens the first of them.
  */
 function pointAtChapters(

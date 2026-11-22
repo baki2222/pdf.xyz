@@ -24,6 +24,7 @@ import {
   escapingSpineBook,
   fixedLayoutBook,
   fontObfuscatedBook,
+  obfuscatedRealFontBook,
   zipBombBook,
 } from "@/tests/epub-fixtures";
 
@@ -52,6 +53,8 @@ async function main(): Promise<number> {
       epub2: epub2Book,
       fixedLayout: fixedLayoutBook,
       fontObfuscated: fontObfuscatedBook,
+      fontRestored: () => obfuscatedRealFontBook("idpf"),
+      nonLinear: () => epub3Book({ nonLinearNotes: true }),
       drm: drmBook,
       zipBomb: zipBombBook,
       docxNamedEpub,

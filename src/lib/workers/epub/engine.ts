@@ -54,6 +54,14 @@ export interface EpubRenderResultMeta {
   pages: number;
   bookmarks: number;
   fixedLayoutPages: number;
+  /**
+   * Items the spine marks `linear="no"` (endnotes, answer keys), printed
+   * after the reading order and counted in `chapters` too.
+   */
+  extraSections: number;
+  /** Obfuscated fonts restored and used. */
+  fontsRestored: number;
+  /** Obfuscated fonts that could not be restored, so were not used. */
   fontsLeftOut: number;
 }
 
@@ -224,14 +232,16 @@ export async function runEpubToPdf(
       pages: joined.pages,
       bookmarks: joined.bookmarks,
       fixedLayoutPages: book.chapters.filter((c) => c.viewport).length,
-      fontsLeftOut: book.obfuscatedFonts.size,
+      extraSections: book.chapters.filter((c) => !c.linear).length,
+      fontsRestored: book.fontsRestored,
+      fontsLeftOut: book.fontsLeftOut.size,
     },
   };
 }
 
 /**
  * The chapters' PDFs as one, through the ONE page copier (`@/lib/pdf/page-copy`),
- * then: the book's title and language on the document, a bookmark per
+ * then: the book's title, language, author and subject on the document, a bookmark per
  * table-of-contents entry opening its chapter's first page, and every link
  * that pointed at another file of the book (Chromium writes those as links
  * to the synthetic origin) pointed at that chapter's first page instead —
@@ -263,6 +273,9 @@ async function joinChapters(
 
   if (book.title) out.setTitle(book.title);
   if (book.language) out.setLanguage(book.language);
+  // Audit epub-to-pdf#5: the book's author and subject, as the PDF's.
+  if (book.creator) out.setAuthor(book.creator);
+  if (book.subject) out.setSubject(book.subject);
   out.setProducer("pdf.xyz EPUB to PDF (Chromium)");
 
   const chapterOfPath = new Map<string, number>();

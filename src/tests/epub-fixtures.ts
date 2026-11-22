@@ -13,18 +13,28 @@
  * by file name or by manifest would put the marks in the wrong order.
  */
 import JSZip from "jszip";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import path from "node:path";
 import { deflateSync } from "node:zlib";
 
 import {
   EPUB_CHAPTER_MARKS,
   EPUB_HEADING_RGB,
+  EPUB_NOTE_LINK_TEXT,
+  EPUB_NOTES_MARK,
   EPUB_REMOTE_IMAGE,
   EPUB_SCRIPT_MARK,
   EPUB_TOC_TITLES,
+  OFL_FONT_POSTSCRIPT_NAME,
   EPUB_WEB_LINK,
 } from "@/lib/workers/epub/proof";
 
 export {
+  EPUB_NOTE_LINK_TEXT,
+  EPUB_NOTES_MARK,
+  OFL_FONT_POSTSCRIPT_NAME,
   EPUB_CHAPTER_MARKS,
   EPUB_HEADING_RGB,
   EPUB_REMOTE_IMAGE,
@@ -93,6 +103,21 @@ const chapterBody = (i: number, extra = "") =>
   `<h1 id="c${i}">${EPUB_TOC_TITLES[i]}</h1><p>${EPUB_CHAPTER_MARKS[i]}.</p>${extra}` +
   Array.from({ length: 3 }, (_, k) => `<p>Paragraph ${k + 1}.</p>`).join("");
 
+/** The default package identifier of `epub3Book`. */
+export const EPUB_IDENTIFIER = "urn:uuid:12345678-1234-4234-8234-123456789abc";
+/** The non-linear notes file of `nonLinearNotes`. */
+const NOTES_FILE = "notes.xhtml";
+
+/** The stylesheet lines that load `bodyFont` and set every paragraph in it. */
+function fontFaceCss(font: { path: string; family: string }): string {
+  const href = `../${font.path.replace(/^OEBPS\//, "")}`;
+  return [
+    "",
+    `@font-face { font-family: "${font.family}"; src: url("${href}"); }`,
+    `p { font-family: "${font.family}"; }`,
+  ].join("\n");
+}
+
 /** Spine order → file name, chosen so alphabetical/manifest order differ. */
 const CHAPTER_FILES = ["m-ch.xhtml", "z-ch.xhtml", "a-ch.xhtml"] as const;
 
@@ -111,6 +136,19 @@ export interface Epub3Options {
   spineHrefs?: string[];
   /** Add META-INF/encryption.xml with this algorithm over one file. */
   encryption?: { algorithm: string; uri: string };
+  /** Extra elements inside `<metadata>` (dc:creator, dc:subject, ...). */
+  metadata?: string;
+  /** The package's unique identifier (default: a urn:uuid). */
+  identifier?: string;
+  /**
+   * Add a notes file the spine marks `linear="no"`, listed BETWEEN the first
+   * and second chapters, with a link to it from chapter one.
+   */
+  nonLinearNotes?: boolean;
+  /** A font the stylesheet declares with @font-face and uses for the body. */
+  bodyFont?: { path: string; bytes: Uint8Array; family: string };
+  /** Rewrite the package document after it is built. */
+  editOpf?: (opf: string) => string;
 }
 
 async function packageZip(
@@ -165,6 +203,13 @@ export async function epub3Book(
     options.spineHrefs ?? order.map((i) => `Text/${CHAPTER_FILES[i]}`)
   )
     .map((href, k) => `<itemref idref="s${k}"/>`)
+    // The notes file sits BETWEEN chapters one and two in the spine: a
+    // reader that printed non-linear items in place would put it there.
+    .map((ref, k) =>
+      k === 0 && options.nonLinearNotes
+        ? `${ref}<itemref idref="notes" linear="no"/>`
+        : ref,
+    )
     .join("");
   const spineItems = (
     options.spineHrefs ?? order.map((i) => `Text/${CHAPTER_FILES[i]}`)
@@ -177,16 +222,16 @@ export async function epub3Book(
   const opf = `<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:identifier id="uid">urn:uuid:12345678-1234-4234-8234-123456789abc</dc:identifier>
+    <dc:identifier id="uid">${options.identifier ?? EPUB_IDENTIFIER}</dc:identifier>
     <dc:title>The Lanternfly Proof</dc:title>
     <dc:language>en</dc:language>
-    <meta property="dcterms:modified">2026-11-06T00:00:00Z</meta>
+    <meta property="dcterms:modified">2026-11-06T00:00:00Z</meta>${options.metadata ?? ""}
   </metadata>
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
     <item id="css" href="Styles/book.css" media-type="text/css"/>
     <item id="img" href="Images/blue.png" media-type="image/png"/>
-    ${spineItems}
+    ${spineItems}${options.nonLinearNotes ? `<item id="notes" href="Text/${NOTES_FILE}" media-type="application/xhtml+xml"/>` : ""}
   </manifest>
   <spine>${spine}</spine>
 </package>`;
@@ -206,7 +251,10 @@ export async function epub3Book(
       "One",
       chapterBody(
         0,
-        `<p><img src="../Images/blue.png" alt="blue" style="width:96px;height:96px"/></p>`,
+        `<p><img src="../Images/blue.png" alt="blue" style="width:96px;height:96px"/></p>` +
+          (options.nonLinearNotes
+            ? `<p><a href="${NOTES_FILE}#n1">${EPUB_NOTE_LINK_TEXT}</a></p>`
+            : ""),
       ),
     ),
     [`OEBPS/Text/${CHAPTER_FILES[1]}`]: xhtml(
@@ -226,13 +274,26 @@ export async function epub3Book(
   };
   const entries: Record<string, string | Uint8Array> = {
     "META-INF/container.xml": CONTAINER,
-    "OEBPS/content.opf": opf,
+    "OEBPS/content.opf": options.editOpf ? options.editOpf(opf) : opf,
     "OEBPS/nav.xhtml": nav,
     ...chapters,
+    ...(options.nonLinearNotes
+      ? {
+          [`OEBPS/Text/${NOTES_FILE}`]: xhtml(
+            "Notes",
+            `<h2>Notes</h2><p id="n1">${EPUB_NOTES_MARK}.</p>`,
+          ),
+        }
+      : {}),
+    ...(options.bodyFont
+      ? { [options.bodyFont.path]: options.bodyFont.bytes }
+      : {}),
     ...(options.dropCss
       ? {}
       : {
-          "OEBPS/Styles/book.css": `h1 { color: rgb(${r}, ${g}, ${b}); font-size: 20px; }\nbody { font-family: serif; }`,
+          "OEBPS/Styles/book.css":
+            `h1 { color: rgb(${r}, ${g}, ${b}); font-size: 20px; }\nbody { font-family: serif; }` +
+            (options.bodyFont ? fontFaceCss(options.bodyFont) : ""),
         }),
     ...(options.dropImage ? {} : { "OEBPS/Images/blue.png": solidPng() }),
     ...(options.encryption
@@ -301,6 +362,98 @@ export function fontObfuscatedBook(): Promise<Uint8Array> {
     encryption: {
       algorithm: IDPF_FONT_OBFUSCATION,
       uri: "OEBPS/Fonts/body.otf",
+    },
+  });
+}
+
+/** Adobe's font-obfuscation algorithm (its URI in encryption.xml). */
+export const ADOBE_FONT_OBFUSCATION = "http://ns.adobe.com/pdf/enc#RC";
+
+/**
+ * A real OFL font (Mr Dafoe, from a package the site already ships): the
+ * restored font's PostScript name is what a PDF that USED it embeds.
+ */
+export function oflFontBytes(): Uint8Array {
+  const require = createRequire(import.meta.url);
+  const dir = path.dirname(
+    require.resolve("@expo-google-fonts/mr-dafoe/package.json"),
+  );
+  return new Uint8Array(
+    readFileSync(path.join(dir, "400Regular", "MrDafoe_400Regular.ttf")),
+  );
+}
+
+/*
+ * The two obfuscations, written here from the specifications and NOT
+ * imported from the engine, so a test cannot pass because both sides share
+ * one mistake:
+ *  - IDPF (EPUB OCF 3, "Font Obfuscation"): the key is the SHA-1 of the
+ *    package's unique identifier with all white space (U+0020, U+0009,
+ *    U+000D, U+000A) removed; the first 1040 bytes are XORed with it.
+ *  - Adobe: the key is the 16 bytes of the identifier's UUID; the first
+ *    1024 bytes are XORed with it.
+ */
+function xorHead(font: Uint8Array, key: Uint8Array, length: number) {
+  const out = font.slice();
+  for (let i = 0; i < Math.min(length, out.length); i += 1)
+    out[i] = out[i]! ^ key[i % key.length]!;
+  return out;
+}
+export function idpfObfuscate(font: Uint8Array, uid: string): Uint8Array {
+  const key = createHash("sha1")
+    .update(uid.replace(/[ \t\r\n]/g, ""), "utf8")
+    .digest();
+  return xorHead(font, new Uint8Array(key), 1040);
+}
+export function adobeObfuscate(font: Uint8Array, uid: string): Uint8Array {
+  const hex = uid.replace(/^urn:uuid:/i, "").replace(/-/g, "");
+  if (!/^[0-9a-f]{32}$/i.test(hex)) throw new Error(`not a UUID: ${uid}`);
+  return xorHead(font, new Uint8Array(Buffer.from(hex, "hex")), 1024);
+}
+
+const BODY_FONT_PATH = "OEBPS/Fonts/body.ttf";
+const BODY_FONT_FAMILY = "Book Body";
+
+/**
+ * A book whose paragraphs are set in a real font, obfuscated with `method`
+ * against the package identifier (or against `keyFrom`, a DIFFERENT one,
+ * for a font no reader can restore). `{ algorithm }` names any other
+ * algorithm URI over the font.
+ */
+export function obfuscatedRealFontBook(
+  method: "idpf" | "adobe" | { algorithm: string },
+  keyFrom: string = EPUB_IDENTIFIER,
+  editOpf?: (opf: string) => string,
+): Promise<Uint8Array> {
+  const font = oflFontBytes();
+  const bytes =
+    method === "idpf"
+      ? idpfObfuscate(font, keyFrom)
+      : method === "adobe"
+        ? adobeObfuscate(font, keyFrom)
+        : font;
+  return epub3Book({
+    bodyFont: { path: BODY_FONT_PATH, bytes, family: BODY_FONT_FAMILY },
+    encryption: {
+      algorithm:
+        method === "idpf"
+          ? IDPF_FONT_OBFUSCATION
+          : method === "adobe"
+            ? ADOBE_FONT_OBFUSCATION
+            : method.algorithm,
+      uri: BODY_FONT_PATH,
+    },
+    ...(editOpf ? { editOpf } : {}),
+  });
+}
+
+/** The same book with the font stored plainly: no encryption.xml. */
+export function plainRealFontBook(): Promise<Uint8Array> {
+  return epub3Book({
+    bodyFont: {
+      path: BODY_FONT_PATH,
+      bytes: oflFontBytes(),
+      family: BODY_FONT_FAMILY,
     },
   });
 }

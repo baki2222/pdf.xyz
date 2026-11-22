@@ -31,11 +31,17 @@ import {
   readEpubPdf,
 } from "./proof";
 import {
+  EPUB_NOTE_LINK_TEXT,
+  EPUB_NOTES_MARK,
+  OFL_FONT_POSTSCRIPT_NAME,
   epub2Book,
   epub3Book,
   fixedLayoutBook,
   fontObfuscatedBook,
+  obfuscatedRealFontBook,
+  plainRealFontBook,
 } from "@/tests/epub-fixtures";
+import { EPUB_CHAPTER_MARKS, pdfFontNames } from "./proof";
 
 const BIN = findChromium(resolveOnPath);
 
@@ -248,6 +254,8 @@ describe.skipIf(!BIN)(
           epub2: fixtures.epub2Book,
           fixedLayout: fixtures.fixedLayoutBook,
           fontObfuscated: fixtures.fontObfuscatedBook,
+          fontRestored: () => fixtures.obfuscatedRealFontBook("idpf"),
+          nonLinear: () => fixtures.epub3Book({ nonLinearNotes: true }),
           drm: fixtures.drmBook,
           zipBomb: fixtures.zipBombBook,
           docxNamedEpub: fixtures.docxNamedEpub,
@@ -261,3 +269,98 @@ describe.skipIf(!BIN)(
     }, 180_000);
   },
 );
+
+describe.skipIf(!BIN)("competitor audit 2026-11-06, read off the PDF", () => {
+  it("epub-to-pdf#3: a linear='no' notes file prints after the last chapter, and the link to it lands on it", async () => {
+    const { run, reading } = await convert(
+      await epub3Book({ nonLinearNotes: true }),
+    );
+    const last = reading.pages.length - 1;
+    expect(reading.pages[last], reading.pages.join("\n")).toContain(
+      EPUB_NOTES_MARK,
+    );
+    // Only there: not in place, between chapters one and two.
+    expect(reading.pages.slice(0, last).join(" ")).not.toContain(
+      EPUB_NOTES_MARK,
+    );
+    const chapterOne = reading.pages.findIndex((t) =>
+      t.includes(EPUB_CHAPTER_MARKS[0]),
+    );
+    const closing = reading.pages.findIndex((t) =>
+      t.includes(EPUB_CHAPTER_MARKS[2]),
+    );
+    expect(chapterOne).toBeGreaterThanOrEqual(0);
+    expect(closing).toBeLessThan(last);
+    // The reading order is untouched by the extra section.
+    expect(epub3Verdict(reading)).toEqual([]);
+    // Chapter one's link opens the notes page.
+    expect(reading.pages[chapterOne]).toContain(EPUB_NOTE_LINK_TEXT);
+    const links = await linksOf(run.output);
+    expect(links.dests).toContainEqual({ from: chapterOne, to: last });
+    expect(run.meta).toMatchObject({ chapters: 4, extraSections: 1 });
+
+    // Positive control: the same book with no non-linear item prints one
+    // page fewer, and counts none.
+    const plain = await convert(await epub3Book());
+    expect(plain.reading.pages.length).toBe(reading.pages.length - 1);
+    expect(plain.run.meta).toMatchObject({ chapters: 3, extraSections: 0 });
+  }, 120_000);
+
+  for (const method of ["idpf", "adobe"] as const)
+    it(`epub-to-pdf#4: a font obfuscated with the ${method} method is restored, and the PDF embeds it`, async () => {
+      const { run, reading } = await convert(
+        await obfuscatedRealFontBook(method),
+      );
+      expect(epub3Verdict(reading)).toEqual([]);
+      expect(run.meta).toMatchObject({ fontsRestored: 1, fontsLeftOut: 0 });
+      const names = await pdfFontNames(run.output);
+      expect(
+        names.some((n) => n.includes(OFL_FONT_POSTSCRIPT_NAME)),
+        names.join(", "),
+      ).toBe(true);
+    }, 60_000);
+
+  it("epub-to-pdf#4 controls: the plain font is seen embedded; one obfuscated against another identifier is left out, counted, and absent", async () => {
+    // Positive control of the reader: a font stored plainly IS found.
+    const plain = await convert(await plainRealFontBook());
+    expect(
+      (await pdfFontNames(plain.run.output)).some((n) =>
+        n.includes(OFL_FONT_POSTSCRIPT_NAME),
+      ),
+    ).toBe(true);
+    expect(plain.run.meta).toMatchObject({ fontsRestored: 0, fontsLeftOut: 0 });
+    // A font no reader can restore: the text still prints, the font does not.
+    const wrong = await convert(
+      await obfuscatedRealFontBook(
+        "idpf",
+        "urn:uuid:00000000-0000-4000-8000-000000000000",
+      ),
+    );
+    expect(epub3Verdict(wrong.reading)).toEqual([]);
+    expect(wrong.run.meta).toMatchObject({ fontsRestored: 0, fontsLeftOut: 1 });
+    expect(
+      (await pdfFontNames(wrong.run.output)).some((n) =>
+        n.includes(OFL_FONT_POSTSCRIPT_NAME),
+      ),
+    ).toBe(false);
+  }, 120_000);
+
+  it("epub-to-pdf#5: the PDF's Author and Subject come from the book", async () => {
+    const lib = await import("pdf-lib");
+    const { run } = await convert(
+      await epub3Book({
+        metadata:
+          "<dc:creator>José Müller</dc:creator><dc:subject>Field notes</dc:subject>",
+      }),
+    );
+    const doc = await lib.PDFDocument.load(run.output);
+    expect(doc.getAuthor()).toBe("José Müller");
+    expect(doc.getSubject()).toBe("Field notes");
+    expect(doc.getTitle()).toBe("The Lanternfly Proof");
+    // Control: a book that names no author gets none.
+    const bare = await lib.PDFDocument.load(
+      (await convert(await epub3Book())).run.output,
+    );
+    expect(bare.getAuthor()).toBeUndefined();
+  }, 60_000);
+});

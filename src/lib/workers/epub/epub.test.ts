@@ -40,6 +40,8 @@ import {
   escapingSpineBook,
   fixedLayoutBook,
   fontObfuscatedBook,
+  obfuscatedRealFontBook,
+  oflFontBytes,
   zipBombBook,
 } from "@/tests/epub-fixtures";
 
@@ -265,7 +267,7 @@ describe("opening a book", () => {
 
   it("a font-obfuscated book is NOT DRM: it opens, and the font is never served", async () => {
     const book = open(await fontObfuscatedBook());
-    expect([...book.obfuscatedFonts]).toEqual(["OEBPS/Fonts/body.otf"]);
+    expect([...book.fontsLeftOut]).toEqual(["OEBPS/Fonts/body.otf"]);
     expect(book.serve(`${HTML_DOCUMENT_URL}OEBPS/Fonts/body.otf`)).toBeNull();
     // Control: the same path is served when it is not obfuscated.
     const plain = open(
@@ -402,6 +404,124 @@ describe("what Chromium is asked to print", () => {
     expect(messages[2]).toContain(EPUB_MAX_ENTRIES.toLocaleString("en-US"));
     expect(messages[3]).toContain(
       `${EPUB_MAX_UNPACKED_BYTES / 1024 / 1024} MB`,
+    );
+  });
+});
+
+describe("competitor audit 2026-11-06: the whole book, its fonts, its author", () => {
+  it("epub-to-pdf#3: a linear='no' item is printed AFTER the reading order, not dropped and not in place", async () => {
+    const book = open(await epub3Book({ nonLinearNotes: true }));
+    expect(book.chapters.map((c) => [c.path, c.linear])).toEqual([
+      ["OEBPS/Text/m-ch.xhtml", true],
+      ["OEBPS/Text/z-ch.xhtml", true],
+      ["OEBPS/Text/a-ch.xhtml", true],
+      ["OEBPS/Text/notes.xhtml", false],
+    ]);
+    // Positive control: a book without one has three chapters, all linear.
+    const plain = open(await epub3Book());
+    expect(plain.chapters.map((c) => c.linear)).toEqual([true, true, true]);
+    // The engine counts it, and asks Chromium for it last.
+    const { deps } = counting();
+    const run = await runEpubToPdf(
+      await epub3Book({ nonLinearNotes: true }),
+      deps,
+    );
+    expect(run.ok && run.meta).toMatchObject({ chapters: 4, extraSections: 1 });
+    expect(bookDocuments(book, DEFAULT_EPUB_RENDER_OPTIONS).at(-1)?.url).toBe(
+      chapterUrl("OEBPS/Text/notes.xhtml"),
+    );
+  });
+
+  it("epub-to-pdf#3: a non-linear item the spine also lists as linear prints once", async () => {
+    const book = open(
+      await epub3Book({
+        nonLinearNotes: true,
+        editOpf: (opf) =>
+          opf.replace(
+            `<itemref idref="notes" linear="no"/>`,
+            `<itemref idref="notes" linear="no"/><itemref idref="notes"/>`,
+          ),
+      }),
+    );
+    expect(
+      book.chapters.filter((c) => c.path === "OEBPS/Text/notes.xhtml"),
+    ).toEqual([
+      { path: "OEBPS/Text/notes.xhtml", viewport: null, linear: true },
+    ]);
+  });
+
+  for (const method of ["idpf", "adobe"] as const)
+    it(`epub-to-pdf#4: a font obfuscated with the ${method} method is served RESTORED, byte for byte`, async () => {
+      const book = open(await obfuscatedRealFontBook(method));
+      const served = book.serve(`${HTML_DOCUMENT_URL}OEBPS/Fonts/body.ttf`);
+      expect(served).not.toBeNull();
+      expect(
+        Buffer.from(served!.body).equals(Buffer.from(oflFontBytes())),
+      ).toBe(true);
+      expect(book.fontsRestored).toBe(1);
+      expect([...book.fontsLeftOut]).toEqual([]);
+    });
+
+  it("epub-to-pdf#4 controls: a font keyed to another identifier is left out, and an unknown algorithm is still DRM", async () => {
+    const wrong = open(
+      await obfuscatedRealFontBook(
+        "adobe",
+        "urn:uuid:00000000-0000-4000-8000-000000000000",
+      ),
+    );
+    expect([...wrong.fontsLeftOut]).toEqual(["OEBPS/Fonts/body.ttf"]);
+    expect(wrong.serve(`${HTML_DOCUMENT_URL}OEBPS/Fonts/body.ttf`)).toBeNull();
+    expect(wrong.fontsRestored).toBe(0);
+    const unknown = await refusalOf(
+      await obfuscatedRealFontBook({
+        algorithm: "http://example.org/2026/unknown-font-scramble",
+      }),
+    );
+    expect(unknown).toMatchObject({
+      kind: "refused",
+      refusal: { kind: "drm" },
+    });
+  });
+
+  it("epub-to-pdf#4: the Adobe method needs a UUID identifier; without one the font is left out, not guessed", async () => {
+    // An ISBN, not a UUID: the Adobe key has nothing to come from.
+    const book = open(
+      await obfuscatedRealFontBook("adobe", undefined, (opf) =>
+        opf.replace(/urn:uuid:[0-9a-f-]+/, "urn:isbn:9780000000002"),
+      ),
+    );
+    expect([...book.fontsLeftOut]).toEqual(["OEBPS/Fonts/body.ttf"]);
+  });
+
+  it("epub-to-pdf#5: Author and Subject come from dc:creator and dc:subject, else dc:description", async () => {
+    const book = open(
+      await epub3Book({
+        metadata:
+          "<dc:creator>José Müller</dc:creator><dc:creator>Ana Ruiz</dc:creator><dc:subject>Field notes</dc:subject><dc:subject>Birds</dc:subject>",
+      }),
+    );
+    expect(book.creator).toBe("José Müller, Ana Ruiz");
+    expect(book.subject).toBe("Field notes, Birds");
+    const described = open(
+      await epub3Book({
+        metadata:
+          "<dc:description>  A short   book\n about birds. </dc:description>",
+      }),
+    );
+    expect(described.subject).toBe("A short book about birds.");
+    expect(described.creator).toBeNull();
+    // Through the engine to the PDF's Info dictionary.
+    const { deps } = counting();
+    const run = await runEpubToPdf(
+      await epub3Book({
+        metadata: "<dc:creator>José Müller</dc:creator>",
+      }),
+      deps,
+    );
+    if (!run.ok) throw new Error(run.message);
+    const { PDFDocument } = await import("pdf-lib");
+    expect((await PDFDocument.load(run.output)).getAuthor()).toBe(
+      "José Müller",
     );
   });
 });
