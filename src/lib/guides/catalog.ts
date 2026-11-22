@@ -70,6 +70,7 @@ import {
   imageDefaultPaperCopy,
   MARKDOWN_PAGE_FACT,
   TEXT_PAGE_SETUP_SENTENCE,
+  TEXT_TAB_PHRASE,
   TRANSLATE_LANGUAGES_ANSWER,
   countWord,
   forgottenPasswordAnswer,
@@ -6035,7 +6036,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To convert a text file to PDF, open ${nameOf("text-to-pdf")}, drop your .txt file on the page or paste the text into the Text content box, press Create PDF, then press Download PDF. You get a paginated PDF. The paper starts on ${imageDefaultPaperCopy()}.`,
-      `Every page carries a small heading, the file's name without its extension, or “text” for pasted text, and a page-of-total count in the footer. Long lines wrap at spaces, a word too long for one line is broken, tabs become spaces, and blank lines and leading indentation are kept. ${TEXT_PAGE_SETUP_SENTENCE} The font and the margins are fixed.`,
+      `Every page carries a small heading, the file's name without its extension, or “text” for pasted text, and a page-of-total count in the footer. Long lines wrap at spaces, a word too long for one line is broken, ${TEXT_TAB_PHRASE}, and blank lines and leading indentation are kept. ${TEXT_PAGE_SETUP_SENTENCE} The font and the margins are fixed.`,
       `The PDF is made in your browser, so your text stays on your device and there is no account to create. The text can be up to ${MAX_SOURCE_MB} MB.`,
     ],
     steps: [

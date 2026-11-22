@@ -132,6 +132,7 @@ import {
   TEXT_ORIENTATIONS,
   TEXT_PAGE_SETUP_LABELS,
   TEXT_PAGE_SIZES,
+  TEXT_TAB_STOP,
 } from "@/lib/pdf/text-page-options";
 import {
   RASTER_COLORS,
@@ -430,6 +431,12 @@ export const TEXT_PAGE_FACT = `${TEXT_PAGE_SETUP_LABELS.pageSize}: ${orJoin(TEXT
  * where each starts. Read by Text to PDF's page and its guide.
  */
 export const TEXT_PAGE_SETUP_SENTENCE = `Under ${TEXT_PAGE_SETUP_LABELS.pageSize}, choose ${orJoin(TEXT_PAGE_SIZES.map((s) => s.label))}; under ${TEXT_PAGE_SETUP_LABELS.orientation}, ${orJoin(TEXT_ORIENTATIONS.map((o) => o.label.toLowerCase()))}; and under ${TEXT_PAGE_SETUP_LABELS.fontSize}, ${orJoin(TEXT_FONT_SIZES.map(String))} pt. The paper starts on ${imageDefaultPaperCopy()}, and the text on ${DEFAULT_TEXT_PAGE_OPTIONS.fontSize} pt.`;
+
+/**
+ * What Text to PDF does with a tab, from the stop the engine expands to
+ * (`expandTabs`, audit wave 2 text-to-pdf#7).
+ */
+export const TEXT_TAB_PHRASE = `a tab moves the text to the next tab stop, every ${TEXT_TAB_STOP} characters, as in a text editor`;
 
 /** What each block kind is called on the page. */
 const MARKDOWN_BLOCK_PHRASE: Record<MarkdownBlockKind, string> = {

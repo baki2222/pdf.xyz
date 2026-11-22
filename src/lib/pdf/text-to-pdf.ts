@@ -5,6 +5,7 @@ import { PdfEngineError } from "./engine";
 import { embedDrawingFont } from "./unicode-font";
 import {
   DEFAULT_TEXT_PAGE_OPTIONS,
+  TEXT_TAB_STOP,
   textPageGeometry,
   type TextPageGeometry,
   type TextPageOptions,
@@ -55,8 +56,32 @@ export function textPdfOutputName(sourceName: string): string {
   return outputName(sourceName || "text", "pdf", "pdf");
 }
 
+const TAB = String.fromCharCode(9);
+
+/**
+ * Each tab moved to the next tab stop, every {@link TEXT_TAB_STOP} characters
+ * counted from the start of its line, as a terminal or a text editor draws
+ * it, so tab-separated columns line up (audit wave 2, text-to-pdf#7). A tab
+ * that sits on a stop moves a whole stop. Until then every tab became four
+ * spaces wherever it stood, and a TSV's columns drifted row by row.
+ */
+export function expandTabs(text: string, stop: number = TEXT_TAB_STOP): string {
+  if (!text.includes(TAB)) return text;
+  return text
+    .split("\n")
+    .map((line) => {
+      let out = "";
+      for (const ch of line) {
+        if (ch === TAB) out += " ".repeat(stop - (out.length % stop));
+        else out += ch;
+      }
+      return out;
+    })
+    .join("\n");
+}
+
 function normalizeInput(text: string): string {
-  return text.replace(/\r\n?/g, "\n").replace(/\t/g, "    ");
+  return expandTabs(text.replace(/\r\n?/g, "\n"));
 }
 
 /** U+000C, built from its code: the page break of RFCs and man pages. */

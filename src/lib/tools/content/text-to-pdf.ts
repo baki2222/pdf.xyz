@@ -8,7 +8,10 @@ import {
   UNSUPPORTED_SCRIPTS,
 } from "@/lib/pdf/font-packs";
 import { TEXT_BATCH_TOOLS, batchLimitsSentence } from "@/lib/batch/tools";
-import { TEXT_PAGE_SETUP_SENTENCE } from "@/lib/tools/tool-facts";
+import {
+  TEXT_PAGE_SETUP_SENTENCE,
+  TEXT_TAB_PHRASE,
+} from "@/lib/tools/tool-facts";
 
 /**
  * Facts this copy leans on, each read from the code that makes it true:
@@ -110,7 +113,7 @@ const content: ToolContent = {
   metaDescription: `Turn a .txt file or pasted text into a paginated PDF with page numbers. Converted in your browser, nothing uploaded, sources up to ${MAX_SOURCE_MB} MB.`,
 
   intro: [
-    `Paste text into the box or drop in a .txt file, press Create PDF, and you get a PDF with a page-of-total counter in the footer and a small heading on every page: the loaded file's name minus the extension, or "text" for pasted text. ${TEXT_PAGE_SETUP_SENTENCE} Long lines wrap at spaces, a word too long for one line is broken, tabs become spaces, Windows and old Mac line endings are normalised, and blank lines and leading indentation are kept.`,
+    `Paste text into the box or drop in a .txt file, press Create PDF, and you get a PDF with a page-of-total counter in the footer and a small heading on every page: the loaded file's name minus the extension, or "text" for pasted text. ${TEXT_PAGE_SETUP_SENTENCE} Long lines wrap at spaces, a word too long for one line is broken, ${TEXT_TAB_PHRASE}, Windows and old Mac line endings are normalised, and blank lines and leading indentation are kept.`,
     `Everything happens inside this browser tab, and your text is not uploaded anywhere. The cap is ${MAX_SOURCE_MB} MB: a file is checked by its size when you load it, and the text is checked again, in UTF-8 bytes, when you convert. A file that starts with a byte-order mark is read in the UTF-8 or UTF-16 encoding it declares; otherwise its bytes are inspected and it is read as UTF-16, UTF-8 or Windows-1252 (ANSI), and a note under the box names the encoding whenever it had to be assumed.`,
     `Western European text is set in Courier, one of the standard fonts PDF readers supply themselves, so no font is downloaded or embedded. ${monospaceClaimSentence()} Where Courier cannot draw a character but that face can, as with Polish or Russian letters (even one in the file name), the monospace face (Geist Mono) is fetched from pdf.xyz's own server and embedded with only the characters you used, so columns aligned with spaces stay aligned as long as each line fits the page width. Any other character, such as Greek, Chinese or Bengali, in the text or its file name, switches the whole body to a proportional Noto face, and space-aligned columns then stop lining up.`,
   ],

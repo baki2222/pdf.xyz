@@ -59,6 +59,9 @@ export const TEXT_PAGE_SETUP_LABELS = {
   fontSize: "Text size",
 } as const;
 
+/** A tab moves to the next multiple of this many characters on its line. */
+export const TEXT_TAB_STOP = 8;
+
 /** Text sizes offered, in points. */
 export const TEXT_FONT_SIZES: readonly number[] = [9, 10, 11, 12, 14];
 
