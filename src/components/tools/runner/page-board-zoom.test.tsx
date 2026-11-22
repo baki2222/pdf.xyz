@@ -56,6 +56,18 @@ import {
   readRestrictedFixture,
 } from "@/tests/restricted-pdf-fixtures";
 
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
+ *
+ * CI: the slowest test here took 1259 ms (run 44373418087, a failing run; 108
+ * CI runs, passing and failing, to 11-21). A wait cannot outlast its test, so
+ * 3 s is at least 2.3x any wait in it, and it stays below the test's own
+ * timeout, so a wait that times out fails with its DOM dump.
+ */
+const WAIT_MS = 3_000;
+
 vi.mock("pdfjs-dist", async () => import("pdfjs-dist/legacy/build/pdf.mjs"));
 
 type Legacy = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -180,7 +192,9 @@ async function closeBack(opener: HTMLElement) {
   screen.getByRole("button", { name: "Close" }).focus();
   expect(document.activeElement).not.toBe(opener);
   fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), {
+    timeout: WAIT_MS,
+  });
   expect(document.activeElement).toBe(opener);
 }
 
@@ -201,13 +215,21 @@ describe("Split · cut mode", () => {
         onReset={() => {}}
       />,
     );
-    const cut = await screen.findByRole("button", { name: cutAfterLabel(2) });
+    const cut = await screen.findByRole(
+      "button",
+      { name: cutAfterLabel(2) },
+      { timeout: WAIT_MS },
+    );
     const before = cut.getAttribute("aria-pressed");
     const box = screen.getByRole("textbox", {
       name: /page ranges/i,
     }) as HTMLInputElement;
     const typed = box.value;
-    const opener = await screen.findByRole("button", { name: zoomLabel(2) });
+    const opener = await screen.findByRole(
+      "button",
+      { name: zoomLabel(2) },
+      { timeout: WAIT_MS },
+    );
     const { width } = await openZoom(opener, "Page 2 of 3");
     expect(width).toBe(zoomWidth(102, 200));
     await closeBack(opener);
@@ -240,7 +262,11 @@ describe("Split · cut mode keyboard", () => {
         onReset={() => {}}
       />,
     );
-    const last = await screen.findByRole("button", { name: zoomLabel(3) });
+    const last = await screen.findByRole(
+      "button",
+      { name: zoomLabel(3) },
+      { timeout: WAIT_MS },
+    );
     const tabStops = () =>
       [1, 2, 3].map(
         (n) => screen.getByRole("button", { name: zoomLabel(n) }).tabIndex,
@@ -249,10 +275,14 @@ describe("Split · cut mode keyboard", () => {
     expect(tabStops()).toEqual([0, -1, -1]);
     screen.getByRole("button", { name: cutAfterLabel(2) }).focus();
     // The last cut holds the stop: its page's button and the last page's.
-    await waitFor(() => expect(tabStops()).toEqual([-1, 0, 0]));
+    await waitFor(() => expect(tabStops()).toEqual([-1, 0, 0]), {
+      timeout: WAIT_MS,
+    });
     // Focus on the last page's button keeps the stop where it was.
     last.focus();
-    await waitFor(() => expect(tabStops()).toEqual([-1, 0, 0]));
+    await waitFor(() => expect(tabStops()).toEqual([-1, 0, 0]), {
+      timeout: WAIT_MS,
+    });
   }, 30_000);
 });
 
@@ -305,21 +335,31 @@ describe("Rotate · the page as it will come out", () => {
     // Turned a quarter: drawn 200 wide, not 101.
     expect(width).toBe(zoomWidth(200, 101));
     fireEvent.click(within(dialog).getByRole("button", { name: /next page/i }));
-    const next = await screen.findByRole("dialog", { name: "Page 2 of 3" });
+    const next = await screen.findByRole(
+      "dialog",
+      { name: "Page 2 of 3" },
+      { timeout: WAIT_MS },
+    );
     const img = await within(next).findByRole(
       "img",
       { name: "Page 2" },
       { timeout: 10_000 },
     );
-    await waitFor(() =>
-      expect(widthOf.get(img.getAttribute("src") ?? "")).toBe(
-        zoomWidth(102, 200),
-      ),
+    await waitFor(
+      () =>
+        expect(widthOf.get(img.getAttribute("src") ?? "")).toBe(
+          zoomWidth(102, 200),
+        ),
+      { timeout: WAIT_MS },
     );
     fireEvent.click(
       within(next).getByRole("button", { name: /previous page/i }),
     );
-    await screen.findByRole("dialog", { name: "Page 1 of 3" });
+    await screen.findByRole(
+      "dialog",
+      { name: "Page 1 of 3" },
+      { timeout: WAIT_MS },
+    );
     await closeBack(opener);
     expect(tile).toHaveAttribute("aria-pressed", before!);
   }, 30_000);
@@ -337,19 +377,25 @@ describe("Organize · the new order", () => {
     const { dialog, width } = await openZoom(opener, "Page 2, position 1 of 3");
     expect(width).toBe(zoomWidth(102, 200));
     fireEvent.click(within(dialog).getByRole("button", { name: /next page/i }));
-    const next = await screen.findByRole("dialog", {
-      name: "Page 1, position 2 of 3",
-    });
+    const next = await screen.findByRole(
+      "dialog",
+      {
+        name: "Page 1, position 2 of 3",
+      },
+      { timeout: WAIT_MS },
+    );
     const img = await within(next).findByRole(
       "img",
       { name: "Page 1, position 2 of 3" },
       { timeout: 10_000 },
     );
     // Page 1, turned a quarter by the press above.
-    await waitFor(() =>
-      expect(widthOf.get(img.getAttribute("src") ?? "")).toBe(
-        zoomWidth(200, 101),
-      ),
+    await waitFor(
+      () =>
+        expect(widthOf.get(img.getAttribute("src") ?? "")).toBe(
+          zoomWidth(200, 101),
+        ),
+      { timeout: WAIT_MS },
     );
     await closeBack(opener);
     // The board did not move: page 2 still leads.
@@ -364,7 +410,9 @@ describe("Organize · the new order", () => {
       name: "Insert blank page after page 1",
     });
     // The insert waits for the pages' sizes.
-    await waitFor(() => expect(insert).not.toHaveAttribute("aria-disabled"));
+    await waitFor(() => expect(insert).not.toHaveAttribute("aria-disabled"), {
+      timeout: WAIT_MS,
+    });
     fireEvent.click(insert);
     // A blank sheet has nothing to enlarge: no button of its own.
     expect(
@@ -375,9 +423,13 @@ describe("Organize · the new order", () => {
       "Page 1, position 1 of 3",
     );
     fireEvent.click(within(dialog).getByRole("button", { name: /next page/i }));
-    const blank = await screen.findByRole("dialog", {
-      name: "Blank page, position 2 of 3",
-    });
+    const blank = await screen.findByRole(
+      "dialog",
+      {
+        name: "Blank page, position 2 of 3",
+      },
+      { timeout: WAIT_MS },
+    );
     expect(
       within(blank).getByRole("img", { name: "Blank page" }),
     ).toHaveAttribute("data-blank-sheet");
@@ -408,7 +460,7 @@ describe("Merge PDF, Arrange pages across files", () => {
         ],
       },
     });
-    await screen.findAllByText("beta.pdf");
+    await screen.findAllByText("beta.pdf", {}, { timeout: WAIT_MS });
     fireEvent.click(screen.getByRole("radio", { name: "Arrange pages" }));
     await screen.findByRole(
       "list",
@@ -430,19 +482,25 @@ describe("Merge PDF, Arrange pages across files", () => {
     // beta's page 1 (201 x 200), turned: drawn as wide as it was tall.
     expect(width).toBe(zoomWidth(200, 201));
     fireEvent.click(within(dialog).getByRole("button", { name: /next page/i }));
-    const next = await screen.findByRole("dialog", {
-      name: "Page 2 of alpha.pdf, page 3 of 4 in the merged PDF",
-    });
+    const next = await screen.findByRole(
+      "dialog",
+      {
+        name: "Page 2 of alpha.pdf, page 3 of 4 in the merged PDF",
+      },
+      { timeout: WAIT_MS },
+    );
     const img = await within(next).findByRole(
       "img",
       { name: "Page 2 of alpha.pdf, page 3 of 4 in the merged PDF" },
       { timeout: 10_000 },
     );
     // alpha's page 2 (102 wide), from alpha's bytes, not beta's.
-    await waitFor(() =>
-      expect(widthOf.get(img.getAttribute("src") ?? "")).toBe(
-        zoomWidth(102, 200),
-      ),
+    await waitFor(
+      () =>
+        expect(widthOf.get(img.getAttribute("src") ?? "")).toBe(
+          zoomWidth(102, 200),
+        ),
+      { timeout: WAIT_MS },
     );
     await closeBack(opener);
     // The grid did not move.
@@ -479,7 +537,7 @@ describe("Merge PDF, Arrange pages across files", () => {
         ],
       },
     });
-    await screen.findAllByText("beta.pdf");
+    await screen.findAllByText("beta.pdf", {}, { timeout: WAIT_MS });
     fireEvent.click(screen.getByRole("radio", { name: "Arrange pages" }));
     const grid = await screen.findByRole(
       "list",
@@ -546,22 +604,26 @@ describe("Merge PDF, an owner-opened file in Arrange pages", () => {
     });
     const field = await screen.findByLabelText(
       OWNER_PASSWORD_LABEL,
-      undefined,
-      {
-        timeout: 15_000,
-      },
+      {},
+      { timeout: 15_000 },
     );
     fireEvent.change(field, { target: { value: fixture.owner } });
     fireEvent.click(
       screen.getByRole("button", { name: OWNER_PASSWORD_BUTTON }),
     );
-    await screen.findByText(OWNER_OPENED_NOTE["merge-pdf"], undefined, {
-      timeout: 15_000,
-    });
+    await screen.findByText(
+      OWNER_OPENED_NOTE["merge-pdf"],
+      {},
+      { timeout: 15_000 },
+    );
     // It is a row of the list now, not a refusal.
-    await screen.findByRole("listitem", {
-      name: /^both\.pdf, file 2 of 2, 2 pages/,
-    });
+    await screen.findByRole(
+      "listitem",
+      {
+        name: /^both\.pdf, file 2 of 2, 2 pages/,
+      },
+      { timeout: WAIT_MS },
+    );
     expect(screen.queryByLabelText(OWNER_PASSWORD_LABEL)).toBeNull();
 
     fireEvent.click(screen.getByRole("radio", { name: "Arrange pages" }));
@@ -589,7 +651,7 @@ describe("Merge PDF, an owner-opened file in Arrange pages", () => {
     await closeBack(opener);
 
     const merge = screen.getByRole("button", { name: /^merge/i });
-    await waitFor(() => expect(merge).toBeEnabled());
+    await waitFor(() => expect(merge).toBeEnabled(), { timeout: WAIT_MS });
     fireEvent.click(merge);
     const download = await screen.findByRole(
       "button",
