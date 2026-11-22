@@ -37,6 +37,7 @@ import {
 import { DropDesk, DropSheetPick } from "./drop-desk";
 import { DropSheet } from "./drop-sheet";
 import { useDropBox } from "./use-drop-box";
+import { loadDropEngine } from "./drop-engine-load";
 
 /** What every tool page's zone passes (the runner kit's `Dropzone`); a case overrides it. */
 const SHEET = {
@@ -57,13 +58,26 @@ afterEach(() => {
 });
 
 /**
+ * Every box mounted so far has its engine: the test awaits the very loader
+ * each box awaits (`useDropBox` → `loadDropEngine`), cold or warm, and one
+ * macrotask later every box's `.then(attachDropBox)` has run — the property
+ * the drop layer's settled() relies on. An event, not a budget: until
+ * 2026-11-21 these were 1 s waits, warm only because this file happens to
+ * import the registry statically.
+ */
+async function registryArrived(): Promise<void> {
+  await loadDropEngine();
+  await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+}
+
+/**
  * The sheet's engine is attached — it arrives with the registry, a moment
  * after the sheet mounts, and marks the box it takes (`DROP_ENGINE_MARK`).
  */
-const engine = (container: Element) =>
-  waitFor(() =>
-    expect(container.querySelector(`[${DROP_ENGINE_MARK}]`)).not.toBeNull(),
-  );
+async function engine(container: Element): Promise<void> {
+  await registryArrived();
+  expect(container.querySelector(`[${DROP_ENGINE_MARK}]`)).not.toBeNull();
+}
 
 describe("createDragDepth", () => {
   it("stays inside across a child, and leaves once every enter has left", () => {
@@ -307,11 +321,9 @@ describe("DropSheet", () => {
     expect(root.hasAttribute("data-page-drop-target")).toBe(true);
     // The registry is fetched on mount, not with the page: the sheet is in
     // the stack once it arrives.
-    const target = await waitFor(() => {
-      const t = activePageTarget();
-      if (!t) throw new Error("not registered yet");
-      return t;
-    });
+    await registryArrived();
+    const target = activePageTarget();
+    expect(target).not.toBeNull();
     expect(target?.name).toBe("Merge PDF");
     expect(target?.verb).toBe("add");
     expect(target?.element()).toBe(root);
@@ -341,7 +353,8 @@ describe("DropSheet", () => {
         pageTarget={{ name: "First", verb: "open" }}
       />,
     );
-    await waitFor(() => expect(activePageTarget()?.name).toBe("First"));
+    await registryArrived();
+    expect(activePageTarget()?.name).toBe("First");
     const later = registerPageTarget({
       name: "Later",
       verb: "replace",
@@ -378,7 +391,8 @@ describe("DropSheet", () => {
         }}
       />,
     );
-    await waitFor(() => expect(activePageTarget()?.canReceive()).toBe(true));
+    await registryArrived();
+    expect(activePageTarget()?.canReceive()).toBe(true);
     busy = true;
     expect(activePageTarget()?.canReceive()).toBe(false);
   });
@@ -387,9 +401,9 @@ describe("DropSheet", () => {
     const { container } = render(
       <DropSheet {...SHEET} accept=".pdf" onFiles={() => {}} />,
     );
-    // Given the registry every chance to have arrived: still nothing.
-    await import("@/lib/intent/page-target");
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The engine has arrived — proven, so the absence below is not its
+    // absence — and still nothing registered.
+    await engine(container);
     expect(activePageTarget()).toBeNull();
     expect(
       container
@@ -412,11 +426,9 @@ describe("a desk", () => {
         {() => <DropSheetPick>Choose files</DropSheetPick>}
       </DropDesk>,
     );
-    const target = await waitFor(() => {
-      const t = activePageTarget();
-      if (!t) throw new Error("not registered yet");
-      return t;
-    });
+    await registryArrived();
+    const target = activePageTarget()!;
+    expect(target).not.toBeNull();
     act(() => target.arm(true));
     expect(
       container.querySelector("[data-drop-sheet]")!.hasAttribute("data-armed"),
@@ -444,7 +456,8 @@ describe("a target with no name of its own", () => {
         />
       </div>,
     );
-    await waitFor(() => expect(activePageTarget()?.name).toBe("Merge PDF"));
+    await registryArrived();
+    expect(activePageTarget()?.name).toBe("Merge PDF");
     unmount();
     render(
       <DropSheet
@@ -454,7 +467,8 @@ describe("a target with no name of its own", () => {
         pageTarget={{ verb: "add" }}
       />,
     );
-    await waitFor(() => expect(activePageTarget()?.name).toBe("this tool"));
+    await registryArrived();
+    expect(activePageTarget()?.name).toBe("this tool");
   });
 });
 
@@ -521,8 +535,17 @@ describe("before its engine arrives", () => {
     releaseOn(zone, [signature]);
     // Not taken in the release's own turn: no engine was there to take it.
     expect(onFiles).not.toHaveBeenCalled();
-    await waitFor(() =>
-      expect(onFiles).toHaveBeenCalledWith([signature], "drop"),
+    // 4000 ms: the layer routes once its targets have arrived, a wait the
+    // design caps at 2000 ms (targetsArrived); the budget sits above the cap
+    // so it never races a wait the design intends, under the 5 s test
+    // timeout. No test of this file has a CI row (the reporter prints a
+    // test only past 300 ms); the whole FILE, all 22 tests and its hooks,
+    // took at most 437 ms over 33 CI runs of 11-09..11-21, failed runs
+    // included (run 42638025531; 383 ms on main run 44931945692), so 4000
+    // ms is > 9x the file, let alone this one test.
+    await waitFor(
+      () => expect(onFiles).toHaveBeenCalledWith([signature], "drop"),
+      { timeout: 4_000 },
     );
     expect(page.receive).not.toHaveBeenCalled();
     off();
@@ -540,8 +563,10 @@ describe("before its engine arrives", () => {
     );
     const contract = files(["contract.pdf"]);
     releaseOn(container.querySelector("[data-drop-sheet]")!, contract);
-    await waitFor(() =>
-      expect(page.receive).toHaveBeenCalledWith(contract, "drop"),
+    // 4000 ms, as above: past targetsArrived's 2000 ms cap.
+    await waitFor(
+      () => expect(page.receive).toHaveBeenCalledWith(contract, "drop"),
+      { timeout: 4_000 },
     );
     expect(onFiles).not.toHaveBeenCalled();
     off();

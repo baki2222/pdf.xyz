@@ -156,37 +156,60 @@ describe("the header on a phone", () => {
     expect(menu()?.open).toBe(true);
   });
 
-  it("lists recent tools only when this browser has some", async () => {
-    render(at("/", <SiteHeader />));
-    fireEvent.click(toggle());
-    // None stored: no section at all (not an empty heading).
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 50));
-    });
-    expect(within(menu()!).queryByText("Recent tools")).toBeNull();
-    act(() => {
-      fireEvent.keyDown(menu()!, { key: "Escape" });
-    });
+  // 3000 ms per wait: the read is two lazy imports and a storage read. This
+  // test has no CI row (the reporter prints a test only past 300 ms); the
+  // slowest test of this file was 307 ms in 33 CI runs of 11-09..11-21,
+  // failed runs included (run 43998624497, a different test), so > 9x. Two such
+  // waits stay inside this test's own 10 s, so a wait's DOM dump is what a
+  // failure shows.
+  const READ_WAIT = { timeout: 3_000 };
+  const recentsRead = () =>
+    waitFor(() => expect(menu()!.dataset.recents).toBe("read"), READ_WAIT);
 
-    localStorage.setItem(
-      RECENTS_STORAGE_KEY,
-      JSON.stringify({
-        version: 1,
-        items: [{ slug: "merge-pdf", at: 1 }],
-      }),
-    );
-    fireEvent.click(toggle());
-    const name = getToolBySlug("merge-pdf")!.name;
-    const recent = await within(menu()!).findByRole("list", {
-      name: "Recent tools",
-    });
-    expect(
-      within(recent).getByRole("link", { name }).getAttribute("href"),
-    ).toBe("/tools/merge-pdf");
-    await waitFor(() =>
-      expect(within(menu()!).getByText("Recent tools")).toBeTruthy(),
-    );
-  });
+  it(
+    "lists recent tools only when this browser has some",
+    { timeout: 10_000 },
+    async () => {
+      render(at("/", <SiteHeader />));
+      // Control: closed, nothing has been read.
+      expect(menu()!.dataset.recents).toBeUndefined();
+      fireEvent.click(toggle());
+      // None stored: no section at all (not an empty heading) — judged once
+      // THIS open has read its recents, not after a sleep that a cold import,
+      // a timer or a late defaults chunk could outlast (until 2026-11-21 a
+      // 50 ms sleep stood here, blind to anything drawn after it).
+      await recentsRead();
+      expect(within(menu()!).queryByText("Recent tools")).toBeNull();
+      act(() => {
+        fireEvent.keyDown(menu()!, { key: "Escape" });
+      });
+      // A close forgets the read, so the next open's wait is for ITS read:
+      // a mark kept from this open would pass the wait below at once, and
+      // the list would be judged before it was read (green here only while
+      // the warm read beats the wait's first check).
+      expect(menu()!.dataset.recents).toBeUndefined();
+
+      localStorage.setItem(
+        RECENTS_STORAGE_KEY,
+        JSON.stringify({
+          version: 1,
+          items: [{ slug: "merge-pdf", at: 1 }],
+        }),
+      );
+      fireEvent.click(toggle());
+      await recentsRead();
+      const name = getToolBySlug("merge-pdf")!.name;
+      const recent = within(menu()!).getByRole("list", {
+        name: "Recent tools",
+      });
+      expect(
+        within(recent).getByRole("link", { name }).getAttribute("href"),
+      ).toBe("/tools/merge-pdf");
+      await waitFor(() =>
+        expect(within(menu()!).getByText("Recent tools")).toBeTruthy(),
+      );
+    },
+  );
 });
 
 describe("the header", () => {

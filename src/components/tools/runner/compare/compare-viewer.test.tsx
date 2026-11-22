@@ -160,6 +160,17 @@ function placeMarks() {
   };
 }
 
+// 3000 ms: each wait below covers the whole in-memory chain of a column
+// (sizes, layout write, text layer, placement, marks), and the file's
+// first test pays first-execution costs inside it. That test took at
+// most 581 ms in all on CI (failed run 43998624497, the max over 33 CI
+// runs of 11-09..11-21; 503 ms among the 12 passing runs of 11-18, run
+// 44299285879), so > 5x where the 1 s default gave 1.7x; and
+// it stays under the 5 s test timeout, so a wait's own message wins. Not
+// configure({ asyncUtilTimeout }): that is module state, and under
+// isolate:false it would leak into later files in the same worker.
+const SETTLE = { timeout: 3_000 };
+
 describe("Compare PDF's page view", () => {
   it("renders its chunk marker, two labelled columns and the sync box", async () => {
     const { props } = setup(
@@ -167,9 +178,11 @@ describe("Compare PDF's page view", () => {
       [[...body("a", 2), "a line 3 changed"]],
     );
     render(<CompareViewer {...props} current={0} navToken={1} />);
-    const panel = await screen.findByRole("group", {
-      name: "Changes on the pages",
-    });
+    const panel = await screen.findByRole(
+      "group",
+      { name: "Changes on the pages" },
+      SETTLE,
+    );
     expect(panel.getAttribute("data-chunk")).toBe(COMPARE_VIEWER_CHUNK);
     expect(panel.hasAttribute("data-pdf-viewer")).toBe(true);
     expect(
@@ -185,10 +198,12 @@ describe("Compare PDF's page view", () => {
     });
     expect((box as HTMLInputElement).checked).toBe(true);
     // The marks land: removed on the original, added on the revised.
-    await waitFor(() =>
-      expect(
-        panel.querySelector('mark[data-mark-kind="added"]')?.textContent,
-      ).toBe(" changed"),
+    await waitFor(
+      () =>
+        expect(
+          panel.querySelector('mark[data-mark-kind="added"]')?.textContent,
+        ).toBe(" changed"),
+      SETTLE,
     );
     expect(panel.querySelector('mark[data-mark-kind="removed"]')).toBeNull();
   });
@@ -211,8 +226,9 @@ describe("Compare PDF's page view", () => {
     const [l, r] = ["Original: v1.pdf", "Revised: v2.pdf"].map((n) =>
       screen.getByRole("region", { name: n }),
     );
-    await waitFor(() =>
-      expect(l!.querySelector("[data-viewer-page]")).not.toBeNull(),
+    await waitFor(
+      () => expect(l!.querySelector("[data-viewer-page]")).not.toBeNull(),
+      SETTLE,
     );
     const last = result.hunks.length - 1;
     view.rerender(<CompareViewer {...props} current={last} navToken={2} />);
@@ -223,7 +239,7 @@ describe("Compare PDF's page view", () => {
       expect(l!.scrollTop).toBeGreaterThan(lp === 0 ? -1 : 0);
       expect(r!.scrollTop).toBeGreaterThan(rp === 0 ? -1 : 0);
       expect(r!.scrollTop).toBeGreaterThan(l!.scrollTop);
-    });
+    }, SETTLE);
   });
 
   it("a change across two live pages reveals once, on its first page, and a remount does not reveal again (G16)", async () => {
@@ -256,32 +272,38 @@ describe("Compare PDF's page view", () => {
           '[data-viewer-page="2"] mark[data-viewer-hit="active"]',
         ),
       ).not.toBeNull();
-    });
-    await act(async () => {
-      await new Promise((res) => setTimeout(res, 30));
-    });
+    }, SETTLE);
+    // The reveal is synchronous with applying the active mark the wait above
+    // saw, so a timer-free flush is enough (a 30 ms sleep stood here).
+    await act(async () => {});
     // Page 1's mark centred once (top 1,400 + 5); page 2's (2,405) never.
     expect(writes.filter((d) => d === 1405).length).toBe(1);
     expect(writes.filter((d) => d === 2405).length).toBe(0);
     // Scroll far away (the reader's own scroll), then back: page 1 remounts.
-    for (const top of [15_000, 0]) {
+    const scrollTo = (top: number) => {
       fireEvent.pointerDown(r);
-      await act(async () => {
-        r.scrollTop = top;
-        fireEvent.scroll(r);
-        await new Promise((res) => setTimeout(res, 40));
-      });
-    }
-    await waitFor(() =>
-      expect(
-        r.querySelector(
-          '[data-viewer-page="1"] mark[data-viewer-hit="active"]',
-        ),
-      ).not.toBeNull(),
+      r.scrollTop = top;
+      fireEvent.scroll(r);
+    };
+    // Health check, which the 40 ms sleeps here never had: page 1 really
+    // LEFT the mounted window, so the return below is a remount and "not
+    // revealed again" is a measurement, not the mark that never went away.
+    scrollTo(15_000);
+    await waitFor(
+      () => expect(r.querySelector('[data-viewer-page="1"]')).toBeNull(),
+      SETTLE,
     );
-    await act(async () => {
-      await new Promise((res) => setTimeout(res, 30));
-    });
+    scrollTo(0);
+    await waitFor(
+      () =>
+        expect(
+          r.querySelector(
+            '[data-viewer-page="1"] mark[data-viewer-hit="active"]',
+          ),
+        ).not.toBeNull(),
+      SETTLE,
+    );
+    await act(async () => {});
     expect(writes.filter((d) => d === 1405).length).toBe(1);
   });
 
@@ -304,17 +326,21 @@ describe("Compare PDF's page view", () => {
     });
     render(<CompareViewer {...props} current={0} navToken={1} />);
     const r = screen.getByRole("region", { name: "Revised: v2.pdf" });
-    await waitFor(() =>
-      expect(
-        [...r.querySelectorAll("[data-compare-page-note]")].map(
-          (n) => n.textContent,
-        ),
-      ).toContain(compareUnplacedNote(1)),
+    await waitFor(
+      () =>
+        expect(
+          [...r.querySelectorAll("[data-compare-page-note]")].map(
+            (n) => n.textContent,
+          ),
+        ).toContain(compareUnplacedNote(1)),
+      SETTLE,
     );
-    await waitFor(() =>
-      expect(r.querySelector("[data-viewer-text-capped]")?.textContent).toBe(
-        COMPARE_CAPPED_NOTE,
-      ),
+    await waitFor(
+      () =>
+        expect(r.querySelector("[data-viewer-text-capped]")?.textContent).toBe(
+          COMPARE_CAPPED_NOTE,
+        ),
+      SETTLE,
     );
     // One sentence on the capped page, never the flag note beside it.
     expect(
@@ -323,18 +349,22 @@ describe("Compare PDF's page view", () => {
         ?.parentElement?.querySelectorAll("[data-compare-page-note]").length,
     ).toBeLessThanOrEqual(1);
     const l = screen.getByRole("region", { name: "Original: v1.pdf" });
-    await waitFor(() =>
-      expect(
-        [...l.querySelectorAll("[data-compare-page-note]")].map(
-          (n) => n.textContent,
-        ),
-      ).toContain(COMPARE_NO_TEXT_NOTE),
+    await waitFor(
+      () =>
+        expect(
+          [...l.querySelectorAll("[data-compare-page-note]")].map(
+            (n) => n.textContent,
+          ),
+        ).toContain(COMPARE_NO_TEXT_NOTE),
+      SETTLE,
     );
     // The move's page could not be marked: the polite region says so.
-    await waitFor(() =>
-      expect(
-        document.querySelector("[data-compare-viewer-announce]")?.textContent,
-      ).toContain(compareUnplacedNote(1)),
+    await waitFor(
+      () =>
+        expect(
+          document.querySelector("[data-compare-viewer-announce]")?.textContent,
+        ).toContain(compareUnplacedNote(1)),
+      SETTLE,
     );
   });
 
@@ -353,7 +383,11 @@ describe("Compare PDF's page view", () => {
       [[...body("a", 2), "a line 3 changed"]],
     );
     render(<CompareViewer {...props} current={0} navToken={1} />);
-    const original = await screen.findByRole("button", { name: "Original" });
+    const original = await screen.findByRole(
+      "button",
+      { name: "Original" },
+      SETTLE,
+    );
     const revised = screen.getByRole("button", { name: "Revised" });
     expect(original.getAttribute("aria-pressed")).toBe("true");
     expect(
@@ -366,8 +400,10 @@ describe("Compare PDF's page view", () => {
       screen.queryByRole("region", { name: "Original: v1.pdf" }),
     ).toBeNull();
     const r = screen.getByRole("region", { name: "Revised: v2.pdf" });
-    await waitFor(() =>
-      expect(r.querySelector('mark[data-mark-kind="added"]')).not.toBeNull(),
+    await waitFor(
+      () =>
+        expect(r.querySelector('mark[data-mark-kind="added"]')).not.toBeNull(),
+      SETTLE,
     );
   });
 });
