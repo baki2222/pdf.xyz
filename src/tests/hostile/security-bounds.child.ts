@@ -22,6 +22,7 @@ import { PDFJS_DOCUMENT_DEFAULTS } from "../../lib/pdf/wasm-assets";
 import {
   XREF_ENTRY_FLOOR,
   ZERO_WIDTH_ROW_LIMIT,
+  prescanLexerSteps,
   prescanXref,
 } from "../../lib/pdf/xref-prescan";
 import { startMemoryMeter } from "./memory";
@@ -90,6 +91,15 @@ const FIXTURES: Record<string, () => Uint8Array | Promise<Uint8Array>> = {
     ownerOnlyEncrypted([...ONE_PAGE, "<< /Unrelated true >>"], {
       pack: [5],
       objStmN: "999999999",
+    }),
+  // SIB-01 at 2^52 (CI-flake audit lane 2, security-bounds L72): below
+  // MAX_SAFE_INTEGER, so pdf-lib parses it. A member loop that only skipped
+  // out-of-range pairs would spin 4.5e15 times and be killed on ANY runner,
+  // where at 1e9 such a loop costs 1-5 s, which only a time bound could see.
+  "objstm-n-2e52": () =>
+    ownerOnlyEncrypted([...ONE_PAGE, "<< /Unrelated true >>"], {
+      pack: [5],
+      objStmN: "4503599627370496",
     }),
   // Its honest twin (/N 1): the positive control.
   "objstm-n-honest": () =>
@@ -225,8 +235,27 @@ const ENTRIES: Record<string, (bytes: Uint8Array) => Promise<unknown>> = {
     return { settled: "opened", pages: doc.getPageCount() };
   },
   async classify(bytes) {
+    // pdf.js asked, counted (CI-flake audit lane 2, security-bounds L301):
+    // "unreadable without asking pdf.js" is a count, not a time.
+    const lib = await legacyPdfjs();
+    let pdfjsCalls = 0;
+    // Forwarded with Reflect.apply, not written as a call: the repo's open
+    // guards (pdfjs-open.test.ts, wasm-assets.test.ts) read every written
+    // pdf.js open as one that must be awaited and given the defaults, and
+    // this wrapper only passes classifyPdfAccess's own open through.
+    const open = Reflect.get(lib, "getDocument") as (
+      ...args: unknown[]
+    ) => unknown;
+    const counted = {
+      ...lib,
+      getDocument: (...args: unknown[]) => {
+        pdfjsCalls += 1;
+        return Reflect.apply(open, lib, args);
+      },
+    } as PdfjsForAccess;
     return {
-      settled: (await classifyPdfAccess(bytes, await legacyPdfjs())).kind,
+      settled: (await classifyPdfAccess(bytes, counted)).kind,
+      pdfjsCalls,
     };
   },
   // pdf.js alone, no pre-scan: what it costs to be asked.
@@ -258,10 +287,19 @@ const ENTRIES: Record<string, (bytes: Uint8Array) => Promise<unknown>> = {
   },
   // The pre-scan alone, on the caller's thread as readAccessFacts runs it.
   async prescan(bytes) {
+    const before = prescanLexerSteps();
     const scan = prescanXref(bytes);
+    const steps = prescanLexerSteps() - before;
     return {
       settled: scan.unbounded ? "refused" : "passed",
       size: bytes.length,
+      // The bytes it lexed (CI-flake audit lane 2, security-bounds L241):
+      // the cost shape as a count, which no runner speed moves.
+      lexed: scan.lexed,
+      // The bytes its lexers stepped over, charged or not (review 2026-11-22:
+      // `lexed` counts only what was charged, so a re-lex outside the
+      // budget left it byte-identical).
+      steps,
     };
   },
   async probe(bytes) {

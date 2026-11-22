@@ -5,6 +5,7 @@ import {
   pageImagesTooLargeMessage,
 } from "@/lib/pdf/pdfjs-guard";
 import { AUTO_CROP_PAD_PT } from "@/lib/pdf/auto-crop";
+import { measureTime } from "../time-bound";
 import { runBounded, type BoundedOutcome } from "./bounded";
 
 // The per-page image budget (`RASTER_MAX_PAGE_IMAGE_PIXELS`), on every
@@ -48,15 +49,29 @@ describe("a page whose images together pass the page budget reaches an outcome i
   test("editor (preview): ten 49 MP images on one page draw a note, in seconds, never decoding them", async () => {
     const v = await run("editor-10x49", 60_000);
     expect(v.pages).toEqual([{ kind: "note", inked: false }]);
-    expect(Math.max(...(v.pageMs as number[]))).toBeLessThan(10_000);
+    // Never decoding them is a count (CI-flake audit lane 2): no drawImage
+    // on the note page (the child counts them; editor-paint3 below is the
+    // counter's positive control). The draw time is measured beside it.
+    const paints = v.paints;
+    expect(paints).toEqual([0]);
+    measureTime(
+      "page-images-editor-10x49-page",
+      Math.max(...(v.pageMs as number[])),
+      10_000,
+      { witness: "paints" },
+    );
     expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 90_000);
 
   test("editor positive control: ONE 49 MP image on a page is still drawn, ink and all", async () => {
     // Measured 2026-11-14 (Windows, Node 24): 20-30 s for the decode alone.
-    const v = await run("editor-1x49", 150_000);
+    // The kill (CI-flake audit lane 2): CI's child reached 59,648 ms
+    // (44307575570), 2.51x under the old 150 s and inside CI's own 1.98x
+    // spread between runners. 240 s is 4x; the test timeout is the kill plus
+    // 30 s, so the kill always reports first.
+    const v = await run("editor-1x49", 240_000);
     expect(v.pages).toEqual([{ kind: "page", inked: true }]);
-  }, 180_000);
+  }, 270_000);
 
   test("viewer (preview): the same page is a note", async () => {
     const v = await run("viewer-10x49", 60_000);
@@ -74,9 +89,11 @@ describe("a page whose images together pass the page budget reaches an outcome i
   }, 90_000);
 
   test("output positive control: one 49 MP image on a page is written", async () => {
-    const v = await run("raster-1x49", 150_000);
+    // Kill 240 s: CI's child reached 58,293 ms (44307575570), 2.57x under
+    // the old 150 s (CI-flake audit lane 2); the test timeout is kill + 30 s.
+    const v = await run("raster-1x49", 240_000);
     expect(v).toMatchObject({ ok: true, rendered: [0] });
-  }, 180_000);
+  }, 270_000);
 
   test("a mixed document: only page 2 is past the budget; pages 1 and 3 draw as before", async () => {
     const editor = await run("editor-mixed", 90_000);
@@ -219,10 +236,29 @@ describe("hostile review r1/r2 (2026-11-14): the consumers, not the map", () => 
     // Before: drawn, 45.6 s, +248 MB (60 paints: 180 s).
     const v = await run("editor-paint20", 60_000);
     expect(v.pages).toEqual([{ kind: "note", inked: false }]);
-    expect(Math.max(...(v.pageMs as number[]))).toBeLessThan(10_000);
     expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
     const three = await run("editor-paint3", 120_000);
     expect(three.pages).toEqual([{ kind: "page", inked: true }]);
+    // The note in seconds, as a count (CI-flake audit lane 2): drawing the
+    // page under its note (the verdict read after the render, M-hoist) kept
+    // kind "note" and growth under 300 MB, so only the 10 s bound saw it,
+    // and only on a fast runner. The child counts drawImage calls: none on
+    // the note page, and at least 3 on the page painted 3 times, in this
+    // same test, which is the counter's positive control (a counter that
+    // saw nothing would read 0 for both).
+    const paints = [...(v.paints as number[]), ...(three.paints as number[])];
+    expect(paints[0]).toBe(0);
+    expect(paints[1]).toBeGreaterThanOrEqual(3);
+    expect(paints).toHaveLength(2);
+    // The draw time beside it, in measure mode until harvested: the test
+    // (both children) took up to 35,236 ms on CI (44346859633), and
+    // pageMs was never printed.
+    measureTime(
+      "page-images-editor-paint20-page",
+      Math.max(...(v.pageMs as number[])),
+      10_000,
+      { witness: "paints" },
+    );
   }, 200_000);
 
   test("editor: four 36 MP images painted by #xx-escaped names are a note, never decoded", async () => {
@@ -244,20 +280,30 @@ describe("hostile review r1/r2 (2026-11-14): the consumers, not the map", () => 
     expect(plainView.pages).toEqual([{ kind: "note", inked: false }]);
     // Restricted (no open password): no page verdict, so PDF to JPG writes
     // it and the Viewer draws it, ink and all, as main does.
-    const raster = await run("raster-paint12-restricted", 150_000);
+    // Kills 240 s each (CI-flake audit lane 2): the restricted pair took up
+    // to 105,860 ms together on CI (43636213581, the four-child test's
+    // 111,798 ms less the two plain children), so one child may have been
+    // near 1.42x of the old 150 s. Every child now prints its share of the
+    // kill ([kill-headroom], ./bounded.ts). The test timeout is the sum of
+    // the four kills plus 30 s, so the last kill always reports first.
+    const raster = await run("raster-paint12-restricted", 240_000);
     expect(raster).toMatchObject({ ok: true, rendered: [0] });
-    const viewer = await run("viewer-paint12-restricted", 150_000);
+    const viewer = await run("viewer-paint12-restricted", 240_000);
     expect(viewer.pages).toEqual([{ kind: "page", inked: true }]);
-  }, 420_000);
+  }, 630_000);
 
   test("a restricted (no open password) object-stream scan of 9 MP pages: PDF to JPG writes every page, the Viewer draws every page", async () => {
     // Before: every Viewer page a note, PDF to JPG refused the file; main
     // drew and converted it (hostile review r2's blocker).
-    const raster = await run("raster-restricted", 150_000);
+    // Kills 240 s each (CI-flake audit lane 2): the test reached 59,229 ms
+    // for both children (44007721339, a failed run), so a child at up to
+    // 56 s had 2.67x under the old 150 s; 240 s is over 4x. Test timeout:
+    // both kills plus 30 s.
+    const raster = await run("raster-restricted", 240_000);
     expect(raster).toMatchObject({ ok: true, rendered: [0, 1, 2, 3, 4, 5] });
-    const viewer = await run("viewer-restricted", 150_000);
+    const viewer = await run("viewer-restricted", 240_000);
     expect(viewer.pages).toEqual(
       Array.from({ length: 6 }, () => ({ kind: "page", inked: true })),
     );
-  }, 320_000);
+  }, 510_000);
 });

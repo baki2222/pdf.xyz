@@ -443,8 +443,12 @@ export class RefCounter {
   readonly counts = new Map<number, number>();
   private tail = new Uint8Array(0);
 
+  /** Bytes fed, never reset: the hostile suite's work count (pdfjs-guard.ts `pdfjsScanWork`). */
+  fed = 0;
+
   /** Count the references in `chunk`, a continuation of the last chunk fed. */
   feed(chunk: Uint8Array): void {
+    this.fed += chunk.length;
     const carried = this.tail.length;
     const text = carried === 0 ? chunk : concat(this.tail, chunk);
     this.countIn(text, carried, text.length);
