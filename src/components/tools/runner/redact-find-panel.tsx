@@ -9,8 +9,8 @@ import {
   type PiiCategory,
 } from "@/lib/pdf/redact-categories";
 import type {
+  FindAsk,
   FindCursor,
-  FindStep,
   FoundKind,
   FoundText,
   RedactTextIndex,
@@ -62,22 +62,18 @@ export function RedactFindPanel({
   );
   // Not a tool run: Find and Detect write no file and report no outcome —
   // the run is "Redact PDF" (useAsyncRun in redact-runner.tsx).
-  const [searching, setSearching] = useState<"search" | "detect" | null>(null);
+  const [searching, setSearching] = useState<
+    "search" | "detect" | "more" | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [index, setIndex] = useState<RedactTextIndex | null>(null);
   // Where the last capped step stopped, and the same search to carry on with
   // (audit redact-pdf#4): past MAX_FOUND, "Find more from page N" lists the
   // next matches instead of the first ones again.
-  const [more, setMore] = useState<{
-    kind: "search" | "detect";
-    from: FindCursor;
-    step: (
-      m: typeof import("@/lib/pdf/redact-find"),
-      from: FindCursor,
-    ) => FindStep;
-    label: string;
-  } | null>(null);
+  const [more, setMore] = useState<{ ask: FindAsk; from: FindCursor } | null>(
+    null,
+  );
   const indexRef = useRef<Promise<RedactTextIndex> | null>(null);
   const ids = { query: useId(), matchCase: useId(), wholeWord: useId() };
 
@@ -100,19 +96,13 @@ export function RedactFindPanel({
   const runMore = async () => {
     if (!more || searching) return;
     setError(null);
-    setStatus(null);
-    setSearching(more.kind);
+    setSearching("more");
     try {
       const m = await import("@/lib/pdf/redact-find");
-      const { matches, next } = more.step(m, more.from);
-      onFound(matches);
-      const last = matches[matches.length - 1];
-      setStatus(
-        next
-          ? `${matches.length} more ${more.label} found from page ${more.from.page} (up to page ${last?.page ?? more.from.page}) and added to the list below. There are more after them.`
-          : `${matches.length} more ${more.label} found from page ${more.from.page} and added to the list below. That is all of them.`,
-      );
-      setMore(next ? { ...more, from: next } : null);
+      const step = m.findMore(await readIndex(), more.ask, more.from);
+      onFound(step.matches);
+      setStatus(step.status);
+      setMore(step.next ? { ask: more.ask, from: step.next } : null);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -130,21 +120,13 @@ export function RedactFindPanel({
       const m = await import("@/lib/pdf/redact-find");
       if (kind === "search") {
         const options = { matchCase, wholeWord };
-        const asked = query;
         const { matches, capped, next } = m.findTextMatches(
           read,
-          asked,
+          query,
           options,
         );
         onFound(matches);
-        if (next)
-          setMore({
-            kind,
-            from: next,
-            step: (lib, from) =>
-              lib.findTextMatches(read, asked, options, from),
-            label: `matches for “${asked.trim()}”`,
-          });
+        if (next) setMore({ ask: { query, options }, from: next });
         setStatus(
           matches.length === 0
             ? `No matches for “${query.trim()}”.`
@@ -154,13 +136,7 @@ export function RedactFindPanel({
         const kinds = [...categories];
         const { matches, capped, next } = m.detectPersonalData(read, kinds);
         onFound(matches);
-        if (next)
-          setMore({
-            kind,
-            from: next,
-            step: (lib, from) => lib.detectPersonalData(read, kinds, from),
-            label: "items",
-          });
+        if (next) setMore({ ask: { categories: kinds }, from: next });
         setStatus(
           matches.length === 0
             ? "Nothing in the ticked categories was found."
@@ -319,18 +295,14 @@ export function RedactFindPanel({
           </p>
         )}
         {more && (
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-muted text-xs">
-              The list holds {MAX_FOUND} at a time. Carry on to list the next{" "}
-              {MAX_FOUND}; every match you add is redacted.
-            </p>
+          <div className="flex justify-end">
             <button
               type="button"
               onClick={() => void runMore()}
               aria-disabled={searching !== null || undefined}
               className={buttonVariants({ variant: "secondary", size: "sm" })}
             >
-              {searching ? (
+              {searching === "more" ? (
                 <Spinner />
               ) : (
                 <ScanSearch className="size-4" aria-hidden />

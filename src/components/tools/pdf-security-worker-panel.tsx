@@ -434,48 +434,23 @@ function SecurityRunArea({
   });
   const { busy, outcome, setOutcome, run } = job;
   // Unlock only: what the picked file is, read in the browser before any
-  // upload (audit unlock-pdf#1, `./unlock-preflight`, fetched with the
-  // file). One look per file, shared by the note below and by Run, so a
-  // press before the look ends waits for the same answer. A look that
-  // fails is null: the file goes to our server as before.
-  const looks = useRef(new WeakMap<File, Promise<UnlockLook | null>>());
-  const lookAt = useCallback((picked: File) => {
-    let look = looks.current.get(picked);
-    if (!look) {
-      look = Promise.all([import("./unlock-preflight"), picked.arrayBuffer()])
-        .then(([m, buf]) => m.lookForUnlock(new Uint8Array(buf)))
-        .catch(() => null);
-      looks.current.set(picked, look);
-    }
-    return look;
-  }, []);
-  const [seen, setSeen] = useState<{
-    file: File;
-    look: UnlockLook | null;
-  } | null>(null);
+  // upload (audit unlock-pdf#1; `lookForUnlock`, fetched with the batch's
+  // chunk). Run waits on the same look; one that fails sends the file to
+  // our server as before.
+  const lookRef = useRef<Promise<UnlockLook | null>>(null);
+  const [look, setLook] = useState<UnlockLook | null>(null);
   useEffect(() => {
     if (mode !== "unlock" || !file) return;
-    let live = true;
-    void lookAt(file).then((look) => {
-      if (live) setSeen({ file, look });
+    const next = import("./runner/batch/security-batch")
+      .then((m) => m.lookForUnlock(file))
+      .catch(() => null);
+    lookRef.current = next;
+    void next.then((l) => {
+      if (lookRef.current === next) setLook(l);
     });
-    return () => {
-      live = false;
-    };
-  }, [mode, file, lookAt]);
-  const look = mode === "unlock" && seen?.file === file ? seen.look : null;
-  const stop = look?.stop ?? null;
-  // The password the browser found wrong for this file, and the line that
-  // says so, until either changes; and whether that check is running.
-  const [refused, setRefused] = useState<{
-    file: File;
-    password: string;
-    line: string;
-  } | null>(null);
-  const refusal =
-    refused?.file === file && refused.password === password
-      ? refused.line
-      : null;
+  }, [mode, file]);
+  const seen = look?.file === file ? look : null;
+  const refusal = seen?.refused === password ? seen.refusal : null;
   const [checking, setChecking] = useState(false);
   // A file carried here (a merge's "Continue with", an encrypted PDF's
   // remedy) is staged: it waits beside the password field, and nothing —
@@ -510,7 +485,7 @@ function SecurityRunArea({
     restricting && needsConfirming(ownerPassword, ownerPasswordAgain);
   const canSubmit =
     file !== null &&
-    !stop &&
+    !seen?.stop &&
     !refusal &&
     !checking &&
     !passwordMissing &&
@@ -536,34 +511,15 @@ function SecurityRunArea({
       return;
     if (mode === "unlock") {
       // Nothing leaves the browser for a file that is not locked, or with a
-      // password that does not open it. Anything the browser cannot judge
-      // (an unreadable file, a password it must not rule on) goes to our
-      // server as before, which decides.
+      // password that does not open it; anything the browser cannot judge
+      // goes to our server, which decides.
       setChecking(true);
-      try {
-        const found = await lookAt(file);
-        if (found?.stop) {
-          setSeen({ file, look: found });
-          return;
-        }
-        if (found?.checkPassword) {
-          const [m, buf] = await Promise.all([
-            import("./unlock-preflight"),
-            file.arrayBuffer(),
-          ]);
-          const line = await m.refuseOpenPassword(
-            new Uint8Array(buf),
-            password,
-          );
-          if (line) {
-            setRefused({ file, password, line });
-            return;
-          }
-        }
-      } catch {
-        // A check that could not run decides nothing: our server does.
-      } finally {
-        setChecking(false);
+      const l = await lookRef.current;
+      const line = l?.stop ?? (await l?.check(password));
+      setChecking(false);
+      if (l && line) {
+        if (!l.stop) setLook({ ...l, refused: password, refusal: line });
+        return;
       }
     }
     await run(async (controls) => {
@@ -605,7 +561,6 @@ function SecurityRunArea({
     run,
     available,
     checking,
-    lookAt,
   ]);
 
   if (batch)
@@ -653,9 +608,9 @@ function SecurityRunArea({
               </button>
             </div>
           </ChosenFileTarget>
-          {stop && (
+          {seen?.stop && (
             <p role="status" className="text-muted text-xs leading-relaxed">
-              {stop}
+              {seen.stop}
             </p>
           )}
         </>
@@ -693,7 +648,7 @@ function SecurityRunArea({
         label={
           mode === "protect"
             ? "New password"
-            : (look?.label ?? "Current password")
+            : (seen?.label ?? "Current password")
         }
         value={password}
         onChange={setPassword}
@@ -721,7 +676,7 @@ function SecurityRunArea({
               // password that "opens" it; its owner password is the one qpdf
               // accepts. Until 2026-09 this hint named only the open password,
               // so that user had nothing true to type.
-              (look?.hint ??
+              (seen?.hint ??
               "Enter the password that opens this PDF — or, if it opens without one, its owner (permissions) password.")}
         {tooLong
           ? ` Too long: ${passwordBytes}/${MAX_PDF_PASSWORD_BYTES} bytes.`
@@ -813,10 +768,10 @@ function SecurityRunArea({
           <RunReason
             after
             reason={
-              !ready || file === null || stop
+              !ready || file === null || seen?.stop
                 ? null
                 : checking
-                  ? "Checking the password in your browser…"
+                  ? (seen?.checking ?? null)
                   : passwordMissing
                     ? mode === "protect"
                       ? "Type a new password first."

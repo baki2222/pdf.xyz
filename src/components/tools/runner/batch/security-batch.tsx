@@ -189,6 +189,13 @@ export function checkSecurityDraft(
   };
 }
 
+/**
+ * The single-file Unlock panel's look before an upload (audit unlock-pdf#1),
+ * shipped in this chunk so it adds no chunk, and nothing, to the page's
+ * first load: the panel fetches it when a file is picked.
+ */
+export { lookForUnlock } from "../../unlock-preflight";
+
 /** The look before an upload: a skip for a file this mode has nothing to do with. */
 export async function securityPreflight(
   mode: Mode,

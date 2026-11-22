@@ -7,8 +7,10 @@ import { checkOpenPassword } from "@/lib/pdf/open-password";
  * the single-file panel uploaded up to 100 MB, with the password, only for
  * our server to say the file was not locked or the password was a typo.
  *
- * Its own module, fetched by the panel when a file is picked, so the
- * Protect and Unlock pages' first load does not carry it.
+ * The panel fetches this through the batch's chunk
+ * (`./runner/batch/security-batch` re-exports {@link lookForUnlock}), so the
+ * Protect and Unlock pages' first load carries none of it, and no chunk of
+ * its own is added to every page's chunk map.
  */
 
 /** Said under a picked PDF that has no password and no restrictions. */
@@ -22,52 +24,66 @@ export const UNLOCK_OWNER_PASSWORD_HINT =
 /** Said under the field when the browser found the password wrong. */
 export const UNLOCK_WRONG_PASSWORD_LINE =
   "That password doesn't open this PDF. Check capitals, spaces and the keyboard layout, then try again. Nothing was uploaded.";
+/** Run's reason while the password is tried. */
+export const UNLOCK_CHECKING_LINE = "Checking the password in your browser…";
 
-/** What the panel shows for a picked file. */
+/** What the panel shows for a picked file, and how it tries a password. */
 export interface UnlockLook {
+  readonly file: File;
   /** Said under the file; Run stays off and nothing is sent. */
   readonly stop: string | null;
   /** The password field's label and hint, when they differ from the default. */
   readonly label: string | null;
   readonly hint: string | null;
-  /** The file needs a password to open: try it here before uploading. */
-  readonly checkPassword: boolean;
+  readonly checking: string;
+  /**
+   * The line to show instead of uploading with `password`, or `null` to
+   * upload. Never throws: a check that cannot run decides nothing.
+   */
+  readonly check: (password: string) => Promise<string | null>;
+  /** The password last refused, and the line that said so (set by the panel). */
+  readonly refused?: string;
+  readonly refusal?: string;
 }
 
 /**
  * Read the file the way a viewer does (`classifyPdfAccess`, which opens it
  * with no password and never unlocks anything). A file it cannot read is
- * left to our server, as before.
+ * left to our server, as before. Never throws.
  */
-export async function lookForUnlock(bytes: Uint8Array): Promise<UnlockLook> {
-  const access = await classifyPdfAccess(bytes);
-  const none = { stop: null, label: null, hint: null, checkPassword: false };
-  switch (access.kind) {
-    case "unencrypted":
-      return { ...none, stop: UNLOCK_NOT_LOCKED_LINE };
-    case "restricted":
-      return {
-        ...none,
-        label: UNLOCK_OWNER_PASSWORD_LABEL,
-        hint: UNLOCK_OWNER_PASSWORD_HINT,
-      };
-    case "password-required":
-      return { ...none, checkPassword: true };
-    default:
-      return none;
+export async function lookForUnlock(file: File): Promise<UnlockLook> {
+  let bytes: Uint8Array | null = null;
+  let kind = "unreadable";
+  try {
+    bytes = new Uint8Array(await file.arrayBuffer());
+    kind = (await classifyPdfAccess(bytes)).kind;
+  } catch {
+    // Unread: our server decides.
   }
-}
-
-/**
- * The line to show instead of uploading, or `null` to upload. Only a
- * password `checkOpenPassword` calls "wrong" is stopped; anything it cannot
- * judge goes to our server, which decides.
- */
-export async function refuseOpenPassword(
-  bytes: Uint8Array,
-  password: string,
-): Promise<string | null> {
-  return (await checkOpenPassword(bytes, password)) === "wrong"
-    ? UNLOCK_WRONG_PASSWORD_LINE
-    : null;
+  const look = {
+    file,
+    stop: null,
+    label: null,
+    hint: null,
+    checking: UNLOCK_CHECKING_LINE,
+    check: async () => null,
+  };
+  if (kind === "unencrypted") return { ...look, stop: UNLOCK_NOT_LOCKED_LINE };
+  if (kind === "restricted")
+    return {
+      ...look,
+      label: UNLOCK_OWNER_PASSWORD_LABEL,
+      hint: UNLOCK_OWNER_PASSWORD_HINT,
+    };
+  if (kind !== "password-required" || !bytes) return look;
+  const locked = bytes;
+  return {
+    ...look,
+    // Only a password `checkOpenPassword` calls "wrong" is stopped; anything
+    // it cannot judge goes to our server, which decides.
+    check: async (password) =>
+      (await checkOpenPassword(locked, password)) === "wrong"
+        ? UNLOCK_WRONG_PASSWORD_LINE
+        : null,
+  };
 }

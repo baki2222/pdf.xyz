@@ -746,3 +746,35 @@ export function detectPersonalData(
   }
   return { matches, capped: false };
 }
+
+/* --------------------------- past the cap --------------------------- */
+
+/** What a Find or Detect asked: a query and how to match it, or categories. */
+export type FindAsk =
+  | { query: string; options: SearchOptions }
+  | { categories: readonly PiiCategory[] };
+
+/**
+ * The next step of `ask`, from where the last one stopped, and the sentence
+ * the panel says about it (audit redact-pdf#4). Here, not in the panel, so
+ * the words ride the chunk Find already loads rather than the page.
+ */
+export function findMore(
+  index: RedactTextIndex,
+  ask: FindAsk,
+  from: FindCursor,
+): FindStep & { status: string } {
+  const search = "query" in ask;
+  const step = search
+    ? findTextMatches(index, ask.query, ask.options, from)
+    : detectPersonalData(index, ask.categories, from);
+  const n = step.matches.length;
+  const label = search ? `matches for “${ask.query.trim()}”` : "items";
+  const last = step.matches[n - 1]?.page ?? from.page;
+  return {
+    ...step,
+    status: step.next
+      ? `${n} more ${label} found from page ${from.page} (up to page ${last}) and added to the list below. There are more after them.`
+      : `${n} more ${label} found from page ${from.page} and added to the list below. That is all of them.`,
+  };
+}
