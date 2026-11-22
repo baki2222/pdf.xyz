@@ -268,15 +268,20 @@ describe("Add Watermark's batch: an open-ended page range", () => {
       const field = screen.getByLabelText(/^Pages in every file/);
       const run = screen.getByRole("button", { name: "Watermark 2 PDFs" });
       // On the way to "1-3", the dash alone is a whole range, not an error.
-      // Checked, not expanded, counted rather than timed: every Set.add made
-      // while the two keystrokes render. The defect expanded the open range
-      // into a Set, one add per page; an expansion that finishes (a large
-      // bound short of the Set's maximum) still froze the tab and threw
-      // nothing, so only a count sees it on every runner (review of lane 3,
-      // mutant C2: parsePageList(list, 5_000_000) passed the throw witness).
-      // Pinned at 0, as measured: the check resolves no page while typing
-      // (each file resolves the list only when the batch runs), so a single
-      // numeric add is an expansion. Mutant C2 made 9,999,998.
+      // Checked, not expanded. One FORM of the defect is counted: every
+      // Set.add made while the two keystrokes render. The 2026-11-08 defect
+      // expanded the open range into a Set, one add per page; an expansion
+      // that finishes (a large bound short of the Set's maximum) still froze
+      // the tab and threw nothing (review of lane 3, mutant C2:
+      // parsePageList(list, 5_000_000) passed the throw witness). Pinned at
+      // 0, as measured: the check resolves no page while typing (each file
+      // resolves the list only when the batch runs), so a single numeric add
+      // is an expansion. Mutant C2 made 9,999,998.
+      // This count is NOT the property. It names the old mechanism: the
+      // same expansion into an array (30M pushes, 471 ms -> 1.01 s) or a Map
+      // (5M sets, 471 ms -> 2.25 s) keeps it at 0 (witness audit,
+      // 2026-11-22). Only the time sees work that grows with the range, so
+      // the bound below is listed in wall-clock-pending.ts, not witnessed.
       const setAdds = vi.spyOn(Set.prototype, "add");
       const typedAt = performance.now();
       const openRangeBlocks: (string | null)[] = [];
@@ -305,10 +310,9 @@ describe("Add Watermark's batch: an open-ended page range", () => {
       expect(openRangeBlocks).toEqual([null, null]);
       // The time, recorded beside it, no longer asserted: 500 ms was 1.36x
       // this whole test's CI maximum (367 ms, run 44331878323), and a
-      // Windows-era constant. Measure mode until CI harvests calibrate it.
-      measureTime("watermark-open-range-checked-not-expanded", typingMs, 500, {
-        witness: "addsWhileTyping",
-      });
+      // Windows-era constant. Measure mode until CI harvests calibrate it;
+      // pending, with no witness (see wall-clock-pending.ts).
+      measureTime("watermark-open-range-checked-not-expanded", typingMs, 500);
       // Control: a token no file could meet still blocks Run, in the
       // parser's own words.
       fireEvent.change(field, { target: { value: "5-3" } });
