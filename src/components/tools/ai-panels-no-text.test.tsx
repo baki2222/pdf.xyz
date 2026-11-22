@@ -43,6 +43,18 @@ import type { Tool } from "@/lib/tools/types";
 import { TranslateWorkerPanel } from "./translate-worker-panel";
 import { SummarizeWorkerPanel } from "./summarize-worker-panel";
 
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
+ *
+ * CI: the slowest test here took 880 ms (run 44893447461, a passing run; 108 CI
+ * runs, passing and failing, to 11-21). A wait cannot outlast its test, so 3 s
+ * is at least 3.4x any wait in it, and it stays below the test's own timeout,
+ * so a wait that times out fails with its DOM dump.
+ */
+const WAIT_MS = 3_000;
+
 const providers = getProviderReadiness("remote-configured");
 
 const READY: WorkerStatus = {
@@ -127,13 +139,17 @@ async function run(slug: keyof typeof PANELS, bytes: Uint8Array) {
       <Panel tool={tool} />
     </InToolPage>,
   );
-  const button = await screen.findByRole("button", { name });
+  const button = await screen.findByRole(
+    "button",
+    { name },
+    { timeout: WAIT_MS },
+  );
   const input = document.querySelector('input[type="file"]')!;
   const file = new File([bytes.slice()], "doc.pdf", {
     type: "application/pdf",
   });
   fireEvent.change(input, { target: { files: [file] } });
-  await waitFor(() => expect(button).not.toBeDisabled());
+  await waitFor(() => expect(button).not.toBeDisabled(), { timeout: WAIT_MS });
   fireEvent.click(button);
 }
 
@@ -154,16 +170,20 @@ describe.each(Object.keys(PANELS) as (keyof typeof PANELS)[])(
       // uploaded."), never replace it. Exact text until the integration of
       // wave1/l01-page-leak, where Summarize's own preflight met this check.
       expect(
-        await screen.findByText((_, element) => {
-          const opens = (node: Element) =>
-            (node.textContent ?? "").startsWith(
-              NO_SELECTABLE_TEXT_MESSAGE[slug],
+        await screen.findByText(
+          (_, element) => {
+            const opens = (node: Element) =>
+              (node.textContent ?? "").startsWith(
+                NO_SELECTABLE_TEXT_MESSAGE[slug],
+              );
+            // The innermost element that opens with it — not every ancestor.
+            return Boolean(
+              element && opens(element) && ![...element.children].some(opens),
             );
-          // The innermost element that opens with it — not every ancestor.
-          return Boolean(
-            element && opens(element) && ![...element.children].some(opens),
-          );
-        }),
+          },
+          {},
+          { timeout: WAIT_MS },
+        ),
       ).toBeInTheDocument();
       expect(screen.queryByText(/split it into smaller files/i)).toBeNull();
       expect(requests, "a scan was uploaded").toEqual([]);
@@ -173,7 +193,9 @@ describe.each(Object.keys(PANELS) as (keyof typeof PANELS)[])(
       const requests = stubFetch();
       await run(slug, await pdf("Bonjour tout le monde."));
 
-      await waitFor(() => expect(requests[0]).toBe("/api/uploads"));
+      await waitFor(() => expect(requests[0]).toBe("/api/uploads"), {
+        timeout: WAIT_MS,
+      });
       expect(screen.queryByText(NO_SELECTABLE_TEXT_MESSAGE[slug])).toBeNull();
     });
   },

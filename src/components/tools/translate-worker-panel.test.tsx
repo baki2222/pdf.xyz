@@ -86,6 +86,18 @@ import { READY_WORKER_STATUS as READY } from "@/tests/ready-worker-status";
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { TranslateWorkerPanel } from "./translate-worker-panel";
 
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
+ *
+ * CI: the slowest test here took 796 ms (run 44931945692, a passing run; 108 CI
+ * runs, passing and failing, to 11-21). A wait cannot outlast its test, so 3 s
+ * is at least 3.7x any wait in it, and it stays below the test's own timeout,
+ * so a wait that times out fails with its DOM dump.
+ */
+const WAIT_MS = 3_000;
+
 const translateTool = getToolBySlug("translate-pdf")!;
 
 /** The copy the old catch gave EVERY failure. */
@@ -99,6 +111,30 @@ const legacy = async () =>
 
 /** The real extractor, on the build that runs under Node. */
 const realExtract = (bytes: Uint8Array) => extractPdfText(bytes, legacy);
+
+/**
+ * Every extraction the panel starts through its `extractText` seam, kept, so
+ * a test can wait for the one it started to land instead of sleeping (CI-flake
+ * lane 3: a 300 ms sleep, "time to land", which a slow runner could outrun
+ * and so read the absence before the extraction decided it).
+ */
+const extractions: Promise<unknown>[] = [];
+const trackedExtract = (bytes: Uint8Array) => {
+  const p = realExtract(bytes);
+  extractions.push(p);
+  return p;
+};
+/** The chosen file's extraction started, finished, and its result rendered. */
+async function extracted() {
+  await vi.waitFor(
+    () =>
+      expect(extractions.length, "an extraction started").toBeGreaterThan(0),
+    { timeout: WAIT_MS },
+  );
+  await act(async () => {
+    await Promise.allSettled(extractions);
+  });
+}
 
 /**
  * `/api/worker/status` answers READY. Every other request, which is the job
@@ -141,11 +177,15 @@ async function renderReadyPanel() {
   const fetchMock = stubNetwork();
   render(
     <InToolPage tool={translateTool}>
-      <TranslateWorkerPanel tool={translateTool} extractText={realExtract} />
+      <TranslateWorkerPanel tool={translateTool} extractText={trackedExtract} />
     </InToolPage>,
   );
   // The builder only exists once the stubbed status says the worker is ready.
-  const run = await screen.findByRole("button", { name: /translate pdf/i });
+  const run = await screen.findByRole(
+    "button",
+    { name: /translate pdf/i },
+    { timeout: WAIT_MS },
+  );
   return { fetchMock, run };
 }
 
@@ -167,12 +207,13 @@ const blocked = (run: HTMLElement) =>
 async function runWith(file: File, run: HTMLElement): Promise<HTMLElement> {
   expect(blocked(run)).toBe(true);
   fireEvent.change(fileInput(), { target: { files: [file] } });
-  await waitFor(() => expect(blocked(run)).toBe(false));
+  await waitFor(() => expect(blocked(run)).toBe(false), { timeout: WAIT_MS });
   fireEvent.click(run);
-  return screen.findByRole("alert");
+  return screen.findByRole("alert", {}, { timeout: WAIT_MS });
 }
 
 afterEach(() => {
+  extractions.length = 0;
   resetTelemetry();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -232,7 +273,7 @@ describe("TranslateWorkerPanel: a dropped non-PDF is refused at the drop", () =>
     await dropSheetsLive();
     fireEvent.drop(zone!, { dataTransfer: { files: [docx] } });
 
-    const alert = await screen.findByRole("alert");
+    const alert = await screen.findByRole("alert", {}, { timeout: WAIT_MS });
     expect(alert).toHaveTextContent(`"letter.docx" isn't a PDF`);
     expect(alert).not.toHaveTextContent(LOST_CONNECTION);
     // Nothing was staged, so there is nothing to run.
@@ -249,7 +290,9 @@ describe("TranslateWorkerPanel: a dropped non-PDF is refused at the drop", () =>
       dataTransfer: { files: [pdfFile(await textPdf(), "report.pdf")] },
     });
 
-    expect(await screen.findByText("report.pdf")).toBeInTheDocument();
+    expect(
+      await screen.findByText("report.pdf", {}, { timeout: WAIT_MS }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(blocked(run)).toBe(false);
   });
@@ -269,7 +312,7 @@ describe("TranslateWorkerPanel: the same language on both sides is refused befor
     fireEvent.change(fileInput(), {
       target: { files: [pdfFile(await textPdf(), "carta.pdf")] },
     });
-    await waitFor(() => expect(blocked(run)).toBe(false));
+    await waitFor(() => expect(blocked(run)).toBe(false), { timeout: WAIT_MS });
 
     pick(/translate into/i, "es");
     pick(/source language/i, "es");
@@ -287,7 +330,7 @@ describe("TranslateWorkerPanel: the same language on both sides is refused befor
     fireEvent.change(fileInput(), {
       target: { files: [pdfFile(await textPdf(), "carta.pdf")] },
     });
-    await waitFor(() => expect(blocked(run)).toBe(false));
+    await waitFor(() => expect(blocked(run)).toBe(false), { timeout: WAIT_MS });
 
     pick(/translate into/i, "es");
     pick(/source language/i, "es");
@@ -341,7 +384,9 @@ describe("TranslateWorkerPanel: Auto-detect into the document's own language is 
       target: { files: [pdfFile(await bengaliPdf(), "nothi.pdf")] },
     });
     pick(/translate into/i, "bn");
-    expect(await screen.findByText(WARNING)).toBeInTheDocument();
+    expect(
+      await screen.findByText(WARNING, {}, { timeout: WAIT_MS }),
+    ).toBeInTheDocument();
     expect(jobRequests(fetchMock)).toEqual([]);
   });
 
@@ -352,7 +397,9 @@ describe("TranslateWorkerPanel: Auto-detect into the document's own language is 
     });
     // Proof the detector ran on this file: into Bengali, it warns...
     pick(/translate into/i, "bn");
-    expect(await screen.findByText(WARNING)).toBeInTheDocument();
+    expect(
+      await screen.findByText(WARNING, {}, { timeout: WAIT_MS }),
+    ).toBeInTheDocument();
     // ...and into English, the default, it does not.
     pick(/translate into/i, "en");
     expect(screen.queryByText(/looks like it is already in/)).toBeNull();
@@ -364,8 +411,8 @@ describe("TranslateWorkerPanel: Auto-detect into the document's own language is 
       target: { files: [pdfFile(await textPdf(), "letter.pdf")] },
     });
     pick(/translate into/i, "bn");
-    // Give the extraction time to land, then confirm nothing was said.
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // The extraction has landed: only now is the absence read.
+    await extracted();
     expect(screen.queryByText(/looks like it is already in/)).toBeNull();
   });
 });
@@ -478,11 +525,14 @@ async function pollsBeforeGivingUp(doc: ExtractedPdfText) {
       <TranslateWorkerPanel tool={translateTool} />
     </InToolPage>,
   );
-  const input = await waitFor(() => {
-    const found = document.querySelector('input[type="file"]');
-    if (!found) throw new Error("no input");
-    return found;
-  });
+  const input = await waitFor(
+    () => {
+      const found = document.querySelector('input[type="file"]');
+      if (!found) throw new Error("no input");
+      return found;
+    },
+    { timeout: WAIT_MS },
+  );
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   fireEvent.change(input, {
     target: {

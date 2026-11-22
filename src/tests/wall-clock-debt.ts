@@ -10,7 +10,7 @@
  * shrink, and only by code that changed. Keys are token streams, so a
  * reformat keeps them. The list ends when it is empty; the guard does not.
  */
-export const WALL_CLOCK_DEBT_CEILING = 94;
+export const WALL_CLOCK_DEBT_CEILING = 93;
 
 /** lane, kind, file, occurrence index, collapsed snippet — one per line. */
 export const WALL_CLOCK_DEBT_TSV = `
@@ -29,7 +29,6 @@ export const WALL_CLOCK_DEBT_TSV = `
 5	raw	e2e/scan-to-pdf-responsive.spec.ts	0	performance.now() - t < 300
 5	raw	e2e/worker-panels.spec.ts	0	expect(visibleAfter).toBeLessThan(500 + 1000)
 1b	raw	src/components/tools/ai-markdown.test.tsx	0	expect(took, name).toBeLessThan(1_500)
-3	raw	src/components/tools/runner/batch/settings-batch-behaviour.dom.test.tsx	0	expect(performance.now() - typedAt).toBeLessThan(500)
 1b	seed	src/lib/pdf/form-detect-precision.test.ts	0	expect(num / den, said).toBeLessThan(bound)
 1b	seed	src/lib/pdf/form-detect.test.ts	0	expect(ratio, said).toBeLessThan(bound)
 1b	raw	src/lib/pdf/markdown-to-pdf.test.ts	0	expect(elapsed).toBeLessThan(5_000)
