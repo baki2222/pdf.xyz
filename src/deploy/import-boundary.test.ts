@@ -124,6 +124,11 @@ const ALLOWED = new Set(
     // processes. Reached only by the daemon's proved-capability table and
     // tests.
     "src/lib/workers/ocr-owner-capability.ts",
+    // PDF to PDF/A's carried-fields proof (2026-11-22, audit wave 2
+    // pdf-to-pdfa#3): one real job on `nativePdfArchiveDeps(env)`, the
+    // image's own Ghostscript. Reached only by the daemon's proved-capability
+    // table and tests.
+    "src/lib/workers/pdf-archive/docinfo-capability.ts",
     "src/lib/workers/local-dev.ts",
     "src/lib/workers/daemon/runtime.ts",
     // 2026-11-15: the daemon's proved-capability table (every proof, incl.
