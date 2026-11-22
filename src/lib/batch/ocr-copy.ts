@@ -24,7 +24,12 @@
  * Read by the batch's own chunk and by the tool page's content on the
  * server; never by a first-load module.
  */
-import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
+// The per-file ceiling (`WORKER_FILE_CEILING` is defined as this value):
+// read from the job limits, not file-ceilings, which would pull the tool
+// registry into this chunk.
+import { JOB_LIMITS } from "@/lib/jobs/types";
+
+const WORKER_FILE_CEILING = JOB_LIMITS.maxFileBytes;
 
 /** Said before Run, under the settings: one language choice for every file. */
 export function ocrBatchLanguageSentence(languages: string): string {

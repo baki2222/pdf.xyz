@@ -19,7 +19,12 @@ import {
   ocrSendsPhotoAsPdf,
   type OcrOptions,
 } from "@/lib/jobs/ocr";
-import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
+// The per-file ceiling (`WORKER_FILE_CEILING` is defined as this value):
+// read from the job limits, not file-ceilings, which would pull the tool
+// registry into this chunk.
+import { JOB_LIMITS } from "@/lib/jobs/types";
+
+const WORKER_FILE_CEILING = JOB_LIMITS.maxFileBytes;
 import { ScanText } from "lucide-react";
 import { DownloadCta, ResultCard, WorkerRunButton } from "../runner-kit";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "../../worker-job";
