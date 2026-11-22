@@ -263,18 +263,104 @@ function scrubOffPage(
 }
 
 /**
+ * An attached file's bytes as the texts a chosen match could be written in,
+ * or `null` when they cannot be read as text — and so cannot be checked. A
+ * UTF-16 file is told by its byte-order mark; any other file is text when it
+ * has no NUL and next to no other control bytes, and is then read both as
+ * UTF-8 and as Latin-1 (windows-1252), so a name in either is seen.
+ */
+export function attachmentTexts(bytes: Uint8Array): string[] | null {
+  const bom16 =
+    bytes.length >= 2 &&
+    ((bytes[0] === 0xfe && bytes[1] === 0xff) ||
+      (bytes[0] === 0xff && bytes[1] === 0xfe));
+  if (bom16)
+    return [
+      new TextDecoder(bytes[0] === 0xfe ? "utf-16be" : "utf-16le").decode(
+        bytes,
+      ),
+    ];
+  let control = 0;
+  for (const b of bytes) {
+    if (b === 0) return null;
+    if (b < 0x09 || (b > 0x0d && b < 0x20)) control++;
+  }
+  if (control > bytes.length / 100) return null;
+  return [
+    new TextDecoder().decode(bytes),
+    new TextDecoder("latin1").decode(bytes),
+  ];
+}
+
+/**
+ * Every file attached to the document: each embedded-file stream an /EF
+ * dictionary names (under its file's /UF or /F name), then any stream that
+ * calls itself /Type /EmbeddedFile and no /EF named. Its bytes are decoded
+ * through the stream's filters; one that cannot be decoded, or read as text,
+ * has `texts: null`.
+ */
+function attachedFiles(
+  lib: PdfLibModule,
+  doc: PDFDocument,
+): { name: string; texts: string[] | null }[] {
+  const { PDFDict, PDFName, PDFRawStream } = lib;
+  const ctx = doc.context;
+  const files: { name: string; texts: string[] | null }[] = [];
+  const seen = new Set<PDFRawStreamT>();
+  const read = (stream: PDFRawStreamT): string[] | null => {
+    try {
+      return attachmentTexts(lib.decodePDFRawStream(stream).decode());
+    } catch {
+      return null;
+    }
+  };
+  const objects = ctx.enumerateIndirectObjects().map(([, o]) => o);
+  for (const obj of objects) {
+    if (!(obj instanceof PDFDict)) continue;
+    const ef = obj.lookup(PDFName.of("EF"));
+    if (!(ef instanceof PDFDict)) continue;
+    const name =
+      stringText(lib, obj.lookup(PDFName.of("UF"))) ??
+      stringText(lib, obj.lookup(PDFName.of("F"))) ??
+      "unnamed";
+    for (const [, ref] of ef.entries()) {
+      const stream = ctx.lookup(ref);
+      if (!(stream instanceof PDFRawStream) || seen.has(stream)) continue;
+      seen.add(stream);
+      files.push({ name, texts: read(stream) });
+    }
+  }
+  for (const obj of objects) {
+    if (
+      obj instanceof PDFRawStream &&
+      !seen.has(obj) &&
+      obj.dict.get(PDFName.of("Type")) === PDFName.of("EmbeddedFile")
+    ) {
+      seen.add(obj);
+      files.push({ name: "unnamed", texts: read(obj) });
+    }
+  }
+  return files;
+}
+
+/**
  * Where a chosen string is still in a saved file outside its page text: every
  * string in every object (a form field's value, a link, an attachment's name,
- * and what {@link scrubOffPage} rewrote) and every XMP packet. Page content
- * streams are not read here — the page text check covers them, through the
- * reader a person would use. Read from the OUTPUT bytes, not from the
- * document that wrote them.
+ * and what {@link scrubOffPage} rewrote), every XMP packet, and the CONTENTS
+ * of every attached file ({@link attachedFiles}; added 2026-11-22, audit
+ * redact-pdf#1 — until then an attachment's bytes were skipped, so a name in
+ * an attached notes.txt was saved while the result said it was not in the
+ * file). An attached file that cannot be read as text cannot be checked, and
+ * is reported as such. Page content streams are not read here — the page
+ * text check covers them, through the reader a person would use. Read from
+ * the OUTPUT bytes, not from the document that wrote them. Returns the
+ * sentence that says why the file was not saved, or `null`.
  */
 async function offPageHit(
   lib: PdfLibModule,
   bytes: Uint8Array,
   chosen: readonly Chosen[],
-): Promise<{ text: string; where: string } | null> {
+): Promise<string | null> {
   const { PDFDict, PDFArray, PDFName, PDFRawStream } = lib;
   // Not `loadPdf`: its default `updateMetadata` would write pdf-lib's own
   // Producer and Creator over the output's before they are read.
@@ -309,14 +395,23 @@ async function offPageHit(
   }
   const info = out.context.trailerInfo.Info;
   if (info) roots.push([info, null]);
+  const notSaved = `so the file was not saved. Choose “${FLATTEN_LABEL}” instead`;
+  const files = attachedFiles(lib, out);
   for (const { text, plain: pattern, xml } of offPagePatterns(chosen)) {
+    for (const file of files) {
+      if (file.texts === null)
+        return `The attached file “${file.name}” could not be checked for “${text}”, ${notSaved}, which leaves attached files out.`;
+      if (file.texts.some((t) => anyMatch(t, [pattern])))
+        return `“${text}” is still in the attached file “${file.name}”, ${notSaved}, which leaves attached files out.`;
+    }
     const stack = [...roots];
     while (stack.length) {
       const [o, key] = stack.pop()!;
       if (key !== null && NOT_TEXT.has(key)) continue;
       const value = stringText(lib, o);
       if (value !== null) {
-        if (anyMatch(value, [pattern])) return { text, where: where(key) };
+        if (anyMatch(value, [pattern]))
+          return `“${text}” is still in the file outside the page text (in ${where(key)}), ${notSaved}.`;
       } else if (o instanceof PDFDict) {
         for (const [k, v] of o.entries()) stack.push([v, k.decodeText()]);
       } else if (o instanceof PDFArray) {
@@ -325,7 +420,8 @@ async function offPageHit(
         stack.push([o.dict, null]);
         if (o.dict.get(PDFName.of("Type")) !== PDFName.of("Metadata")) continue;
         const packet = decodePacket(lib, o);
-        if (anyMatch(packet, [xml])) return { text, where: where("XMP") };
+        if (anyMatch(packet, [xml]))
+          return `“${text}” is still in the file outside the page text (in ${where("XMP")}), ${notSaved}.`;
       }
     }
   }
@@ -447,11 +543,7 @@ export async function redactPdfByRemoval(
       verified += n;
     }
     const hidden = await offPageHit(lib, out, chosenTexts);
-    if (hidden) {
-      throw new PdfEngineError(
-        `“${hidden.text}” is still in the file outside the page text (in ${hidden.where}), so the file was not saved. Choose “${FLATTEN_LABEL}” instead.`,
-      );
-    }
+    if (hidden) throw new PdfEngineError(hidden);
   }
 
   return {

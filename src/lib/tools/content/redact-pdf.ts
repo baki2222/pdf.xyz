@@ -54,6 +54,9 @@ import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
  *    add one page-sized area per listed page (`wholePageRedactions`, in the
  *    displayed space; redact-whole-pages.test.ts runs Remove on a turned,
  *    cropped page, redact-runner.test.tsx the field to the engine).
+ *    2026-11-22 (audit redact-pdf#1): Remove also decodes every attached
+ *    file in the output and refuses to save while one still holds a ticked
+ *    match, or cannot be read as text (redact-attachments.test.ts).
  *  - images pdf.js cannot decode come out blank and the result says so
  *    (UndecodedImagesNotice with `redaction`, which states the count).
  *  - OCR PDF, Unlock PDF and Protect PDF are all processing "server" in
