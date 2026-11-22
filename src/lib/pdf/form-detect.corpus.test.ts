@@ -91,15 +91,24 @@ describe("corpus health (FATAL when it fails)", () => {
       // Its review round 2 (2026-11-22): a swoosh larger than its box.
       "P77",
       ...range("N", 70, 78),
+      // Slice S5 (2026-11-22): tables, from
+      // src/tests/form-detect-tables-fixtures.ts (N39 and N45 were
+      // inverted in place, keeping their ids).
+      ...range("P", 78, 85),
+      ...range("N", 79, 85),
+      // Its review round 1 (2026-11-22): paint in cells, filled tables,
+      // headerless data, boxes 1 pt apart, heavy fractional rules.
+      ...range("P", 86, 89),
+      ...range("N", 86, 90),
       // O8 and O9 added in review round 7 (2026-11-19): a page the reader
       // sees sideways, and a scan with an OCR text layer.
       ...range("O", 1, 9),
     ];
-    expect(expected).toHaveLength(166);
+    expect(expected).toHaveLength(190);
     expect([...DETECT_CASES.map((c) => c.id)].sort()).toEqual(expected.sort());
     for (const [k, n] of [
-      ["positive", 82],
-      ["negative", 75],
+      ["positive", 96],
+      ["negative", 85],
       ["outcome", 9],
     ] as const)
       expect(kind(k).length, k).toBe(n);
@@ -113,15 +122,19 @@ describe("corpus health (FATAL when it fails)", () => {
   // cases and 200 proposals; S4 added 22 cases and 21 proposals, taking
   // them to 149 and 215). Raised by S4's review round 1 (was 160 cases;
   // it added 16 cases and 11 proposals, taking them to 165 and 226).
+  // Raised by slice S5 (was 185 cases and 240 proposals; S5 added 15 cases
+  // and, with N39 and N45 inverted to positives, 77 proposals, taking them
+  // to 181 and 303: tables propose a field a cell). S5's review round 1
+  // added 9 cases and 17 proposals (190 and 320), inside both bounds.
   it("the corpus is not implausibly large", () => {
     expect(DETECT_CASES.length, "corpus implausibly large").toBeLessThanOrEqual(
-      185,
+      200,
     );
     const proposals = kind("positive").reduce(
       (s, c) => s + runOf(c).proposals.length,
       0,
     );
-    expect(proposals, "corpus implausibly large").toBeLessThanOrEqual(240);
+    expect(proposals, "corpus implausibly large").toBeLessThanOrEqual(330);
   });
 
   // P27 is the label-column case only while two of its labels end beyond the
