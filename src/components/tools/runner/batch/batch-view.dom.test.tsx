@@ -9,7 +9,7 @@
  * `../compress-batch.dom.test.tsx` (unchanged by the lift: the positive
  * control) and below for its file cap.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { BatchSkip, withNote } from "@/lib/batch";
@@ -23,6 +23,7 @@ import {
   type BatchRejection,
 } from "@/lib/batch/limits";
 import { CompressBatchRunner } from "../compress-batch";
+import { warmEnding } from "../runner-kit";
 import { useBatchRunner, type BatchUnit } from "../use-batch-runner";
 import { BATCH_VIEW_LOADED, BatchView } from "./batch-view";
 
@@ -89,6 +90,16 @@ const unitsOf = (...names: string[]): BatchUnit[] =>
   names.map((name) => ({ id: name, name, file: file(name) }));
 
 afterEach(() => vi.restoreAllMocks());
+
+// The last file of every Run awaits endingReady(): the result-ending chunk,
+// or ENDING_WAIT_MS (800 ms) when it has not arrived. Cold, that put up to
+// 800 ms of the 1 s default under the waits below, depending on test order,
+// -t, and what the isolate:false module cache already held (audit lines 120,
+// 154, 168, 206, 242, 335, 362). Loaded once here, every wait in this file
+// covers in-memory work only.
+beforeAll(async () => {
+  await warmEnding();
+});
 
 describe("BatchView — the lifted view, generic over the result", () => {
   it("marks its chunk, so the lazy-chunk guard can find it", () => {
@@ -162,11 +173,57 @@ describe("BatchView — the lifted view, generic over the result", () => {
 
     failB = false;
     fireEvent.click(retry);
-    await waitFor(() =>
-      expect(screen.queryByRole("button", { name: /Retry failed/ })).toBeNull(),
-    );
+    // Synchronous: the act-wrapped click dispatches retry and starts the run
+    // before it returns, so a click that did nothing is red here at once
+    // (a waitFor gave a no-op click a second to look like a slow one).
+    expect(screen.queryByRole("button", { name: /Retry failed/ })).toBeNull();
     await screen.findByRole("button", { name: "Download stamped b.pdf" });
     expect(calls).toEqual(["a.pdf", "b.pdf", "c.pdf", "d.pdf", "b.pdf"]);
+  });
+
+  it("Retry failed (k) pressed the moment it appears still retries: the rows it acts on are the rows drawn", async () => {
+    // The test above failed 1 run in 31 on CI: the press landed after the
+    // commit that drew "Retry failed (1)" but before React's passive-effect
+    // task, so retryFailed read the PREVIOUS rows (no "error" among them) and
+    // did nothing. Whether a press lost that race hung on Node's millisecond
+    // clock rolling over in a microsecond gap — no timeout could fix it and a
+    // quiet local loop proved nothing. This presses in the SAME microtask the
+    // button is drawn in, so the stale read is red on every run, not 1 in 31.
+    const calls: string[] = [];
+    let failB = true;
+    let pressedAt: number | null = null;
+    const observer = new MutationObserver(() => {
+      const button = Array.from(document.querySelectorAll("button")).find(
+        (b) => b.textContent?.trim() === "Retry failed (1)",
+      );
+      if (!button || pressedAt !== null) return;
+      observer.disconnect();
+      pressedAt = calls.length;
+      failB = false;
+      button.click();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    try {
+      renderWith(
+        <Harness
+          units={unitsOf("a.pdf", "b.pdf")}
+          process={async (f) => {
+            calls.push(f.name);
+            if (f.name === "b.pdf" && failB) throw new Error("b broke");
+            return { name: f.name, blob: new Blob([f.name]) };
+          }}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Stamp 2 PDFs" }));
+      await screen.findByRole("button", { name: "Download stamped b.pdf" });
+    } finally {
+      observer.disconnect();
+    }
+    // Health check: the press happened, after the first pass and before any
+    // retry — else a green here would say nothing about the race.
+    expect(pressedAt).toBe(2);
+    expect(calls).toEqual(["a.pdf", "b.pdf", "b.pdf"]);
+    expect(screen.queryByRole("button", { name: /Retry failed/ })).toBeNull();
   });
 
   it("lists every file the batch did not take, with its reason", () => {

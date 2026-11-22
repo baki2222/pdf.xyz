@@ -37,4 +37,10 @@ export const WALL_CLOCK_PENDING: readonly PendingEntry[] = [
     reason:
       "Typing an open range ('1-', '3-') must be checked as ranges, not expanded, and only this time sees work that grows with the range: the test's Set.add count pins the old mechanism, and the same expansion into an array (30M entries) or a Map (5M entries) keeps it at 0 while the typing time grows 2x to 4.8x. Back to assert once 5 CI runs calibrate the id (bound 500; CI maximum 367 ms).",
   },
+  {
+    id: "S5 tables",
+    file: "src/lib/pdf/form-detect-tables-cost.test.ts",
+    reason:
+      "The table rule's cost must stay linear in the page's tables. This ratio sees a quadratic read of each cell's words, but NOT any one of the three band lookups S5 added put back alone (each reads under the bound at 16x; all three together read over it), so those rest on review and the before-and-after readings. The test's health checks cover what the rule returns, not what it costs. Back to assert once 5 CI runs calibrate the id (readings in the test file).",
+  },
 ];

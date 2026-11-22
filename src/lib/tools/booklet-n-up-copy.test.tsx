@@ -10,6 +10,7 @@ import {
   NUpEditor,
 } from "@/components/tools/runner/n-up/n-up-editor";
 import { BookletEditor } from "@/components/tools/runner/n-up/booklet-editor";
+import { ENDING_WAIT_MS } from "@/components/tools/runner/runner-kit";
 import type { LoadedPdf } from "@/components/tools/runner/use-single-pdf";
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import { getToolContent } from "@/lib/tools/content";
@@ -86,6 +87,26 @@ function labelsIn(root: HTMLElement): string[] {
   ].filter((l) => l.length > 0);
 }
 
+// The run's result: the engine (loadPdf's guard imports, 7 modules this
+// file does not load, cold on a fresh worker), then the result ending,
+// raced against ENDING_WAIT_MS AFTER the engine returns. The 1 s default
+// could be spent by the cap alone, and failing it turns all ten tests
+// red from the hook. Per-test durations (ci-durations.tsv) leave hook
+// time out, so they say nothing about this wait. Its subject is the
+// beforeAll, and the only CI figure that contains it is the file's own
+// total in the reporter's line (tests plus hooks, so an upper bound on
+// both of the hook's runs together): at most 4354 ms over 30 CI runs,
+// 11-09..11-21 (run 43998624497; 4048 ms in run 44321190257 among the
+// passing ones; 3743 ms on main run 44931945692). 10800 ms is 2.5x that
+// upper bound, and the hook allows 180 s. A numeric literal, so CI's
+// wait-headroom report can read it from source; the test "the result
+// wait still covers..." below reddens if the cap grows past it.
+const RESULT_WAIT_MS = 10_800;
+
+it("the result wait still covers the result-ending cap plus 10 s", () => {
+  expect(RESULT_WAIT_MS).toBeGreaterThanOrEqual(ENDING_WAIT_MS + 10_000);
+});
+
 /** What an editor draws, before and after a run (its result's title). */
 async function drawnBy(slug: string): Promise<Set<string>> {
   const { editor: Editor, run } = EDITORS[slug]!;
@@ -95,7 +116,11 @@ async function drawnBy(slug: string): Promise<Set<string>> {
   const before = labelsIn(container);
   fireEvent.click(screen.getByRole("button", { name: run }));
   const headings = new Set(before);
-  await screen.findByRole("button", { name: /download pdf/i });
+  await screen.findByRole(
+    "button",
+    { name: /download pdf/i },
+    { timeout: RESULT_WAIT_MS },
+  );
   const after = labelsIn(container).filter((l) => !headings.has(l));
   cleanup();
   return new Set([...before, ...after]);
