@@ -107,6 +107,7 @@ import {
 } from "./ocr-native";
 import type { AiProvider } from "./ai/provider";
 import { discoverWorkerSpawnSites, rel } from "@/tests/spawn-sites";
+import { observeFor } from "@/tests/time-bound";
 
 /** Far below the stand-in's 60 s life, far above a kill's few milliseconds. */
 const ABORT_BOUND_MS = 5_000;
@@ -550,6 +551,16 @@ describe("engines honour the attempt's abort signal", () => {
       const elapsed = Date.now() - abortedAt;
 
       // 1. Gone, and promptly — not after its 60 s.
+      //
+      // The settle time stays a plain assertion (wall-clock debt) until CI
+      // has calibrated "engine-abort-settles" for assert mode. It was routed
+      // into measure mode on 2026-11-21 and that removed "promptly": the
+      // child's exit and the processor's verdict say nothing about WHEN the
+      // processor settled, so an engine that killed its child at once and
+      // then awaited 8 s before settling passed (mutant in
+      // compression/native.ts's finally block, review of 0036b227). It was
+      // never a flake risk: absent from CI's >300 ms list in all 12 runs of
+      // 11-18, so 5 s is at least 16x its CI time.
       expect(await waitForExit(pid, ABORT_BOUND_MS)).toBe(true);
       expect(elapsed).toBeLessThan(ABORT_BOUND_MS);
       // 2. Recognisably an abort, from the processor itself.
@@ -577,13 +588,22 @@ describe("engines honour the attempt's abort signal", () => {
     const driven = [...new Set(Object.values(CASES).map((c) => c.spawnModule))];
     expect(discovered.length).toBeGreaterThanOrEqual(8);
     expect(driven.sort()).toEqual([...discovered].sort());
-  });
+    // Discovery parses the worker import graph, so its time grows with the
+    // graph: CI max 2,479 ms (44910288854, 11-21) and 2,660 ms at 401 modules
+    // (43998624497), 53% of the old 5 s default. 20 s as its siblings. Kept
+    // in the test, never at module scope, where no timeout and no headroom
+    // line could see the graph grow.
+  }, 20_000);
 
   it("positive control: with no abort the stand-in is still running", async () => {
     const controller = new AbortController();
     const name = "compress-pdf (Ghostscript)";
     const { pid, outcome } = await start(name, controller.signal);
-    await new Promise((resolve) => setTimeout(resolve, 750));
+    await observeFor(
+      "engine-abort-control-alive",
+      750,
+      "a stand-in nobody aborts must still be running after this window, so (1) above can fail",
+    );
     // The harness CAN see a live child: "gone" above is not vacuous.
     expect(isAlive(pid)).toBe(true);
     controller.abort();

@@ -282,7 +282,9 @@ describe("(i) P1 at the ceiling: separators are weighed", () => {
       }
     }
     expect(marked, "health: marked chunks were planned").toBeGreaterThan(200);
-  });
+    // Plans every generated document: CI max 2,106 ms (44891504062, 11-21),
+    // 42% of the old 5 s default. 30 s as the other walks in this file.
+  }, 30_000);
 });
 
 // ── (ii), (iii), (iv) ───────────────────────────────────────────────────────
