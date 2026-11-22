@@ -19,6 +19,7 @@ import {
 } from "../../src/tests/viewer-fixtures";
 import { BATCH_VARIANTS } from "./batch-cases";
 import { IMAGE_TEXT_BATCH_VARIANTS } from "./image-batch-cases";
+import { PAGE_TOOL_VARIANTS } from "./page-tool-cases";
 import {
   encodeGrayJpeg,
   jpegComponentCount,
@@ -2981,6 +2982,8 @@ export const VARIANTS: readonly VariantCase[] = [
   ...BATCH_VARIANTS,
   // The images and text batches (batch plan P2): a folder per input.
   ...IMAGE_TEXT_BATCH_VARIANTS,
+  // The page tools' options added by the 2026-11-22 audit wave.
+  ...PAGE_TOOL_VARIANTS,
   {
     slug: "pdf-to-jpg",
     name: "pages 1 and 3 only, Grayscale",

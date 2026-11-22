@@ -365,6 +365,32 @@ describe("header-footer runner: left, center and right in one band", () => {
     ).toBe("");
   });
 
+  // Audit header-footer#7 (2026-11-22): a field button appended to the end
+  // of the box, wherever the caret was, so "Page  of 9" with the caret after
+  // "Page " became "Page  of 9{n}".
+  it("inserts a field at the caret, replacing a selection, and leaves the caret after it", async () => {
+    render(<HeaderFooterEditor pdf={await loadedPdf()} onReset={() => {}} />);
+    const left = screen.getByLabelText("Header left") as HTMLInputElement;
+    fireEvent.change(left, { target: { value: "Page  of 9" } });
+    fireEvent.focus(left);
+    left.setSelectionRange(5, 5);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Insert {n} into Header left" }),
+    );
+    expect(left.value).toBe("Page {n} of 9");
+    await waitFor(() => expect(left.selectionStart).toBe(8));
+    expect(left.selectionEnd).toBe(8);
+    expect(document.activeElement).toBe(left);
+
+    // A selection is replaced by the field.
+    left.setSelectionRange(12, 13);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Insert {total} into Header left" }),
+    );
+    expect(left.value).toBe("Page {n} of {total}");
+    await waitFor(() => expect(left.selectionStart).toBe(19));
+  });
+
   // Review of audit header-footer#3 (2026-11-07): the field buttons were
   // named only "{n}", "{total}" and "{date}" — the same in both bands — while
   // the box they fill is whichever was last focused, named only by a visible

@@ -1,7 +1,7 @@
 "use client";
 
 import { RunReason } from "@/components/tools/runner/run-reason";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, PanelTop } from "lucide-react";
 import {
   addHeaderFooter,
@@ -124,11 +124,47 @@ function BandFields({
       ALIGN_OPTIONS.find(({ value }) => text[value].trim())?.value ?? "center",
   );
   const targetLabel = ALIGN_OPTIONS.find((o) => o.value === target)!.label;
+  // Each box's wrapper, to read its input's caret: an input keeps its
+  // selection after it loses focus to the field button.
+  const boxes = useRef<Partial<Record<HAlign, HTMLDivElement | null>>>({});
+  // Where the caret goes once the inserted text has rendered.
+  const [caret, setCaret] = useState<{ box: HAlign; at: number } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!caret) return;
+    const input = boxes.current[caret.box]?.querySelector("input");
+    if (input) {
+      input.focus();
+      input.setSelectionRange(caret.at, caret.at);
+    }
+    setCaret(null);
+  }, [caret]);
+  // A field goes in at the caret of the box it fills, over any selection,
+  // and the caret lands after it (audit header-footer#7: it was appended to
+  // the end of the box, wherever the caret was).
+  const insert = (token: string) => {
+    const current = text[target];
+    const input = boxes.current[target]?.querySelector("input");
+    const start = input?.selectionStart ?? current.length;
+    const end = input?.selectionEnd ?? start;
+    onChange({
+      ...text,
+      [target]: current.slice(0, start) + token + current.slice(end),
+    });
+    setCaret({ box: target, at: start + token.length });
+  };
   return (
     <div className="flex flex-col gap-3">
       <div className="grid gap-3 sm:grid-cols-3">
         {ALIGN_OPTIONS.map(({ value, label }) => (
-          <div key={value} onFocus={() => setTarget(value)}>
+          <div
+            key={value}
+            ref={(el) => {
+              boxes.current[value] = el;
+            }}
+            onFocus={() => setTarget(value)}
+          >
             <TextField
               label={`${band} ${label.toLowerCase()}`}
               value={text[value]}
@@ -141,9 +177,7 @@ function BandFields({
       <TokenButtons
         tokens={TOKENS}
         into={`${band} ${targetLabel.toLowerCase()}`}
-        onInsert={(token) =>
-          onChange({ ...text, [target]: text[target] + token })
-        }
+        onInsert={insert}
       />
     </div>
   );

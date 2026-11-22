@@ -238,6 +238,8 @@ test.describe("client tool proof — the derived set", () => {
         "text-to-pdf",
         // Compare PDF's HTML redline (S4, 2026-11-15): the second download.
         "compare-pdf",
+        // The 2026-11-22 audit wave: a field inserted at the caret.
+        "header-footer",
       ]),
     );
     for (const v of VARIANTS)
