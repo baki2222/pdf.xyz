@@ -34,6 +34,7 @@ import {
 import {
   planPrint,
   PRINT_TO_PDF_OPTIONS,
+  type PrintExtras,
   type PrintPlan,
 } from "./print-params";
 import {
@@ -46,6 +47,7 @@ import {
 } from "@/lib/jobs/webpage-capture-options";
 import { HIDE_OVERLAYS_SCRIPT } from "./overlays";
 import { HIDE_ADS_SCRIPT, isAdRequestUrl } from "./ads";
+import { cssBytesHavePrintRules, PRINT_CSS_IN_PAGE_SCRIPT } from "./print-css";
 import { answerArchiveRequest } from "./zip-site";
 import { stampFooterTemplate } from "./stamp";
 import {
@@ -514,9 +516,13 @@ export function createNativeChromiumPdfRunner(
   async function drive(
     cdp: CdpConnection,
     target: RenderTarget,
-    plan: PrintPlan,
+    screenPlan: PrintPlan,
+    paperPlan: PrintPlan = screenPlan,
   ): Promise<Uint8Array> {
+    let plan = screenPlan;
     const network = createRenderNetwork(seams.network, seams.networkLimits);
+    /** A stylesheet the worker fetched for the page holds print rules. */
+    let fetchedPrintCss = false;
     let documentServed = false;
     let mainFrameId = "";
     /** The latest main-frame document's verdict (url renders only). */
@@ -627,6 +633,12 @@ export function createNativeChromiumPdfRunner(
         );
         return;
       }
+      if (
+        p.resourceType === "Stylesheet" &&
+        !fetchedPrintCss &&
+        cssBytesHavePrintRules(decision.body)
+      )
+        fetchedPrintCss = true;
       await cdp.send(
         "Fetch.fulfillRequest",
         {
@@ -826,6 +838,16 @@ export function createNativeChromiumPdfRunner(
     // page is measured and printed with its SCREEN styles. Sent before the
     // measure and again before the print, so neither can see print media.
     const screenMedia = target.kind === "url" && !target.capture.printStyles;
+    // A site with print styles, printed with them, is laid out at the
+    // paper's width, not shrunk from the chosen screen's (`./print-css`).
+    if (
+      target.kind === "url" &&
+      !screenMedia &&
+      paperPlan !== screenPlan &&
+      (fetchedPrintCss ||
+        (await isolated("pdfxyz-print-css", PRINT_CSS_IN_PAGE_SCRIPT)) === true)
+    )
+      plan = paperPlan;
     if (screenMedia)
       await cdp.send(
         "Emulation.setEmulatedMedia",
@@ -1062,8 +1084,7 @@ export function createNativeChromiumPdfRunner(
   ): Promise<Uint8Array> {
     // Webpages get bookmarks from their headings, and the address-and-date
     // line when it was asked for (audit webpage-to-pdf#7, `./stamp`).
-    const plan = planPrint(
-      options,
+    const extras: PrintExtras =
       target.kind === "url"
         ? {
             outline: true,
@@ -1076,9 +1097,17 @@ export function createNativeChromiumPdfRunner(
                 }
               : {}),
           }
-        : {},
+        : {};
+    const plan = planPrint(options, extras);
+    // Webpages loaded into a chosen screen: the plan for a site whose print
+    // styles are used (`./print-css`) — the same job at the paper's width.
+    const paperPlan =
+      target.kind === "url" && options.viewport !== "auto"
+        ? planPrint({ ...options, viewport: "auto" }, extras)
+        : plan;
+    const bytes = await withBrowser(signal, (cdp) =>
+      drive(cdp, target, plan, paperPlan),
     );
-    const bytes = await withBrowser(signal, (cdp) => drive(cdp, target, plan));
     if (
       bytes.byteLength === 0 ||
       bytes.byteLength > config.maxOutputBytes ||
