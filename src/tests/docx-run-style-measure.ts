@@ -25,7 +25,24 @@
  *    bold and four lines mixing regular, bold and italic words, through the
  *    whole PDF to Word engine (real page reader, poppler stood in for) — and
  *    the structural read-back of its .docx, timed on its own.
+ *
+ * Added 2026-11-22 (ci-flake audit 2026-11-19), so the cap test can hold
+ * cost SHAPES instead of only absolute times a runner's speed decides:
+ *  - every `match*` mode also reports `capMs` and `refMs`: the same shape
+ *    at `n` and at a reference size, alternating, best of 2 and of 3. The
+ *    reference is `n / 8` for the near-linear layouts, and the literal
+ *    {@link WIDE_REFERENCE} for `match-wide`, the one quadratic shape, so a
+ *    raised cap grows its ratio as the cap squared on any runner;
+ *  - `engine` reports `structureParses`: how many times the engine's run
+ *    opened the very package it delivered through `docx-structure` (its
+ *    check before delivery reads the structure AND its problems from ONE
+ *    parse, a count no runner's speed changes), beside `packageParses`,
+ *    every open of those bytes (the independent `docx-read` reader is the
+ *    other); and `fullReadMs` / `smallReadMs`: the read-back at `pages`
+ *    against the same engine's output at `pages / 8`.
+ * Times are unrounded.
  */
+import JSZip from "jszip";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import { PDFDocument } from "pdf-lib";
 import type { FlowPiece, PdfFlowTextPage } from "@/lib/workers/pdf-text/flow";
@@ -47,6 +64,39 @@ import type {
 import { flowStandIn } from "@/tests/poppler-flow-standin";
 
 const peakMb = () => process.resourceUsage().maxRSS / 1024;
+
+/** `match-wide`'s reference size: a literal, never derived from the cap. */
+const WIDE_REFERENCE = 2_000;
+
+/** One time-boxed sample lasts at least this long, so a timer tick is noise. */
+const SAMPLE_MS = 100;
+
+/** One time-boxed sample of `fn`: its time per call over SAMPLE_MS or more. */
+function perCall(fn: () => unknown): number {
+  let calls = 0;
+  let spent = 0;
+  const t0 = performance.now();
+  do {
+    fn();
+    calls += 1;
+    spent = performance.now() - t0;
+  } while (spent < SAMPLE_MS);
+  return spent / calls;
+}
+
+/** The best time of `reps` calls of the async `fn`. */
+async function bestOfAsync(
+  reps: number,
+  fn: () => Promise<unknown>,
+): Promise<number> {
+  let best = Infinity;
+  for (let r = 0; r < reps; r++) {
+    const t0 = performance.now();
+    await fn();
+    best = Math.min(best, performance.now() - t0);
+  }
+  return best;
+}
 
 function matchPage(
   n: number,
@@ -176,15 +226,43 @@ async function main() {
     const t0 = performance.now();
     const got = runStylesOf(built.page, built.scanned);
     const ms = performance.now() - t0;
+    const rssDeltaMb = peakMb() - before;
+    // The shape, after the peak is read: the same layout at a reference
+    // size, alternating with `n` so a load change reaches both sides.
+    const refN = mode === "match-wide" ? WIDE_REFERENCE : Math.floor(n / 8);
+    const ref = matchPage(
+      refN,
+      mode === "match" ? 20 : refN,
+      mode === "match-wide",
+      mode === "match-one",
+    );
+    // Time-boxed samples, best per call: three of the reference, two of
+    // the cap (the first is the fresh run above, a sample of its own).
+    let capMs = ms;
+    let refMs = Infinity;
+    for (let r = 0; r < 3; r++) {
+      refMs = Math.min(
+        refMs,
+        perCall(() => runStylesOf(ref.page, ref.scanned)),
+      );
+      if (r < 1)
+        capMs = Math.min(
+          capMs,
+          perCall(() => runStylesOf(built.page, built.scanned)),
+        );
+    }
     console.log(
       JSON.stringify({
         mode,
         n,
-        ms: Math.round(ms),
-        rssDeltaMb: Math.round(peakMb() - before),
+        ms,
+        rssDeltaMb: Math.round(rssDeltaMb),
         matched: got.matched,
         total: got.total,
         capped: got.capped,
+        refN,
+        capMs,
+        refMs,
       }),
     );
     return;
@@ -193,28 +271,70 @@ async function main() {
     const deps = { ...pdfOfficeExportDeps(), extractFlow: flowStandIn };
     await runPdfOfficeExport(PDF_TO_WORD_TOOL, await enginePdf(1), deps);
     const pdf = await enginePdf(n);
+    // Every package the engine opens while it runs: the check before
+    // delivery is the only reader of the bytes it delivers.
+    const opened: { bytes: Uint8Array; structure: boolean }[] = [];
+    const loadAsync = JSZip.loadAsync.bind(JSZip);
+    JSZip.loadAsync = ((data: unknown, options?: unknown) => {
+      if (data instanceof Uint8Array)
+        opened.push({
+          bytes: data,
+          structure: /docx-structure/.test(new Error().stack ?? ""),
+        });
+      return loadAsync(data as Uint8Array, options as never);
+    }) as typeof JSZip.loadAsync;
     const before = peakMb();
     const t0 = performance.now();
     const run = await runPdfOfficeExport(PDF_TO_WORD_TOOL, pdf, deps);
     const ms = performance.now() - t0;
+    JSZip.loadAsync = loadAsync;
     if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
+    const output = run.output;
+    const delivered = opened.filter(
+      ({ bytes }) =>
+        bytes.byteLength === output.byteLength &&
+        Buffer.from(bytes).equals(Buffer.from(output)),
+    );
+    const packageParses = delivered.length;
+    const structureParses = delivered.filter((o) => o.structure).length;
     const t1 = performance.now();
     // What the engine's check before delivery does: one parse, both answers.
-    const { structure, problems } = await inspectDocxStructure(run.output);
+    const { structure, problems } = await inspectDocxStructure(output);
     const pagesRead = structure ? docxPageTexts(structure).length : -1;
     const readMs = performance.now() - t1;
+    const rssDeltaMb = peakMb() - before;
+    // The read-back's shape: the same engine's output at an eighth of the
+    // pages, best of 3, against the full one's best of 2 (the first is
+    // above). Linear reads about 8.
+    const small = await runPdfOfficeExport(
+      PDF_TO_WORD_TOOL,
+      await enginePdf(Math.ceil(n / 8)),
+      deps,
+    );
+    if (!small.ok) throw new Error(`${small.kind}: ${small.message}`);
+    const read = (bytes: Uint8Array) => async () => {
+      const got = await inspectDocxStructure(bytes);
+      if (got.structure) docxPageTexts(got.structure);
+    };
+    const smallReadMs = await bestOfAsync(3, read(small.output));
+    const fullReadMs = Math.min(readMs, await bestOfAsync(1, read(output)));
     console.log(
       JSON.stringify({
         mode,
         pages: n,
-        ms: Math.round(ms),
-        readBackMs: Math.round(readMs),
-        rssDeltaMb: Math.round(peakMb() - before),
-        docxBytes: run.output.byteLength,
+        ms,
+        readBackMs: readMs,
+        rssDeltaMb: Math.round(rssDeltaMb),
+        docxBytes: output.byteLength,
         problems: problems.length,
         pagesRead,
         unformattedPages: run.coverage.formattingMissingPageCount,
         unmatchedWords: run.coverage.unmatchedWords,
+        packageParses,
+        structureParses,
+        packagesOpened: opened.length,
+        fullReadMs,
+        smallReadMs,
       }),
     );
     return;
