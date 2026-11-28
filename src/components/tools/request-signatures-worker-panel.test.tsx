@@ -56,6 +56,23 @@ import {
   clampSignaturePage,
 } from "./request-signatures-worker-panel";
 
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
+ *
+ * CI (108 CI runs, passing and failing, to 11-21): the two 50-box tests take up
+ * to 9443 ms (run 44428026069, a failing run; 9239 ms in passing run
+ * 44171428723), in their box loops, not in a wait — the wait-headroom blocks of
+ * the 5 instrumented runs (44917160721, 44924793701, 44931945692, 44938151052,
+ * 44941026100) list no wait in this file above 500 ms, half the 1 s default.
+ * The slowest of the other tests took 1444 ms (run 44410172908, the 8 KB
+ * options ceiling). 3 s is 6x the waits seen and 2.0x that test, and stays
+ * below every test's own timeout (5 s, 30 s in the placement block), so a wait
+ * that times out fails with its DOM dump.
+ */
+const WAIT_MS = 3_000;
+
 /** Written here, not imported: the test holds the panel to this sentence. */
 const TOO_LONG_SENTENCE =
   "This request is too long to send. Shorten the message or the labels, or remove some boxes.";
@@ -143,7 +160,9 @@ describe("RequestBuilder signature page", () => {
     expect(pageInput().value).toBe("1");
 
     pick(container, await pdfFile(3));
-    await waitFor(() => expect(pageInput().value).toBe("3"));
+    await waitFor(() => expect(pageInput().value).toBe("3"), {
+      timeout: WAIT_MS,
+    });
     expect(pageInput().max).toBe("3");
     expect(screen.getByText("3 pages")).toBeInTheDocument();
 
@@ -156,12 +175,18 @@ describe("RequestBuilder signature page", () => {
   it("previews the exact layout the request carries, on the chosen page", async () => {
     const { container } = render(<Builder />);
     pick(container, await pdfFile(2));
-    await waitFor(() => expect(pageInput().value).toBe("2"));
+    await waitFor(() => expect(pageInput().value).toBe("2"), {
+      timeout: WAIT_MS,
+    });
     // No valid signer yet: nothing would be sent, so nothing is drawn.
     expect(screen.queryByTestId("signature-page-preview")).toBeNull();
 
     addSigner();
-    const preview = await screen.findByTestId("signature-page-preview");
+    const preview = await screen.findByTestId(
+      "signature-page-preview",
+      {},
+      { timeout: WAIT_MS },
+    );
     const boxes = [
       ...preview.querySelectorAll<HTMLElement>("[data-field-box]"),
     ];
@@ -207,7 +232,7 @@ describe("RequestBuilder signature page", () => {
       container,
       new File([bytes.slice()], "contract.pdf", { type: "application/pdf" }),
     );
-    const alert = await screen.findByRole("alert");
+    const alert = await screen.findByRole("alert", {}, { timeout: WAIT_MS });
     // Every lock blocks the run (the worker cannot add fields to it) and
     // offers the way out, to a tool the catalog actually ships.
     expect(
@@ -278,8 +303,9 @@ describe("RequestBuilder signature page", () => {
     const button = screen.getByRole("button", {
       name: /Prepare signature request/,
     });
-    await waitFor(() =>
-      expect(button).not.toHaveAttribute("aria-disabled", "true"),
+    await waitFor(
+      () => expect(button).not.toHaveAttribute("aria-disabled", "true"),
+      { timeout: WAIT_MS },
     );
     expect(screen.queryByRole("alert")).toBeNull();
   });
@@ -295,7 +321,11 @@ describe("RequestBuilder signature page", () => {
     const { container } = render(<Builder />);
     addSigner();
     pick(container, await pdfFile(1));
-    await screen.findByTestId("signature-page-preview");
+    await screen.findByTestId(
+      "signature-page-preview",
+      {},
+      { timeout: WAIT_MS },
+    );
     expect(screen.queryByRole("alert")).toBeNull();
     expect(
       screen.getByRole("button", { name: /Prepare signature request/ }),
@@ -331,11 +361,13 @@ describe("RequestBuilder signer rows", () => {
     fillRow(2, "Bob Typo", "b@x,com");
     fillRow(3, "Cy Valid", "cy@example.com");
 
-    await waitFor(() =>
-      expect(screen.getByLabelText("Signer 2 email")).toHaveAttribute(
-        "aria-invalid",
-        "true",
-      ),
+    await waitFor(
+      () =>
+        expect(screen.getByLabelText("Signer 2 email")).toHaveAttribute(
+          "aria-invalid",
+          "true",
+        ),
+      { timeout: WAIT_MS },
     );
     expect(screen.getByLabelText("Signer 1 email")).not.toHaveAttribute(
       "aria-invalid",
@@ -351,10 +383,15 @@ describe("RequestBuilder signer rows", () => {
 
     // Fixing the row includes the signer: all three blocks are drawn.
     fillRow(2, "Bob Typo", "bob@example.com");
-    await waitFor(() =>
-      expect(runButton()).not.toHaveAttribute("aria-disabled", "true"),
+    await waitFor(
+      () => expect(runButton()).not.toHaveAttribute("aria-disabled", "true"),
+      { timeout: WAIT_MS },
     );
-    const preview = await screen.findByTestId("signature-page-preview");
+    const preview = await screen.findByTestId(
+      "signature-page-preview",
+      {},
+      { timeout: WAIT_MS },
+    );
     expect(preview.querySelectorAll("[data-field-box]")).toHaveLength(
       signatureBlockFields(3, 1, true).length,
     );
@@ -367,11 +404,13 @@ describe("RequestBuilder signer rows", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add signer/ }));
     fillRow(1, "Ada Lovelace", "ada@example.com");
     fillRow(2, "", "bob@example.com");
-    await waitFor(() =>
-      expect(screen.getByLabelText("Signer 2 name")).toHaveAttribute(
-        "aria-invalid",
-        "true",
-      ),
+    await waitFor(
+      () =>
+        expect(screen.getByLabelText("Signer 2 name")).toHaveAttribute(
+          "aria-invalid",
+          "true",
+        ),
+      { timeout: WAIT_MS },
     );
     expect(runButton()).toHaveAttribute("aria-disabled", "true");
     // Row 3 was never filled: it is not a signer and not an error.
@@ -380,8 +419,9 @@ describe("RequestBuilder signer rows", () => {
       "true",
     );
     fireEvent.click(screen.getByRole("button", { name: "Remove signer 2" }));
-    await waitFor(() =>
-      expect(runButton()).not.toHaveAttribute("aria-disabled", "true"),
+    await waitFor(
+      () => expect(runButton()).not.toHaveAttribute("aria-disabled", "true"),
+      { timeout: WAIT_MS },
     );
   });
 
@@ -469,8 +509,9 @@ describe("RequestBuilder placement (audit #21)", { timeout: 30_000 }, () => {
 
   async function prepare(): Promise<WireBody> {
     const before = jobs.length;
-    await waitFor(() =>
-      expect(runButton()).not.toHaveAttribute("aria-disabled", "true"),
+    await waitFor(
+      () => expect(runButton()).not.toHaveAttribute("aria-disabled", "true"),
+      { timeout: WAIT_MS },
     );
     fireEvent.click(runButton());
     await waitFor(() => expect(jobs.length).toBe(before + 1), {
@@ -483,7 +524,11 @@ describe("RequestBuilder placement (audit #21)", { timeout: 30_000 }, () => {
     const { container } = render(<Builder />);
     pick(container, await pdfFile(pages));
     addSigner();
-    return screen.findByTestId("signature-page-preview");
+    return screen.findByTestId(
+      "signature-page-preview",
+      {},
+      { timeout: WAIT_MS },
+    );
   }
 
   const boxes = (sheet: HTMLElement) => [
@@ -619,10 +664,12 @@ describe("RequestBuilder placement (audit #21)", { timeout: 30_000 }, () => {
     sig.focus();
     fireEvent.keyDown(sig, { key: "Delete" });
     expect(boxes(sheet)).toHaveLength(1);
-    await waitFor(() =>
-      expect(document.activeElement?.getAttribute("aria-label")).toMatch(
-        /Date box, page 1/,
-      ),
+    await waitFor(
+      () =>
+        expect(document.activeElement?.getAttribute("aria-label")).toMatch(
+          /Date box, page 1/,
+        ),
+      { timeout: WAIT_MS },
     );
     expect(screen.getByText("Removed Signer 1 Signature box")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
@@ -714,7 +761,9 @@ describe("RequestBuilder placement (audit #21)", { timeout: 30_000 }, () => {
     fireEvent.change(screen.getByLabelText("Signer 2 email"), {
       target: { value: "bob@example.com" },
     });
-    await waitFor(() => expect(boxes(sheet)).toHaveLength(4));
+    await waitFor(() => expect(boxes(sheet)).toHaveLength(4), {
+      timeout: WAIT_MS,
+    });
     // Customise.
     fireEvent.keyDown(box(/Signer 1, Ada Lovelace, Signature box/), {
       key: "ArrowRight",
@@ -753,7 +802,9 @@ describe("RequestBuilder placement (audit #21)", { timeout: 30_000 }, () => {
     fireEvent.change(screen.getByLabelText("Signer 2 email"), {
       target: { value: "cy@example.com" },
     });
-    await waitFor(() => expect(boxes(sheet)).toHaveLength(3));
+    await waitFor(() => expect(boxes(sheet)).toHaveLength(3), {
+      timeout: WAIT_MS,
+    });
     const mine = box(/Signer 2, Cy Valid, Signature box/);
     mine.focus();
     fireEvent.keyDown(mine, { key: "Delete" });
@@ -839,7 +890,9 @@ describe("RequestBuilder placement (audit #21)", { timeout: 30_000 }, () => {
     fireEvent.change(screen.getByLabelText("Signer 2 email"), {
       target: { value: "bob@example.com" },
     });
-    await waitFor(() => expect(boxes(sheet)).toHaveLength(4));
+    await waitFor(() => expect(boxes(sheet)).toHaveLength(4), {
+      timeout: WAIT_MS,
+    });
     fireEvent.keyDown(box(/Signer 1, Ada Lovelace, Signature box/), {
       key: "ArrowRight",
     });
@@ -907,32 +960,42 @@ describe("RequestBuilder placement (audit #21)", { timeout: 30_000 }, () => {
     sig.focus();
     fireEvent.keyDown(sig, { key: "Delete" });
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
-    await waitFor(() =>
-      expect(document.activeElement?.getAttribute("aria-label")).toMatch(
-        /Signature box, page 1/,
-      ),
+    await waitFor(
+      () =>
+        expect(document.activeElement?.getAttribute("aria-label")).toMatch(
+          /Signature box, page 1/,
+        ),
+      { timeout: WAIT_MS },
     );
     fireEvent.keyDown(box(/Signature box, page 1/), { key: "ArrowLeft" });
     fireEvent.click(screen.getByRole("button", { name: "Start over" }));
-    await waitFor(() =>
-      expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: "Undo" }),
-      ),
+    await waitFor(
+      () =>
+        expect(document.activeElement).toBe(
+          screen.getByRole("button", { name: "Undo" }),
+        ),
+      { timeout: WAIT_MS },
     );
     fireEvent.click(screen.getByRole("button", { name: "Text" }));
     const bins = () =>
       screen.getAllByRole("button", { name: /^Remove box \d+,/ });
     expect(bins()).toHaveLength(3);
     fireEvent.click(bins()[0]!);
-    await waitFor(() => expect(document.activeElement).toBe(bins()[0]));
+    await waitFor(() => expect(document.activeElement).toBe(bins()[0]), {
+      timeout: WAIT_MS,
+    });
     // The last row's bin: focus goes to the row before.
     fireEvent.click(bins()[1]!);
-    await waitFor(() => expect(document.activeElement).toBe(bins()[0]));
+    await waitFor(() => expect(document.activeElement).toBe(bins()[0]), {
+      timeout: WAIT_MS,
+    });
     fireEvent.click(bins()[0]!);
-    await waitFor(() =>
-      expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: "Signature" }),
-      ),
+    await waitFor(
+      () =>
+        expect(document.activeElement).toBe(
+          screen.getByRole("button", { name: "Signature" }),
+        ),
+      { timeout: WAIT_MS },
     );
     // The list's signer badge is drawn in the panel's text colour.
     fireEvent.click(screen.getByRole("button", { name: "Date" }));
@@ -973,7 +1036,11 @@ describe("RequestBuilder placement (audit #21)", { timeout: 30_000 }, () => {
         target: { value: `${"e".repeat(230)}${i}@example.com` },
       });
     }
-    await screen.findByTestId("signature-page-preview");
+    await screen.findByTestId(
+      "signature-page-preview",
+      {},
+      { timeout: WAIT_MS },
+    );
     const empty = await prepare();
     const size = (o: unknown) =>
       new TextEncoder().encode(JSON.stringify(o)).byteLength;

@@ -83,6 +83,21 @@ import { toolRunInfoFor } from "@/lib/tools/tool-run-info";
 import { ToolRunProvider } from "./runner/tool-context";
 
 /**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
+ *
+ * CI: none of this file's 84 tests reached the 300 ms the log lists a test
+ * from, in any of 108 CI runs, passing and failing, to 11-21 (the whole file
+ * took 2935 ms in run 44910288854), and the wait-headroom blocks of the 5
+ * instrumented runs (44917160721, 44924793701, 44931945692, 44938151052,
+ * 44941026100) list none of its waits. A wait cannot outlast its test, so 3 s
+ * is 10x any wait in it, and stays below every test's own timeout, so a wait
+ * that times out fails with its DOM dump.
+ */
+const WAIT_MS = 3_000;
+
+/**
  * Every worker panel the tool page mounts, and the slugs each serves — read
  * from the registry the page indexes, through the one parse every
  * source-reading guard shares (`@/tests/worker-panel-dispatch`).
@@ -251,12 +266,15 @@ async function renderReady(Panel: ComponentType<{ tool: Tool }>, tool: Tool) {
       <Panel tool={tool} />
     </ToolRunProvider>,
   );
-  const input = await waitFor(() => {
-    const found =
-      container.querySelector<HTMLInputElement>('input[type="file"]');
-    expect(found, `${tool.slug} shows no file picker`).not.toBeNull();
-    return found!;
-  });
+  const input = await waitFor(
+    () => {
+      const found =
+        container.querySelector<HTMLInputElement>('input[type="file"]');
+      expect(found, `${tool.slug} shows no file picker`).not.toBeNull();
+      return found!;
+    },
+    { timeout: WAIT_MS },
+  );
   // The RUN button: `WorkerRunButton` always carries `aria-busy`. Not "the
   // first aria-disabled button" — since the wave-1 L03 merge (2026-09-28) the
   // OCR panel's language chips for packs the worker lacks are aria-disabled
@@ -345,7 +363,7 @@ describe.each(
     const big = fileOfSize(tool, ceiling + 1);
     fireEvent.change(input, { target: { files: [big] } });
 
-    const alert = await screen.findByRole("alert");
+    const alert = await screen.findByRole("alert", {}, { timeout: WAIT_MS });
     expect(alert).toHaveTextContent(fileOverCeilingMessage(tool, ceiling + 1)!);
     expect(alert).toHaveTextContent(`${toolFileCeilingMb(tool)} MB`);
     expect(alert).not.toHaveTextContent(/byte/);
@@ -367,7 +385,7 @@ describe.each(
     await dropSheetsLive();
     fireEvent.drop(zone!, { dataTransfer: { files: [wrong] } });
 
-    const alert = await screen.findByRole("alert");
+    const alert = await screen.findByRole("alert", {}, { timeout: WAIT_MS });
     expect(alert).toHaveTextContent(`"${wrong.name}"`);
     expect(alert).toHaveTextContent(tool.name);
     expect(alert).not.toHaveTextContent(/declared/i);
@@ -395,7 +413,9 @@ describe.each(
 
     fireEvent.change(input, { target: { files: [file] } });
 
-    expect(await screen.findByText(file.name)).toBeInTheDocument();
+    expect(
+      await screen.findByText(file.name, {}, { timeout: WAIT_MS }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     // Where the file is all the run needs, the button unblocks. Five panels
     // also need a prompt, a question, a password or a signer, so for them the

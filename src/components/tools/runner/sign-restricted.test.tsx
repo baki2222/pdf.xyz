@@ -180,15 +180,24 @@ describe("sign-pdf: a PDF both restricted and certificate-signed", () => {
     );
     const apply = () =>
       screen.getByRole("button", { name: /Apply & download/ });
-    await vi.waitFor(() => {
-      if (
-        apply().hasAttribute("disabled") ||
-        apply().getAttribute("aria-disabled") === "true"
-      )
-        fireEvent.pointerDown(page1, { button: 0, clientX: 5, clientY: 5 });
-      expect(apply().hasAttribute("disabled")).toBe(false);
-      expect(apply().getAttribute("aria-disabled")).not.toBe("true");
-    });
+    // The placement, retried until the page takes the pointer. CI: this wait
+    // took 795 ms of the 1 s default it ran under (run 44931945692, main at
+    // eea2c3ca; 529, 545 and 567 ms in runs 44924793701, 44938151052 and
+    // 44941026100), the whole test 2017 ms at most (run 44346859633, a
+    // failing run; 108 CI runs, passing and failing, to 11-21). 3 s is 3.8x
+    // the wait and below the test's 60 s, so its own message wins.
+    await vi.waitFor(
+      () => {
+        if (
+          apply().hasAttribute("disabled") ||
+          apply().getAttribute("aria-disabled") === "true"
+        )
+          fireEvent.pointerDown(page1, { button: 0, clientX: 5, clientY: 5 });
+        expect(apply().hasAttribute("disabled")).toBe(false);
+        expect(apply().getAttribute("aria-disabled")).not.toBe("true");
+      },
+      { timeout: 3_000 },
+    );
     fireEvent.click(apply());
     await vi.waitFor(() => expect(blobs.length).toBeGreaterThan(0), {
       timeout: 15000,

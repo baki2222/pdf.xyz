@@ -77,22 +77,27 @@ const loaded = (): LoadedPdf => ({
 
 async function mount(doc = fakeDoc()) {
   const tool = getToolBySlug("pdf-viewer")!;
-  render(
-    <InToolPage tool={tool}>
-      <PdfViewer
-        pdf={loaded()}
-        onReset={() => {}}
-        opening={Promise.resolve(doc)}
-      />
-    </InToolPage>,
-  );
-  const region = await screen.findByRole("region", {
-    name: "PDF viewer: proof.pdf",
+  // An async act, not a timed wait: the fake document is microtask-only, so
+  // act drains the open, the shell, the page sizes and the first sheets
+  // before it returns. Until 2026-11-21 two 1 s waits stood here, and the
+  // first test of the file (696 ms on main run 44931945692, the max over
+  // 33 CI runs of 11-09..11-21; 549 ms among the 12 passing runs of 11-18,
+  // run 44299285879) left them under 2x. No constant is left
+  // to go stale.
+  await act(async () => {
+    render(
+      <InToolPage tool={tool}>
+        <PdfViewer
+          pdf={loaded()}
+          onReset={() => {}}
+          opening={Promise.resolve(doc)}
+        />
+      </InToolPage>,
+    );
   });
+  const region = screen.getByRole("region", { name: "PDF viewer: proof.pdf" });
   // The column is laid out once page sizes are read.
-  await waitFor(() =>
-    expect(region.querySelector("[data-viewer-page]")).not.toBeNull(),
-  );
+  expect(region.querySelector("[data-viewer-page]")).not.toBeNull();
   return region;
 }
 

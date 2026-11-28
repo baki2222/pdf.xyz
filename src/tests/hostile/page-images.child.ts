@@ -21,12 +21,40 @@ import {
 import { encryptPdf } from "@/tests/encrypted-pdf";
 import { deflatedZeros } from "./conversion-out.fixtures";
 
+/**
+ * Every drawImage on a native 2d context, counted (CI-flake audit lane 2,
+ * page-images L222): a page left out as a note is painted with fillRect,
+ * strokeRect and fillText only (drawPageNote), while pdf.js paints every
+ * image XObject through drawImageAtIntegerCoords -> ctx.drawImage. So "the
+ * note page decoded and painted nothing" is a count, which no runner speed
+ * moves; until now only a 10 s bound on the page's draw time stood for it.
+ */
+let paints = 0;
+let counting = false;
+function countPaints(napi: {
+  createCanvas(w: number, h: number): { getContext(kind: "2d"): object };
+}): void {
+  if (counting) return; // withCanvas runs twice: warm(), then the case
+  counting = true;
+  const proto = Object.getPrototypeOf(
+    napi.createCanvas(1, 1).getContext("2d"),
+  ) as { drawImage: (...args: unknown[]) => unknown };
+  const drawImage = proto.drawImage;
+  proto.drawImage = function (this: unknown, ...args: unknown[]) {
+    paints += 1;
+    return drawImage.apply(this, args);
+  };
+}
+
 /** pdf.js's Node canvas behind `document.createElement`, as the render tests do. */
 async function withCanvas(): Promise<void> {
   const requireHere = createRequire(import.meta.url);
   const napi = createRequire(requireHere.resolve("pdfjs-dist/package.json"))(
     "@napi-rs/canvas",
-  ) as { createCanvas(w: number, h: number): unknown };
+  ) as {
+    createCanvas(w: number, h: number): { getContext(kind: "2d"): object };
+  };
+  countPaints(napi);
   await import("pdfjs-dist/legacy/build/pdf.mjs");
   const worker: unknown = await import(
     // @ts-expect-error -- pdfjs-dist ships no type declarations for its worker.
@@ -79,14 +107,17 @@ async function editor(bytes: Uint8Array, only?: number[]) {
   const doc = await openEditorPdf(bytes);
   const pages: ({ kind: string; inked: boolean } | null)[] = [];
   const ms: number[] = [];
+  const drawn: number[] = [];
   for (const i of only ?? Array.from({ length: doc.numPages }, (_, k) => k)) {
+    paints = 0;
     const t0 = Date.now();
     const c = (await doc.render(i, 1, 1)) as unknown as Pixels | null;
     ms.push(Date.now() - t0);
+    drawn.push(paints);
     pages.push(sheet(c));
   }
   await doc.destroy();
-  return { ok: true, pages, pageMs: ms };
+  return { ok: true, pages, pageMs: ms, paints: drawn };
 }
 
 /** The PDF Viewer: open, then draw every page at 100%. */

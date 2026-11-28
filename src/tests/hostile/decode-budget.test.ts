@@ -57,6 +57,8 @@ interface Settled {
   growthMb: number;
   /** The entry's own time, measured in the child (2026-11-15). */
   ms?: number;
+  /** Bytes every decodeContents call returned, counted in the child (2026-11-22). */
+  decoded: number;
 }
 function settled(r: BoundedOutcome): Settled {
   // A hang, a crash or an OOM is the defect itself; say which.
@@ -362,21 +364,47 @@ describe("PS-02 / STAMP-13: many pages sharing one content stream under the budg
    * The work ratio is the claim. By bytes, refused at EMBED_TOTAL_BYTES
    * (1 GiB) is 1024 / 384 = 2.7 controls, and the defect this test was
    * written for (no destination total: all 24 pages, 4.7 GiB) is 12.5.
-   * Measured 2026-11-15 (Windows, Node 24, a busy box): the refusal 1.76-1.88
-   * controls (the control carries the layout and save of 2 sheets); with the
-   * total made to fire four times late (a mutation of the patched
-   * DecodeStream.js, same error and copy) 10.9, red. Removing the total
-   * outright settles "ok" after all 24 pages: red on the typed error first.
+   *
+   * 2026-11-22 (CI-flake audit lane 2): the bytes are now counted directly.
+   * The child sums what every decodeContents call returned (`decoded`, taken
+   * outside the ledger, which reports its own figures and so under-reports
+   * exactly when it under-charges), and the test pins it to the whole pages
+   * that fit under EMBED_TOTAL_BYTES. That is the primary check: a total
+   * that fires four times late, or a ledger that charges a quarter of the
+   * growth, decodes about 20 pages (about 4,000 MiB) and is red on any
+   * runner. The time ratio stays as the second, independent bound — it alone
+   * sees work done OUTSIDE decodeContents (a retry, a second decode path) —
+   * loosened from 6 to 7.5: the Windows calibration (1.76-1.88) was not CI's.
+   * CI read 2.24-3.60 over 48 samples of 24 runs (max 3.60, run 43696792243
+   * nup: 27,439 / 7,613 ms, the control in a quiet window), and 2.22-2.86 on
+   * the 11 attempts of 2026-11-21 (44891504062-44924793701; 2.86 is
+   * 44924793701's nup, 22,247 / 7,769 ms). 7.5 is 2.08x over 3.60.
+   *
+   * The lowest-mutant rule (bound <= mutant / 1.5) does NOT hold here, and
+   * cannot with 2x over CI: the "four times late" mutant decodes about 20
+   * pages, about 4,000 MiB = 10.4 controls by bytes, so the rule wants 6.9
+   * or less and 2 x 3.60 wants 7.2 or more. Its time ratio was never
+   * measured, because the page count above went red first ("expected 20 to
+   * be 5"). So that mutant is the page count's to catch, on any runner, and
+   * this ratio is only the backstop for work outside decodeContents.
    */
-  const RATIO_TO_CONTROL = 6;
+  const RATIO_TO_CONTROL = 7.5;
   /**
    * Beside the ratio, an absolute ceiling on the entry alone, for the case
    * where the control is itself slow for a reason that would hide a defect.
-   * The unfixed entry took 43-50 s on the quiet box (and would be 140 s+ on
-   * CI); the fixed one is at most about 27.5 s of entry on the slowest CI
-   * run seen (30.3 s whole test less boot and fixture).
+   * It catches only a slowdown of BOTH control and refusal above about 2x on
+   * the slowest runner seen; the decoded-bytes count above is what catches
+   * an under-charging ledger on every runner. History: 40,000 until
+   * 2026-11-22, when CI's refusal reached 30,250 ms (44346859633
+   * overlay-cycle, main) and 29,855 ms (44910288854 nup): 1.32x. The
+   * highest CI read is older and on the parent's clock, so an upper bound
+   * on the entry's: 30,692 ms (42740976326, "expected 30692 to be less than
+   * 30000"; PR #318's 43650957051 read 30,348). Now 64,000, 2.09x over
+   * 30,692, under the refusal's 120 s kill.
    */
-  const ENTRY_CEILING_MS = 40_000;
+  const ENTRY_CEILING_MS = 64_000;
+  /** Whole pages the destination total admits before it refuses the next. */
+  const PAGES_UNDER_TOTAL = Math.floor(EMBED_TOTAL_BYTES / (200 * MiB));
 
   for (const entry of ["nup", "overlay-cycle"]) {
     test(`PS-02 / STAMP-13: ${entry} refuses 24 pages that all name one 200 MiB stream`, async () => {
@@ -386,11 +414,29 @@ describe("PS-02 / STAMP-13: many pages sharing one content stream under the budg
       const r = settled(await run(entry, shared(), 120_000));
       expect(r.error).toBe("PdfDecodeBudgetError");
       expect(r.message).toBe(TOTAL_COPY[entry]);
-      expect(r.growthMb).toBeLessThan(REFUSED_BOMB_MB);
+      const said = `${entry}: refusal ${r.ms} ms, control ${c.ms} ms; decoded ${r.decoded} vs ${c.decoded} bytes; growth ${r.growthMb} vs ${c.growthMb} MB`;
+      expect(r.growthMb, said).toBeLessThan(REFUSED_BOMB_MB);
       // Health check: a control that did no work would make any ratio pass
       // vacuously, and the instrument must see its 64 MiB decoded.
       expect(c.growthMb, `${entry} control growth`).toBeGreaterThan(60);
-      const said = `${entry}: refusal ${r.ms} ms, control ${c.ms} ms`;
+      // The speed-independent check (see RATIO_TO_CONTROL). Positive control
+      // first: the counter saw every one of the control's pages, so a
+      // counter that missed the embeds (another pdf-lib instance) is red
+      // here, not a vacuous 0 below.
+      // Pages are counted in whole streams: each page's decodeContents
+      // returns its stream plus a few bytes (the joining newline and the
+      // decoder's own; measured 7), so a page is its MiB rounded.
+      const pagesOf = (bytes: number, mib: number) => ({
+        pages: Math.round(bytes / (mib * MiB)),
+        extra: bytes - Math.round(bytes / (mib * MiB)) * mib * MiB,
+      });
+      const controlPages = pagesOf(c.decoded, CONTROL_MIB);
+      expect(controlPages.extra, said).toBeLessThan(64 * CONTROL_PAGES);
+      expect(controlPages.pages, said).toBe(CONTROL_PAGES);
+      const refused = pagesOf(r.decoded, 200);
+      expect(refused.extra, said).toBeLessThan(64 * PAGES_UNDER_TOTAL);
+      const decodedPages = refused.pages;
+      expect(decodedPages, said).toBe(PAGES_UNDER_TOTAL);
       // Printed and recorded on a pass too (src/tests/time-bound.ts): CI
       // logs showed this region only on a failure, so the spread the bound
       // was set from could not be read back. The helper refuses a control
@@ -465,6 +511,9 @@ describe("STAMP-12: many object streams, each under the budget", () => {
       expect(r.message).toContain(`${BUDGET_MB} MB`);
       expect(r.growthMb).toBeLessThan(REFUSED_BOMB_MB);
       // Refused once 256 MiB in all is inflated: about 1 s of inflate, not 8.
+      // Kept raw (review 2026-11-22): the test took up to 4,487 ms on CI over
+      // 12 runs of 2026-11-18, 6.7x under 30 s, so it was never flaky, and
+      // the refusal's type cannot see an entry that inflates all 2 GB first.
       expect(Date.now() - started).toBeLessThan(30_000);
     }, 90_000);
   }
@@ -528,6 +577,8 @@ describe("CO-07: extract-images bounds decoded bytes", () => {
     );
     // 256 MiB / 60 MiB: pages 1-4 scanned (the 5th gets the last 16 MiB).
     expect(unchecked.map((s) => s.page)).toEqual([6, 7, 8, 9, 10]);
+    // Kept raw (review 2026-11-22): test CI max 3,443 ms over 12 runs of
+    // 2026-11-18, 8.7x under 30 s; never flaky.
     expect(Date.now() - started).toBeLessThan(30_000);
   }, 90_000);
 

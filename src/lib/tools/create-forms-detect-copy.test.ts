@@ -99,6 +99,8 @@ function everything(n: 1 | 2): DetectReport {
       alreadyFields: n,
       rotatedText: n,
       capped: n,
+      // Slice S5: tables of over 200 empty cells, one summary line each run.
+      largeTables: n,
     },
     excluded: [],
   };
