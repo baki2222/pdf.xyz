@@ -82,6 +82,20 @@ describe("a measure-to-assert flip keeps the calibration key; any other edit doe
     expect(ns(`tb.measureTime("m", ms, 500);`)).toEqual(
       ns(`tb.expectFasterThan("m", ms, 500, { mode: "measure" });`),
     );
+    // Renamed imports, which the detector supports (see the namespace and
+    // alias cases below): the flip m(…) -> fast(…) re-keyed while only
+    // measureTime was renamed (#402 review).
+    const aliased = (b: string) => {
+      const routed = scan(
+        `import { expectFasterThan as fast, measureTime as m } from "../../tests/time-bound";\ntest("t", async () => {\n${b}\n});`,
+      ).routed;
+      expect(routed).toHaveLength(1);
+      return routed[0]!;
+    };
+    const before = aliased(`m("id", ms, 500, { detail: d });`);
+    const after = aliased(`fast("id", ms, 500, { detail: d });`);
+    expect([before.mode, after.mode]).toEqual(["measure", "assert"]);
+    expect(after.bodyHash).toBe(before.bodyHash);
   });
 
   it("positive controls: a real edit, a new bound, or a `mode` outside a routed call's options still re-keys", () => {

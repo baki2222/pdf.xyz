@@ -1062,8 +1062,12 @@ function resolveHelper(
  * - a `mode` property in a routed call's options, with its comma;
  * - an options object left with no other property, with the comma before
  *   it (so `{}` and `{ mode: "measure" }` are no options at all);
- * - `measureTime`, named `expectFasterThan`. It IS `expectFasterThan` in
- *   measure mode.
+ * - each routed callee's local name, keyed by the helper it resolves to,
+ *   with `measureTime` as `expectFasterThan` (it IS `expectFasterThan` in
+ *   measure mode). So `m(…)` and `fast(…)` from `import { measureTime as
+ *   m, expectFasterThan as fast }` key the same. Renaming only
+ *   `measureTime` left the alias written, and that flip re-keyed (#402
+ *   review).
  * Any other edit, its bound included, still changes the key.
  */
 function flipInvariantKey(
@@ -1081,13 +1085,12 @@ function flipInvariantKey(
       const name = resolveHelper(m.expression, imp);
       if (name && (ROUTED_HELPERS as readonly string[]).includes(name)) {
         const helper = name as RoutedHelper;
-        if (helper === "measureTime")
-          rename.set(
-            ts.isPropertyAccessExpression(m.expression)
-              ? m.expression.name
-              : m.expression,
-            "expectFasterThan",
-          );
+        rename.set(
+          ts.isPropertyAccessExpression(m.expression)
+            ? m.expression.name
+            : m.expression,
+          helper === "measureTime" ? "expectFasterThan" : helper,
+        );
         const raw =
           m.arguments[helper === "timedWait" ? 3 : BOUND_ARG[helper] + 1];
         const obj =
