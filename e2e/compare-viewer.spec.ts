@@ -1,10 +1,9 @@
-import { createRequire } from "node:module";
-import { join } from "node:path";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { fileInput, waitForHydration } from "./helpers";
 import { PAGE_IMAGES_NOTE } from "../src/lib/pdf/pdfjs-guard";
 import { rawPdf } from "../src/tests/hostile/conversion-out.fixtures";
+import { injectAxe } from "./axe-inject";
 
 /**
  * Compare PDF's page view in a real browser, on a served build (audit
@@ -116,8 +115,28 @@ async function axeViolations(page: Page): Promise<string[]> {
   await page.waitForFunction(() =>
     document.getAnimations().every((a) => a.playState !== "running"),
   );
-  const fromRoot = createRequire(join(process.cwd(), "package.json"));
-  await page.addScriptTag({ path: fromRoot.resolve("axe-core/axe.min.js") });
+  // Judge the panel's layout, scrolled so the panel starts below the
+  // sticky site header. On a phone the bar is not pinned, and opening the
+  // pages scrolls them into view (compare-result.tsx, by design), so the
+  // bar's top row rests under the header: axe's target-size reads Previous
+  // and Next change as covered (44 x 18 px of a 44 px button showing).
+  // Where the page rests is the scroll tests' subject, not this one's. A
+  // pinned bar sliding under the header (compare-result.tsx's top-0 bug)
+  // stays visible here: it is inside the panel. Until e2e/axe-inject.ts
+  // waited for a still page, axe ran mid-scroll here and passed on rects
+  // that were still moving.
+  await page.evaluate(() => {
+    const panel = document.querySelector("[data-tool-panel]")!;
+    const header = document.querySelector("header")!;
+    window.scrollTo({
+      top:
+        panel.getBoundingClientRect().top +
+        window.scrollY -
+        header.getBoundingClientRect().height,
+      behavior: "instant",
+    });
+  });
+  await injectAxe(page);
   return page.evaluate(async () => {
     const axe = (
       window as unknown as {

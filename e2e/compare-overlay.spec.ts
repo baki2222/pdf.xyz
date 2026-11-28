@@ -1,5 +1,3 @@
-import { createRequire } from "node:module";
-import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { fileInput, waitForHydration } from "./helpers";
@@ -9,6 +7,7 @@ import {
   rawPdf,
 } from "../src/tests/hostile/conversion-out.fixtures";
 import { NO_VISIBLE_DIFFERENCE } from "../src/components/tools/runner/compare/visual-claim";
+import { injectAxe } from "./axe-inject";
 
 /**
  * Compare PDF's Overlay in a real browser, on a served build (audit
@@ -500,10 +499,7 @@ test.describe("at 375 px", () => {
       await page.waitForFunction(() =>
         document.getAnimations().every((a) => a.playState !== "running"),
       );
-      const fromRoot = createRequire(join(process.cwd(), "package.json"));
-      await page.addScriptTag({
-        path: fromRoot.resolve("axe-core/axe.min.js"),
-      });
+      await injectAxe(page);
       const found = await page.evaluate(async () => {
         const axe = (
           window as unknown as {

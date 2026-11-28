@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { join } from "node:path";
 import { test, expect, type Page, type Route } from "@playwright/test";
 import { fileInput, waitForHydration } from "./helpers";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
 import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
+import { injectAxe } from "./axe-inject";
 
 /**
  * OCR PDF's Owner password field for a restricted PDF (competitor-audit
@@ -30,9 +30,6 @@ const PLAIN = readFileSync(
 );
 const OWNER = "owner-r6-test";
 const LABEL = "Owner password";
-
-const fromRoot = createRequire(join(process.cwd(), "package.json"));
-const AXE = fromRoot.resolve("axe-core/axe.min.js");
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 test.beforeEach(async ({ page }) => {
@@ -109,7 +106,7 @@ async function choose(page: Page, name: string, buffer: Buffer) {
 }
 
 async function axeOver(page: Page, selector: string): Promise<string[]> {
-  await page.addScriptTag({ path: AXE });
+  await injectAxe(page);
   return page.evaluate(
     async ({ tags, selector }) => {
       const axe = (

@@ -1,5 +1,3 @@
-import { createRequire } from "node:module";
-import { join } from "node:path";
 import {
   expect,
   test,
@@ -17,6 +15,7 @@ import {
   planStatus,
   takenPayloadFor,
 } from "./fixtures/tool-payloads";
+import { injectAxe } from "./axe-inject";
 
 /**
  * Every page a visitor lands on passes axe-core's WCAG 2.x A/AA rules, in
@@ -33,8 +32,6 @@ import {
  * control below proves the rules are live: a run that finds nothing on a page
  * with a planted defect would make every pass here meaningless.
  */
-const fromRoot = createRequire(join(process.cwd(), "package.json"));
-const AXE = fromRoot.resolve("axe-core/axe.min.js");
 
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
@@ -58,7 +55,7 @@ interface Violation {
 }
 
 async function violations(page: Page): Promise<Violation[]> {
-  await page.addScriptTag({ path: AXE });
+  await injectAxe(page);
   return page.evaluate(async (tags) => {
     const axe = (
       window as unknown as {

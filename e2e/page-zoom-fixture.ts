@@ -1,10 +1,10 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, type Locator, type Page } from "@playwright/test";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { zoomLabel } from "../src/components/tools/runner/page-zoom-lazy";
+import { injectAxe } from "./axe-inject";
 
 /**
  * "View page N larger" on every page board (backlog #9, 2026-11-17): the
@@ -77,12 +77,9 @@ export async function shownAspect(dialog: Locator): Promise<number> {
   );
 }
 
-const fromRoot = createRequire(join(process.cwd(), "package.json"));
-const AXE = fromRoot.resolve("axe-core/axe.min.js");
-
 /** axe WCAG 2.x A/AA on the open dialog only. */
 export async function dialogViolations(page: Page): Promise<string[]> {
-  await page.addScriptTag({ path: AXE });
+  await injectAxe(page);
   return page.evaluate(async () => {
     const axe = (
       window as unknown as {

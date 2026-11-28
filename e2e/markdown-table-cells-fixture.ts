@@ -1,5 +1,3 @@
-import { createRequire } from "node:module";
-import { join } from "node:path";
 import { inflateSync } from "node:zlib";
 import { expect, type Page } from "@playwright/test";
 import {
@@ -16,6 +14,7 @@ import {
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
 import { waitForHydration } from "./helpers";
 import { captureDownload } from "./client-proof/artifacts";
+import { injectAxe } from "./axe-inject";
 
 /**
  * Markdown to PDF's table cells on the served build (backlog #24): a table
@@ -260,12 +259,9 @@ export async function expectStyledCells(bytes: Buffer): Promise<void> {
   expect(over.map((r) => `${r.face} "${r.text}" x=${r.x}`)).toEqual([]);
 }
 
-const fromRoot = createRequire(join(process.cwd(), "package.json"));
-const AXE = fromRoot.resolve("axe-core/axe.min.js");
-
 /** axe-core WCAG 2.x A/AA violations on the page as it stands. */
 export async function axeViolations(page: Page): Promise<string[]> {
-  await page.addScriptTag({ path: AXE });
+  await injectAxe(page);
   return page.evaluate(async () => {
     const axe = (
       window as unknown as {

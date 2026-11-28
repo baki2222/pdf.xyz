@@ -1,11 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { expect, type Page } from "@playwright/test";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { getAllToolSlugs } from "../src/lib/tools";
 import { getRunnerKind } from "../src/lib/pdf/registry";
 import { fileInput, waitForHydration } from "./helpers";
+import { injectAxe } from "./axe-inject";
 
 /**
  * The editor's page view, reached and scrolled from the keyboard.
@@ -102,10 +102,6 @@ async function threePages(): Promise<Buffer> {
   return Buffer.from(await doc.save());
 }
 
-const AXE = createRequire(join(process.cwd(), "package.json")).resolve(
-  "axe-core/axe.min.js",
-);
-
 /**
  * Open `slug` on a three-page PDF and prove the page view is a keyboard
  * stop: Tab from the toolbar reaches it, it has a name, PageDown scrolls it,
@@ -168,7 +164,7 @@ export async function proveViewportKeyboard(page: Page, slug: string) {
     .toBeGreaterThan(before);
 
   // (4) axe, only this rule, only this element.
-  await page.addScriptTag({ path: AXE });
+  await injectAxe(page);
   const found = await page.evaluate(async (sel) => {
     const axe = (
       window as unknown as {

@@ -1,8 +1,7 @@
-import { createRequire } from "node:module";
-import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { fileInput, waitForHydration } from "./helpers";
+import { injectAxe } from "./axe-inject";
 
 /**
  * Compare PDF's RESULT on a 375 px phone (audit compare-pdf#4, 2026-11-14):
@@ -102,8 +101,7 @@ for (const scheme of ["light", "dark"] as const) {
     await page.waitForFunction(() =>
       document.getAnimations().every((a) => a.playState !== "running"),
     );
-    const fromRoot = createRequire(join(process.cwd(), "package.json"));
-    await page.addScriptTag({ path: fromRoot.resolve("axe-core/axe.min.js") });
+    await injectAxe(page);
     const found = await page.evaluate(async () => {
       const axe = (
         window as unknown as {
