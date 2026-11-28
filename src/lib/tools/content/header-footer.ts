@@ -41,8 +41,9 @@ import { SETTINGS_BATCH_TOOLS, batchLimitsSentence } from "@/lib/batch/tools";
  *    the engine resolves through numberingPlan (src/lib/pdf/page-plan.ts),
  *    the same arithmetic as Add Page Numbers; the chip previews the FIRST
  *    page that gets the bands.
- *  - dropzone hint (SinglePdfRunner): "One PDF · header & footer applied
- *    locally in your browser"; FileHeader shows name, page count and size.
+ *  - dropzone hint (SinglePdfRunner): "One or more PDFs · header & footer
+ *    applied locally in your browser" (two or more open the batch, audit
+ *    platform#1, 2026-11-22); FileHeader shows name, page count and size.
  *  - engine: addHeaderFooter() in src/lib/pdf/header-footer.ts loads the
  *    ORIGINAL document, draws text on the planned pages with no background, sets
  *    Producer/Creator to pdf.xyz (stampProducer) and saves it. Font size,

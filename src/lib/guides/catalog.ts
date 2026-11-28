@@ -6666,8 +6666,10 @@ export const guides: Guide[] = [
   // Split PDF Pages in Half (#260), read off split-half.ts and
   // split-half-runner.tsx: Direction (Left and right | Top and bottom), Page
   // order for both cuts (since 2026-11-08; left and right only before), Pages (All pages | Selected pages + a
-  // list), two cover checkboxes, the cut at the exact middle of the VISIBLE
-  // page (after /Rotate and any crop), only the CropBox written, so the other
+  // list), two cover checkboxes, Booklet scan order and "Only split pages
+  // wider than tall" (since 2026-11-22), the cut at Cut position, 10-90% of
+  // the VISIBLE page (after /Rotate and any crop; the middle unless moved),
+  // only the CropBox written, so the other
   // half is hidden, not deleted (crop-disclosure.ts). In-browser, no upload;
   // encrypted and author-restricted files refused. Proven on production
   // 2026-11-01: a 2-page spread came back as 4 pages, L R L R.

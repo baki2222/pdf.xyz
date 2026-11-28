@@ -119,6 +119,10 @@ const content: ToolContent = {
       a: `Yes. The cut is made on the page as your viewer displays it, after any rotation setting and inside any crop the file already has, so left is the half you see on the left. A page whose halves would end up narrower or shorter than ${MIN_CROP_DIMENSION} points is refused with its page number.`,
     },
     {
+      q: "Can I split only some pages?",
+      a: "Yes. Choose Selected pages and type the pages to split, such as 2-9 or 3, 5, 7. The pages you leave out are kept whole and stay where they were, between the split ones. To keep single pages whole among the spreads without listing them, tick Only split pages wider than tall.",
+    },
+    {
       q: "Is my PDF uploaded?",
       a: "No. The pages are split in your browser tab and the new file is saved on your device; the PDF is not sent to pdf.xyz.",
     },
