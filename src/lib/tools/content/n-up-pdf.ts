@@ -1,6 +1,7 @@
 import type { ToolContent } from "./types";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
 import { N_UP_COUNTS, N_UP_RTL_LABEL, N_UP_SHEETS } from "@/lib/pdf/n-up";
+import { SETTINGS_BATCH_TOOLS, batchLimitsSentence } from "@/lib/batch/tools";
 
 // The byte ceiling the n-up runner's file gate refuses above.
 const MAX_MB = Math.round(RUNNER_FILE_CEILINGS["n-up"] / (1024 * 1024));
@@ -30,6 +31,10 @@ const content: ToolContent = {
 
   useCases: [
     {
+      title: "Several files at once",
+      body: `Add two or more PDFs and they open as a batch list: choose Pages per sheet and Sheet size once for them all. Each file is laid out in turn, in your browser, with nothing uploaded, with Auto orientation, pages across then down, a small margin and no borders; for other settings, open one file on its own. Press Lay out with the number of files, then download a file from its row, or press “Download all” for ${SETTINGS_BATCH_TOOLS["n-up-pdf"].zipName}. ${batchLimitsSentence()}`,
+    },
+    {
       title: "Printing slides as handouts",
       body: "A 30-slide presentation exported to PDF prints on 30 sheets. Six to a sheet, ordered across then down, it fits on five, readable enough to follow along; eight to a sheet fits it on four.",
     },
@@ -50,7 +55,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Open the PDF",
-      body: `Drop the PDF on the box or browse for it; it takes one file up to ${MAX_MB} MB. Its page count shows next to Pages per sheet with how many sheets that makes.`,
+      body: `Drop the PDF on the box or browse for it; it takes files of up to ${MAX_MB} MB each, and two or more open a batch list. Its page count shows next to Pages per sheet with how many sheets that makes.`,
     },
     {
       title: "Choose how many pages per sheet",

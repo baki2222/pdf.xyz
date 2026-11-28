@@ -31,6 +31,7 @@ import { PDFDocument, degrees } from "pdf-lib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { NO_CROP, type CropMargins } from "@/lib/pdf/crop";
+import { formatLength } from "@/lib/pdf/length-units";
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { CropRunner } from "./crop-runner";
 
@@ -73,9 +74,12 @@ function withRouter(children: ReactNode) {
   );
 }
 
-async function samplePdf(rotation = 0): Promise<File> {
+async function samplePdf(
+  rotation = 0,
+  pages: [number, number][] = [[PAGE.width, PAGE.height]],
+): Promise<File> {
   const doc = await PDFDocument.create();
-  doc.addPage([PAGE.width, PAGE.height]).setRotation(degrees(rotation));
+  for (const size of pages) doc.addPage(size).setRotation(degrees(rotation));
   const bytes = await doc.save();
   return new File([bytes.slice().buffer as ArrayBuffer], "sample.pdf", {
     type: "application/pdf",
@@ -83,13 +87,13 @@ async function samplePdf(rotation = 0): Promise<File> {
 }
 
 /** Render the runner and load a one-page PDF into it by dropping it. */
-async function openRunner(rotation = 0) {
+async function openRunner(rotation = 0, pages?: [number, number][]) {
   const view = render(withRouter(<CropRunner />));
   await dropSheetsLive(view.container);
   const input = view.container.querySelector('input[type="file"]');
   expect(input, "the runner offers a file picker").not.toBeNull();
   fireEvent.drop(input!.closest("label")!, {
-    dataTransfer: { files: [await samplePdf(rotation)] },
+    dataTransfer: { files: [await samplePdf(rotation, pages)] },
   });
   await screen.findByRole(
     "radiogroup",
@@ -358,4 +362,141 @@ describe("CropRunner units", () => {
     const lost = await cropAndDownload();
     for (const edge of EDGES) expect(lost[edge], edge).toBeCloseTo(72, 6);
   }, 20_000);
+});
+
+/**
+ * Audit crop-pdf#3 (2026-11-22): every edge stopped at a fixed 300 pt, so a
+ * 395 pt right margin on A4 took two runs ("crop the downloaded copy
+ * again"). Each edge's most is now the page's own: its displayed size, less
+ * the opposite margin, less the smallest strip a page may keep.
+ */
+describe("CropRunner limits come from the page", () => {
+  const A4: [number, number] = [595.28, 841.89];
+
+  /** Wait until the page sizes are read: the limits come from them. */
+  const sizesRead = () =>
+    waitFor(() =>
+      expect(document.querySelector("[data-crop-sheet]")).not.toBeNull(),
+    );
+
+  /** The downloaded page 1's CropBox. */
+  async function croppedBox() {
+    const blobs: Blob[] = [];
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      writable: true,
+      value: (blob: Blob) => {
+        blobs.push(blob);
+        return "blob:crop-runner-test";
+      },
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      writable: true,
+      value: () => {},
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    fireEvent.click(screen.getByRole("button", { name: /^crop pdf$/i }));
+    fireEvent.click(
+      await screen.findByRole(
+        "button",
+        { name: /download cropped pdf/i },
+        { timeout: 5000 },
+      ),
+    );
+    await waitFor(() => expect(blobs).toHaveLength(1));
+    const out = await PDFDocument.load(
+      new Uint8Array(await blobs[0]!.arrayBuffer()),
+    );
+    return out.getPage(0).getCropBox();
+  }
+
+  it("crops 395 pt off the right of an A4 page in one run", async () => {
+    await openRunner(0, [A4]);
+    await sizesRead();
+    chooseMode("Per side");
+    setSlider("Right", 395);
+    expect(sliderValue("Right")).toBe(395);
+    const left = sliderValue("Left");
+    expect(left).toBe(24);
+    const box = await croppedBox();
+    expect(box.x).toBeCloseTo(left, 6);
+    expect(box.width).toBeCloseTo(A4[0] - 395 - left, 6);
+  });
+
+  // Named "is refused before the run" until the review of lane w1a
+  // (2026-11-28): it typed 600 and asserted the clamp, while nothing told the
+  // person their number had been replaced. It is held at the most, and the
+  // field now says so and why.
+  it("positive control: a margin typed past the page's own limit is held at the limit, and the field says why", async () => {
+    await openRunner(0, [A4]);
+    await sizesRead();
+    chooseMode("Per side");
+    // The most the right edge can take: the width, less the left margin
+    // (24), less the smallest strip a page keeps (24).
+    const most = A4[0] - 24 - 24;
+    // Control: no note before anything is typed past it.
+    expect(screen.queryByText(/is more than Right can take/)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Right in pt"), {
+      target: { value: "600" },
+    });
+    expect(screen.getByLabelText("Right")).toHaveAttribute("max", String(most));
+    const note = screen.getByText(/is more than Right can take/);
+    // Said politely to a screen reader too.
+    expect(note).toHaveAttribute("role", "status");
+    expect(note).toHaveTextContent(
+      `600 pt is more than Right can take, so it is set to ${formatLength(most, "pt")}.`,
+    );
+    // One page: the reason is the page's own size, not another page.
+    expect(note).not.toHaveTextContent(/choose pages/i);
+    const box = await croppedBox();
+    // Clamped to the most, not taken: the page keeps its smallest strip.
+    expect(box.width).toBeCloseTo(24, 6);
+  });
+
+  it("a margin typed past what a smaller page allows names that page and says how to go deeper", async () => {
+    // Page 1 is A4; page 2 is A5 (419.53 wide), which sets every edge's most.
+    await openRunner(0, [A4, [419.53, 595.28]]);
+    await sizesRead();
+    chooseMode("Per side");
+    const most = Math.floor((419.53 - 24 - 24) * 100) / 100;
+    fireEvent.change(screen.getByLabelText("Right in pt"), {
+      target: { value: "395" },
+    });
+    expect(sliderValue("Right")).toBe(most);
+    const note = screen.getByText(/is more than Right can take/);
+    expect(note).toHaveTextContent(
+      `395 pt is more than Right can take, so it is set to ${formatLength(most, "pt")}.`,
+    );
+    expect(note).toHaveTextContent(/page 2/i);
+    expect(note).toHaveTextContent(/choose pages/i);
+    // A value inside the limit takes the note away.
+    fireEvent.change(screen.getByLabelText("Right in pt"), {
+      target: { value: "100" },
+    });
+    expect(screen.queryByText(/is more than Right can take/)).toBeNull();
+  });
+
+  it("a margin one page in scope cannot take stops the run and names that page", async () => {
+    // Page 1 is A4; page 2 is 200 pt wide. 395 pt fits page 1 alone.
+    await openRunner(0, [A4, [200, 300]]);
+    await sizesRead();
+    chooseMode("Per side");
+    const scope = screen.getByRole("radiogroup", { name: "Page scope" });
+    fireEvent.click(
+      within(scope).getByRole("radio", { name: "Selected pages" }),
+    );
+    fireEvent.change(screen.getByLabelText("Pages"), {
+      target: { value: "1" },
+    });
+    setSlider("Right", 395);
+    expect(sliderValue("Right")).toBe(395);
+    const run = screen.getByRole("button", { name: /^crop pdf$/i });
+    // The Run button blocks with aria-disabled (it stays focusable).
+    expect(run).not.toHaveAttribute("aria-disabled");
+    // Back to every page: page 2 is too narrow for 395 pt.
+    fireEvent.click(within(scope).getByRole("radio", { name: "All pages" }));
+    expect(run).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("alert")).toHaveTextContent(/page 2/i);
+  });
 });

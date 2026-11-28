@@ -238,6 +238,13 @@ test.describe("client tool proof — the derived set", () => {
         "text-to-pdf",
         // Compare PDF's HTML redline (S4, 2026-11-15): the second download.
         "compare-pdf",
+        // The 2026-11-22 audit wave: a field inserted at the caret, and
+        // the batches of five page tools (header-footer and crop-pdf among
+        // them, beside their option variants).
+        "header-footer",
+        "edit-pdf-metadata",
+        "resize-pdf",
+        "n-up-pdf",
       ]),
     );
     for (const v of VARIANTS)

@@ -58,7 +58,7 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     name: "Multiple Pages per Sheet",
     processing: "client",
     accept: ["PDF"],
-    outputs: ["PDF"],
+    outputs: ["PDF", "ZIP"],
   },
   {
     slug: "booklet-pdf",
@@ -289,21 +289,21 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     name: "Crop PDF",
     processing: "client",
     accept: ["PDF"],
-    outputs: ["PDF"],
+    outputs: ["PDF", "ZIP"],
   },
   {
     slug: "resize-pdf",
     name: "Resize PDF",
     processing: "client",
     accept: ["PDF"],
-    outputs: ["PDF"],
+    outputs: ["PDF", "ZIP"],
   },
   {
     slug: "header-footer",
     name: "PDF Header & Footer",
     processing: "client",
     accept: ["PDF"],
-    outputs: ["PDF"],
+    outputs: ["PDF", "ZIP"],
   },
   {
     slug: "overlay-pdf",
@@ -317,7 +317,7 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     name: "Edit PDF Metadata",
     processing: "client",
     accept: ["PDF"],
-    outputs: ["PDF"],
+    outputs: ["PDF", "ZIP"],
   },
   {
     slug: "remove-annotations",

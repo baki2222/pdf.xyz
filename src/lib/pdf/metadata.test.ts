@@ -538,6 +538,64 @@ describe("writePdfMetadata — remove all", () => {
     expect(after).toContain("en-GB");
   });
 
+  /**
+   * Audit edit-pdf-metadata#5 (2026-11-22): remove-all left each page's
+   * embedded thumbnail (`/Thumb`, an image of the page a viewer shows in its
+   * sidebar), which can still show what a page held before an edit. The
+   * thumbnail is an image object of its own; after the run no page names
+   * one, and no image object survives the pruning — counted, not searched.
+   */
+  it("removes embedded page thumbnails, and leaves no orphan image behind", async () => {
+    const doc = await PDFDocument.load(await sourcePdf({ xmp: false }), {
+      updateMetadata: false,
+    });
+    const pixels = new Uint8Array(4 * 4 * 3).fill(128);
+    const thumb = doc.context.register(
+      doc.context.flateStream(pixels, {
+        Width: 4,
+        Height: 4,
+        ColorSpace: "DeviceRGB",
+        BitsPerComponent: 8,
+      }),
+    );
+    doc.getPage(0).node.set(PDFName.of("Thumb"), thumb);
+    const source = await doc.save({ useObjectStreams: false });
+
+    const thumbsAndImages = async (bytes: Uint8Array) => {
+      const d = await PDFDocument.load(bytes, { updateMetadata: false });
+      const thumbs = d
+        .getPages()
+        .filter((p) => p.node.get(PDFName.of("Thumb")) !== undefined).length;
+      let objects = 0;
+      let images = 0;
+      for (const [, obj] of d.context.enumerateIndirectObjects()) {
+        objects += 1;
+        if (
+          obj instanceof PDFStream &&
+          obj.dict.get(PDFName.of("Width")) !== undefined
+        )
+          images += 1;
+      }
+      return { thumbs, images, objects };
+    };
+    // Positive control: the source holds the thumbnail and its image.
+    const before = await thumbsAndImages(source);
+    expect(before.thumbs).toBe(1);
+    expect(before.images).toBe(1);
+
+    const result = await writePdfMetadata(source, { kind: "remove-all" });
+    const after = await thumbsAndImages(result.bytes);
+    expect(after.thumbs).toBe(0);
+    expect(after.images).toBe(0);
+    expect(after.objects).toBeLessThan(before.objects);
+    expect(
+      Buffer.from(result.bytes).toString("latin1"),
+      "the raw bytes still name a thumbnail",
+    ).not.toContain("/Thumb");
+    const out = await PDFDocument.load(result.bytes, { updateMetadata: false });
+    expect(out.getPageCount()).toBe(2);
+  });
+
   it("control: the source really did carry everything removed", async () => {
     const source = await sourcePdf({ xmp: true });
     const { info, xmp } = await pdfjsMetadata(source);

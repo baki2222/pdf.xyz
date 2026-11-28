@@ -2,6 +2,7 @@ import type { ToolContent } from "./types";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
 import { MAX_RESIZE_SIDE_PT, MIN_RESIZE_SIDE_PT } from "@/lib/pdf/resize";
 import { PT_PER_INCH } from "@/lib/pdf/page-geometry";
+import { SETTINGS_BATCH_TOOLS, batchLimitsSentence } from "@/lib/batch/tools";
 
 // The byte ceiling the resize runner's file gate refuses above.
 const MAX_MB = Math.round(RUNNER_FILE_CEILINGS.resize / (1024 * 1024));
@@ -24,6 +25,10 @@ const content: ToolContent = {
 
   useCases: [
     {
+      title: "Several files at once",
+      body: `Add two or more PDFs and they open as a batch list, with one page size, Orientation and content choice for them all. Press Resize with the number of files and every page of each file is resized in turn, in your browser, with nothing uploaded; for a custom size or only some pages, open one file on its own. Download a file from its row, or press “Download all” for ${SETTINGS_BATCH_TOOLS["resize-pdf"].zipName}. ${batchLimitsSentence()}`,
+    },
+    {
       title: "Letter to A4, or A4 to Letter",
       body: "A US contract has to print on A4 in another office. Scaled to fit, every line stays on the page and the margins shrink a little rather than the text running off the edge.",
     },
@@ -44,7 +49,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Open the PDF",
-      body: `Drop the PDF on the box or browse for it; it takes one file, up to ${MAX_MB} MB.`,
+      body: `Drop the PDF on the box or browse for it; it takes files of up to ${MAX_MB} MB each, and two or more open a batch list.`,
     },
     {
       title: "Pick the new page size",

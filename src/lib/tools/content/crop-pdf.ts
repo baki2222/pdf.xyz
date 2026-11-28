@@ -2,6 +2,7 @@ import type { ToolContent } from "./types";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
 import { MIN_CROP_DIMENSION } from "@/lib/pdf/crop";
 import { AUTO_CROP_PAD_PT } from "@/lib/pdf/auto-crop";
+import { SETTINGS_BATCH_TOOLS, batchLimitsSentence } from "@/lib/batch/tools";
 
 /**
  * The Crop runner's own input gate (`useSinglePdf` -> `validatePdfFile` ->
@@ -79,6 +80,10 @@ const content: ToolContent = {
 
   useCases: [
     {
+      title: "Several files at once",
+      body: `Add two or more PDFs and they open as a batch list, with one margin for every edge of every page. Press Crop with the number of files and each one is cropped in turn, in your browser, with nothing uploaded. A file with a page too small for that margin fails on its own row, uncropped; to set each side, use Auto or choose pages, open one file on its own. Download a file from its row, or press “Download all” for ${SETTINGS_BATCH_TOOLS["crop-pdf"].zipName}. ${batchLimitsSentence()}`,
+    },
+    {
       title: "Remove the dark frame from a scan",
       body: "Flatbed scans often pick up a grey or black band where the lid did not meet the glass. Trimming just the affected edges in Per side mode makes the page look like paper again.",
     },
@@ -98,8 +103,8 @@ const content: ToolContent = {
 
   steps: [
     {
-      title: "Open one PDF",
-      body: "Drag the PDF into the drop area, or click it to pick the file from your device. When loading finishes, a strip above the margin controls gives the file name with its page total and size.",
+      title: "Open your PDF",
+      body: "Drag the PDF into the drop area, or click it to pick the file from your device; two or more open a batch list. When loading finishes, a strip above the margin controls gives the file name with its page total and size.",
     },
     {
       title: "Set the crop margins",
@@ -122,7 +127,7 @@ const content: ToolContent = {
     },
     {
       q: "Why is the Crop PDF button greyed out, or why did it refuse my margins?",
-      a: `The button stays disabled while every slider sits at 0, because there is nothing to crop, and in Auto until Find white margins has found content on at least one page. If the margins you set would leave a page narrower or shorter than ${minPt} points, the run stops and names the first page that failed so you can reduce them. A Pages entry that is empty, backwards or past the last page is also rejected with a message. Each slider stops at a fixed maximum; for a deeper cut, crop the downloaded copy again, since margins are measured from the visible area that is left.`,
+      a: `The button stays disabled while every slider sits at 0, because there is nothing to crop, and in Auto until Find white margins has found content on at least one page. Each slider goes as far as your pages allow: it stops where the page would be left narrower or shorter than ${minPt} points, after the opposite margin. If the margins do not fit one of the pages you chose, for example a smaller page, the button is held and a message names that page so you can reduce them. A Pages entry that is empty, backwards or past the last page is also rejected with a message.`,
     },
     {
       q: "Can Crop PDF find the margins for me?",

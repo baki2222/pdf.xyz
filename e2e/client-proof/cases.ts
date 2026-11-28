@@ -19,6 +19,7 @@ import {
 } from "../../src/tests/viewer-fixtures";
 import { BATCH_VARIANTS } from "./batch-cases";
 import { IMAGE_TEXT_BATCH_VARIANTS } from "./image-batch-cases";
+import { PAGE_TOOL_VARIANTS } from "./page-tool-cases";
 import {
   encodeGrayJpeg,
   jpegComponentCount,
@@ -2981,6 +2982,8 @@ export const VARIANTS: readonly VariantCase[] = [
   ...BATCH_VARIANTS,
   // The images and text batches (batch plan P2): a folder per input.
   ...IMAGE_TEXT_BATCH_VARIANTS,
+  // The page tools' options added by the 2026-11-22 audit wave.
+  ...PAGE_TOOL_VARIANTS,
   {
     slug: "pdf-to-jpg",
     name: "pages 1 and 3 only, Grayscale",
@@ -4414,7 +4417,7 @@ export const PROOF_LIMITS: Record<string, string> = {
   "pdf-viewer":
     "Opens one three-page PDF, reads page 1's ink and the page count, steps to page 2 and downloads: the download must be the opened file's bytes. Search with its highlight over the word's ink (at 100%, at 150% and after Rotate view), the page and web links, the dropped script link, thumbnails, bookmarks and the keys are proved through the page by e2e/pdf-viewer.spec.ts. Print opens the browser's dialog, which no test drives: its page plan is proved in Node by src/lib/pdf/viewer-geometry.test.ts, and the images it prints are drawn by the same pdf.js render as the pages. Full screen is not exercised.",
   "split-pdf-pages-in-half":
-    "Only the defaults: Left and right, Left page first, every page, on unrotated pages. Right page first, Top and bottom, Selected pages, the two cover checkboxes, /Rotate pages and an existing CropBox are proven in Node by src/lib/pdf/split-half.test.ts, which renders every output half through pdf.js against the source page's own render, not in a real browser.",
+    "The defaults (Left and right, Left page first, every page, on unrotated pages), and three option variants (VARIANTS: the cut moved to 40%, Booklet scan order, Only split pages wider than tall on a page carrying /Rotate 90). Right page first, Top and bottom, Selected pages, the two cover checkboxes and an existing CropBox are proven in Node by src/lib/pdf/split-half.test.ts, which renders every output half through pdf.js against the source page's own render, not in a real browser. The cut line dragged by pointer is proven only in jsdom, by src/components/tools/runner/split-half-runner.test.tsx, with synthetic pointer events and a sheet box given by the test; no real browser drags it.",
   "sign-pdf":
     "Only the TYPED signature source is exercised. The drawn-signature path (signature-pad.tsx) needs real pointer strokes on a canvas, and the uploaded-image source is untested.",
   // WAS "added through the form controls … (There is no freehand or
@@ -4434,7 +4437,7 @@ export const PROOF_LIMITS: Record<string, string> = {
   "rotate-pdf":
     "Every page turned Right (the default case), and the option variant (VARIANTS: Odd pages, Right, then Rotate all 180°). Even pages, Invert, Clear, shift-click ranges and the per-tile arrows are not exercised in a real browser; Even pages with Left is downloaded through the runner in src/components/tools/runner/rotate-runner.test.tsx, in jsdom.",
   "crop-pdf":
-    "The default uniform margins applied to every page of an unrotated PDF, and the option variant (VARIANTS: Auto, each page its own box, on a two-page file whose second page is blank). Auto's Same box on every page, millimetre and inch units, per-side margins, pages carrying /Rotate, page selection and the schematic preview are not exercised end to end; Same box and units are proved through the runner in src/components/tools/runner/crop-runner.test.tsx and src/lib/pdf/auto-crop.test.ts, in jsdom and Node with pdfjs's legacy build. Per-side margins on every /Rotate are proved by pdfjs reading the saved file in src/lib/pdf/crop.test.ts, and the Uniform/Per side switch and the rotated preview by src/components/tools/runner/crop-runner.test.tsx; neither runs in a real browser.",
+    "The default uniform margins applied to every page of an unrotated PDF, and two option variants (VARIANTS: Auto, each page its own box, on a two-page file whose second page is blank; Per side, 395 pt off the right of an A4 page). Auto's Same box on every page, millimetre and inch units, other per-side margins, pages carrying /Rotate, page selection and the schematic preview are not exercised end to end; Same box and units are proved through the runner in src/components/tools/runner/crop-runner.test.tsx and src/lib/pdf/auto-crop.test.ts, in jsdom and Node with pdfjs's legacy build. Per-side margins on every /Rotate are proved by pdfjs reading the saved file in src/lib/pdf/crop.test.ts, and the Uniform/Per side switch and the rotated preview by src/components/tools/runner/crop-runner.test.tsx; neither runs in a real browser.",
   "compare-pdf": `Both documents are uploaded through the same multi-file picker, which is the flow the runner offers. Only the default options are run here (neither ignore box ticked). The "Ignore case" and "Ignore page headers and numbers" boxes, "Next change" and the word marks are exercised at 375 px in e2e/compare-pdf.mobile.spec.ts, and so is the changes bar at 1280 px; the row budget and the spoken word marks are exercised only in jsdom (src/components/tools/runner/compare/compare-result.test.tsx). The no-text verdicts — neither PDF, or only ONE of them, has selectable text — are not exercised here; src/components/tools/runner/compare-pdf-runner.test.tsx renders them from real PDF bytes in jsdom, but reads them with pdfjs's legacy build, not the browser build a user runs. The too-large-to-diff error is likewise covered only there, with synthetic text. The page view is exercised in e2e/compare-viewer.spec.ts: "Show changes on the pages", "Original", "Revised" and "Scroll both files together". The HTML redline variant (2026-11-15) proves the downloaded page's doctype, its CSP meta byte for byte, no script, image, link, frame, object, link with an address or style attribute, no event-handler attribute, well-formed XML, a page-headed change, the added line in an <ins> and two hostile lines recovered as text, on default options only; the redline under the ignore options, its agreement with the .txt row by row, and the no-text verdicts' redline are proven only in jsdom (redline-html.test.ts, compare-pdf-runner.test.tsx), and that it loads nothing and is styled when opened from disk is e2e/compare-redline.spec.ts.`,
   "compress-pdf":
     "Only the in-browser lossless repack, on a fixture built to be repackable. The hybrid secure-server step this tool offers is a server path and is covered by worker:prove-tools, not here.",

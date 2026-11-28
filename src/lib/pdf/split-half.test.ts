@@ -13,7 +13,10 @@ import {
 import { describe, expect, it } from "vitest";
 import { mergePdfs, PdfEncryptedError, PdfEngineError } from "./engine";
 import {
+  clampSplitPosition,
+  halfMargins,
   pagesToSplit,
+  SPLIT_POSITION,
   splitHalfOutputName,
   splitPagesInHalf,
   type SplitDirection,
@@ -576,5 +579,244 @@ describe("labels and annotations after a split", () => {
       [],
       ["Text", "Popup"],
     ]);
+  });
+});
+
+/**
+ * Audit split-pdf-pages-in-half#1 (2026-11-22): the cut was always at the
+ * middle (`halfMargins` took no position), so a scan whose gutter sat off
+ * centre took a sliver of one page onto the other.
+ */
+describe("the cut's position", () => {
+  it("halfMargins at 40%: the left half keeps 40% of the width, the right 60%", () => {
+    const displayed = { width: 1000, height: 500 };
+    const none = { top: 0, right: 0, bottom: 0, left: 0 };
+    expect(halfMargins("left", displayed, 40)).toEqual({ ...none, right: 600 });
+    expect(halfMargins("right", displayed, 40)).toEqual({ ...none, left: 400 });
+    expect(halfMargins("top", displayed, 40)).toEqual({ ...none, bottom: 300 });
+    expect(halfMargins("bottom", displayed, 40)).toEqual({ ...none, top: 200 });
+    // Unset, the middle, as before.
+    expect(halfMargins("left", displayed)).toEqual(
+      halfMargins("left", displayed, 50),
+    );
+    expect(halfMargins("left", displayed)).toEqual({ ...none, right: 500 });
+  });
+
+  it("a 40% cut, read back by pdf.js: halves of 40 and 60, each with its own text", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    // A spread whose gutter is at 40% of the width.
+    const page = doc.addPage([1000, 600]);
+    page.drawText("LEFTPAGE", { x: 40, y: 300, size: 20, font });
+    page.drawText("RIGHTPAGE", { x: 600, y: 300, size: 20, font });
+    const out = await splitPagesInHalf(await doc.save(), {
+      direction: "left-right",
+      order: "left-first",
+      position: 40,
+    });
+    const pages = await asDisplayed(out.bytes);
+    expect(pages.map((p) => Math.round(p.width))).toEqual([400, 600]);
+    expect(pages[0]!.text).toContain("LEFTPAGE");
+    expect(pages[0]!.text).not.toContain("RIGHTPAGE");
+    expect(pages[1]!.text).toContain("RIGHTPAGE");
+    expect(pages[1]!.text).not.toContain("LEFTPAGE");
+  });
+
+  it("follows /Rotate: 40% of the DISPLAYED width on a turned page", async () => {
+    const doc = await PDFDocument.create();
+    // Stored 600 wide and 1000 tall, displayed 1000 wide and 600 tall.
+    doc.addPage([600, 1000]).setRotation(degrees(90));
+    const out = await splitPagesInHalf(await doc.save(), {
+      direction: "left-right",
+      order: "left-first",
+      position: 40,
+    });
+    const pages = await asDisplayed(out.bytes);
+    expect(
+      pages.map((p) => [Math.round(p.width), Math.round(p.height)]),
+    ).toEqual([
+      [400, 600],
+      [600, 600],
+    ]);
+  });
+
+  // The engine's own bound, for a caller the UI does not stand in front of
+  // (the batch, a hand-off). Untested until the review of lane w1a
+  // (2026-11-28): `return position;` in clampSplitPosition stayed green.
+  it("keeps a cut inside 10-90%, and makes a missing or broken one the middle", async () => {
+    expect(SPLIT_POSITION).toEqual({ min: 10, max: 90, middle: 50 });
+    expect(clampSplitPosition(37)).toBe(37);
+    expect(clampSplitPosition(2)).toBe(SPLIT_POSITION.min);
+    expect(clampSplitPosition(99)).toBe(SPLIT_POSITION.max);
+    expect(clampSplitPosition(-Infinity)).toBe(SPLIT_POSITION.middle);
+    expect(clampSplitPosition(Number.NaN)).toBe(SPLIT_POSITION.middle);
+    expect(clampSplitPosition(undefined)).toBe(SPLIT_POSITION.middle);
+    // Through the engine, read from the saved file: a 2% cut is a 10% cut,
+    // so no half comes out a sliver.
+    const doc = await PDFDocument.create();
+    doc.addPage([1000, 600]);
+    const out = await splitPagesInHalf(await doc.save(), {
+      direction: "left-right",
+      order: "left-first",
+      position: 2,
+    });
+    const pages = await asDisplayed(out.bytes);
+    expect(pages.map((p) => Math.round(p.width))).toEqual([100, 900]);
+  });
+});
+
+/** Spreads with each half stamped with its page number ("PAGE-8"). */
+async function stampedSpreads(
+  sheets: [number, number][],
+  size: [number, number] = [800, 560],
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (const [left, right] of sheets) {
+    const page = doc.addPage(size);
+    page.drawText(`PAGE-${left}`, { x: 60, y: 280, size: 18, font });
+    page.drawText(`PAGE-${right}`, {
+      x: size[0] / 2 + 60,
+      y: 280,
+      size: 18,
+      font,
+    });
+  }
+  return doc.save();
+}
+
+/** The page number each output page shows: exactly one per page. */
+async function pageNumbers(bytes: Uint8Array): Promise<number[]> {
+  return (await asDisplayed(bytes)).map((p) => {
+    const found = [...p.text.matchAll(/PAGE-([0-9]+)/g)].map((m) =>
+      Number(m[1]),
+    );
+    expect(found, `one number per page: ${p.text}`).toHaveLength(1);
+    return found[0]!;
+  });
+}
+
+/**
+ * Audit split-pdf-pages-in-half#2 (2026-11-22): output was always in source
+ * order, so a booklet scanned sheet by sheet (8|1, 2|7, 6|3, 4|5) came out
+ * 8 1 2 7 6 3 4 5.
+ */
+describe("Booklet scan order", () => {
+  it("puts a sheet-by-sheet booklet scan back in reading order", async () => {
+    const bytes = await stampedSpreads([
+      [8, 1],
+      [2, 7],
+      [6, 3],
+      [4, 5],
+    ]);
+    // Control: in source order the halves read as scanned.
+    const plain = await splitPagesInHalf(bytes, {
+      direction: "left-right",
+      order: "left-first",
+    });
+    expect(await pageNumbers(plain.bytes)).toEqual([8, 1, 2, 7, 6, 3, 4, 5]);
+    const booklet = await splitPagesInHalf(bytes, {
+      direction: "left-right",
+      order: "booklet",
+    });
+    expect(await pageNumbers(booklet.bytes)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(booklet.pageCount).toBe(8);
+  });
+
+  it("keeps covers scanned whole at the ends", async () => {
+    const doc = await PDFDocument.load(
+      await stampedSpreads([
+        [4, 1],
+        [2, 3],
+      ]),
+    );
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const front = doc.insertPage(0, [400, 560]);
+    front.drawText("PAGE-0", { x: 60, y: 280, size: 18, font });
+    const back = doc.addPage([400, 560]);
+    back.drawText("PAGE-5", { x: 60, y: 280, size: 18, font });
+    const out = await splitPagesInHalf(await doc.save(), {
+      direction: "left-right",
+      order: "booklet",
+      keepFirstWhole: true,
+      keepLastWhole: true,
+    });
+    expect(await pageNumbers(out.bytes)).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  it("refuses a page left whole between the sheets: it has no place in the order", async () => {
+    await expect(
+      splitPagesInHalf(
+        await stampedSpreads([
+          [4, 1],
+          [2, 3],
+          [6, 5],
+        ]),
+        { direction: "left-right", order: "booklet", pages: [0, 2] },
+      ),
+    ).rejects.toBeInstanceOf(PdfEngineError);
+  });
+});
+
+/**
+ * Audit split-pdf-pages-in-half#3 (2026-11-22): every chosen page was split,
+ * so a single portrait plate among the spreads was cut in two.
+ */
+describe("Only split pages wider than tall", () => {
+  it("leaves portrait pages whole, and reads the shape as displayed (/Rotate)", async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage([800, 560]); // a landscape spread
+    doc.addPage([420, 600]); // a portrait plate
+    doc.addPage([560, 800]).setRotation(degrees(90)); // a spread stored upright
+    const bytes = await doc.save();
+    const out = await splitPagesInHalf(bytes, {
+      direction: "left-right",
+      order: "left-first",
+      onlyWider: true,
+    });
+    const sizes = (await asDisplayed(out.bytes)).map((p) => [
+      Math.round(p.width),
+      Math.round(p.height),
+    ]);
+    expect(sizes).toEqual([
+      [400, 560],
+      [400, 560],
+      [420, 600],
+      [400, 560],
+      [400, 560],
+    ]);
+    expect(out.splitPages).toBe(2);
+    // Control: without it, the plate is cut too.
+    const all = await splitPagesInHalf(bytes, {
+      direction: "left-right",
+      order: "left-first",
+    });
+    expect(all.pageCount).toBe(6);
+  });
+
+  it("for a top and bottom cut, splits only pages taller than wide", async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage([400, 800]);
+    doc.addPage([800, 400]);
+    const out = await splitPagesInHalf(await doc.save(), {
+      direction: "top-bottom",
+      order: "left-first",
+      onlyWider: true,
+    });
+    expect(out.splitPages).toBe(1);
+    expect(out.pageCount).toBe(3);
+  });
+
+  it("pagesToSplit drops the pages of the wrong shape", () => {
+    const shapes = [
+      { width: 800, height: 560 },
+      { width: 420, height: 600 },
+    ];
+    expect(
+      pagesToSplit(2, { onlyWider: true, direction: "left-right" }, shapes),
+    ).toEqual([0]);
+    expect(
+      pagesToSplit(2, { onlyWider: true, direction: "top-bottom" }, shapes),
+    ).toEqual([1]);
   });
 });

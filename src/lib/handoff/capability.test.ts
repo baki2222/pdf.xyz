@@ -67,6 +67,13 @@ describe("handoffCapabilityFor", () => {
       "pdf-to-png",
       "extract-images",
       "text-to-pdf",
+      // Audit platform#1 (2026-11-22), inverted out of the single list
+      // below: each took the first file of a drop and dropped the rest.
+      "edit-pdf-metadata",
+      "header-footer",
+      "crop-pdf",
+      "resize-pdf",
+      "n-up-pdf",
     ]) {
       const capability = handoffCapabilityFor(slug);
       expect(capability).toMatchObject({
@@ -93,8 +100,6 @@ describe("handoffCapabilityFor", () => {
       "pdf-to-text",
       "pdf-to-markdown",
       "markdown-to-pdf",
-      "header-footer",
-      "crop-pdf",
       "sign-pdf",
       "overlay-pdf",
       "redact-pdf",
@@ -102,6 +107,11 @@ describe("handoffCapabilityFor", () => {
       "create-forms",
       "annotate-pdf",
       "edit-pdf",
+      // The other tools on the metadata and n-up runners: a batch is a
+      // tool's, not its runner kind's (audit platform#1).
+      "remove-annotations",
+      "edit-pdf-bookmarks",
+      "booklet-pdf",
     ]) {
       expect(handoffCapabilityFor(slug)).toMatchObject({
         mode: "single",

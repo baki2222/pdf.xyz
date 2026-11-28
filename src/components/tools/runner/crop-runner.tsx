@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useId, useRef, useState } from "react";
 /* eslint-disable @next/next/no-img-element -- a rendered page is an ephemeral object URL */
 import {
@@ -13,10 +14,13 @@ import {
 import {
   cropPdf,
   croppedOutputName,
+  edgeLimits,
+  firstPageMarginsDoNotFit,
   getPageSizes,
   isEmptyMargins,
   MIN_CROP_DIMENSION,
   NO_CROP,
+  uniformLimit,
   type CropMargins,
 } from "@/lib/pdf/crop";
 import { appliedMargins, type AutoCropPlan } from "@/lib/pdf/auto-crop";
@@ -43,7 +47,11 @@ import {
   useAsyncRun,
 } from "./runner-kit";
 import { RunBar } from "./run-bar";
-import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
+import {
+  FileHeader,
+  SinglePdfRunner,
+  type SinglePdfBatch,
+} from "./single-pdf-runner";
 import {
   PrivacyLine,
   RangeField,
@@ -57,7 +65,13 @@ import { evenPages, oddPages } from "./selection";
 import { pagesInText } from "./page-picker-text";
 
 const START_MARGIN = 24;
-const MAX_MARGIN = 300;
+/**
+ * An edge's most until the page sizes are read, a moment after the file
+ * opens. From then on each edge's most is the page's own (`edgeLimits`):
+ * until audit crop-pdf#3 (2026-11-22) this fixed 300 pt was the most on
+ * every page, so a deeper cut took a second run.
+ */
+const UNREAD_MAX_MARGIN = 300;
 
 /** Clamp an inset percentage so the preview rectangle can never invert. */
 const clampPct = (value: number) => Math.max(0, Math.min(49, value));
@@ -101,10 +115,28 @@ type AutoState =
   | { status: "done"; plan: AutoCropPlan }
   | { status: "error"; message: string };
 
+/**
+ * Two or more PDFs: the batch (audit platform#1, 2026-11-22), its own chunk,
+ * fetched only when they arrive — never with a visit to this page.
+ */
+const CropBatch = dynamic(
+  () => import("./batch/crop-batch").then((m) => m.CropBatch),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+const batch = (props: SinglePdfBatch) => <CropBatch {...props} />;
+
 export function CropRunner() {
   return (
     <SinglePdfRunner
-      hint="One PDF · cropped locally in your browser"
+      hint="One or more PDFs · cropped locally in your browser"
+      batch={batch}
       handoffSlug="crop-pdf"
       toolName="Crop PDF"
     >
@@ -126,45 +158,68 @@ function pageList(indices: readonly number[]): string {
 function MarginField({
   label,
   value,
+  max,
   unit,
   onChange,
+  why,
 }: {
   label: string;
   value: number;
+  /** The most this margin can take on the pages it crops. */
+  max: number;
   unit: LengthUnit;
   onChange: (points: number) => void;
+  /** Why `max` is the most: said when a typed value is held at it. */
+  why: string;
 }) {
   const id = useId();
-  const clampPt = (pt: number) => Math.max(0, Math.min(MAX_MARGIN, pt));
+  const clampPt = (pt: number) => Math.max(0, Math.min(max, pt));
   const step = 1 / 10 ** UNIT_DECIMALS[unit];
+  // A number typed past the most, held at it, and said under the field while
+  // the margin still sits there (review of lane w1a, 2026-11-28: the field
+  // rewrote a typed 395 to 371.5 and said nothing).
+  const [past, setPast] = useState<number | null>(null);
+  const held = past !== null && value === max;
   return (
-    <div className="flex min-w-0 items-end gap-3">
-      <div className="min-w-0 flex-1">
-        <RangeField
-          label={label}
-          value={value}
+    <div className="flex min-w-0 flex-col gap-2">
+      <div className="flex min-w-0 items-end gap-3">
+        <div className="min-w-0 flex-1">
+          <RangeField
+            label={label}
+            value={value}
+            min={0}
+            max={max}
+            onChange={(pt) => {
+              setPast(null);
+              onChange(clampPt(pt));
+            }}
+            format={(pt) => formatLength(pt, unit)}
+          />
+        </div>
+        <label htmlFor={id} className="sr-only">
+          {`${label} in ${unit}`}
+        </label>
+        <input
+          id={id}
+          type="number"
+          inputMode="decimal"
           min={0}
-          max={MAX_MARGIN}
-          onChange={(pt) => onChange(clampPt(pt))}
-          format={(pt) => formatLength(pt, unit)}
+          max={fromPoints(max, unit)}
+          step={step}
+          value={fromPoints(value, unit)}
+          onChange={(event) => {
+            const pt = toPoints(Number(event.target.value), unit);
+            setPast(pt > max ? pt : null);
+            onChange(clampPt(pt));
+          }}
+          className="border-line text-fg focus:border-accent/40 focus:ring-accent/50 bg-canvas rounded-ctl tnum w-20 shrink-0 border px-2 py-1 text-right text-xs transition outline-none focus:ring-2"
         />
       </div>
-      <label htmlFor={id} className="sr-only">
-        {`${label} in ${unit}`}
-      </label>
-      <input
-        id={id}
-        type="number"
-        inputMode="decimal"
-        min={0}
-        max={fromPoints(MAX_MARGIN, unit)}
-        step={step}
-        value={fromPoints(value, unit)}
-        onChange={(event) =>
-          onChange(clampPt(toPoints(Number(event.target.value), unit)))
-        }
-        className="border-line text-fg focus:border-accent/40 focus:ring-accent/50 bg-canvas rounded-ctl tnum w-20 shrink-0 border px-2 py-1 text-right text-xs transition outline-none focus:ring-2"
-      />
+      {held && (
+        <p role="status" className="text-muted text-xs">
+          {`${formatLength(past, unit)} is more than ${label} can take, so it is set to ${formatLength(max, unit)}. ${why}`}
+        </p>
+      )}
     </div>
   );
 }
@@ -221,6 +276,51 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
     : mode === "auto"
       ? (autoMargins?.[shownPage] ?? null)
       : margins;
+  // Each edge's most on every page it crops, from the pages themselves.
+  const scoped =
+    chosen === null
+      ? Array.from({ length: pdf.pageCount }, (_, i) => i)
+      : [...chosen].sort((a, b) => a - b);
+  const scopedSizes = scoped
+    .map((i) => sizes[i])
+    .filter((size): size is { width: number; height: number } => !!size);
+  const limits: CropMargins =
+    scopedSizes.length === 0
+      ? {
+          top: UNREAD_MAX_MARGIN,
+          right: UNREAD_MAX_MARGIN,
+          bottom: UNREAD_MAX_MARGIN,
+          left: UNREAD_MAX_MARGIN,
+        }
+      : scopedSizes
+          .map((size) => edgeLimits(size, margins))
+          .reduce((a, b) => ({
+            top: Math.min(a.top, b.top),
+            right: Math.min(a.right, b.right),
+            bottom: Math.min(a.bottom, b.bottom),
+            left: Math.min(a.left, b.left),
+          }));
+  const allSidesLimit =
+    scopedSizes.length === 0
+      ? UNREAD_MAX_MARGIN
+      : Math.min(...scopedSizes.map(uniformLimit));
+  // Why a limit is what it is, said when a typed margin is held at it: the
+  // page that sets it, when the chosen pages are not all one size.
+  const limitWhy = (
+    limitOf: (size: { width: number; height: number }) => number,
+  ): string => {
+    const own = `Any deeper and less than ${MIN_CROP_DIMENSION} points of the page would be left.`;
+    if (scopedSizes.length === 0) return own;
+    const values = scopedSizes.map(limitOf);
+    const least = Math.min(...values);
+    if (values.every((v) => v === least)) return own;
+    const page = scoped.filter((i) => !!sizes[i])[values.indexOf(least)]!;
+    return `Page ${page + 1} has the least room for it, so it sets the most. To cut deeper, choose pages that leave it out.`;
+  };
+  // Margins the chosen pages cannot all take (a scope widened to a smaller
+  // page after they were set) stop the run before it starts, naming the page.
+  const misfit =
+    mode === "auto" ? null : firstPageMarginsDoNotFit(sizes, margins, scoped);
   const pageSize = sizes[shownPage] ?? null;
   const preview =
     pageSize && pageSize.width > 0 && pageSize.height > 0
@@ -335,7 +435,7 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
   const runDisabled =
     mode === "auto"
       ? !plan || autoCroppable(undefined) === 0
-      : isEmptyMargins(margins);
+      : isEmptyMargins(margins) || misfit !== null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -392,7 +492,9 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
             <MarginField
               label="All sides"
               value={margins.top}
+              max={allSidesLimit}
               unit={unit}
+              why={limitWhy(uniformLimit)}
               onChange={(value) =>
                 setMargins({
                   top: value,
@@ -410,7 +512,9 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
                   key={edge}
                   label={edge.charAt(0).toUpperCase() + edge.slice(1)}
                   value={margins[edge]}
+                  max={limits[edge]}
                   unit={unit}
+                  why={limitWhy((size) => edgeLimits(size, margins)[edge])}
                   onChange={(value) =>
                     setMargins((m) => ({ ...m, [edge]: value }))
                   }
@@ -512,6 +616,7 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
                     edge={edge}
                     box={preview.box!}
                     points={margins[edge]}
+                    max={mode === "uniform" ? allSidesLimit : limits[edge]}
                     unit={unit}
                     page={preview}
                     sheetRef={sheetRef}
@@ -573,6 +678,11 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
         Cropping happens on your device — your PDF never leaves the browser.
       </PrivacyLine>
 
+      {misfit !== null && (
+        <ErrorNote
+          message={`These margins would leave page ${misfit + 1} narrower or shorter than ${MIN_CROP_DIMENSION} points. Make them smaller, or choose pages they fit.`}
+        />
+      )}
       {error && <ErrorNote message={error} />}
 
       <RunBar>
@@ -602,6 +712,7 @@ function EdgeHandle({
   edge,
   box,
   points,
+  max,
   unit,
   page,
   sheetRef,
@@ -610,6 +721,8 @@ function EdgeHandle({
   edge: Edge;
   box: Record<Edge, number>;
   points: number;
+  /** The most this edge can take (`edgeLimits`). */
+  max: number;
   unit: LengthUnit;
   page: { width: number; height: number };
   sheetRef: React.RefObject<HTMLDivElement | null>;
@@ -617,7 +730,7 @@ function EdgeHandle({
 }) {
   const drag = useRef<{ x: number; y: number; points: number } | null>(null);
   const clamp = (pt: number) =>
-    Math.max(0, Math.min(MAX_MARGIN, Math.round(pt * 100) / 100));
+    Math.max(0, Math.min(max, Math.round(pt * 100) / 100));
   const vertical = edge === "top" || edge === "bottom";
   const position: React.CSSProperties =
     edge === "top"
@@ -634,7 +747,7 @@ function EdgeHandle({
       aria-label={edgeLabel(edge)}
       aria-orientation={vertical ? "vertical" : "horizontal"}
       aria-valuemin={0}
-      aria-valuemax={MAX_MARGIN}
+      aria-valuemax={max}
       aria-valuenow={points}
       aria-valuetext={formatLength(points, unit)}
       onPointerDown={(event) => {
@@ -701,7 +814,7 @@ function EdgeHandle({
         let next: number | null = null;
         if (event.key in by) next = points + by[event.key]!;
         else if (event.key === "Home") next = 0;
-        else if (event.key === "End") next = MAX_MARGIN;
+        else if (event.key === "End") next = max;
         if (next === null) return;
         event.preventDefault();
         onChange(clamp(next));

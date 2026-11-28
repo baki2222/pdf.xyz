@@ -393,6 +393,9 @@ import { webOptimizedOutputName } from "@/lib/workers/processor/pdf-structure";
 import {
   SPLIT_DIRECTIONS,
   SPLIT_HALF_RUN_LABEL,
+  BOOKLET_ORDER,
+  ONLY_WIDER_LABELS,
+  SPLIT_POSITION,
   SPLIT_ORDERS,
   SPLIT_ORDER_CHOICES,
   splitHalfOutputName,
@@ -3206,7 +3209,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To crop a PDF, open ${nameOf("crop-pdf")}, add your file, and set how much to trim under Crop margins: one value for all four sides, a separate value for each side, or Auto, which finds the white margins around each page's content for you. Then press Crop PDF and download the result.`,
-      `You can measure in ${CROP_UNITS}, crop every page or only the pages you list, and check the result in the Crop preview before anything is cropped. ${nameOf("crop-pdf")} runs in your browser tab, so your PDF stays on your device; it opens one file at a time, up to ${ceilingMb("crop-pdf")} MB.`,
+      `You can measure in ${CROP_UNITS}, crop every page or only the pages you list, and check the result in the Crop preview before anything is cropped. ${nameOf("crop-pdf")} runs in your browser tab, so your PDF stays on your device; it takes files of up to ${ceilingMb("crop-pdf")} MB each, several at once as a batch.`,
       "Cropping hides the edges rather than deleting them: the tool shrinks each page's visible area, and the content outside it stays in the file, out of view. Selectable text stays selectable, because nothing is redrawn.",
     ],
     steps: [
@@ -3269,7 +3272,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-11-08",
+    updated: "2026-11-22",
   },
   {
     slug: "how-to-convert-pdf-to-excel",
@@ -3926,7 +3929,7 @@ export const guides: Guide[] = [
     intro: [
       `To edit a PDF's metadata, open ${nameOf("edit-pdf-metadata")}, add your file, and type over the values it shows: ${METADATA_TEXT_NAMES}, plus the ${METADATA_DATE_NAMES} dates. Press Save metadata and download the copy. To strip all of it before you share a file, choose Remove all metadata instead.`,
       "Metadata is the document information a PDF carries beside its pages. Many readers show the title in the window or tab instead of the file name, search tools index it, and anyone who opens the file's properties can read the author, which is often your name, filled in by the app that made the file.",
-      `It runs in your browser, so your PDF stays on your device. It opens one file at a time, up to ${ceilingMb("edit-pdf-metadata")} MB, and the pages themselves are not changed.`,
+      `It runs in your browser, so your PDF stays on your device. It takes files of up to ${ceilingMb("edit-pdf-metadata")} MB each, several at once as a batch, and the pages themselves are not changed.`,
     ],
     steps: [
       `Open the ${nameOf("edit-pdf-metadata")} tool and drop your PDF where it says Drop your PDF here, or click browse. It stays on your device.`,
@@ -3997,7 +4000,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
-    updated: "2026-11-06",
+    updated: "2026-11-22",
   },
   {
     slug: "how-to-resize-pdf-pages",
@@ -4015,7 +4018,7 @@ export const guides: Guide[] = [
     intro: [
       `To resize the pages of a PDF, open ${nameOf("resize-pdf")}, add your file, and pick the new page size: ${RESIZE_SIZE_NAMES}, or a custom width and height. Choose ${RESIZE_FIT} so nothing is cut off, press Resize PDF, and download the copy.`,
       `The usual reason is paper. A document laid out on ${RESIZE_LETTER} has to print on ${RESIZE_A4} in most of the world, or the other way round, and a printer left to sort it out may cut the edges off or shrink the page by its own rules. Resizing the file settles the size once, for every printer and reader.`,
-      `It runs in your browser, so your PDF stays on your device. It opens one file at a time, up to ${ceilingMb("resize-pdf")} MB.`,
+      `It runs in your browser, so your PDF stays on your device. It takes files of up to ${ceilingMb("resize-pdf")} MB each, several at once as a batch.`,
     ],
     steps: [
       `Open the ${nameOf("resize-pdf")} tool and drop your PDF where it says Drop your PDF here, or click browse. It stays on your device.`,
@@ -4077,7 +4080,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
-    updated: "2026-11-08",
+    updated: "2026-11-22",
   },
   {
     slug: "how-to-print-multiple-pages-per-sheet",
@@ -4095,7 +4098,7 @@ export const guides: Guide[] = [
     intro: [
       `To put several pages of a PDF on one sheet, open ${nameOf("n-up-pdf")}, add your file, and choose ${N_UP_COUNT_NAMES} per sheet. Press Create sheets and download a new PDF whose every page holds that many of the original pages, shrunk to fit.`,
       "It does what a print dialog's pages-per-sheet setting does, but saves the result as a file. You can check it on screen before printing, send it to someone else to print, or print it on a printer whose settings you cannot find; print it at one page per sheet, since the pages are already laid out.",
-      `It runs in your browser, so your PDF stays on your device. It opens one file at a time, up to ${ceilingMb("n-up-pdf")} MB.`,
+      `It runs in your browser, so your PDF stays on your device. It takes files of up to ${ceilingMb("n-up-pdf")} MB each, several at once as a batch.`,
     ],
     steps: [
       `Open the ${nameOf("n-up-pdf")} tool and drop your PDF where it says Drop your PDF here, or click browse. It stays on your device.`,
@@ -4156,7 +4159,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
-    updated: "2026-11-09",
+    updated: "2026-11-22",
   },
   {
     slug: "how-to-add-bates-numbers-to-a-pdf",
@@ -5943,7 +5946,7 @@ export const guides: Guide[] = [
     intro: [
       `To add a header and footer to a PDF, open ${nameOf("header-footer")}, add your PDF, type in the Header boxes, the Footer boxes, or both, and press Add header & footer. Each band has a Left, a Center and a Right box, the lines go on every page unless you change that under Pages, and you download the stamped copy.`,
       "The footer starts out as Page {n} of {total}, so a plain page count needs no typing at all. The {n}, {total} and {date} buttons under each band add a field that fills itself in page by page: {n} is the page number, {total} the number of pages in the file, and {date} today's date as your browser writes it.",
-      `The PDF is read and rewritten in your browser, so it stays on your device, and there is no account to create. It takes one PDF at a time, up to ${ceilingMb("header-footer")} MB.`,
+      `The PDF is read and rewritten in your browser, so it stays on your device, and there is no account to create. It takes files of up to ${ceilingMb("header-footer")} MB each, several at once as a batch.`,
     ],
     steps: [
       `Open the ${nameOf("header-footer")} tool.`,
@@ -6017,7 +6020,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-07",
+    updated: "2026-11-22",
   },
   {
     slug: "how-to-convert-a-text-file-to-pdf",
@@ -6663,8 +6666,10 @@ export const guides: Guide[] = [
   // Split PDF Pages in Half (#260), read off split-half.ts and
   // split-half-runner.tsx: Direction (Left and right | Top and bottom), Page
   // order for both cuts (since 2026-11-08; left and right only before), Pages (All pages | Selected pages + a
-  // list), two cover checkboxes, the cut at the exact middle of the VISIBLE
-  // page (after /Rotate and any crop), only the CropBox written, so the other
+  // list), two cover checkboxes, Booklet scan order and "Only split pages
+  // wider than tall" (since 2026-11-22), the cut at Cut position, 10-90% of
+  // the VISIBLE page (after /Rotate and any crop; the middle unless moved),
+  // only the CropBox written, so the other
   // half is hidden, not deleted (crop-disclosure.ts). In-browser, no upload;
   // encrypted and author-restricted files refused. Proven on production
   // 2026-11-01: a 2-page spread came back as 4 pages, L R L R.
@@ -6672,7 +6677,7 @@ export const guides: Guide[] = [
     slug: "how-to-split-pdf-pages-in-half",
     title: "How to split PDF pages in half (scanned book spreads)",
     description:
-      "Turn a scanned book with two pages on every sheet into single pages: cut each PDF page down the middle, in reading order, covers kept whole. In your browser.",
+      "Turn a scanned book with two pages on every sheet into single pages: cut each PDF page at the fold, in reading order, covers kept whole. In your browser.",
     tools: ["split-pdf-pages-in-half", "crop-pdf", "redact-pdf"],
     keywords: [
       "split pdf pages in half",
@@ -6690,6 +6695,7 @@ export const guides: Guide[] = [
       `Open the ${nameOf("split-pdf-pages-in-half")} tool and drop your PDF on the box that says “Drop your PDF here, or”, or click browse to pick it. Its name and page count appear.`,
       `Under Direction, keep ${HALF_LEFT_RIGHT} for a cut down the middle of each page, or choose ${HALF_TOP_BOTTOM} for pages laid out one above the other.`,
       `Set Page order: for ${HALF_LEFT_RIGHT}, ${HALF_LEFT_FIRST} for most books, or ${HALF_RIGHT_FIRST} for a book read right to left; for ${HALF_TOP_BOTTOM}, ${HALF_TOP_FIRST} or ${HALF_BOTTOM_FIRST}.`,
+      `Under Where to cut, leave Cut position at ${SPLIT_POSITION.middle}% for the middle, or move it, or drag the dashed line on the picture of the first page to be split, until it sits in the gap between the two pages.`,
       "Under Pages, keep All pages, or choose Selected pages and type the pages to split, such as 2-9. Tick Keep the first page whole or Keep the last page whole if a cover was scanned on its own.",
       `Press ${SPLIT_HALF_RUN_LABEL}. When “Pages split in half” appears, check how many pages were split and how many the new file has, then press Download split PDF. book.pdf is saved as ${HALF_EXAMPLE_OUT}.`,
     ],
@@ -6699,6 +6705,7 @@ export const guides: Guide[] = [
         heading: "Reading order and covers",
         body: [
           `With ${HALF_LEFT_FIRST}, the left half of each page comes first, which is the reading order of a book in English and most other languages. A book in Arabic, Hebrew, Persian or Japanese is read from the right-hand page, so choose ${HALF_RIGHT_FIRST} and each spread comes out in the order it is read. With ${HALF_TOP_BOTTOM}, ${HALF_TOP_FIRST} is the default, and ${HALF_BOTTOM_FIRST} puts each sheet's lower page before its upper one.`,
+          `A stapled booklet taken apart and scanned one sheet at a time has its pages paired as printed: for 8 pages, 8 and 1, 2 and 7, 6 and 3, 4 and 5. Choose ${BOOKLET_ORDER.label} as the Page order and the halves come out 1 to 8. A cover scanned on its own can stay whole at either end.`,
           "Covers are often scanned as single pages while everything between them is a spread. Keep the first page whole and Keep the last page whole leave those pages as they are, in their place, and only the spreads are split. To split only part of a document, choose Selected pages and list the pages, such as 3-40 or 2, 4, 6; every page you leave out stays whole, between the split ones.",
         ],
       },
@@ -6706,8 +6713,8 @@ export const guides: Guide[] = [
         id: "off-centre",
         heading: "When the gutter is not in the middle",
         body: [
-          "The cut is always at the exact middle of the page as your viewer shows it, after any rotation setting and inside any crop the file already has. A book scanned slightly off centre has its gutter, the gap between the two pages, a little to one side, and a middle cut then takes a sliver of one page onto the other.",
-          `Crop the margins first with ${nameOf("crop-pdf")}, trimming more on one side so the gutter sits in the middle of what is left, then split the cropped file. A page whose halves would be narrower or shorter than the tool's minimum is refused with its page number rather than split into slivers.`,
+          `The cut starts in the middle of the page as your viewer shows it, after any rotation setting and inside any crop the file already has. A book scanned slightly off centre has its gutter, the gap between the two pages, a little to one side, and a middle cut would take a sliver of one page onto the other. Move Cut position, anywhere from ${SPLIT_POSITION.min}% to ${SPLIT_POSITION.max}% of the page from the left (or the top), or drag the dashed line on the picture of the first page to be split, until the line sits in the gutter. The same position is used on every page that is split.`,
+          `A page whose halves would be narrower or shorter than the tool's minimum is refused with its page number rather than split into slivers. If your scan mixes spreads with single upright pages, tick ${ONLY_WIDER_LABELS["left-right"]} and the single pages stay whole. To trim scanner edges off the halves afterwards, use ${nameOf("crop-pdf")}.`,
         ],
       },
       {
@@ -6746,7 +6753,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-11-01",
-    updated: "2026-11-08",
+    updated: "2026-11-22",
   },
   // OCR PDF's "Straighten crooked pages" (#262): OCRmyPDF --deskew, read off
   // ocr-native.ts, jobs/ocr.ts and ocr-worker-panel.tsx. Only pages with no

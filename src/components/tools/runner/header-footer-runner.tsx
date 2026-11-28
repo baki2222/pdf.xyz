@@ -1,7 +1,8 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { RunReason } from "@/components/tools/runner/run-reason";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Download, PanelTop } from "lucide-react";
 import {
   addHeaderFooter,
@@ -40,7 +41,11 @@ import {
   useAsyncRun,
 } from "./runner-kit";
 import { RunBar } from "./run-bar";
-import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
+import {
+  FileHeader,
+  SinglePdfRunner,
+  type SinglePdfBatch,
+} from "./single-pdf-runner";
 import {
   CheckboxField,
   ColorField,
@@ -72,10 +77,28 @@ export const TOKENS = [
   { token: "{date}", label: "{date}" },
 ];
 
+/**
+ * Two or more PDFs: the batch (audit platform#1, 2026-11-22), its own chunk,
+ * fetched only when they arrive — never with a visit to this page.
+ */
+const HeaderFooterBatch = dynamic(
+  () => import("./batch/header-footer-batch").then((m) => m.HeaderFooterBatch),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+const batch = (props: SinglePdfBatch) => <HeaderFooterBatch {...props} />;
+
 export function HeaderFooterRunner() {
   return (
     <SinglePdfRunner
-      hint="One PDF · header & footer applied locally in your browser"
+      hint="One or more PDFs · header & footer applied locally in your browser"
+      batch={batch}
       handoffSlug="header-footer"
       toolName="PDF Header & Footer"
     >
@@ -124,11 +147,47 @@ function BandFields({
       ALIGN_OPTIONS.find(({ value }) => text[value].trim())?.value ?? "center",
   );
   const targetLabel = ALIGN_OPTIONS.find((o) => o.value === target)!.label;
+  // Each box's wrapper, to read its input's caret: an input keeps its
+  // selection after it loses focus to the field button.
+  const boxes = useRef<Partial<Record<HAlign, HTMLDivElement | null>>>({});
+  // Where the caret goes once the inserted text has rendered: placed in the
+  // commit whose input shows that text, then forgotten. Until then it is
+  // kept: an effect left over from an earlier render could run first, see
+  // the old text, and place the caret in it (the race organize-runner's
+  // focus return lost, review of lane w1a, 2026-11-28).
+  const caret = useRef<{ box: HAlign; at: number; value: string } | null>(null);
+  useLayoutEffect(() => {
+    const want = caret.current;
+    if (!want) return;
+    const input = boxes.current[want.box]?.querySelector("input");
+    if (!input || input.value !== want.value) return;
+    caret.current = null;
+    input.focus();
+    input.setSelectionRange(want.at, want.at);
+  });
+  // A field goes in at the caret of the box it fills, over any selection,
+  // and the caret lands after it (audit header-footer#7: it was appended to
+  // the end of the box, wherever the caret was).
+  const insert = (token: string) => {
+    const current = text[target];
+    const input = boxes.current[target]?.querySelector("input");
+    const start = input?.selectionStart ?? current.length;
+    const end = input?.selectionEnd ?? start;
+    const value = current.slice(0, start) + token + current.slice(end);
+    onChange({ ...text, [target]: value });
+    caret.current = { box: target, at: start + token.length, value };
+  };
   return (
     <div className="flex flex-col gap-3">
       <div className="grid gap-3 sm:grid-cols-3">
         {ALIGN_OPTIONS.map(({ value, label }) => (
-          <div key={value} onFocus={() => setTarget(value)}>
+          <div
+            key={value}
+            ref={(el) => {
+              boxes.current[value] = el;
+            }}
+            onFocus={() => setTarget(value)}
+          >
             <TextField
               label={`${band} ${label.toLowerCase()}`}
               value={text[value]}
@@ -141,9 +200,7 @@ function BandFields({
       <TokenButtons
         tokens={TOKENS}
         into={`${band} ${targetLabel.toLowerCase()}`}
-        onInsert={(token) =>
-          onChange({ ...text, [target]: text[target] + token })
-        }
+        onInsert={insert}
       />
     </div>
   );

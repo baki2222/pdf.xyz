@@ -1,6 +1,7 @@
 "use client";
 
-import { SinglePdfRunner } from "./single-pdf-runner";
+import dynamic from "next/dynamic";
+import { SinglePdfRunner, type SinglePdfBatch } from "./single-pdf-runner";
 import { RemoveAnnotationsRunner } from "./remove-annotations-host";
 import { BookmarksRunner } from "./bookmarks-host";
 import { lazyPanel } from "./lazy-panel";
@@ -38,12 +39,30 @@ export function MetadataRunner() {
   return <MetadataEditRunner />;
 }
 
+/**
+ * Two or more PDFs: the batch (audit platform#1, 2026-11-22), its own chunk,
+ * fetched only when they arrive — never with a visit to this page.
+ */
+const MetadataBatch = dynamic(
+  () => import("./batch/metadata-batch").then((m) => m.MetadataBatch),
+  {
+    loading: () => (
+      <div
+        aria-hidden
+        className="border-line bg-wash rounded-panel h-40 w-full border"
+      />
+    ),
+  },
+);
+const batch = (props: SinglePdfBatch) => <MetadataBatch {...props} />;
+
 /** Edit PDF Metadata's drop box; its editor comes with a file. */
 function MetadataEditRunner() {
   metadata.useIntent();
   return (
     <SinglePdfRunner
-      hint="One PDF · metadata read and changed locally in your browser"
+      hint="One or more PDFs · metadata read and changed locally in your browser"
+      batch={batch}
       handoffSlug="edit-pdf-metadata"
       toolName="Edit PDF Metadata"
       prepare={metadata.prepare}

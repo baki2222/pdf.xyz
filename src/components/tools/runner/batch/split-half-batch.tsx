@@ -5,12 +5,15 @@ import { SETTINGS_BATCH_TOOLS } from "@/lib/batch/tools";
 import {
   SPLIT_DIRECTIONS,
   SPLIT_ORDER_CHOICES,
+  SPLIT_POSITION,
+  clampSplitPosition,
+  orderHint,
   splitHalfOutputName,
   splitPagesInHalf,
   type SplitHalfOptions,
 } from "@/lib/pdf/split-half";
 import type { SinglePdfBatch } from "../single-pdf-runner";
-import { CheckboxField, SegmentedControl } from "../stamp-controls";
+import { CheckboxField, RangeField, SegmentedControl } from "../stamp-controls";
 import {
   SettingsBatchRunner,
   type BatchFileOutput,
@@ -41,10 +44,19 @@ export function SplitHalfBatch(props: SinglePdfBatch) {
   const [order, setOrder] = useState<SplitHalfOptions["order"]>("left-first");
   const [keepFirstWhole, setKeepFirstWhole] = useState(false);
   const [keepLastWhole, setKeepLastWhole] = useState(false);
+  const [position, setPosition] = useState<number>(SPLIT_POSITION.middle);
+  const [onlyWider, setOnlyWider] = useState(false);
   const process = useCallback(
     (opened: OpenedPdf) =>
-      splitOneFile(opened, { direction, order, keepFirstWhole, keepLastWhole }),
-    [direction, order, keepFirstWhole, keepLastWhole],
+      splitOneFile(opened, {
+        direction,
+        order,
+        keepFirstWhole,
+        keepLastWhole,
+        position,
+        onlyWider,
+      }),
+    [direction, order, keepFirstWhole, keepLastWhole, position, onlyWider],
   );
   return (
     <SettingsBatchRunner
@@ -75,6 +87,17 @@ export function SplitHalfBatch(props: SinglePdfBatch) {
               label: o.label,
             }))}
           />
+          <p className="text-muted text-xs">{orderHint(direction, order)}</p>
+          <RangeField
+            label="Cut position"
+            value={position}
+            min={SPLIT_POSITION.min}
+            max={SPLIT_POSITION.max}
+            onChange={(value) => setPosition(clampSplitPosition(value))}
+            format={(value) =>
+              `${value}% from the ${direction === "left-right" ? "left" : "top"}`
+            }
+          />
           <div className="flex flex-col gap-3">
             <CheckboxField
               label="Keep the first page whole"
@@ -88,6 +111,24 @@ export function SplitHalfBatch(props: SinglePdfBatch) {
               onChange={setKeepLastWhole}
               hint="In each file, for a back cover scanned on its own."
             />
+            {/* Two literal labels, one per cut, so the page's "tick …" names a
+                box that is rendered (tick-label-claims.test.ts); the runner
+                test holds them to ONLY_WIDER_LABELS. */}
+            {direction === "left-right" ? (
+              <CheckboxField
+                label="Only split pages wider than tall"
+                checked={onlyWider}
+                onChange={setOnlyWider}
+                hint="In each file, single pages among the spreads stay whole."
+              />
+            ) : (
+              <CheckboxField
+                label="Only split pages taller than wide"
+                checked={onlyWider}
+                onChange={setOnlyWider}
+                hint="In each file, single pages among the spreads stay whole."
+              />
+            )}
           </div>
         </>
       }

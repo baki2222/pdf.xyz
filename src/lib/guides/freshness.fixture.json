@@ -1,7 +1,7 @@
 {
   "how-to-add-a-header-and-footer-to-a-pdf": {
-    "contentHash": "cbec71bec92bbfacac6a44934129e8c1c50bb20453e1f6d227afafa0f0ee4f79",
-    "updated": "2026-11-07"
+    "contentHash": "2c3cec678d27f304b55df133e5ea4d06443c2af6401adbb23bf2a79557cc36c3",
+    "updated": "2026-11-22"
   },
   "how-to-add-a-watermark-to-a-pdf": {
     "contentHash": "b526fd26a6eea2ea2f661dad2ba639c1d663e3a3e56f0e77eaa54c07f5a17c35",
@@ -128,16 +128,16 @@
     "updated": "2026-11-18"
   },
   "how-to-crop-a-pdf": {
-    "contentHash": "ba13d9a46ae883d20fbbfe10188458ac1464c304ff97bb17f7bd5f5ad49aab27",
-    "updated": "2026-11-08"
+    "contentHash": "bc237074e614c0b1c60b1435b8b03a6c8f9a7534879fa707feb44b8cc5344108",
+    "updated": "2026-11-22"
   },
   "how-to-delete-pages-from-a-pdf": {
     "contentHash": "e27fbe84c5cd9f74a82268125670672ad7faa90191a02676c11a2c2f28ced593",
     "updated": "2026-11-08"
   },
   "how-to-edit-pdf-metadata": {
-    "contentHash": "4de482f14953403c994de1a38f7ec753dc9bf42399e3413303e4b89fa9f7b7a1",
-    "updated": "2026-11-06"
+    "contentHash": "a62f8fdc0397afd0da733bfb42cd1b6e903f5b6b0617d43e4489caf0b1bc5df3",
+    "updated": "2026-11-22"
   },
   "how-to-edit-text-in-a-pdf": {
     "contentHash": "7431eb1fe4ae350df2f03255c50161606a10927c672c04036659cc536b3c525b",
@@ -188,8 +188,8 @@
     "updated": "2026-11-17"
   },
   "how-to-print-multiple-pages-per-sheet": {
-    "contentHash": "bc385513ae0a53cbd0061f202ac51d5dfe4c313b7957f0b5e1fb27ca9d160071",
-    "updated": "2026-11-09"
+    "contentHash": "f72da633d9a376e3c7749d322ddff8526d0e8d003da7c692ed7c19afa8b30102",
+    "updated": "2026-11-22"
   },
   "how-to-redact-a-pdf": {
     "contentHash": "87783d017ceac605fdf89572c58455fb3046665465e9efd929e41e0da21f22fc",
@@ -208,8 +208,8 @@
     "updated": "2026-11-06"
   },
   "how-to-resize-pdf-pages": {
-    "contentHash": "4662ed68bcbdf322a76ae7118c56523dc29b58f2db7efedae2a9f905e6c94f90",
-    "updated": "2026-11-08"
+    "contentHash": "e0cf7a44fc72db6e2feda320b9c784dfd41212890df116415569bd26cd3f9783",
+    "updated": "2026-11-22"
   },
   "how-to-rotate-a-pdf": {
     "contentHash": "62752b6be9880df5f169ab44d2e0da4d5cf65a0dff765f69588805393b5b0d57",
@@ -256,8 +256,8 @@
     "updated": "2026-11-08"
   },
   "how-to-split-pdf-pages-in-half": {
-    "contentHash": "5dbd1309e5f10663cd9a4d64c804edee4c2687af14d816cfa9b7ef11a89985a3",
-    "updated": "2026-11-08"
+    "contentHash": "848874ee4f3d4edd72ae21d74cf5849f72420fbc31227cbc35de7bea53005692",
+    "updated": "2026-11-22"
   },
   "how-to-straighten-a-scanned-pdf": {
     "contentHash": "f22a343cdd5441edd8208f3794949c8a68a4b0858f5032cbcffbdd219ea9dd67",

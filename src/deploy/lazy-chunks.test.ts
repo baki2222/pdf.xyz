@@ -990,8 +990,19 @@ describe("no tool page loads a table of every tool", () => {
  * under the 45 B this bound keeps for CI's ~25 B higher reading. The new
  * bound leaves 62 B over this machine's reading, the HTML-zip precedent's
  * 63. Not measured on CI.
+ *
+ * RAISED on 2026-11-22, 34.33 -> 34.41 KB (35,153 -> 35,236 B), FOR THE
+ * OWNER TO CONFIRM, by audit platform#1: five tools gained a batch, so the
+ * catalogue rows the ticket loads read outputs ["PDF", "ZIP"] for Edit PDF
+ * Metadata, PDF Header & Footer, Crop PDF, Resize PDF and Multiple Pages per
+ * Sheet, and the hand-off table (capability.ts, which the ticket loads to
+ * say what a tool takes) carries SINGLE_ON_KIND, the three tools on those
+ * kinds that keep one file. The branch's eight counted chunks read 35,177 B
+ * on this machine (fresh .next, E:/pdf.xyz-worktrees/wa3a), 24 B over the
+ * old bound; main was not rebuilt here. The new bound leaves 59 B over this
+ * reading, the precedents' 62 and 63. Not measured on CI.
  */
-const TICKET_FETCH_GZ_KB = 34.33;
+const TICKET_FETCH_GZ_KB = 34.41;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));

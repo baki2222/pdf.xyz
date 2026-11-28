@@ -31,7 +31,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildToolSummaries } from "@/app/workspace/presenter";
 import { guides } from "@/lib/guides/catalog";
-import { handoffCapabilityFor } from "@/lib/handoff/capability";
+import { handoffCapabilityFor, SINGLE_ON_KIND } from "@/lib/handoff/capability";
+import { getRunnerKind } from "@/lib/pdf/registry";
 import { tools } from "@/lib/tools";
 import {
   pageDescription,
@@ -43,6 +44,7 @@ import {
 } from "@/lib/tools/page-copy";
 import { toolFacts } from "@/lib/tools/tool-facts";
 import type { Tool } from "@/lib/tools/types";
+import { slugHostsOf } from "@/tests/runner-slug-hosts";
 import {
   ownPanelModules,
   resolveSpecifier,
@@ -97,10 +99,21 @@ const IMAGES_BATCH =
 
 const { bySlug } = ownPanelModules();
 
-/** The runner module a slug's page mounts, repo-relative, or null. */
-function runnerOf(slug: string): string | null {
+/** The runner kind's module a slug's page mounts, repo-relative, or null. */
+function kindRunnerOf(slug: string): string | null {
   const panel = bySlug.get(slug);
   return panel && panel.dispatch === "runner" ? relOf(panel.file) : null;
+}
+
+/**
+ * The module that renders a slug's drop box: its host, when its runner
+ * kind hands it one (`slugHostsOf`), else the kind's runner. Repo-relative,
+ * or null for a slug with no runner.
+ */
+function runnerOf(slug: string): string | null {
+  const runner = kindRunnerOf(slug);
+  if (!runner) return null;
+  return slugHostsOf(runner).get(slug) ?? runner;
 }
 
 /**
@@ -237,6 +250,46 @@ describe("batch claims, walked from the catalogue", () => {
       rows.filter((r) => r.backed && !r.claims.caption).map((r) => r.slug),
       `a batch whose drop box does not open with "${BATCH_HINT_LEAD}"`,
     ).toEqual([]);
+  });
+
+  it("a tool sharing a runner kind is read through its own host module (positive control)", () => {
+    // The three tools a shared runner hands to a host of their own: found,
+    // and each a file that is not the runner.
+    const handed = rows.filter((r) => {
+      const runner = kindRunnerOf(r.slug);
+      return runner !== null && runnerOf(r.slug) !== runner;
+    });
+    expect(handed.map((r) => r.slug).sort()).toEqual(
+      ["booklet-pdf", "edit-pdf-bookmarks", "remove-annotations"].sort(),
+    );
+    // The tools left on those runners are the ones with the batch.
+    for (const slug of ["edit-pdf-metadata", "n-up-pdf"])
+      expect(backed, slug).toContain(slug);
+  });
+
+  it("a tool with no batch on a batch runner kind is held single, both ways", () => {
+    const batchKind = rows.filter(
+      (r) =>
+        r.runner !== null &&
+        getRunnerKind(r.slug) !== undefined &&
+        !r.backed &&
+        [...SINGLE_ON_KIND].every((s) => s !== r.slug) &&
+        r.claims.handoff,
+    );
+    expect(
+      batchKind.map((r) => r.slug),
+      "a tool the hand-off treats as a batch, whose page loads none",
+    ).toEqual([]);
+    for (const slug of SINGLE_ON_KIND) {
+      const row = rows.find((r) => r.slug === slug);
+      expect(row, `${slug} is not a tool`).toBeDefined();
+      expect(row!.backed, `${slug} is held single but loads a batch`).toBe(
+        false,
+      );
+      expect(handoffCapabilityFor(slug).mode).toBe("single");
+    }
+    // Health: the set is the three tools sharing a batch kind.
+    expect(SINGLE_ON_KIND.size).toBe(3);
   });
 
   it("the settings batches and their registration are the same set", () => {

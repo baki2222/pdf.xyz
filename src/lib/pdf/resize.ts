@@ -209,15 +209,15 @@ function wrapContent(
 ): void {
   const { PDFArray, PDFName } = lib;
   const n = (v: number) => Number(v.toFixed(6)).toString();
-  const enc = new TextEncoder();
+  // Strings, which pdf-lib turns into bytes itself: a TextEncoder's array
+  // comes from the page's realm, and pdf-lib's `instanceof Uint8Array`
+  // missed it under jsdom, where the batch is proved (audit platform#1).
   const head = doc.context.register(
     doc.context.stream(
-      enc.encode(
-        `q ${n(t.scale)} 0 0 ${n(t.scale)} ${n(t.tx)} ${n(t.ty)} cm\n`,
-      ),
+      `q ${n(t.scale)} 0 0 ${n(t.scale)} ${n(t.tx)} ${n(t.ty)} cm\n`,
     ),
   );
-  const tail = doc.context.register(doc.context.stream(enc.encode("\nQ\n")));
+  const tail = doc.context.register(doc.context.stream("\nQ\n"));
   const key = PDFName.of("Contents");
   const existing = page.node.get(key);
   const resolved = existing ? doc.context.lookup(existing) : undefined;
