@@ -66,6 +66,7 @@ import {
 } from "./ocr-language-picker";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { PdfEngineError } from "@/lib/pdf/engine";
+import { announceOutcome } from "@/components/a11y/live-region";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import {
   latinLanguage,
@@ -524,6 +525,8 @@ function TranslateBuilder({
           scan: false,
           words: targetLanguage,
         });
+        // Said aloud too: a press that sends nothing must not be silent.
+        announceOutcome(translateAlreadyInLanguageMessage(targetLanguage));
         return;
       }
     }

@@ -86,6 +86,7 @@ import { resetTelemetry } from "@/lib/telemetry/track";
 import { userPasswordEncryptedPdf } from "@/tests/encrypted-pdf-fixture";
 import { READY_WORKER_STATUS as READY } from "@/tests/ready-worker-status";
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
+import { LiveRegion } from "@/components/a11y/live-region";
 import { TranslateWorkerPanel } from "./translate-worker-panel";
 
 /**
@@ -482,6 +483,50 @@ describe("TranslateWorkerPanel: an English PDF into English with Auto-detect sto
     pick(/source language/i, "fr");
     expect(screen.queryByText(STOP)).toBeNull();
     await waitFor(() => expect(blocked(run)).toBe(false));
+  });
+
+  it("a Run pressed BEFORE the language check answers is stopped by Run's own check, and says so", async () => {
+    // Review of 7b498d92 (finding 13): the check inside start() exists only
+    // for this race, and mutating it to `if (false)` stayed green. Here the
+    // extraction is held until Run has been pressed, so the render-time stop
+    // cannot have blocked the button first. The witness is POSITIVE: Run's
+    // check speaks the stop in the live region; nothing else does.
+    const fetchMock = stubNetwork();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const gatedExtract = (bytes: Uint8Array) =>
+      gate.then(() => realExtract(bytes));
+    render(
+      <InToolPage tool={translateTool}>
+        <LiveRegion />
+        <TranslateWorkerPanel tool={translateTool} extractText={gatedExtract} />
+      </InToolPage>,
+    );
+    const run = await screen.findByRole(
+      "button",
+      { name: /translate pdf/i },
+      { timeout: WAIT_MS },
+    );
+    fireEvent.change(fileInput(), {
+      target: { files: [pdfFile(await linesPdf(ENGLISH), "lease.pdf")] },
+    });
+    // Health: the language check has NOT answered, so Run can be pressed.
+    await waitFor(() => expect(blocked(run)).toBe(false));
+    expect(screen.queryByText(STOP)).toBeNull();
+    fireEvent.click(run);
+    release();
+    expect(
+      await screen.findByText(
+        (_, el) =>
+          el?.getAttribute("aria-live") === "polite" && el.textContent === STOP,
+        {},
+        { timeout: WAIT_MS },
+      ),
+    ).toBeInTheDocument();
+    expect(jobRequests(fetchMock)).toEqual([]);
+    await waitFor(() => expect(blocked(run)).toBe(true));
   });
 
   it("CONTROL: a Spanish PDF into English is not stopped", async () => {
