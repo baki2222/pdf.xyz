@@ -24,12 +24,16 @@
  * Read by the batch's own chunk and by the tool page's content on the
  * server; never by a first-load module.
  */
-// The per-file ceiling (`WORKER_FILE_CEILING` is defined as this value):
-// read from the job limits, not file-ceilings, which would pull the tool
-// registry into this chunk.
-import { JOB_LIMITS } from "@/lib/jobs/types";
+import { workerFileCeilingBytes } from "@/lib/workers/engine-file-ceilings";
 
-const WORKER_FILE_CEILING = JOB_LIMITS.maxFileBytes;
+/**
+ * What one combined PDF can be at most: the per-file ceiling the server
+ * enforces for an OCR job (`engine-file-ceilings`, a leaf, so the tool
+ * registry stays out of this chunk). The batch's refusal and this page's
+ * sentence both read it; ocr-combine.dom.test.tsx holds it equal to the
+ * server's and that the batch defines no ceiling of its own.
+ */
+export const OCR_COMBINE_CEILING = workerFileCeilingBytes("ocr-pdf");
 
 /** Said before Run, under the settings: one language choice for every file. */
 export function ocrBatchLanguageSentence(languages: string): string {
@@ -41,7 +45,7 @@ export const OCR_BATCH_LOW_CONFIDENCE_NOTE =
   "Recognition confidence was low: the scan may be blurry, skewed or low-resolution, or not in the language you selected.";
 
 /** The combined PDF's ceiling, in MB: the per-file ceiling it must fit. */
-const COMBINED_CEILING_MB = Math.round(WORKER_FILE_CEILING / (1024 * 1024));
+const COMBINED_CEILING_MB = Math.round(OCR_COMBINE_CEILING / (1024 * 1024));
 
 /** OCR PDF's page: what its batch shares, and what it never does. */
 export function ocrBatchPageSentence(): string {

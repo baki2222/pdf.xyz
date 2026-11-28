@@ -1,3 +1,4 @@
+// @native-canvas
 /**
  * Photos and scans into one PDF for OCR (audits ocr-pdf#2 and ocr-pdf#3).
  *
@@ -15,6 +16,7 @@ import {
   JPEG_WIDTH,
 } from "@/tests/jpeg-fixtures";
 import { ocrImageDpi } from "@/lib/workers/ocr-image";
+import { userPasswordEncryptedPdf } from "@/tests/encrypted-pdf-fixture";
 import { buildOcrPdf, ocrPageDpi, ocrPdfName } from "./ocr-photo-pdf";
 
 async function markedPdf(...markers: string[]): Promise<Uint8Array> {
@@ -121,6 +123,24 @@ describe("buildOcrPdf", () => {
         },
       ]),
     ).rejects.toThrow(/not a PDF, JPG or PNG/);
+  });
+
+  it("a locked PDF in the list is refused with ITS name, so the person knows which one", async () => {
+    // Review of 7b498d92 (finding 6): the refusal was plain but named no file.
+    const err = await buildOcrPdf([
+      jpg("one.jpg"),
+      {
+        name: "bank-statement.pdf",
+        type: "application/pdf",
+        bytes: userPasswordEncryptedPdf(),
+      },
+    ]).then(
+      () => null,
+      (e: unknown) => e as Error,
+    );
+    expect(err).toBeInstanceOf(Error);
+    expect(err!.message).toMatch(/^bank-statement\.pdf could not be added: /);
+    expect(err!.message).toMatch(/password/i);
   });
 
   it("names the upload after the first file", () => {

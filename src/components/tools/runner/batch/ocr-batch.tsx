@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   OCR_BATCH_LOW_CONFIDENCE_NOTE,
+  OCR_COMBINE_CEILING,
   ocrBatchLanguageSentence,
 } from "@/lib/batch/ocr-copy";
 import {
@@ -19,12 +20,6 @@ import {
   ocrSendsPhotoAsPdf,
   type OcrOptions,
 } from "@/lib/jobs/ocr";
-// The per-file ceiling (`WORKER_FILE_CEILING` is defined as this value):
-// read from the job limits, not file-ceilings, which would pull the tool
-// registry into this chunk.
-import { JOB_LIMITS } from "@/lib/jobs/types";
-
-const WORKER_FILE_CEILING = JOB_LIMITS.maxFileBytes;
 import { ScanText } from "lucide-react";
 import { DownloadCta, ResultCard, WorkerRunButton } from "../runner-kit";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "../../worker-job";
@@ -164,6 +159,7 @@ function OcrCombined({
   runBlocked,
   contentTypeOf,
   onReset,
+  onStart,
 }: {
   files: File[];
   request: OcrOptions;
@@ -171,6 +167,8 @@ function OcrCombined({
   runBlocked: string | null;
   contentTypeOf: (file: File) => string;
   onReset: () => void;
+  /** Run was pressed: the batch holds the Combine box from here on. */
+  onStart: () => void;
 }) {
   const { available } = useWorkerPanel();
   const job = useWorkerJob<OcrWorkerResult>({
@@ -180,12 +178,15 @@ function OcrCombined({
   const { busy, outcome, run } = job;
   const total = files.reduce((n, file) => n + file.size, 0);
   const tooLarge =
-    total > WORKER_FILE_CEILING
-      ? ocrCombineTooLarge(total, WORKER_FILE_CEILING)
+    total > OCR_COMBINE_CEILING
+      ? ocrCombineTooLarge(total, OCR_COMBINE_CEILING)
       : null;
 
   const start = useCallback(async () => {
     if (!available || tooLarge || runBlocked) return;
+    // Held from the press on: unticking would unmount this view and the job
+    // with it, while the server kept running it (review of 7b498d92).
+    onStart();
     await run(async (controls): Promise<OcrWorkerResult> => {
       const { buildOcrPdf, ocrPdfName } =
         await import("@/lib/pdf/ocr-photo-pdf");
@@ -206,10 +207,10 @@ function OcrCombined({
         };
       }
       // A PNG is stored losslessly, so the made PDF can outgrow its files.
-      if (bytes.byteLength > WORKER_FILE_CEILING)
+      if (bytes.byteLength > OCR_COMBINE_CEILING)
         return {
           ok: false,
-          message: ocrCombineTooLarge(bytes.byteLength, WORKER_FILE_CEILING),
+          message: ocrCombineTooLarge(bytes.byteLength, OCR_COMBINE_CEILING),
         };
       return runWorkerOcr(
         {
@@ -221,7 +222,16 @@ function OcrCombined({
         controls,
       );
     });
-  }, [available, tooLarge, runBlocked, run, files, contentTypeOf, request]);
+  }, [
+    available,
+    tooLarge,
+    runBlocked,
+    onStart,
+    run,
+    files,
+    contentTypeOf,
+    request,
+  ]);
 
   return (
     <div className="flex flex-col gap-3">
@@ -305,8 +315,9 @@ export function OcrBatch({
   contentTypeOf,
 }: OcrBatchProps) {
   const frozenRef = useRef<OcrOptions | null>(null);
-  // "Combine into one PDF": off by default; once a run starts it stays as
-  // it was, so a running batch is never swapped for the combined view.
+  // "Combine into one PDF": off by default; once a run starts (the batch's
+  // or the combined one) it stays as it was, so neither running view is
+  // swapped for the other.
   const [combine, setCombine] = useState(false);
   const [started, setStarted] = useState(false);
   // What Run froze, for drawing (the ZIP's folders); the ref is what runs.
@@ -349,6 +360,13 @@ export function OcrBatch({
     request.languages.map(describeOcrLanguage),
   );
 
+  const onCombinedStart = useCallback(() => setStarted(true), []);
+  const languageSentence = (
+    <p className="text-fg text-sm leading-relaxed" data-ocr-batch-language="">
+      {ocrBatchLanguageSentence(languages)}
+    </p>
+  );
+
   const combineBox = (
     <label className="text-muted flex items-start gap-2.5 text-sm">
       <input
@@ -379,11 +397,13 @@ export function OcrBatch({
           <>
             {combineBox}
             {settings}
+            {languageSentence}
           </>
         }
         runBlocked={runBlocked}
         contentTypeOf={contentTypeOf}
         onReset={onReset}
+        onStart={onCombinedStart}
       />
     );
 
@@ -401,12 +421,7 @@ export function OcrBatch({
         <>
           {combineBox}
           {settings}
-          <p
-            className="text-fg text-sm leading-relaxed"
-            data-ocr-batch-language=""
-          >
-            {ocrBatchLanguageSentence(languages)}
-          </p>
+          {languageSentence}
         </>
       }
       runBlocked={runBlocked}

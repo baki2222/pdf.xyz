@@ -118,7 +118,13 @@ export async function buildOcrPdf(
       source.type === "application/pdf" ||
       source.name.toLowerCase().endsWith(".pdf")
     ) {
-      const from = await loadPdf(source.bytes);
+      // In a list, the engine's own words ("This PDF is password-protected")
+      // do not say WHICH file; the name goes first (review of 7b498d92).
+      const from = await loadPdf(source.bytes).catch((err: unknown) => {
+        throw new Error(
+          `${source.name} could not be added: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
       parts.push({ doc: from, indices: from.getPageIndices() });
       continue;
     }
