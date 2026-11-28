@@ -10,7 +10,7 @@
  * shrink, and only by code that changed. Keys are token streams, so a
  * reformat keeps them. The list ends when it is empty; the guard does not.
  */
-export const WALL_CLOCK_DEBT_CEILING = 93;
+export const WALL_CLOCK_DEBT_CEILING = 77;
 
 /** lane, kind, file, occurrence index, collapsed snippet — one per line. */
 export const WALL_CLOCK_DEBT_TSV = `
@@ -68,21 +68,12 @@ export const WALL_CLOCK_DEBT_TSV = `
 1b	raw	src/lib/workers/translate/reading-order.measured.test.ts	0	expect(d.bboxMs, d.name).toBeLessThan(TRANSLATE_FLOW_TIMEOUT_MS)
 2	raw	src/tests/hostile/content-isolation.test.ts	0	expect(Date.now() - t0).toBeLessThan(10_000)
 2	raw	src/tests/hostile/content-isolation.test.ts	0	expect(Date.now() - t0).toBeLessThan(5_000)
-2	raw	src/tests/hostile/content-isolation.test.ts	0	expect(got.ms).toBeLessThan(10_000)
-2	raw	src/tests/hostile/content-isolation.test.ts	1	expect(got.ms).toBeLessThan(10_000)
-2	raw	src/tests/hostile/content-isolation.test.ts	2	expect(got.ms).toBeLessThan(10_000)
-2	raw	src/tests/hostile/content-isolation.test.ts	3	expect(got.ms).toBeLessThan(10_000)
-2	raw	src/tests/hostile/content-isolation.test.ts	4	expect(got.ms).toBeLessThan(10_000)
-2	raw	src/tests/hostile/content-isolation.test.ts	0	expect(got.ms).toBeLessThan(15_000)
 2	raw	src/tests/hostile/content-isolation.test.ts	0	expect(got.ms).toBeLessThan(5_000)
 2	raw	src/tests/hostile/conversion-in-l09.test.ts	0	expect(r.ms).toBeLessThan(30_000)
 2	raw	src/tests/hostile/decode-budget.test.ts	0	expect(Date.now() - started).toBeLessThan(30_000)
 2	raw	src/tests/hostile/decode-budget.test.ts	1	expect(Date.now() - started).toBeLessThan(30_000)
 2	routed	src/tests/hostile/decode-budget.test.ts	0	expectFasterThan("decode-budget-refusal-ceiling", r.ms!, ENTRY_CEILING_MS, { instance: entry, detail: said })
 2	routed	src/tests/hostile/decode-budget.test.ts	0	expectRatioBelow("decode-budget-refusal-vs-control", r.ms!, c.ms!, RATIO_TO_CONTROL, { instance: entry, detail: said })
-2	raw	src/tests/hostile/page-images.test.ts	0	expect(Math.max(...(v.pageMs as number[]))).toBeLessThan(10_000)
-2	raw	src/tests/hostile/page-images.test.ts	1	expect(Math.max(...(v.pageMs as number[]))).toBeLessThan(10_000)
-2	raw	src/tests/hostile/pdfjs-board-pages.test.ts	0	expect(ratio, \`\${big.ms} ms vs \${small.ms} ms\`).toBeLessThan(30)
 2	raw	src/tests/hostile/pdfjs-board-pages.test.ts	0	expect(v.ms as number).toBeLessThan(20_000)
 2	raw	src/tests/hostile/pdfjs-board-pages.test.ts	0	expect(v.ms as number).toBeLessThan(60_000)
 2	raw	src/tests/hostile/pdfjs-guard-bounds.test.ts	0	expect(v.preflightMs as number).toBeLessThan(3_000)
@@ -95,15 +86,8 @@ export const WALL_CLOCK_DEBT_TSV = `
 2	routed	src/tests/hostile/pdfjs-guard-bounds.test.ts	0	expectFasterThan("pdfjs-guard-refusal-ceiling", judged.ms, REFUSAL_CEILING_MS, { instance: said, detail })
 2	routed	src/tests/hostile/pdfjs-guard-bounds.test.ts	0	expectRatioBelow("pdfjs-guard-refusal-budget-reads", judged.ms, judged.budgetReadMs, BUDGET_READS_ALLOWED, { instance: said, detail })
 2	raw	src/tests/hostile/res2-field-trees.test.ts	0	expect(ms).toBeLessThan(20_000)
-2	raw	src/tests/hostile/security-bounds.test.ts	0	expect(atFloor.ms as number).toBeLessThan(Math.max(5_000, 4 * (six.ms as number)))
-2	raw	src/tests/hostile/security-bounds.test.ts	0	expect(atLimit.ms as number).toBeLessThan(Math.max(3_000, 4 * (six.ms as number)))
-2	raw	src/tests/hostile/security-bounds.test.ts	0	expect(v.ms as number, fixture).toBeLessThan(1_000)
-2	raw	src/tests/hostile/security-bounds.test.ts	0	expect(v.ms as number).toBeLessThan(1_000)
-2	raw	src/tests/hostile/security-bounds.test.ts	0	expect(v.ms as number).toBeLessThan(5_000)
 2	raw	src/tests/hostile/security-legit-headroom.test.ts	0	expect(Date.now() - t0, name).toBeLessThan(ACCESS_DEADLINE_MS / 100)
 2	raw	src/tests/hostile/security-verdicts.test.ts	0	expect(Date.now() - t0).toBeLessThan(5_000)
-2	raw	src/tests/hostile/xref-duplicates.test.ts	0	expect(ms).toBeLessThan(1000)
-2	raw	src/tests/hostile/xref-duplicates.test.ts	0	expect(ms).toBeLessThan(3000)
 1b	raw	src/tests/long-child.ts	0	Date.now() - started < timeoutMs
 1b	raw	src/tests/long-child.ts	1	Date.now() - started < timeoutMs
 1a	raw	src/tests/poll-leak-guard.ts	0	count() > 0 && realDateNow() < deadline
