@@ -188,7 +188,7 @@ function OcrCombined({
     // with it, while the server kept running it (review of 7b498d92).
     onStart();
     await run(async (controls): Promise<OcrWorkerResult> => {
-      const { buildOcrPdf, ocrPdfName } =
+      const { ocrCombineDeps, ocrPdfName } =
         await import("@/lib/pdf/ocr-photo-pdf");
       const sources = await Promise.all(
         files.map(async (file) => ({
@@ -199,7 +199,7 @@ function OcrCombined({
       );
       let bytes: Uint8Array;
       try {
-        bytes = await buildOcrPdf(sources);
+        bytes = await ocrCombineDeps.build(sources);
       } catch (err) {
         return {
           ok: false,

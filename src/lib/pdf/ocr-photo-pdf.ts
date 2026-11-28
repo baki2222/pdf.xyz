@@ -138,6 +138,17 @@ export async function buildOcrPdf(
   return out.save();
 }
 
+/**
+ * What the combined run calls to make its PDF: a swappable seam, so a test can
+ * hand it a made PDF larger than its files (a PNG is stored losslessly) without
+ * a `vi.mock`, which would leave the batch evaluated bound to a stub for later
+ * files (`src/tests/mock-isolation.test.ts`; `chatWithPdfDeps` is the same
+ * shape).
+ */
+export const ocrCombineDeps: {
+  build: (sources: readonly OcrPdfSource[]) => Promise<Uint8Array>;
+} = { build: buildOcrPdf };
+
 /** The name the made PDF is uploaded under, so the result is named after it. */
 export function ocrPdfName(
   sources: readonly Pick<OcrPdfSource, "name">[],

@@ -132,24 +132,11 @@ function worker(status: WorkerStatus, { hold = false } = {}) {
   return net;
 }
 
-/**
- * The made PDF, when a test needs it larger than its files (a PNG is stored
- * losslessly): `null` builds it for real.
- */
-let builtOverride: Uint8Array | null = null;
-vi.mock("@/lib/pdf/ocr-photo-pdf", async (importOriginal) => {
-  const real = await importOriginal<typeof photoPdf>();
-  return {
-    ...real,
-    buildOcrPdf: (...args: Parameters<typeof real.buildOcrPdf>) =>
-      builtOverride
-        ? Promise.resolve(builtOverride)
-        : real.buildOcrPdf(...args),
-  };
-});
+/** The real builder, put back after a test swaps it (`ocrCombineDeps`). */
+const realBuild = photoPdf.ocrCombineDeps.build;
 
 afterEach(() => {
-  builtOverride = null;
+  photoPdf.ocrCombineDeps.build = realBuild;
   cleanup();
   resetTelemetry();
   resetAnnouncer();
@@ -305,9 +292,8 @@ describe("OCR PDF: Combine into one PDF", { timeout: 30_000 }, () => {
   it("a made PDF over the ceiling (files under it) is refused after the build, nothing uploaded", async () => {
     const net = worker(statusWith(["eng"]));
     // Not allocated: only its length is read before the upload.
-    builtOverride = {
-      byteLength: OCR_COMBINE_CEILING + 1,
-    } as unknown as Uint8Array;
+    photoPdf.ocrCombineDeps.build = async () =>
+      ({ byteLength: OCR_COMBINE_CEILING + 1 }) as unknown as Uint8Array;
     await drop([jpg("one.jpg"), jpg("two.jpg")]);
     fireEvent.click(await combineBox());
     const run = await screen.findByRole("button", {
