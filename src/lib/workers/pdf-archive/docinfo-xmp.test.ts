@@ -85,6 +85,28 @@ describe("widenedValue: what is now carried", () => {
     expect(widenedValue(`a${String.fromCharCode(7)}b`)).toBeUndefined();
   });
 
+  // Review of pdf-to-pdfa#3 (2026-11-28): only C0 and C1 controls were
+  // refused, so a noncharacter (U+FFFE, U+FFFF, U+FDD0), which XML 1.0 does
+  // not allow, was written raw into the XMP, and an unpaired surrogate
+  // became U+FFFD in the XMP while the UTF-16 Info kept it — the two
+  // disagreed. Built from char codes (a raw U+FFFE does not survive the
+  // tool layer, see MEMORY "invisible characters").
+  it("refuses noncharacters and unpaired surrogates; keeps a paired one", () => {
+    const c = String.fromCharCode;
+    for (const bad of [
+      `Report${c(0xfffe)}x`,
+      `Report${c(0xffff)}x`,
+      `Report${c(0xfdd0)}x`,
+      `Bad${c(0xd800)}`,
+      `Bad${c(0xdc00)}x`,
+      `Bad${c(0xdc00)}${c(0xd800)}`,
+    ])
+      expect(widenedValue(bad), JSON.stringify(bad)).toBeUndefined();
+    // POSITIVE CONTROL: a smiley is a surrogate PAIR, one character.
+    const smile = `Team ${c(0xd83d, 0xde00)}`;
+    expect(widenedValue(smile)).toBe(smile);
+  });
+
   it("reads the four fields from an input", async () => {
     const doc = await PDFDocument.create();
     doc.addPage();

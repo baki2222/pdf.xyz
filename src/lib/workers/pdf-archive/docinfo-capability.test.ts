@@ -7,10 +7,13 @@
  * Ghostscript at all fails. The real Ghostscript runs on the worker image.
  */
 import { describe, expect, it, vi } from "vitest";
+import { PDFDocument, PDFName } from "pdf-lib";
 import {
   holdsProbeDocInfo,
+  PDFA_DOCINFO_PROBE,
   provesPdfaUnicodeDocInfo,
 } from "./docinfo-capability";
+import { rewriteDocInfo } from "./docinfo-xmp";
 import { createNativeGhostscriptPdfARunner } from "./native";
 import {
   DEFAULT_PDFA_ICC_PROFILE,
@@ -70,5 +73,27 @@ describe("provesPdfaUnicodeDocInfo", () => {
 
   it("CONTROL: the reader refuses a file without the fields", async () => {
     expect(await holdsProbeDocInfo(await gsLikePdfA())).toBe(false);
+  });
+
+  // Review of pdf-to-pdfa#3 (2026-11-28): the after-Ghostscript rewrite is a
+  // whole-file pdf-lib re-save of a PDF/A file, and nothing checked that the
+  // re-saved file still declares PDF/A. The reader now requires the
+  // declarations too (`inspectPdfAMarkers`), so a rewrite that loses them
+  // proves nothing. Not a validator: veraPDF is not in the image.
+  it("POSITIVE: the probe's fields written into a PDF/A file are held", async () => {
+    const rewritten = await rewriteDocInfo(
+      await gsLikePdfA(),
+      PDFA_DOCINFO_PROBE,
+    );
+    expect(await holdsProbeDocInfo(rewritten)).toBe(true);
+  });
+
+  it("the same file with its output intent removed is refused", async () => {
+    const doc = await PDFDocument.load(
+      await rewriteDocInfo(await gsLikePdfA(), PDFA_DOCINFO_PROBE),
+      { updateMetadata: false },
+    );
+    doc.catalog.delete(PDFName.of("OutputIntents"));
+    expect(await holdsProbeDocInfo(await doc.save())).toBe(false);
   });
 });

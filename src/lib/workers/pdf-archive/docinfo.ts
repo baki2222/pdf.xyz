@@ -68,7 +68,8 @@ export function carriedValue(raw: string | undefined): string | undefined {
  * The value as the AFTER-Ghostscript writer carries it (audit wave 2,
  * pdf-to-pdfa#3, `./docinfo-xmp`): any printable text, any script, round
  * brackets and backslashes included; line breaks and tabs become spaces; a
- * value with any other control character, or longer than
+ * value with any other control character, a Unicode noncharacter or an
+ * unpaired surrogate (review 2026-11-28), or longer than
  * {@link MAX_CARRIED_FIELD_CHARS}, is not carried.
  */
 export function widenedValue(raw: string | undefined): string | undefined {
@@ -79,6 +80,13 @@ export function widenedValue(raw: string | undefined): string | undefined {
   for (const ch of text) {
     const code = ch.codePointAt(0)!;
     if (code < 0x20 || (code >= 0x7f && code < 0xa0)) return undefined;
+    // An unpaired surrogate (iterated alone: a pair is one code point), and
+    // the Unicode noncharacters (U+FDD0..U+FDEF, and the last two code
+    // points of every plane): XML 1.0 forbids them in the XMP, and the
+    // UTF-16 Info and the UTF-8 XMP would not hold the same text.
+    if (code >= 0xd800 && code <= 0xdfff) return undefined;
+    if ((code >= 0xfdd0 && code <= 0xfdef) || (code & 0xfffe) === 0xfffe)
+      return undefined;
   }
   return text;
 }

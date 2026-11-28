@@ -22,6 +22,7 @@ import {
   runPdfAImageProof,
 } from "@/lib/workers/pdf-archive/image-proof";
 import { qpdfWroteOutput } from "@/lib/workers/qpdf-exit";
+import { provesPdfaUnicodeDocInfo } from "@/lib/workers/pdf-archive/docinfo-capability";
 
 /**
  * The proof input plus a line of standard-font text. pdf-lib does NOT embed
@@ -103,6 +104,17 @@ proofInputWithText()
       }),
     }),
   )
+  // Review of pdf-to-pdfa#3 (2026-11-28): the start-up proof that publishes
+  // pdfaUnicodeDocInfo, run here on THIS image's real Ghostscript, so a
+  // carried-fields rewrite that fails on the image reddens the container job
+  // before the static copy (which states the wide rule) is served.
+  .then(async (code) => {
+    const carried = await provesPdfaUnicodeDocInfo(process.env);
+    console.log(
+      `carried title, author, subject and keywords (pdfaUnicodeDocInfo): ${carried ? "ok" : "FAIL"}`,
+    );
+    return code === 0 && !carried ? 1 : code;
+  })
   .then((code) => process.exit(code))
   .catch((error: Error) => {
     console.error(`FATAL: ${error.message}`);

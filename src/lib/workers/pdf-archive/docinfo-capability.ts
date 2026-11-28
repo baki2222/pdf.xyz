@@ -30,6 +30,7 @@ import { createProcessorRegistry } from "../processor";
 import { resolveWorkerSoundness, type SoundnessGate } from "../soundness";
 import { nativePdfArchiveDeps } from "./native";
 import type { PdfArchiveDeps } from "./engine";
+import { inspectPdfAMarkers } from "./pdfa-markers";
 
 /** What the probe writes into its input, each a value gs 10.00.0 drops. */
 export const PDFA_DOCINFO_PROBE = {
@@ -77,8 +78,12 @@ async function probeInput(): Promise<Uint8Array> {
   return doc.save();
 }
 
-/** True when `pdf`'s Info AND XMP hold every probe value exactly. */
+/** True when `pdf` still declares PDF/A and its Info AND XMP hold every probe value exactly. */
 export async function holdsProbeDocInfo(pdf: Uint8Array): Promise<boolean> {
+  // Still a PDF/A file after the re-save (review 2026-11-28): both
+  // declarations, read by the same predicate the engine and the production
+  // proof use. A declaration check, not a validator.
+  if (!(await inspectPdfAMarkers(pdf)).ok) return false;
   const doc = await PDFDocument.load(pdf, { updateMetadata: false });
   if (
     doc.getTitle() !== PDFA_DOCINFO_PROBE.Title ||
