@@ -987,6 +987,11 @@ function placedPage(
    * held, or breaks the share cap).
    */
   const judge = (items: readonly RunItem[]): number | Joins | null => {
+    // The seam is told HERE, inside the judge, so a call from anywhere is
+    // counted, not only the budgeted one below (witness audit 2026-11-22: a
+    // judge called per held continuation went unseen while told at the
+    // call site).
+    policy.onJudge?.(items.length);
     const held = new Set<FlowLine>();
     for (const item of items)
       if (item.cont) for (const l of item.band) held.add(l.line);
@@ -1125,7 +1130,6 @@ function placedPage(
         continue;
       }
       judged += items.length;
-      policy.onJudge?.(items.length);
       const verdict = judge(items);
       if (typeof verdict === "number") {
         // The failing continuation is an ordinary line; each side is

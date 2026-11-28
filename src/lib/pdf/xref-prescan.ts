@@ -170,6 +170,21 @@ type Token =
   | { k: "bad" }
   | { k: "end" };
 
+/**
+ * Bytes every {@link Lexer} has stepped over since the module loaded,
+ * charged to a budget or not. `lexed` counts only what was CHARGED; this
+ * counts what was DONE, so a test can hold the two together and see lexing
+ * that bypasses the budget, which no runner's speed moves (CI-flake audit
+ * lane 2: a re-lex outside the budget ran 21x slower with `lexed`
+ * byte-identical).
+ */
+let lexerSteps = 0;
+
+/** For tests: {@link lexerSteps}. */
+export function prescanLexerSteps(): number {
+  return lexerSteps;
+}
+
 /** pdf.js's lexer, for the tokens a dictionary is made of. */
 class Lexer {
   pos: number;
@@ -186,6 +201,15 @@ class Lexer {
   }
 
   next(): Token {
+    const from = this.pos;
+    try {
+      return this.step();
+    } finally {
+      lexerSteps += this.pos - from;
+    }
+  }
+
+  private step(): Token {
     let c = this.at(this.pos);
     for (;;) {
       if (c < 0) return { k: "end" };

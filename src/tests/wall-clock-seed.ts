@@ -28,26 +28,13 @@ export const WALL_CLOCK_SEED: readonly SeedEntry[] = [
     code: "expect(performance.now() - typedAt).toBeLessThan(500)",
     auditLine: 259,
   },
-  {
-    file: "src/components/tools/runner/batch/worker-batch.test.ts",
-    code: "expect(result.current.resumeAt).toBeGreaterThanOrEqual(before + 1000)",
-    auditLine: 375,
-  },
-  {
-    file: "src/components/tools/runner/batch/worker-batch.test.ts",
-    code: "expect(result.current.resumeAt).toBeLessThan(before + 1000 + 2000)",
-    auditLine: 376,
-  },
-  {
-    file: "src/components/tools/runner/batch/worker-batch.test.ts",
-    code: "expect(at).toBeGreaterThanOrEqual(now + 30_000)",
-    auditLine: 516,
-  },
-  {
-    file: "src/components/tools/runner/batch/worker-batch.test.ts",
-    code: "expect(at).toBeLessThan(now + 31_000)",
-    auditLine: 517,
-  },
+  // HISTORY: the four audit sites of worker-batch.test.ts (audit lines 375,
+  // 376, 516, 517: resumeAt against `before + 1000` with a 2 s slack, and
+  // `at` against `now + 30_000` with a 1 s slack) were replaced on
+  // 2026-11-21 (lane 4) by EXACT equalities on a clock that stands still
+  // (`vi.useFakeTimers({ toFake: ["Date"] })`): `resumeAt` is
+  // `now + 30_000`, to the millisecond. No runner speed is left in them, so
+  // nothing here holds them.
   {
     file: "src/deploy/healthcheck-budget.test.ts",
     code: "expect(run.ms).toBeGreaterThanOrEqual(150)",

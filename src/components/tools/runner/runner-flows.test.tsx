@@ -28,6 +28,18 @@ import { documentLevelState, wholeDocumentPdf } from "@/tests/whole-document";
 import { PDFDocument, StandardFonts, degrees } from "pdf-lib";
 
 /**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
+ *
+ * CI: the slowest test here took 571 ms (run 44373418087, a failing run; 108 CI
+ * runs, passing and failing, to 11-21). A wait cannot outlast its test, so 3 s
+ * is at least 5.2x any wait in it, and it stays below the test's own timeout,
+ * so a wait that times out fails with its DOM dump.
+ */
+const WAIT_MS = 3_000;
+
+/**
  * Whole runners, driven the way a person drives them: pick a file, press the
  * button, read what comes back, press "Start over". Each case here failed on
  * the code before it — the unit under each (a reader, a hook's `reset`) was
@@ -85,10 +97,10 @@ describe("PDF to Text reads a restricted (owner-only) PDF end to end", () => {
     pick(container, [
       fileOf(OWNER_ONLY_PDF_BASE64, "statement.pdf", "application/pdf"),
     ]);
-    await screen.findAllByText(/3 pages/, undefined, { timeout: 10_000 });
+    await screen.findAllByText(/3 pages/, {}, { timeout: 10_000 });
     expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /extract/i }));
-    await screen.findByText("Text extracted", undefined, { timeout: 10_000 });
+    await screen.findByText("Text extracted", {}, { timeout: 10_000 });
     expect(container.textContent).toContain("OWNER-P2");
   }, 30_000);
 
@@ -99,10 +111,10 @@ describe("PDF to Text reads a restricted (owner-only) PDF end to end", () => {
     pick(container, [
       fileOf(OWNER_ONLY_OBJSTM_PDF_BASE64, "e-invoice.pdf", "application/pdf"),
     ]);
-    await screen.findAllByText(/3 pages/, undefined, { timeout: 10_000 });
+    await screen.findAllByText(/3 pages/, {}, { timeout: 10_000 });
     expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /extract/i }));
-    await screen.findByText("Text extracted", undefined, { timeout: 10_000 });
+    await screen.findByText("Text extracted", {}, { timeout: 10_000 });
     for (const text of OBJSTM_FIXTURE_TEXT) {
       expect(container.textContent).toContain(text);
     }
@@ -113,9 +125,7 @@ describe("PDF to Text reads a restricted (owner-only) PDF end to end", () => {
     pick(container, [
       fileOf(USER_PASSWORD_PDF_BASE64, "locked.pdf", "application/pdf"),
     ]);
-    const alert = await screen.findByRole("alert", undefined, {
-      timeout: 10_000,
-    });
+    const alert = await screen.findByRole("alert", {}, { timeout: 10_000 });
     expect(alert.textContent).toMatch(/password-protected/);
     expect(alert.textContent).not.toMatch(/No password given/);
   }, 30_000);
@@ -147,7 +157,7 @@ async function extractThrough(file: File) {
       { timeout: 10_000 },
     ),
   );
-  await screen.findByRole("group", undefined, { timeout: 10_000 });
+  await screen.findByRole("group", {}, { timeout: 10_000 });
   return container;
 }
 
@@ -205,13 +215,15 @@ describe('"Start over" returns to the input, not to the finished result', () => 
       target: { value: "hello" },
     });
     fireEvent.click(screen.getByRole("button", { name: /create pdf/i }));
-    await screen.findByText("PDF created", undefined, { timeout: 10_000 });
+    await screen.findByText("PDF created", {}, { timeout: 10_000 });
     fireEvent.click(screen.getByRole("button", { name: "Start over" }));
-    await waitFor(() => expect(screen.queryByText("PDF created")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("PDF created")).toBeNull(), {
+      timeout: WAIT_MS,
+    });
     const box =
       screen.getByPlaceholderText<HTMLTextAreaElement>(/plain text here/);
     expect(box.value).toBe("");
-  });
+  }, 30_000);
 
   it("Markdown to PDF", async () => {
     const { container } = renderRunner(<MarkdownToPdfRunner />);
@@ -219,11 +231,13 @@ describe('"Start over" returns to the input, not to the finished result', () => 
     if (!box) throw new Error("no Markdown editor rendered");
     fireEvent.change(box, { target: { value: "# Title" } });
     fireEvent.click(screen.getByRole("button", { name: /create pdf/i }));
-    await screen.findByText("PDF created", undefined, { timeout: 10_000 });
+    await screen.findByText("PDF created", {}, { timeout: 10_000 });
     fireEvent.click(screen.getByRole("button", { name: "Start over" }));
-    await waitFor(() => expect(screen.queryByText("PDF created")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("PDF created")).toBeNull(), {
+      timeout: WAIT_MS,
+    });
     expect(container.querySelector("textarea")?.value).toBe("");
-  });
+  }, 30_000);
 
   for (const kind of ["png", "jpg"] as const) {
     it(`${kind.toUpperCase()} to PDF`, async () => {
@@ -232,22 +246,24 @@ describe('"Start over" returns to the input, not to the finished result', () => 
       // A rejected pick first, so the old "x: Choose … images only." note is
       // on screen to be cleared too.
       pick(container, [new File(["x"], "notes.txt", { type: "text/plain" })]);
-      await screen.findByText(/notes\.txt/);
+      await screen.findByText(/notes\.txt/, {}, { timeout: WAIT_MS });
       pick(container, [
         kind === "png"
           ? fileOf(PNG_1X1, "shot.png", "image/png")
           : fileOf(JPG_1X1, "photo.jpg", "image/jpeg"),
       ]);
-      await screen.findByText(/1 image$/);
+      await screen.findByText(/1 image$/, {}, { timeout: WAIT_MS });
       fireEvent.click(screen.getByRole("button", { name: /create pdf/i }));
-      await screen.findByText(`${label} PDF created`, undefined, {
-        timeout: 10_000,
-      });
+      await screen.findByText(`${label} PDF created`, {}, { timeout: 10_000 });
       fireEvent.click(screen.getByRole("button", { name: "Start over" }));
-      await screen.findByText(`Drop ${label} images here, or`);
+      await screen.findByText(
+        `Drop ${label} images here, or`,
+        {},
+        { timeout: WAIT_MS },
+      );
       expect(screen.queryByText(`${label} PDF created`)).toBeNull();
       expect(screen.queryByText(/notes\.txt/)).toBeNull();
-    });
+    }, 30_000);
   }
 });
 
@@ -259,11 +275,11 @@ describe("the image tools take a mixed batch, and judge files by their bytes", (
         fileOf(PNG_1X1, "shot.png", "image/png"),
         fileOf(JPG_1X1, "photo.jpg", "image/jpeg"),
       ]);
-      await screen.findByText(/2 images$/);
+      await screen.findByText(/2 images$/, {}, { timeout: WAIT_MS });
       expect(screen.queryByRole("alert")).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: /create pdf/i }));
-      await screen.findByText(/^2 images · /, undefined, { timeout: 10_000 });
-    });
+      await screen.findByText(/^2 images · /, {}, { timeout: 10_000 });
+    }, 30_000);
   }
 
   /** The HTML `accept` rule: `.ext` by name, `type/*` by prefix, else exact. */
@@ -336,8 +352,8 @@ describe("the image tools take a mixed batch, and judge files by their bytes", (
       });
       pick(container, [fileOf(PNG_1X1, "shot.png", "image/png"), gone]);
 
-      await screen.findByText(/1 image$/);
-      const alert = await screen.findByRole("alert");
+      await screen.findByText(/1 image$/, {}, { timeout: WAIT_MS });
+      const alert = await screen.findByRole("alert", {}, { timeout: WAIT_MS });
       expect(alert.textContent).toContain("gone.png");
       expect(alert.textContent).toContain(
         "Could not read this file — pick it again.",
@@ -365,7 +381,7 @@ describe("the image tools take a mixed batch, and judge files by their bytes", (
       0,
     ]);
     pick(container, [new File([heic], "pic.png", { type: "image/png" })]);
-    const alert = await screen.findByRole("alert");
+    const alert = await screen.findByRole("alert", {}, { timeout: WAIT_MS });
     expect(alert.textContent).toMatch(/"pic\.png" is a HEIC image/);
     expect(screen.queryByText(/1 image$/)).toBeNull();
   });
@@ -383,7 +399,7 @@ describe("the image tools take a mixed batch, and judge files by their bytes", (
       0,
     ]);
     pick(container, [new File([webp], "pic.png", { type: "image/png" })]);
-    await screen.findByText(/1 image$/);
+    await screen.findByText(/1 image$/, {}, { timeout: WAIT_MS });
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });
@@ -426,10 +442,10 @@ describe("Rotate PDF downloads the whole document, turned", () => {
       pick(container, [
         new File([bytes.slice()], "ledger.pdf", { type: "application/pdf" }),
       ]);
-      await screen.findAllByText(/3 pages/, undefined, { timeout: 10_000 });
+      await screen.findAllByText(/3 pages/, {}, { timeout: 10_000 });
       fireEvent.click(screen.getByRole("button", { name: "Right" }));
       fireEvent.click(screen.getByRole("button", { name: /apply rotation/i }));
-      await screen.findByText("PDF rotated", undefined, { timeout: 10_000 });
+      await screen.findByText("PDF rotated", {}, { timeout: 10_000 });
       fireEvent.click(
         screen.getByRole("button", { name: /download rotated pdf/i }),
       );
@@ -484,9 +500,7 @@ describe("Organize PDF downloads the whole document when it removes no page", ()
         ),
       );
       fireEvent.click(screen.getByRole("button", { name: /apply & export/i }));
-      await screen.findByText("Pages organized", undefined, {
-        timeout: 10_000,
-      });
+      await screen.findByText("Pages organized", {}, { timeout: 10_000 });
       fireEvent.click(
         screen.getByRole("button", { name: /download organized pdf/i }),
       );
@@ -546,13 +560,13 @@ describe("Organize PDF inserts a blank page where the tile says", () => {
         { timeout: 10_000 },
       );
       // The sizes arrive after the board; the button waits for them.
-      await waitFor(() => expect(insert).not.toHaveAttribute("aria-disabled"));
+      await waitFor(() => expect(insert).not.toHaveAttribute("aria-disabled"), {
+        timeout: WAIT_MS,
+      });
       fireEvent.click(insert);
       expect(screen.getByText("Blank page", { exact: true })).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: /apply & export/i }));
-      await screen.findByText("Pages organized", undefined, {
-        timeout: 10_000,
-      });
+      await screen.findByText("Pages organized", {}, { timeout: 10_000 });
       fireEvent.click(
         screen.getByRole("button", { name: /download organized pdf/i }),
       );
@@ -614,7 +628,7 @@ describe("Organize PDF's result screen describes the file that was built", () =>
     expect(screen.getByText("4 pages in output")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /apply & export/i }));
-    await screen.findByText("Pages organized", undefined, { timeout: 10_000 });
+    await screen.findByText("Pages organized", {}, { timeout: 10_000 });
     expect(screen.getByText(/^4 pages in your new order/)).toBeTruthy();
 
     fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
@@ -673,7 +687,7 @@ describe("Organize PDF's result screen describes the file that was built", () =>
       characterData: true,
     });
     fireEvent.click(screen.getByRole("button", { name: /apply & export/i }));
-    await screen.findByText("Pages organized", undefined, { timeout: 10_000 });
+    await screen.findByText("Pages organized", {}, { timeout: 10_000 });
     observer.disconnect();
     // Health: the key really was pressed at the commit, not after.
     expect(pressedAtCommit).toBe(true);
@@ -727,10 +741,16 @@ describe("Text and Markdown to PDF read a file in the encoding it was saved in",
       pick(container, [
         new File([new Uint8Array(CP1252)], runner.file, { type: runner.type }),
       ]);
-      await waitFor(() => expect(box().value).toBe("café “q”"));
+      await waitFor(() => expect(box().value).toBe("café “q”"), {
+        timeout: WAIT_MS,
+      });
       expect(box().value).not.toContain(FFFD);
       // The guess is named where the user checks the text, and NOT as an error.
-      const note = await screen.findByText(/read as Windows-1252/);
+      const note = await screen.findByText(
+        /read as Windows-1252/,
+        {},
+        { timeout: WAIT_MS },
+      );
       expect(note.closest('[role="alert"]')).toBeNull();
 
       pick(container, [
@@ -738,7 +758,9 @@ describe("Text and Markdown to PDF read a file in the encoding it was saved in",
           type: runner.type,
         }),
       ]);
-      await waitFor(() => expect(box().value).toBe("Hi café"));
+      await waitFor(() => expect(box().value).toBe("Hi café"), {
+        timeout: WAIT_MS,
+      });
       expect(box().value).not.toContain(String.fromCharCode(0));
       // A declared encoding is not a guess, so the Windows-1252 note is gone.
       expect(screen.queryByText(/read as Windows-1252/)).toBeNull();
@@ -746,7 +768,11 @@ describe("Text and Markdown to PDF read a file in the encoding it was saved in",
       // Second, independent bound: damaged text however it arrived is flagged.
       expect(screen.queryByText(/could not be read/)).toBeNull();
       fireEvent.change(box(), { target: { value: `caf${FFFD} ok` } });
-      await screen.findByText(/1 character in this text could not be read/);
+      await screen.findByText(
+        /1 character in this text could not be read/,
+        {},
+        { timeout: WAIT_MS },
+      );
     }, 30_000);
   }
 });
@@ -773,9 +799,11 @@ describe("Text to PDF keeps a file's form feeds and names pasted control charact
         new File(["page one\fpage two"], "report.txt", { type: "text/plain" }),
       ]);
       const box = () => container.querySelector("textarea")!;
-      await waitFor(() => expect(box().value).toBe("page one\fpage two"));
+      await waitFor(() => expect(box().value).toBe("page one\fpage two"), {
+        timeout: WAIT_MS,
+      });
       fireEvent.click(screen.getByRole("button", { name: /create pdf/i }));
-      await screen.findByText("PDF created", undefined, { timeout: 10_000 });
+      await screen.findByText("PDF created", {}, { timeout: 10_000 });
       fireEvent.click(screen.getByRole("button", { name: /download pdf/i }));
       expect(downloads).toHaveLength(1);
       const doc = await PDFDocument.load(
@@ -798,6 +826,8 @@ describe("Text to PDF keeps a file's form feeds and names pasted control charact
     });
     await screen.findByText(
       "1 control character is left out of the PDF — they have no printable shape.",
+      {},
+      { timeout: WAIT_MS },
     );
   });
 });

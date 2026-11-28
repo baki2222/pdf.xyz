@@ -54,6 +54,18 @@ import { TranslateWorkerPanel } from "@/components/tools/translate-worker-panel"
 import { AiExtractWorkerPanel } from "@/components/tools/ai-extract-worker-panel";
 import { ChatWithPdfWorkerPanel } from "@/components/tools/chat-with-pdf-worker-panel";
 
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
+ *
+ * CI: the slowest test here took 685 ms (run 44346859633, a failing run; 108 CI
+ * runs, passing and failing, to 11-21). A wait cannot outlast its test, so 3 s
+ * is at least 4.3x any wait in it, and it stays below the test's own timeout,
+ * so a wait that times out fails with its DOM dump.
+ */
+const WAIT_MS = 3_000;
+
 const ts = createRequire(import.meta.url)("typescript") as typeof TS;
 const HARNESS = "scripts/worker-prove-tools.ts";
 
@@ -315,11 +327,18 @@ async function drop(bytes: Uint8Array, name: string): Promise<void> {
 }
 
 async function press(name: RegExp): Promise<void> {
-  const button = await screen.findByRole("button", { name });
-  await waitFor(() => {
-    expect(button).not.toBeDisabled();
-    expect(button).not.toHaveAttribute("aria-disabled", "true");
-  });
+  const button = await screen.findByRole(
+    "button",
+    { name },
+    { timeout: WAIT_MS },
+  );
+  await waitFor(
+    () => {
+      expect(button).not.toBeDisabled();
+      expect(button).not.toHaveAttribute("aria-disabled", "true");
+    },
+    { timeout: WAIT_MS },
+  );
   fireEvent.click(button);
 }
 
@@ -390,7 +409,7 @@ async function panelJobBodies(
         </InToolPage>,
       );
       await drop(bytes, spec.name);
-      await screen.findByText(spec.name);
+      await screen.findByText(spec.name, {}, { timeout: WAIT_MS });
       await press(/translate pdf/i);
       break;
     case "ai-extract":
@@ -401,7 +420,11 @@ async function panelJobBodies(
       );
       await drop(bytes, spec.name);
       fireEvent.change(
-        await screen.findByRole("textbox", { name: "Field 1 name" }),
+        await screen.findByRole(
+          "textbox",
+          { name: "Field 1 name" },
+          { timeout: WAIT_MS },
+        ),
         { target: { value: "region" } },
       );
       await press(/extract data/i);
@@ -424,9 +447,12 @@ async function panelJobBodies(
       );
       await drop(bytes, spec.name);
       for (let turn = 1; turn <= turns; turn += 1) {
-        fireEvent.change(await screen.findByRole("textbox"), {
-          target: { value: `Question ${turn}?` },
-        });
+        fireEvent.change(
+          await screen.findByRole("textbox", {}, { timeout: WAIT_MS }),
+          {
+            target: { value: `Question ${turn}?` },
+          },
+        );
         await press(/ask the pdf|send follow-up/i);
         await waitFor(() => expect(network.jobBodies).toHaveLength(turn), {
           timeout: 15_000,
@@ -439,6 +465,8 @@ async function panelJobBodies(
             (_, el) =>
               el?.tagName === "P" &&
               el.textContent === "They are platform notes [p.1].",
+            {},
+            { timeout: WAIT_MS },
           );
       }
       break;

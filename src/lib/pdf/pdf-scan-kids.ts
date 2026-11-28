@@ -120,7 +120,11 @@ export class KidsCounter {
     this.escaped = false;
   }
 
+  /** Bytes fed, never reset: the hostile suite's work count (pdfjs-guard.ts `pdfjsScanWork`). */
+  fed = 0;
+
   feed(chunk: Uint8Array): void {
+    this.fed += chunk.length;
     let i = 0;
     while (i < chunk.length && !this.stopped) {
       const s = this.state;

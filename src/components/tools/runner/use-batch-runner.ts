@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -130,13 +131,25 @@ export function useBatchRunner<R>(
   const runningRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
+  // The files stay on a PASSIVE effect, in step with the rows: a new
+  // selection re-seeds the rows in the passive effect below (declared after
+  // this one), so for one commit the old rows are drawn under the new
+  // `units`. A press then must look the drawn rows up among the files they
+  // came from; synced in a layout effect, this ran ahead and a press ran
+  // nothing (use-batch-runner.test.tsx, "a press in the commit that brings
+  // new files ...").
   const unitsRef = useRef(units);
   useEffect(() => {
     unitsRef.current = units;
   }, [units]);
-  // The rows as last rendered: what a press of Run or Retry acts on.
+  // The rows as last rendered: what a press of Run or Retry acts on. Synced
+  // in a LAYOUT effect, inside the commit: a passive effect runs in a later
+  // task (React defers it behind requestPaint), so a press landing on
+  // freshly drawn DOM before that task read the PREVIOUS rows, and "Retry
+  // failed (1)" retried nothing. batch-view.dom.test.tsx presses in the
+  // same microtask the button appears in, to keep this so.
   const stateRef = useRef(state);
-  useEffect(() => {
+  useLayoutEffect(() => {
     stateRef.current = state;
   }, [state]);
   // Files taken out before Run stay out when the batch is run again.
