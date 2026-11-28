@@ -245,4 +245,17 @@ describe("the page says what the panel does", () => {
     expect(steps).toMatch(/checks the file first, without sending it/);
     expect(steps).toMatch(/stops there and sends nothing/);
   });
+
+  // Review 2026-11-28 finding 13: an answer still called the field
+  // "Current password" for a restricted file, which the panel now labels
+  // with the owner label. Any answer naming the default label must name
+  // the relabel too.
+  it("an FAQ answer that names Current password also names the owner label", async () => {
+    const { default: content } = await import("@/lib/tools/content/unlock-pdf");
+    const naming = content.faqs.filter((f) =>
+      /Current password|password field is blank/.test(f.a),
+    );
+    expect(naming.length).toBeGreaterThanOrEqual(1);
+    for (const f of naming) expect(f.a).toContain(UNLOCK_OWNER_PASSWORD_LABEL);
+  });
 });

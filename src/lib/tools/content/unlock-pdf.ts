@@ -181,7 +181,7 @@ const content: ToolContent = {
     },
     {
       q: "Which password do I need to enter?",
-      a: "The decryption is done by qpdf, which accepts either of a PDF's two passwords: the user password asked for when the file is opened, or the owner password that governs printing and editing. Because Unlock PDF stays inactive while Current password is blank, a PDF with no open password but locked-down permissions can only be unlocked here with its owner password.",
+      a: "The decryption is done by qpdf, which accepts either of a PDF's two passwords: the user password asked for when the file is opened, or the owner password that governs printing and editing. Because Unlock PDF stays inactive while the password field is blank, a PDF with no open password but locked-down permissions can only be unlocked here with its owner password; for such a file the field is labelled Owner (permissions) password.",
     },
     {
       q: "Why did I get 'The password is incorrect, or this PDF cannot be unlocked with it'?",
