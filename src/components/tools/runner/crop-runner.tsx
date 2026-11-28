@@ -161,6 +161,7 @@ function MarginField({
   max,
   unit,
   onChange,
+  why,
 }: {
   label: string;
   value: number;
@@ -168,38 +169,57 @@ function MarginField({
   max: number;
   unit: LengthUnit;
   onChange: (points: number) => void;
+  /** Why `max` is the most: said when a typed value is held at it. */
+  why: string;
 }) {
   const id = useId();
   const clampPt = (pt: number) => Math.max(0, Math.min(max, pt));
   const step = 1 / 10 ** UNIT_DECIMALS[unit];
+  // A number typed past the most, held at it, and said under the field while
+  // the margin still sits there (review of lane w1a, 2026-11-28: the field
+  // rewrote a typed 395 to 371.5 and said nothing).
+  const [past, setPast] = useState<number | null>(null);
+  const held = past !== null && value === max;
   return (
-    <div className="flex min-w-0 items-end gap-3">
-      <div className="min-w-0 flex-1">
-        <RangeField
-          label={label}
-          value={value}
+    <div className="flex min-w-0 flex-col gap-2">
+      <div className="flex min-w-0 items-end gap-3">
+        <div className="min-w-0 flex-1">
+          <RangeField
+            label={label}
+            value={value}
+            min={0}
+            max={max}
+            onChange={(pt) => {
+              setPast(null);
+              onChange(clampPt(pt));
+            }}
+            format={(pt) => formatLength(pt, unit)}
+          />
+        </div>
+        <label htmlFor={id} className="sr-only">
+          {`${label} in ${unit}`}
+        </label>
+        <input
+          id={id}
+          type="number"
+          inputMode="decimal"
           min={0}
-          max={max}
-          onChange={(pt) => onChange(clampPt(pt))}
-          format={(pt) => formatLength(pt, unit)}
+          max={fromPoints(max, unit)}
+          step={step}
+          value={fromPoints(value, unit)}
+          onChange={(event) => {
+            const pt = toPoints(Number(event.target.value), unit);
+            setPast(pt > max ? pt : null);
+            onChange(clampPt(pt));
+          }}
+          className="border-line text-fg focus:border-accent/40 focus:ring-accent/50 bg-canvas rounded-ctl tnum w-20 shrink-0 border px-2 py-1 text-right text-xs transition outline-none focus:ring-2"
         />
       </div>
-      <label htmlFor={id} className="sr-only">
-        {`${label} in ${unit}`}
-      </label>
-      <input
-        id={id}
-        type="number"
-        inputMode="decimal"
-        min={0}
-        max={fromPoints(max, unit)}
-        step={step}
-        value={fromPoints(value, unit)}
-        onChange={(event) =>
-          onChange(clampPt(toPoints(Number(event.target.value), unit)))
-        }
-        className="border-line text-fg focus:border-accent/40 focus:ring-accent/50 bg-canvas rounded-ctl tnum w-20 shrink-0 border px-2 py-1 text-right text-xs transition outline-none focus:ring-2"
-      />
+      {held && (
+        <p role="status" className="text-muted text-xs">
+          {`${formatLength(past, unit)} is more than ${label} can take, so it is set to ${formatLength(max, unit)}. ${why}`}
+        </p>
+      )}
     </div>
   );
 }
@@ -284,6 +304,19 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
     scopedSizes.length === 0
       ? UNREAD_MAX_MARGIN
       : Math.min(...scopedSizes.map(uniformLimit));
+  // Why a limit is what it is, said when a typed margin is held at it: the
+  // page that sets it, when the chosen pages are not all one size.
+  const limitWhy = (
+    limitOf: (size: { width: number; height: number }) => number,
+  ): string => {
+    const own = `Any deeper and less than ${MIN_CROP_DIMENSION} points of the page would be left.`;
+    if (scopedSizes.length === 0) return own;
+    const values = scopedSizes.map(limitOf);
+    const least = Math.min(...values);
+    if (values.every((v) => v === least)) return own;
+    const page = scoped.filter((i) => !!sizes[i])[values.indexOf(least)]!;
+    return `Page ${page + 1} has the least room for it, so it sets the most. To cut deeper, choose pages that leave it out.`;
+  };
   // Margins the chosen pages cannot all take (a scope widened to a smaller
   // page after they were set) stop the run before it starts, naming the page.
   const misfit =
@@ -461,6 +494,7 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
               value={margins.top}
               max={allSidesLimit}
               unit={unit}
+              why={limitWhy(uniformLimit)}
               onChange={(value) =>
                 setMargins({
                   top: value,
@@ -480,6 +514,7 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
                   value={margins[edge]}
                   max={limits[edge]}
                   unit={unit}
+                  why={limitWhy((size) => edgeLimits(size, margins)[edge])}
                   onChange={(value) =>
                     setMargins((m) => ({ ...m, [edge]: value }))
                   }

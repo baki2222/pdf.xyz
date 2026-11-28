@@ -31,6 +31,7 @@ import { PDFDocument, degrees } from "pdf-lib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { NO_CROP, type CropMargins } from "@/lib/pdf/crop";
+import { formatLength } from "@/lib/pdf/length-units";
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { CropRunner } from "./crop-runner";
 
@@ -423,20 +424,57 @@ describe("CropRunner limits come from the page", () => {
     expect(box.width).toBeCloseTo(A4[0] - 395 - left, 6);
   });
 
-  it("positive control: a margin past the page's own limit is refused before the run", async () => {
+  // Named "is refused before the run" until the review of lane w1a
+  // (2026-11-28): it typed 600 and asserted the clamp, while nothing told the
+  // person their number had been replaced. It is held at the most, and the
+  // field now says so and why.
+  it("positive control: a margin typed past the page's own limit is held at the limit, and the field says why", async () => {
     await openRunner(0, [A4]);
     await sizesRead();
     chooseMode("Per side");
     // The most the right edge can take: the width, less the left margin
     // (24), less the smallest strip a page keeps (24).
     const most = A4[0] - 24 - 24;
+    // Control: no note before anything is typed past it.
+    expect(screen.queryByText(/is more than Right can take/)).toBeNull();
     fireEvent.change(screen.getByLabelText("Right in pt"), {
       target: { value: "600" },
     });
     expect(screen.getByLabelText("Right")).toHaveAttribute("max", String(most));
+    const note = screen.getByText(/is more than Right can take/);
+    // Said politely to a screen reader too.
+    expect(note).toHaveAttribute("role", "status");
+    expect(note).toHaveTextContent(
+      `600 pt is more than Right can take, so it is set to ${formatLength(most, "pt")}.`,
+    );
+    // One page: the reason is the page's own size, not another page.
+    expect(note).not.toHaveTextContent(/choose pages/i);
     const box = await croppedBox();
     // Clamped to the most, not taken: the page keeps its smallest strip.
     expect(box.width).toBeCloseTo(24, 6);
+  });
+
+  it("a margin typed past what a smaller page allows names that page and says how to go deeper", async () => {
+    // Page 1 is A4; page 2 is A5 (419.53 wide), which sets every edge's most.
+    await openRunner(0, [A4, [419.53, 595.28]]);
+    await sizesRead();
+    chooseMode("Per side");
+    const most = Math.floor((419.53 - 24 - 24) * 100) / 100;
+    fireEvent.change(screen.getByLabelText("Right in pt"), {
+      target: { value: "395" },
+    });
+    expect(sliderValue("Right")).toBe(most);
+    const note = screen.getByText(/is more than Right can take/);
+    expect(note).toHaveTextContent(
+      `395 pt is more than Right can take, so it is set to ${formatLength(most, "pt")}.`,
+    );
+    expect(note).toHaveTextContent(/page 2/i);
+    expect(note).toHaveTextContent(/choose pages/i);
+    // A value inside the limit takes the note away.
+    fireEvent.change(screen.getByLabelText("Right in pt"), {
+      target: { value: "100" },
+    });
+    expect(screen.queryByText(/is more than Right can take/)).toBeNull();
   });
 
   it("a margin one page in scope cannot take stops the run and names that page", async () => {
