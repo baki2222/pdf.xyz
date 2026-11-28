@@ -14,7 +14,8 @@
  * get. And value-rich CSVs, converted with Auto and with no import options,
  * must print the same values. And CSVs named with a Cyrillic, a Bengali and
  * a CJK stem must print that stem in the page header and never "input",
- * beside a control named input.csv that must print "input". See
+ * beside a control named input.csv that must print "input". And Landscape
+ * with fit on a wide .csv, .ods and .xls, judged on each PDF. See
  * `src/lib/workers/office-conversion/input-proof.ts`.
  *
  * Exit codes: 0 = proven; 1 = a check failed; 2 = an engine is not available
@@ -22,8 +23,19 @@
  * store, or user document is touched, and nothing it prints is document text
  * beyond the fixtures' own proof words.
  */
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
 import { runOfficeInputProof } from "@/lib/workers/office-conversion/input-proof";
-import { nativeOfficeConversionDeps } from "@/lib/workers/office-conversion/native";
+import {
+  libreOfficeConvertArgs,
+  libreOfficeEnv,
+  nativeOfficeConversionDeps,
+  probeLibreOfficeFromConfig,
+} from "@/lib/workers/office-conversion/native";
+import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conversion/native-config";
 import { pdfOfficeExportDeps } from "@/lib/workers/pdf-office-export/native";
 import {
   OFFICE_INPUT_FIXTURES,
@@ -43,6 +55,34 @@ import {
   CSV_DEFAULT_CASES,
   CSV_FILE_NAME_CASES,
 } from "@/tests/csv-charset-fixtures";
+
+/**
+ * The wide sheet as a real .xls (review of excel-to-pdf#1, 2026-11-28: the
+ * .csv and .ods were proved here, the .xls was not), written from the .ods
+ * by THIS image's LibreOffice, so no binary fixture is checked in. An .xls
+ * is an OLE compound file, D0 CF 11 E0; anything else is refused.
+ */
+async function wideSheetXls(ods: Uint8Array): Promise<Uint8Array> {
+  const config = resolveNativeOfficeConversionConfig(process.env);
+  const binary = probeLibreOfficeFromConfig(config);
+  if (!binary) throw new Error("no LibreOffice to write the .xls from");
+  const dir = await mkdtemp(path.join(tmpdir(), "pdfxyz-xls-"));
+  try {
+    const input = path.join(dir, "wide.ods");
+    await writeFile(input, ods);
+    await promisify(execFile)(
+      binary,
+      libreOfficeConvertArgs(input, dir, null, "xls:MS Excel 97"),
+      { timeout: config.timeoutMs, env: libreOfficeEnv(process.env) },
+    );
+    const out = new Uint8Array(await readFile(path.join(dir, "wide.xls")));
+    if (out[0] !== 0xd0 || out[1] !== 0xcf || out[2] !== 0x11)
+      throw new Error("the written .xls is not an OLE compound file");
+    return out;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
 
 async function main(): Promise<number> {
   const libreoffice = nativeOfficeConversionDeps(process.env).libreoffice;
@@ -71,14 +111,24 @@ async function main(): Promise<number> {
     csvFileNames: CSV_FILE_NAME_CASES,
   });
   for (const line of result.lines) console.log(line);
-  // Audit wave 2 excel-to-pdf#1: Landscape and fit on a .csv and an .ods,
-  // each saved as .xlsx by this image's LibreOffice first, judged on the
-  // PDF by the same verdict the production .xlsx proof uses.
+  // Audit wave 2 excel-to-pdf#1: Landscape and fit on a .csv, an .ods and
+  // an .xls, each saved as .xlsx by this image's LibreOffice first, judged
+  // on the PDF by the same verdict the production .xlsx proof uses.
   let layoutOk = true;
-  for (const [name, bytes] of [
+  const ods = await wideSheetOds();
+  const sheets: [string, Uint8Array][] = [
     ["wide.csv", wideSheetCsv()],
-    ["wide.ods", await wideSheetOds()],
-  ] as const) {
+    ["wide.ods", ods],
+  ];
+  try {
+    sheets.push(["wide.xls", await wideSheetXls(ods)]);
+  } catch (error) {
+    console.log(
+      `page setup (wide.xls): FAIL — ${(error as Error).message.split("\n")[0]}`,
+    );
+    layoutOk = false;
+  }
+  for (const [name, bytes] of sheets) {
     const run = await runOfficeToPdf(
       EXCEL_TO_PDF_TOOL,
       bytes,

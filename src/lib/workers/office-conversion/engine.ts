@@ -45,7 +45,7 @@ export interface LibreOfficePdfRunner {
   convertToPdf(
     input: Uint8Array,
     filename: string,
-    run?: RunControl,
+    run?: OfficeRunControl,
     /** Excel to PDF's page layout; absent is LibreOffice's plain export. */
     layout?: SheetLayout,
     /** A .csv's delimiter and character set (`./csv-import`); absent is Auto. */
@@ -59,9 +59,20 @@ export interface LibreOfficePdfRunner {
   convertToXlsx?(
     input: Uint8Array,
     filename: string,
-    run?: RunControl,
+    run?: OfficeRunControl,
     csv?: CsvImportChoice,
   ): Promise<Uint8Array>;
+}
+
+/**
+ * A run's controls, plus the time limit it SHARES with the job's other
+ * soffice starts (review of excel-to-pdf#1, 2026-11-28). The via-.xlsx path
+ * starts soffice twice; both carry the same `timeLimit` object, the runner
+ * stamps the first start's time on it, and every start gets only what is
+ * left of the one limit, so the job never runs past it.
+ */
+export interface OfficeRunControl extends RunControl {
+  timeLimit?: { startedAt?: number };
 }
 
 export interface OfficeConversionDeps {
@@ -260,6 +271,10 @@ export async function runOfficeToPdf(
     let source = input;
     let name = filename;
     let csvForPdf = csvChosen;
+    // The two starts of the via-.xlsx path share one time limit.
+    const run: OfficeRunControl = viaXlsx
+      ? { ...signalOption(signal), timeLimit: {} }
+      : signalOption(signal);
     if (pageSetup) {
       if (viaXlsx) {
         // A .csv's choices are read HERE, where the CSV is opened; the
@@ -267,7 +282,7 @@ export async function runOfficeToPdf(
         source = await libreoffice.convertToXlsx!(
           input,
           filename,
-          signalOption(signal),
+          run,
           csvChosen ? csv : undefined,
         );
         name = `${filename.slice(0, filename.lastIndexOf("."))}.xlsx`;
@@ -297,18 +312,13 @@ export async function runOfficeToPdf(
       ? await libreoffice.convertToPdf(
           source,
           name,
-          signalOption(signal),
+          run,
           onePage ? layout : undefined,
           csv,
         )
       : onePage
-        ? await libreoffice.convertToPdf(
-            source,
-            name,
-            signalOption(signal),
-            layout,
-          )
-        : await libreoffice.convertToPdf(source, name, signalOption(signal));
+        ? await libreoffice.convertToPdf(source, name, run, layout)
+        : await libreoffice.convertToPdf(source, name, run);
   } catch (error) {
     rethrowIfAttemptAbort(error);
     if (!(error instanceof LibreOfficeRunError))

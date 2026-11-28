@@ -647,6 +647,111 @@ describe("excel-to-pdf orientation and fit-to-width reach the workbook soffice o
     expect(calls[0]![calls[0]!.indexOf("--convert-to") + 1]).toBe("pdf");
   });
 
+  // Review of excel-to-pdf#1 (2026-11-28): a mutant that dropped the CSV
+  // choices on the way to the .xlsx step (convertToXlsx's last argument)
+  // left every test green, so a reader who chose a delimiter or character
+  // set AND page setup silently got auto-detect. The filter the .xlsx step
+  // opens the CSV with must be the one a run without page setup uses.
+  it("a .csv's delimiter and character set reach the .xlsx step: the same filter a run without page setup uses", async () => {
+    const bytes = new TextEncoder().encode("a,b\n1,2\n");
+    const choices = { csvDelimiter: "pipe", csvCharset: "windows-1251" };
+    const setup = { orientation: "landscape", fitColumnsToWidth: true };
+    const via = await runVia("towns.csv", bytes, { ...choices, ...setup });
+    const direct = await runVia("towns.csv", bytes, choices);
+    const auto = await runVia("towns.csv", bytes, setup);
+    const filterOf = (args: readonly string[] | undefined) =>
+      args?.find((x) => x.startsWith("--infilter="));
+    expect(via.result.ok).toBe(true);
+    expect(via.calls).toHaveLength(2);
+    expect(direct.calls).toHaveLength(1);
+    expect(filterOf(direct.calls[0])).toBeDefined();
+    expect(filterOf(via.calls[0])).toBe(filterOf(direct.calls[0]));
+    // CONTROL: on auto the .xlsx step's filter differs, so the comparison
+    // above can see a choice that went missing.
+    expect(filterOf(auto.calls[0])).not.toBe(filterOf(direct.calls[0]));
+  });
+
+  // Review of excel-to-pdf#1 (2026-11-28): the via-.xlsx path started
+  // soffice twice, each with the whole time limit, so a .csv, .xls or .ods
+  // with page setup could run for twice the "120 seconds by default" the
+  // page states. The two starts now share ONE limit. Timed on a fake clock
+  // the stand-in soffice advances; no real time passes.
+  describe("the two soffice starts share one time limit", () => {
+    async function timed(spendMs: number) {
+      let clock = 1_000_000;
+      const timeouts: number[] = [];
+      const exec = vi.fn(
+        async (
+          _bin: string,
+          _args: readonly string[],
+          options: { timeout: number },
+        ) => {
+          timeouts.push(options.timeout);
+          clock += spendMs;
+          return { code: 0, timedOut: false };
+        },
+      );
+      const book = await workbook();
+      const libreoffice = createNativeLibreOfficePdfRunner(
+        {
+          enabled: true,
+          candidates: ["soffice"],
+          overridden: false,
+          timeoutMs: 120_000,
+          maxInputBytes: 1_000_000,
+          maxOutputBytes: 1_000_000,
+          tmpDir: "/tmp",
+        },
+        {
+          exec,
+          now: () => clock,
+          resolveOnPath: (bin) => bin === "soffice",
+          fs: {
+            mkdtemp: async () => "/tmp/pdfxyz-office-1",
+            writeFile: async () => {},
+            readFile: async (file) => (/\.xlsx$/.test(file) ? book : PDF),
+            rm: async () => {},
+          },
+        },
+      );
+      const result = await createOfficeConversionProcessor({
+        libreoffice,
+      }).process({
+        tool: "excel-to-pdf",
+        options: { orientation: "landscape", fitColumnsToWidth: true },
+        inputs: [
+          {
+            fileId: "f",
+            filename: "towns.csv",
+            contentType: "text/csv",
+            bytes: new TextEncoder().encode("a,b\n1,2\n"),
+          },
+        ],
+      });
+      return { result, timeouts };
+    }
+
+    it("the second start gets what the first left of the limit", async () => {
+      const { result, timeouts } = await timed(80_000);
+      expect(result.ok).toBe(true);
+      expect(timeouts).toEqual([120_000, 40_000]);
+    });
+
+    it("a first start that spent the whole limit ends the job as a timeout, with no second start", async () => {
+      const { result, timeouts } = await timed(120_000);
+      expect(timeouts).toEqual([120_000]);
+      expect(result.ok).toBe(false);
+      if (!result.ok)
+        expect(result.error.message).toMatch(/time limit|took too long/i);
+    });
+
+    it("CONTROL: two starts that spend no time each get the whole limit", async () => {
+      const { result, timeouts } = await timed(0);
+      expect(result.ok).toBe(true);
+      expect(timeouts).toEqual([120_000, 120_000]);
+    });
+  });
+
   it("a runner with no .xlsx step (an older one) still refuses, before soffice", async () => {
     const convertToPdf = vi.fn(async () => PDF);
     const result = await createOfficeConversionProcessor({

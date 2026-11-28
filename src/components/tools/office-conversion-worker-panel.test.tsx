@@ -39,6 +39,7 @@ import {
   CSV_IMPORT_HINT,
 } from "@/lib/workers/office-conversion/csv-import";
 import { getToolBySlug } from "@/lib/tools";
+import { WORKER_BATCH_TOOLS } from "@/lib/batch/tools";
 import type { Tool } from "@/lib/tools/types";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { canRunOfficeConversion } from "@/lib/workers/office-conversion-client";
@@ -324,6 +325,50 @@ describe("Excel to PDF: the layout controls reach the job", () => {
         fitColumnsToWidth: true,
       });
     });
+
+  // Review of excel-to-pdf#1 (2026-11-28): the BATCH run never passed the
+  // worker's sheetPageSetupAnyFormat to officeJobOptions, so every .csv,
+  // .xls and .ods row dropped Orientation and fit while the controls showed
+  // and the copy said any spreadsheet takes them. Through the batch view.
+  it("a batch of a .csv and an .ods on a worker proving sheetPageSetupAnyFormat sends Landscape and fit on every row", async () => {
+    resetWorkerStatusForTests({ sleep: () => Promise.resolve() });
+    const network = stubJobNetwork({ ...READY, sheetPageSetupAnyFormat: true });
+    render(
+      <InToolPage tool={tool("excel-to-pdf")}>
+        <OfficeConversionWorkerPanel tool={tool("excel-to-pdf")} />
+      </InToolPage>,
+    );
+    const input = await waitFor(() => {
+      const el = document.querySelector<HTMLInputElement>('input[type="file"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    fireEvent.change(input, {
+      target: {
+        files: [new File(["a,b"], "towns.csv"), new File(["PK"], "towns.ods")],
+      },
+    });
+    const { verb, noun } = WORKER_BATCH_TOOLS["excel-to-pdf"];
+    const run = await screen.findByRole("button", {
+      name: `${verb} 2 ${noun[1]}`,
+    });
+    fireEvent.change(
+      await screen.findByRole("combobox", { name: ORIENTATION_LABEL }),
+      { target: { value: "landscape" } },
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: FIT_COLUMNS_TO_WIDTH_LABEL }),
+    );
+    await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
+    fireEvent.click(run);
+    await waitFor(() => expect(network.jobBodies).toHaveLength(2), {
+      timeout: 5000,
+    });
+    expect(network.jobBodies.map((b) => b.options)).toEqual([
+      { orientation: "landscape", fitColumnsToWidth: true },
+      { orientation: "landscape", fitColumnsToWidth: true },
+    ]);
+  });
 
   it("an orientation chosen for an .xlsx is NOT sent once a .csv replaces it on a worker that does not prove sheetPageSetupAnyFormat", async () => {
     const network = await pick("excel-to-pdf", "wide.xlsx");

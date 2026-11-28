@@ -11,8 +11,8 @@ import {
   isAttemptAbort,
   signalOption,
   throwIfAttemptAborted,
-  type RunControl,
 } from "../attempt-abort";
+import type { OfficeRunControl } from "./engine";
 import {
   resolveNativeOfficeConversionConfig,
   type NativeOfficeConversionConfig,
@@ -61,6 +61,8 @@ export interface LibreOfficeSeams {
    * the way LibreOffice imports it with no options and compare the output.
    */
   importFilter?: typeof csvImportFilter;
+  /** The clock a shared time limit is measured on; `Date.now` unless replaced. */
+  now?: () => number;
 }
 
 /** The real subprocess runner; exported so an abort test drives THIS function. */
@@ -261,6 +263,7 @@ export function createNativeLibreOfficePdfRunner(
   const exec = seams.exec ?? defaultLibreOfficeExec;
   const fs = seams.fs ?? defaultFs;
   const importFilter = seams.importFilter ?? csvImportFilter;
+  const now = seams.now ?? Date.now;
   const baseTmp = config.tmpDir ?? tmpdir();
   const binary =
     probeLibreOfficeFromConfig(config, seams) ??
@@ -273,7 +276,7 @@ export function createNativeLibreOfficePdfRunner(
   async function convert(
     input: Uint8Array,
     filename: string,
-    run: RunControl,
+    run: OfficeRunControl,
     infilter: string | null,
     target: string,
     ext: "pdf" | "xlsx",
@@ -282,6 +285,14 @@ export function createNativeLibreOfficePdfRunner(
     if (input.byteLength > config.maxInputBytes)
       throw new Error("Input exceeds size limit.");
     throwIfAttemptAborted(run.signal);
+    // A limit shared with the job's earlier start leaves only what that
+    // start did not spend (`OfficeRunControl`); nothing left is a timeout.
+    const shared = run.timeLimit;
+    if (shared) shared.startedAt ??= now();
+    const timeout = shared
+      ? config.timeoutMs - (now() - shared.startedAt!)
+      : config.timeoutMs;
+    if (timeout <= 0) throw new LibreOfficeRunError("timeout");
     const dir = await fs.mkdtemp(path.join(baseTmp, "pdfxyz-office-"));
     // The user's own stem (`./input-name`): LibreOffice names a CSV's
     // sheet, and so its printed header, after the file it opens.
@@ -295,7 +306,7 @@ export function createNativeLibreOfficePdfRunner(
         binary,
         libreOfficeConvertArgs(inputPath, dir, infilter, target),
         {
-          timeout: config.timeoutMs,
+          timeout,
           maxBuffer: EXEC_MAX_BUFFER,
           windowsHide: true,
           env: libreOfficeEnv(process.env),

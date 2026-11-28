@@ -447,6 +447,10 @@ function OfficeRunArea({
                     checked[FIT_COLUMNS_TO_WIDTH_OPTION] === true,
                 },
                 csv,
+                // Each row is judged by its own name against what the live
+                // worker proves, as a single file is (office-conversion-
+                // client.ts `officeJobOptions`).
+                pageSetupAnyFormat,
               },
               controls,
             )
