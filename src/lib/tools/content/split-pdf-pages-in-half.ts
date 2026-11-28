@@ -108,11 +108,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Is the hidden half really removed?",
-      a: "No. Each half page shows only its own half, but the other half is hidden by the crop box rather than deleted: it stays inside the file, and anyone with the file can bring it back by resetting the crop in another editor. To remove part of a page permanently, use Redact PDF on the original before you split it.",
-    },
-    {
-      q: "Will the split file be twice the size?",
-      a: "No. Both halves of a page point at the same stored drawing, so the drawing is kept once, not twice; each extra page adds only a small page entry. The whole file is also written out again, which can pack a loosely written file a little tighter, so the result can even come out slightly smaller.",
+      a: "No. Each half page shows only its own half, but the other half is hidden by the crop box rather than deleted: it stays inside the file, and anyone with the file can bring it back by resetting the crop in another editor. To remove part of a page permanently, use Redact PDF on the original before you split it. Because both halves point at the same stored drawing, the file is not twice the size: the drawing is kept once, and each extra page adds only a small page entry.",
     },
     {
       q: "Does it work on rotated or already-cropped pages?",
