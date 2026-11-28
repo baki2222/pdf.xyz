@@ -131,11 +131,11 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Can it convert a book I bought with DRM?",
-      a: "No. A book with DRM has its chapters encrypted, and the job is refused with a note saying the book is protected. Nothing tries to remove the protection. A book whose only scrambled files are its embedded fonts (font obfuscation, which many publishers use) is not DRM: it converts. If any of those fonts could not be used, the note beside the download says how many, and the text set in them prints in a standard font.",
+      a: "No. A book with DRM has its chapters encrypted, and the job is refused with a note saying the book is protected. Nothing tries to remove the protection. A book whose only scrambled files are its embedded fonts (font obfuscation, which many publishers use) is not DRM: it converts. If any of those fonts could not be restored, the note beside the download says how many, and the text set in them prints in a standard font.",
     },
     {
       q: "Are the chapters in the right order, and is there a table of contents?",
-      a: "The chapters follow the book's reading order, the order an e-reader pages through, and each starts on a new page. The book's table of contents (the EPUB 3 navigation document, or the older NCX file) becomes the PDF's bookmarks; a bookmark opens the first page of the chapter file it points to, not the exact heading inside it. A link from one chapter to another opens that chapter's first page. If the book keeps sections outside its reading order, such as endnotes or answer keys, the note beside the download says how many were printed after the last chapter.",
+      a: `The chapters follow the book's reading order, the order an e-reader pages through, and each starts on a new page. The book's table of contents (the EPUB 3 navigation document, or the older NCX file) becomes the PDF's bookmarks; a bookmark opens the first page of the chapter file it points to, not the exact heading inside it. A link from one chapter to another opens that chapter's first page. If the book keeps sections outside its reading order, such as endnotes or answer keys, the note beside the download says how many were printed after the last chapter, and how many were left out if the book reached its limit of ${EPUB_MAX_SPINE_ITEMS} chapter files.`,
     },
     {
       q: "What page size is the PDF?",

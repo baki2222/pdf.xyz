@@ -177,7 +177,7 @@ const content: ToolContent = {
     },
     {
       title: "Initials on every page",
-      body: "Pick a signer under Add a box and press Initials, then under Repeat a box on other pages choose that box and All but the last page, and press Repeat: every page of a lease gets its own initials box, and the signature box stays on the last page. Previous page and Next page turn the preview.",
+      body: `Pick a signer under Add a box and press Initials, then under Repeat a box on other pages choose that box and All but the last page, and press Repeat: each page of a lease gets its own initials box, and the signature box stays on the last page. A request holds up to ${MAX_REQUEST_FIELDS} boxes in all, every signer's counted, so a long lease with several signers can run out; Repeat stops there and says so. Previous page and Next page turn the preview.`,
     },
     {
       title: "A flat PDF that has nowhere to type",
