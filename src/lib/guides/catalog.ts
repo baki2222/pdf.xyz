@@ -3618,7 +3618,7 @@ export const guides: Guide[] = [
         heading: "Page size, margins, screen width and one long page",
         body: [
           htmlLayoutAnswer("site"),
-          "One long page suits a long article or a receipt you want to scroll through without page breaks; a screen width suits a site whose print layout hides things you want: for a webpage, untick “Use the site's print styles” as well, and it lays the page out as on that screen and scales it to fit the paper. While that box is ticked, a site with print styles prints them at the paper's width.",
+          "One long page suits a long article or a receipt you want to scroll through without page breaks; a screen width suits a site whose print layout hides things you want: for a webpage, untick “Use the site's print styles” as well, and it lays the page out as on that screen and scales it to fit the paper. While that box is ticked, a site whose print styles set a text size, a width or a paper size prints them at the paper's width.",
         ],
       },
       {

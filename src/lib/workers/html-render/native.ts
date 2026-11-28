@@ -47,7 +47,11 @@ import {
 } from "@/lib/jobs/webpage-capture-options";
 import { HIDE_OVERLAYS_SCRIPT } from "./overlays";
 import { HIDE_ADS_SCRIPT, isAdRequestUrl } from "./ads";
-import { cssBytesHavePrintRules, PRINT_CSS_IN_PAGE_SCRIPT } from "./print-css";
+import {
+  cssBytesHavePrintRules,
+  inPageHasPrintRules,
+  PRINT_CSS_IN_PAGE_SCRIPT,
+} from "./print-css";
 import { answerArchiveRequest } from "./zip-site";
 import { stampFooterTemplate } from "./stamp";
 import {
@@ -838,14 +842,17 @@ export function createNativeChromiumPdfRunner(
     // page is measured and printed with its SCREEN styles. Sent before the
     // measure and again before the print, so neither can see print media.
     const screenMedia = target.kind === "url" && !target.capture.printStyles;
-    // A site with print styles, printed with them, is laid out at the
-    // paper's width, not shrunk from the chosen screen's (`./print-css`).
+    // A site whose print styles size the type, a box or the paper, printed
+    // with them, is laid out at the paper's width, not shrunk from the chosen
+    // screen's; rules that only hide things do not count (`./print-css`).
     if (
       target.kind === "url" &&
       !screenMedia &&
       paperPlan !== screenPlan &&
       (fetchedPrintCss ||
-        (await isolated("pdfxyz-print-css", PRINT_CSS_IN_PAGE_SCRIPT)) === true)
+        inPageHasPrintRules(
+          await isolated("pdfxyz-print-css", PRINT_CSS_IN_PAGE_SCRIPT),
+        ))
     )
       plan = paperPlan;
     if (screenMedia)
