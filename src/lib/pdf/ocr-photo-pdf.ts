@@ -103,9 +103,13 @@ export async function buildOcrPdf(
       const page = one.addPage([width, height]);
       await drawRasterImage(page, image, { x: 0, y: 0, width, height });
       // Saved and read back, so the embedded image is a written object the
-      // assembler can copy (pdf-lib writes an embedded image on save).
+      // assembler can copy (pdf-lib writes an embedded image on save). The
+      // bytes are the document made just above, which has no /Encrypt
+      // entry, so there is no lock to classify (encryption-verdict.test.ts).
       parts.push({
-        doc: await lib.PDFDocument.load(await one.save()),
+        doc: await lib.PDFDocument.load(await one.save(), {
+          ignoreEncryption: true,
+        }),
         indices: [0],
       });
       continue;
