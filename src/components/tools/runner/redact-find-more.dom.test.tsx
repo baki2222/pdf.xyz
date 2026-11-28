@@ -233,6 +233,45 @@ describe("Redact PDF reaches every match past the cap", () => {
     expect(screen.getByRole("button", { name: /^Find more/ })).toBeTruthy();
   }, 120000);
 
+  /*
+   * Verify 2026-11-28 (finding 3): of the four edits that drop a pending
+   * "Find more", only the query box had a test — neutering the Match case,
+   * Whole word or category drop left every test green. Each is driven here.
+   */
+  it.each(["Match case", "Whole word"])(
+    "ticking %s drops a Find more that would carry on the old search",
+    async (option) => {
+      await openEditor(1200);
+      fireEvent.change(screen.getByLabelText("Search the text"), {
+        target: { value: "mail.test" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /^Find$/ }));
+      await screen.findByRole(
+        "button",
+        { name: "Find more from page 13" },
+        { timeout: 30000 },
+      );
+      fireEvent.click(screen.getByRole("checkbox", { name: option }));
+      expect(screen.queryByRole("button", { name: /^Find more/ })).toBeNull();
+    },
+    120000,
+  );
+
+  it("changing the categories drops a Detect's Find more; a search option does not", async () => {
+    await openEditor(1200);
+    fireEvent.click(screen.getByRole("button", { name: /^Detect$/ }));
+    await screen.findByRole(
+      "button",
+      { name: "Find more from page 13" },
+      { timeout: 30000 },
+    );
+    // Control: Match case belongs to the search, not to Detect.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Match case" }));
+    expect(screen.getByRole("button", { name: /^Find more/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: /^Phone numbers/ }));
+    expect(screen.queryByRole("button", { name: /^Find more/ })).toBeNull();
+  }, 120000);
+
   it("control: 300 addresses offer no Find more, and all 300 go", async () => {
     await openEditor(300);
     fireEvent.click(screen.getByRole("button", { name: /^Detect$/ }));
