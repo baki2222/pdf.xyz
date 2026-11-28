@@ -149,6 +149,12 @@ export interface WaitRecord {
    */
   rejected: boolean;
   test?: string;
+  /**
+   * Set by the vi.waitFor recorder. testing-library records leave it out.
+   * The two defaults differ since Phase 0b (2000 against vitest's 1000),
+   * so the report must tell them apart.
+   */
+  via?: "vi.waitFor";
 }
 
 /**
@@ -531,7 +537,28 @@ export function waitReport(
     source: (file: string) => string | undefined;
   },
 ): string[] {
-  const defaultMs = waits[0]?.defaultTimeoutMs ?? 1000;
+  // The defaults this run's waits ran under, per recorder. Not the first
+  // record's: since Phase 0b testing-library's default (2000) and
+  // vi.waitFor's (1000) differ, and records arrive in the order tests
+  // finish, so `waits[0]` printed whichever came first (#400 review).
+  const defaultsOf = (vi: boolean) =>
+    [
+      ...new Set(
+        waits
+          .filter((w) => (w.via === "vi.waitFor") === vi)
+          .map((w) => w.defaultTimeoutMs),
+      ),
+    ].sort((a, b) => a - b);
+  const library = defaultsOf(false);
+  const viDefaults = defaultsOf(true);
+  const defaults = [
+    library.length > 0
+      ? `default asyncUtilTimeout ${library.join(" and ")} ms`
+      : "no testing-library wait",
+    ...(viDefaults.length > 0
+      ? [`vi.waitFor ${viDefaults.join(" and ")} ms`]
+      : []),
+  ].join(", ");
   const judged = waits.map((w) => {
     const src = opts.source(w.file);
     const t =
@@ -552,8 +579,12 @@ export function waitReport(
     `${site(j.w)}${j.w.test ? ` > ${j.w.test}` : ""}: ${Math.round(j.w.ms)} ms of ${j.budget ?? "?"} ms (${j.t.kind === "explicit" ? "its own timeout" : j.t.kind === "default" ? "default" : j.t.text}${j.timedOut ? "; TIMED OUT" : j.w.rejected ? (j.budget === undefined ? "; REJECTED" : "; REJECTED early") : ""})`;
   const resolved = judged.filter((j) => j.budget !== undefined);
   const over = resolved.filter((j) => j.share > BOUND_HEADROOM_RATIO);
+  // Each against the default IT ran under: its timeout is unreadable, and
+  // that default is the least it can be.
   const unresolved = judged.filter(
-    (j) => j.budget === undefined && j.w.ms > defaultMs * BOUND_HEADROOM_RATIO,
+    (j) =>
+      j.budget === undefined &&
+      j.w.ms > j.w.defaultTimeoutMs * BOUND_HEADROOM_RATIO,
   );
   const timedOut = judged.filter((j) => j.timedOut);
   const early = judged.filter(
@@ -561,7 +592,7 @@ export function waitReport(
   );
   const unread = judged.filter((j) => j.w.rejected && j.budget === undefined);
   const lines = [
-    `wait headroom: ${over.length} of ${waits.length} waits (testing-library and vi.waitFor) took more than ${BOUND_HEADROOM_RATIO * 100}% of their timeout (default asyncUtilTimeout ${defaultMs} ms; ${timedOut.length} timed out${early.length > 0 ? `, ${early.length} rejected before its timeout` : ""}${unread.length > 0 ? `, ${unread.length} rejected under a timeout it could not read` : ""})`,
+    `wait headroom: ${over.length} of ${waits.length} waits (testing-library and vi.waitFor) took more than ${BOUND_HEADROOM_RATIO * 100}% of their timeout (${defaults}; ${timedOut.length} timed out${early.length > 0 ? `, ${early.length} rejected before its timeout` : ""}${unread.length > 0 ? `, ${unread.length} rejected under a timeout it could not read` : ""})`,
     ...headroomLines(
       over.map((j) => ({
         share: j.share,

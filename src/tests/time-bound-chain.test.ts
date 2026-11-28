@@ -121,8 +121,11 @@ describe("the time-bound instrument, end to end through a child vitest", () => {
     // Waits: the ~1950 ms default wait is over half of the 3000 ms default;
     // the same wait under its own 12000 ms timeout is compared against
     // 12000 and is not; the wait that timed out is recorded (finally).
+    // The fixture's vi.waitFor runs under vitest's 1000 ms, so the line
+    // names both defaults, whichever test finished first (#400 review: it
+    // printed the first record's default alone).
     expect(out).toMatch(
-      /wait headroom: 2 of 4 waits \(testing-library and vi\.waitFor\) took more than 50% of their timeout \(default asyncUtilTimeout 3000 ms; 1 timed out\)/,
+      /wait headroom: 2 of 4 waits \(testing-library and vi\.waitFor\) took more than 50% of their timeout \(default asyncUtilTimeout 3000 ms, vi\.waitFor 1000 ms; 1 timed out\)/,
     );
     expect(out).toMatch(
       /::warning [^\n]*title=Wait near its timeout::[^\n]*a default wait at about 65%25 of the default: \d+ ms of 3000 ms \(default\)/,
