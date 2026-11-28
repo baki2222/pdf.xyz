@@ -35,11 +35,15 @@ import { HTML_DOCUMENT_URL } from "../html-render/document-url";
 import {
   docxNamedEpub,
   drmBook,
+  EPUB_IDENTIFIER,
   epub2Book,
   epub3Book,
   escapingSpineBook,
   fixedLayoutBook,
   fontObfuscatedBook,
+  manyNotesBook,
+  obfuscatedRealFontBook,
+  oflFontBytes,
   zipBombBook,
 } from "@/tests/epub-fixtures";
 
@@ -265,7 +269,7 @@ describe("opening a book", () => {
 
   it("a font-obfuscated book is NOT DRM: it opens, and the font is never served", async () => {
     const book = open(await fontObfuscatedBook());
-    expect([...book.obfuscatedFonts]).toEqual(["OEBPS/Fonts/body.otf"]);
+    expect([...book.fontsLeftOut]).toEqual(["OEBPS/Fonts/body.otf"]);
     expect(book.serve(`${HTML_DOCUMENT_URL}OEBPS/Fonts/body.otf`)).toBeNull();
     // Control: the same path is served when it is not obfuscated.
     const plain = open(
@@ -403,5 +407,252 @@ describe("what Chromium is asked to print", () => {
     expect(messages[3]).toContain(
       `${EPUB_MAX_UNPACKED_BYTES / 1024 / 1024} MB`,
     );
+  });
+});
+
+describe("competitor audit 2026-11-06: the whole book, its fonts, its author", () => {
+  it("epub-to-pdf#3: a linear='no' item is printed AFTER the reading order, not dropped and not in place", async () => {
+    const book = open(await epub3Book({ nonLinearNotes: true }));
+    expect(book.chapters.map((c) => [c.path, c.linear])).toEqual([
+      ["OEBPS/Text/m-ch.xhtml", true],
+      ["OEBPS/Text/z-ch.xhtml", true],
+      ["OEBPS/Text/a-ch.xhtml", true],
+      ["OEBPS/Text/notes.xhtml", false],
+    ]);
+    // Positive control: a book without one has three chapters, all linear.
+    const plain = open(await epub3Book());
+    expect(plain.chapters.map((c) => c.linear)).toEqual([true, true, true]);
+    // The engine counts it, and asks Chromium for it last.
+    const { deps } = counting();
+    const run = await runEpubToPdf(
+      await epub3Book({ nonLinearNotes: true }),
+      deps,
+    );
+    expect(run.ok && run.meta).toMatchObject({ chapters: 4, extraSections: 1 });
+    expect(bookDocuments(book, DEFAULT_EPUB_RENDER_OPTIONS).at(-1)?.url).toBe(
+      chapterUrl("OEBPS/Text/notes.xhtml"),
+    );
+  });
+
+  it("epub-to-pdf#3: a non-linear item the spine also lists as linear prints once", async () => {
+    const book = open(
+      await epub3Book({
+        nonLinearNotes: true,
+        editOpf: (opf) =>
+          opf.replace(
+            `<itemref idref="notes" linear="no"/>`,
+            `<itemref idref="notes" linear="no"/><itemref idref="notes"/>`,
+          ),
+      }),
+    );
+    expect(
+      book.chapters.filter((c) => c.path === "OEBPS/Text/notes.xhtml"),
+    ).toEqual([
+      { path: "OEBPS/Text/notes.xhtml", viewport: null, linear: true },
+    ]);
+  });
+
+  for (const method of ["idpf", "adobe"] as const)
+    it(`epub-to-pdf#4: a font obfuscated with the ${method} method is served RESTORED, byte for byte`, async () => {
+      const book = open(await obfuscatedRealFontBook(method));
+      const served = book.serve(`${HTML_DOCUMENT_URL}OEBPS/Fonts/body.ttf`);
+      expect(served).not.toBeNull();
+      expect(
+        Buffer.from(served!.body).equals(Buffer.from(oflFontBytes())),
+      ).toBe(true);
+      expect(book.fontsRestored).toBe(1);
+      expect([...book.fontsLeftOut]).toEqual([]);
+    });
+
+  it("epub-to-pdf#4 controls: a font keyed to another identifier is left out, and an unknown algorithm is still DRM", async () => {
+    const wrong = open(
+      await obfuscatedRealFontBook(
+        "adobe",
+        "urn:uuid:00000000-0000-4000-8000-000000000000",
+      ),
+    );
+    expect([...wrong.fontsLeftOut]).toEqual(["OEBPS/Fonts/body.ttf"]);
+    expect(wrong.serve(`${HTML_DOCUMENT_URL}OEBPS/Fonts/body.ttf`)).toBeNull();
+    expect(wrong.fontsRestored).toBe(0);
+    const unknown = await refusalOf(
+      await obfuscatedRealFontBook({
+        algorithm: "http://example.org/2026/unknown-font-scramble",
+      }),
+    );
+    expect(unknown).toMatchObject({
+      kind: "refused",
+      refusal: { kind: "drm" },
+    });
+  });
+
+  it("epub-to-pdf#4: the Adobe method needs a UUID identifier; without one the font is left out, not guessed", async () => {
+    // An ISBN, not a UUID: the Adobe key has nothing to come from.
+    const book = open(
+      await obfuscatedRealFontBook("adobe", undefined, (opf) =>
+        opf.replace(/urn:uuid:[0-9a-f-]+/, "urn:isbn:9780000000002"),
+      ),
+    );
+    expect([...book.fontsLeftOut]).toEqual(["OEBPS/Fonts/body.ttf"]);
+  });
+
+  it("epub-to-pdf#5: Author and Subject come from dc:creator and dc:subject, else dc:description", async () => {
+    const book = open(
+      await epub3Book({
+        metadata:
+          "<dc:creator>José Müller</dc:creator><dc:creator>Ana Ruiz</dc:creator><dc:subject>Field notes</dc:subject><dc:subject>Birds</dc:subject>",
+      }),
+    );
+    expect(book.creator).toBe("José Müller, Ana Ruiz");
+    expect(book.subject).toBe("Field notes, Birds");
+    const described = open(
+      await epub3Book({
+        metadata:
+          "<dc:description>  A short   book\n about birds. </dc:description>",
+      }),
+    );
+    expect(described.subject).toBe("A short book about birds.");
+    expect(described.creator).toBeNull();
+    // Through the engine to the PDF's Info dictionary.
+    const { deps } = counting();
+    const run = await runEpubToPdf(
+      await epub3Book({
+        metadata: "<dc:creator>José Müller</dc:creator>",
+      }),
+      deps,
+    );
+    if (!run.ok) throw new Error(run.message);
+    const { PDFDocument } = await import("pdf-lib");
+    expect((await PDFDocument.load(run.output)).getAuthor()).toBe(
+      "José Müller",
+    );
+  });
+});
+
+describe("wave 3 review: the cap, the Subject, the Author, the key", () => {
+  it("epub-to-pdf#3: the chapter cap counts the READING ORDER; extras past it are left out and counted", async () => {
+    // 3 chapters + 298 notes: on main the notes were skipped and the book
+    // converted; counting them refused it as "301 chapter files".
+    const full = open(await manyNotesBook(EPUB_MAX_SPINE_ITEMS - 2));
+    expect(full.chapters.filter((c) => c.linear)).toHaveLength(3);
+    expect(full.chapters).toHaveLength(EPUB_MAX_SPINE_ITEMS);
+    expect(full.extraSectionsLeftOut).toBe(1);
+    // Exactly at the cap: every note prints, none left out.
+    const atCap = open(await manyNotesBook(EPUB_MAX_SPINE_ITEMS - 3));
+    expect(atCap.chapters).toHaveLength(EPUB_MAX_SPINE_ITEMS);
+    expect(atCap.extraSectionsLeftOut).toBe(0);
+    // Through the engine: the counts the note is built from.
+    const { deps } = counting();
+    const run = await runEpubToPdf(
+      await manyNotesBook(EPUB_MAX_SPINE_ITEMS - 2),
+      deps,
+    );
+    if (!run.ok) throw new Error(run.message);
+    expect(run.meta).toMatchObject({
+      chapters: EPUB_MAX_SPINE_ITEMS,
+      extraSections: EPUB_MAX_SPINE_ITEMS - 3,
+      extraSectionsLeftOut: 1,
+    });
+  }, 60_000);
+
+  it("epub-to-pdf#5: an escaped-HTML description becomes plain text, entities decoded", async () => {
+    const book = open(
+      await epub3Book({
+        metadata:
+          "<dc:description>&lt;p&gt;Tom &amp;amp; Jerry&amp;#8217;s &lt;b&gt;tale&lt;/b&gt;&lt;/p&gt;</dc:description>",
+      }),
+    );
+    expect(book.subject).toBe("Tom & Jerry’s tale");
+  });
+
+  it("epub-to-pdf#5: the Author is the authors: illustrators, editors and translators are left out", async () => {
+    const epub3 = open(
+      await epub3Book({
+        metadata:
+          "<dc:creator>Ann Author</dc:creator>" +
+          '<dc:creator id="i">Ivan Illustrator</dc:creator>' +
+          '<meta refines="#i" property="role" scheme="marc:relators">ill</meta>' +
+          '<dc:creator id="a2">Bea Writer</dc:creator>' +
+          '<meta refines="#a2" property="role">aut</meta>',
+      }),
+    );
+    expect(epub3.creator).toBe("Ann Author, Bea Writer");
+    const epub2 = open(
+      await epub3Book({
+        metadata:
+          '<dc:creator opf:role="aut">Ann Author</dc:creator>' +
+          '<dc:creator opf:role="edt">Ed Editor</dc:creator>' +
+          '<dc:creator opf:role="trl">Tia Translator</dc:creator>',
+      }),
+    );
+    expect(epub2.creator).toBe("Ann Author");
+    // Only other roles: kept, rather than no Author at all.
+    const onlyEditor = open(
+      await epub3Book({
+        metadata: '<dc:creator opf:role="edt">Ed Editor</dc:creator>',
+      }),
+    );
+    expect(onlyEditor.creator).toBe("Ed Editor");
+  });
+
+  it("epub-to-pdf#5: an OPF 2 package that wraps its Dublin Core in <dc-metadata> still gets an Author", async () => {
+    const book = open(
+      await epub3Book({
+        editOpf: (opf) =>
+          opf
+            .replace(
+              "<dc:identifier",
+              "<dc-metadata><dc:creator>Wrapped Author</dc:creator><dc:identifier",
+            )
+            .replace(
+              "<dc:language>en</dc:language>",
+              "<dc:language>en</dc:language></dc-metadata>",
+            ),
+      }),
+    );
+    expect(book.title).toBe("The Lanternfly Proof");
+    expect(book.creator).toBe("Wrapped Author");
+  });
+
+  for (const method of ["idpf", "adobe"] as const)
+    it(`epub-to-pdf#4: a <dc-metadata> package still keys its ${method} font (the identifier is read deep too)`, async () => {
+      // Verify review: identifiers were read from direct children of
+      // <metadata> only, so a wrapped package's font had no key and was
+      // left out while a reader would show it.
+      const wrap = (opf: string) =>
+        opf
+          .replace("<dc:identifier", "<dc-metadata><dc:identifier")
+          .replace(
+            "<dc:language>en</dc:language>",
+            "<dc:language>en</dc:language></dc-metadata>",
+          );
+      const book = open(await obfuscatedRealFontBook(method, undefined, wrap));
+      expect({
+        restored: book.fontsRestored,
+        leftOut: book.fontsLeftOut.size,
+      }).toEqual({ restored: 1, leftOut: 0 });
+      // Health: the wrapper really landed around the identifier.
+      const probe = wrap(
+        `<metadata><dc:identifier id="x">i</dc:identifier><dc:language>en</dc:language></metadata>`,
+      );
+      expect(probe).toContain("<dc-metadata><dc:identifier");
+      expect(probe).toContain("</dc:language></dc-metadata>");
+    });
+
+  it("epub-to-pdf#4: the IDPF key drops white space INSIDE the identifier (OCF 4.2)", async () => {
+    const spaced = `urn:uuid:12345678-1234-4234-${String.fromCharCode(10)}   8234-123456789abc`;
+    // The fixture keys the font with its own white-space removal; the
+    // package carries the identifier WITH the space and the line break.
+    const book = open(
+      await obfuscatedRealFontBook("idpf", spaced, (opf) =>
+        opf.replace(EPUB_IDENTIFIER, spaced),
+      ),
+    );
+    expect(book.fontsRestored).toBe(1);
+    expect([...book.fontsLeftOut]).toEqual([]);
+    // Health: the identifier really has inner white space in the package.
+    expect(spaced).toContain(" ");
+    expect(
+      spaced.split(" ").join("").split(String.fromCharCode(10)).join(""),
+    ).toBe(EPUB_IDENTIFIER);
   });
 });

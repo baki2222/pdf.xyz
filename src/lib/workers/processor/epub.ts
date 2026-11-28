@@ -99,6 +99,16 @@ export function createEpubRenderProcessor(deps: EpubRenderDeps): Processor {
           },
         ],
         toProcessorMeta(run.meta),
+        // The counts the note beside the download is built from.
+        {
+          epub: {
+            chapters: run.meta.chapters,
+            extraSections: run.meta.extraSections,
+            extraSectionsLeftOut: run.meta.extraSectionsLeftOut,
+            fontsRestored: run.meta.fontsRestored,
+            fontsLeftOut: run.meta.fontsLeftOut,
+          },
+        },
       );
     },
   };

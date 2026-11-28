@@ -66,7 +66,13 @@ import {
  *    Undo for Remove and Start over; Add a box adds a Signature, Initials, Date,
  *    Name (a text box labelled "Name") or Text box for the chosen signer on the
  *    page shown, up to MAX_REQUEST_FIELDS; the box list moves a box to another
- *    page or gives it to another signer. Boxes are owned by a signer row's
+ *    page or gives it to another signer; "Repeat a box on other pages"
+ *    (2026-11-22, audit request-signatures#3) copies one box onto All pages,
+ *    All but the last page, or Some pages (a From/To range) in one press,
+ *    each copy its own box for the same signer (repeatField; the worker names
+ *    each its own field, Signer<N>-Initials-<k>). There is no company-stamp
+ *    box type: the worker accepts signature, initials, date and text only.
+ *    Boxes are owned by a signer row's
  *    stable id: a box whose row is blank, or a signer left with no box, blocks
  *    Prepare in words. Geometry is @/lib/signatures/request-layout (min 24 x 12
  *    pt, clamped to the page, 4 decimals). A label goes to manifest.json, to
@@ -171,7 +177,7 @@ const content: ToolContent = {
     },
     {
       title: "Initials on every page",
-      body: "Pick a signer under Add a box and press Initials on each page of a lease, then keep their signature box on the last page. Previous page and Next page turn the preview.",
+      body: `Pick a signer under Add a box and press Initials, then under Repeat a box on other pages choose that box and All but the last page, and press Repeat: each page of a lease gets its own initials box, and the signature box stays on the last page. A request holds up to ${MAX_REQUEST_FIELDS} boxes in all, every signer's counted, so a long lease with several signers can run out: Repeat stops at the limit, so check that the later pages got their box. Previous page and Next page turn the preview.`,
     },
     {
       title: "A flat PDF that has nowhere to type",
@@ -194,7 +200,7 @@ const content: ToolContent = {
     },
     {
       title: "Set the order and place the boxes",
-      body: 'Choose "Sequential — one at a time" or "Parallel — everyone at once" under Signing order. Signature page and "Add a date field next to each signature" set where the boxes start. On the preview, drag a box to move it or drag its corner to resize it, or select it and use the arrow keys (hold Shift for bigger steps) and Delete. Under Add a box, pick the signer and press Signature, Initials, Date, Name or Text to add one to the page shown. Fill Request title (optional) and Message to signers (optional) if the README and manifest should carry them.',
+      body: 'Choose "Sequential — one at a time" or "Parallel — everyone at once" under Signing order. Signature page and "Add a date field next to each signature" set where the boxes start. On the preview, drag a box to move it or drag its corner to resize it, or select it and use the arrow keys (hold Shift for bigger steps) and Delete. Under Add a box, pick the signer and press Signature, Initials, Date, Name or Text to add one to the page shown. To put the same box on many pages, use Repeat a box on other pages. Fill Request title (optional) and Message to signers (optional) if the README and manifest should carry them.',
     },
     {
       title: "Prepare and download",

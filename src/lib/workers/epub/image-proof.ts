@@ -13,7 +13,11 @@
  *    reversed — a verdict that passes a wrong book proves nothing;
  *  - the EPUB 2 book: the NCX as the outline (`epub2Verdict`);
  *  - the fixed-layout book: one page per page at its viewport;
- *  - the font-obfuscated book converts, with its one font left out;
+ *  - the font-obfuscated book converts, with its one font (bytes that are
+ *    no font) left out;
+ *  - a real font obfuscated with the IDPF method is restored and EMBEDDED
+ *    in the PDF (its PostScript name in the font dictionaries);
+ *  - a linear="no" notes file prints after the last chapter, and is counted;
  *  - nothing was fetched from the network, though the book asked for a
  *    remote image (the runner's request and fetch observers);
  *  - and the refusals — DRM, a ZIP bomb, a .docx named .epub, a spine that
@@ -25,7 +29,12 @@ import type { ChromiumPackageRunner } from "../html-render/engine";
 import { runEpubToPdf, type EpubRun } from "./engine";
 import type { EpubRefusal } from "./package";
 import {
+  EPUB_NOTES_MARK,
+  EPUB_PROOF_AUTHOR,
+  EPUB_PROOF_SUBJECT,
   EPUB_REMOTE_IMAGE,
+  OFL_FONT_POSTSCRIPT_NAME,
+  pdfFontNames,
   epub2Verdict,
   epub3Verdict,
   fixedLayoutVerdict,
@@ -46,6 +55,14 @@ export interface EpubImageProofDeps {
     readonly epub2: Book;
     readonly fixedLayout: Book;
     readonly fontObfuscated: Book;
+    /** A real font, obfuscated with the IDPF method (epub-to-pdf#4). */
+    readonly fontRestored: Book;
+    /** The same font, obfuscated with the Adobe method (epub-to-pdf#4). */
+    readonly fontRestoredAdobe: Book;
+    /** An author, an illustrator and an escaped-HTML description (#5). */
+    readonly metadata: Book;
+    /** A book with a linear="no" notes file (epub-to-pdf#3). */
+    readonly nonLinear: Book;
     readonly drm: Book;
     readonly zipBomb: Book;
     readonly docxNamedEpub: Book;
@@ -129,6 +146,73 @@ export async function runEpubImageProof(
         `font-obfuscated: ${[...pfo, `fonts left out ${font.meta.fontsLeftOut}`].join("; ")}`,
       );
     else pass("font-obfuscated: converted, its one font left out");
+
+  // Audit epub-to-pdf#4: an obfuscated font restored, and USED — read off
+  // the PDF's font dictionaries, not the engine's counters alone.
+  // Both methods (the wave 3 review found the image proof held IDPF only).
+  for (const [method, book] of [
+    ["IDPF", deps.books.fontRestored],
+    ["Adobe", deps.books.fontRestoredAdobe],
+  ] as const) {
+    const label = `font restored (${method})`;
+    const restored = await convert(await book());
+    const pr4 = await judged(label, restored, epub3Verdict);
+    if (pr4 && restored.ok) {
+      const names = await pdfFontNames(restored.output);
+      const embedded = names.some((n) => n.includes(OFL_FONT_POSTSCRIPT_NAME));
+      if (
+        pr4.length ||
+        !embedded ||
+        restored.meta.fontsRestored !== 1 ||
+        restored.meta.fontsLeftOut !== 0
+      )
+        fail(
+          `${label}: ${[...pr4, `embedded ${embedded}`, `restored ${restored.meta.fontsRestored}`, `left out ${restored.meta.fontsLeftOut}`].join("; ")}`,
+        );
+      else
+        pass(
+          `${label}: the book's font is embedded (${OFL_FONT_POSTSCRIPT_NAME})`,
+        );
+    }
+  }
+
+  // Audit epub-to-pdf#5: the Author is the author alone, and the Subject
+  // is the description as text — read back from the PDF's Info dictionary.
+  const described = await convert(await deps.books.metadata());
+  const pr5 = await judged("author and subject", described, epub3Verdict);
+  if (pr5 && described.ok) {
+    const { PDFDocument } = await import("pdf-lib");
+    const doc = await PDFDocument.load(described.output);
+    const author = doc.getAuthor();
+    const subject = doc.getSubject();
+    if (
+      pr5.length ||
+      author !== EPUB_PROOF_AUTHOR ||
+      subject !== EPUB_PROOF_SUBJECT
+    )
+      fail(
+        `author and subject: ${[...pr5, `author ${JSON.stringify(author)}`, `subject ${JSON.stringify(subject)}`].join("; ")}`,
+      );
+    else pass("author and subject: the author alone, the description as text");
+  }
+
+  // Audit epub-to-pdf#3: a linear="no" section printed after the last chapter.
+  const notes = await convert(await deps.books.nonLinear());
+  const pr3 = await judged("non-linear notes", notes, (r) => {
+    const last = r.pages.length - 1;
+    const problems = epub3Verdict(r);
+    if (!(r.pages[last] ?? "").includes(EPUB_NOTES_MARK))
+      problems.push("the notes are not on the last page");
+    if (r.pages.slice(0, last).some((t) => t.includes(EPUB_NOTES_MARK)))
+      problems.push("the notes are printed before the last page");
+    return problems;
+  });
+  if (pr3 && notes.ok)
+    if (pr3.length || notes.meta.extraSections !== 1)
+      fail(
+        `non-linear notes: ${[...pr3, `extra sections ${notes.meta.extraSections}`].join("; ")}`,
+      );
+    else pass("non-linear notes: printed after the last chapter, counted");
 
   const asked = deps.requests().includes(EPUB_REMOTE_IMAGE);
   const fetched = deps.fetches() - fetchesBefore;

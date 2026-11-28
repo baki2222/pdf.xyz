@@ -1,4 +1,5 @@
 import {
+  MAX_REQUEST_FIELDS,
   signatureBlockFields,
   type RequestSignatureField,
   type RequestSignatureFieldType,
@@ -282,6 +283,85 @@ export function addField(
     field = next;
   }
   return [...layout, field];
+}
+
+/** Where a box is repeated (audit request-signatures#3). */
+export type RepeatTarget =
+  | { kind: "all" }
+  | { kind: "allButLast" }
+  | { kind: "range"; from: number; to: number };
+
+/** The 1-based pages a {@link RepeatTarget} means in a document of `pageCount`. */
+export function repeatPages(target: RepeatTarget, pageCount: number): number[] {
+  const count = Math.max(0, Math.floor(finite(pageCount, 0)));
+  let from = 1;
+  let to = count;
+  if (target.kind === "allButLast") to = count - 1;
+  if (target.kind === "range") {
+    const a = Math.floor(finite(target.from, 1));
+    const b = Math.floor(finite(target.to, count));
+    from = Math.max(1, Math.min(a, b));
+    to = Math.min(count, Math.max(a, b));
+  }
+  const pages: number[] = [];
+  for (let p = from; p <= to; p += 1) pages.push(p);
+  return pages;
+}
+
+/**
+ * Repeat box `id` on the pages `target` names, in one action: each copy is
+ * its own box (a new id, so its own named field in the PDF) for the SAME
+ * signer, with the same type and label, at the same place on the page and
+ * the same size in points, clamped to that page. A page that already holds
+ * this box, or an identical one for the same signer, gets no second copy,
+ * and the request's box limit is never passed (`limited` says it stopped).
+ */
+export function repeatField(
+  layout: readonly LayoutField[],
+  id: number,
+  target: RepeatTarget,
+  frames: readonly FrameSize[],
+  limit: number = MAX_REQUEST_FIELDS,
+): { layout: LayoutField[]; added: number[]; limited: boolean } {
+  const source = layout.find((f) => f.id === id);
+  const from = source ? frames[source.page - 1] : undefined;
+  if (!source || !from)
+    return { layout: [...layout], added: [], limited: false };
+  const out = [...layout];
+  const added: number[] = [];
+  let limited = false;
+  for (const page of repeatPages(target, frames.length)) {
+    if (page === source.page) continue;
+    const frame = frames[page - 1]!;
+    const copy = clampField(
+      {
+        ...source,
+        id: nextId(out),
+        page,
+        width: (source.width * from.width) / frame.width,
+        height: (source.height * from.height) / frame.height,
+      },
+      frame,
+    );
+    const twin = out.some(
+      (f) =>
+        f.page === page &&
+        f.owner === copy.owner &&
+        f.type === copy.type &&
+        Math.abs(f.x - copy.x) < 1e-6 &&
+        Math.abs(f.y - copy.y) < 1e-6 &&
+        Math.abs(f.width - copy.width) < 1e-6 &&
+        Math.abs(f.height - copy.height) < 1e-6,
+    );
+    if (twin) continue;
+    if (out.length >= limit) {
+      limited = true;
+      break;
+    }
+    out.push(copy);
+    added.push(page);
+  }
+  return { layout: out, added, limited };
 }
 
 /**

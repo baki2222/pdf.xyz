@@ -36,6 +36,39 @@ export const EPUB_WEB_LINK = "https://example.org/further-reading";
 export const EPUB_IMAGE_PIXELS = [24, 24] as const;
 /** A remote image a chapter links: never to be fetched. */
 export const EPUB_REMOTE_IMAGE = "https://example.com/remote-cover.png";
+/** The text of the fixture's non-linear notes file (audit epub-to-pdf#3). */
+export const EPUB_NOTES_MARK = "Inkwhistle endnote answer";
+/** The words of chapter one's link to the notes file. */
+export const EPUB_NOTE_LINK_TEXT = "See the note";
+/**
+ * The PostScript name of the real OFL font the obfuscated-font fixtures use
+ * (Mr Dafoe): a PDF that USED the restored font embeds it (epub-to-pdf#4).
+ */
+export const OFL_FONT_POSTSCRIPT_NAME = "MrDafoe-Regular";
+/**
+ * The Author and Subject the metadata proof book must arrive with
+ * (epub-to-pdf#5): a non-Latin author beside an illustrator who is NOT an
+ * author, and a description stored as escaped HTML with entities.
+ */
+export const EPUB_PROOF_AUTHOR = "রবীন্দ্রনাথ ঠাকুর";
+export const EPUB_PROOF_ILLUSTRATOR = "Nandalal Bose";
+export const EPUB_PROOF_SUBJECT = "Tom & Jerry’s tale";
+
+/** Every font name the PDF's font dictionaries carry (BaseFont, FontName). */
+export async function pdfFontNames(pdf: Uint8Array): Promise<string[]> {
+  const lib = await import("pdf-lib");
+  const { PDFDict, PDFName } = lib;
+  const doc = await lib.PDFDocument.load(pdf);
+  const names: string[] = [];
+  for (const [, object] of doc.context.enumerateIndirectObjects()) {
+    if (!(object instanceof PDFDict)) continue;
+    for (const key of ["BaseFont", "FontName"]) {
+      const value = object.get(PDFName.of(key));
+      if (value instanceof PDFName) names.push(value.decodeText());
+    }
+  }
+  return names;
+}
 
 export interface OutlineNode {
   title: string;

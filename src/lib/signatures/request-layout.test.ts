@@ -10,6 +10,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  MAX_REQUEST_FIELDS,
   REQUEST_SIGNATURE_FIELD_TYPES,
   parseSignatureRequestOptions,
   signatureBlockFields,
@@ -29,6 +30,8 @@ import {
   moveField,
   nudgeField,
   readingOrder,
+  repeatField,
+  repeatPages,
   resizeField,
   startingLayout,
   toRequestFields,
@@ -369,5 +372,108 @@ describe("signer colours", () => {
   it("positive control: a light yellow fails, and black is 21:1", () => {
     expect(contrastOnWhite("#ffd400")).toBeLessThan(4.5);
     expect(contrastOnWhite("#000000")).toBeCloseTo(21, 5);
+  });
+});
+
+/*
+ * Audit request-signatures#3 (2026-11-06): a box could be placed on one page
+ * only, and the page told users to add Initials to each page by hand. One
+ * action now repeats a box on all pages, on all but the last, or on a range;
+ * each copy is its own box for the same signer.
+ */
+describe("repeating a box on other pages", () => {
+  const letter: FrameSize = { width: 612, height: 792 };
+  const frames5 = Array.from({ length: 5 }, () => letter);
+  const initials = (page = 1): LayoutField => ({
+    id: 7,
+    owner: 3,
+    page,
+    type: "initials",
+    x: 0.82,
+    y: 0.04,
+    width: 0.098,
+    height: 0.0455,
+  });
+
+  it("names the pages each choice means", () => {
+    expect(repeatPages({ kind: "all" }, 5)).toEqual([1, 2, 3, 4, 5]);
+    expect(repeatPages({ kind: "allButLast" }, 5)).toEqual([1, 2, 3, 4]);
+    expect(repeatPages({ kind: "range", from: 2, to: 4 }, 5)).toEqual([
+      2, 3, 4,
+    ]);
+    // A range typed backwards, or past the end, means the pages it covers.
+    expect(repeatPages({ kind: "range", from: 9, to: 4 }, 5)).toEqual([4, 5]);
+    expect(repeatPages({ kind: "allButLast" }, 1)).toEqual([]);
+  });
+
+  it("all pages: one copy per other page, same signer, type and rect, new ids", () => {
+    const start = [initials(1)];
+    const { layout, added } = repeatField(start, 7, { kind: "all" }, frames5);
+    expect(added).toEqual([2, 3, 4, 5]);
+    expect(layout).toHaveLength(5);
+    expect(layout.map((f) => f.page)).toEqual([1, 2, 3, 4, 5]);
+    expect(new Set(layout.map((f) => f.id)).size).toBe(5);
+    for (const f of layout) {
+      expect(f).toMatchObject({
+        owner: 3,
+        type: "initials",
+        x: 0.82,
+        y: 0.04,
+        width: 0.098,
+        height: 0.0455,
+      });
+      // Every copy is a box the worker accepts.
+      expect(accepted(f).ok).toBe(true);
+    }
+    // Through the request: five fields for the one signer.
+    const fields = toRequestFields(layout, new Map([[3, 0]]));
+    expect(fields.map((f) => [f.signer, f.page, f.type])).toEqual(
+      [1, 2, 3, 4, 5].map((p) => [0, p, "initials"]),
+    );
+  });
+
+  it("all but the last, from a box on page 3: pages 1, 2 and 4 get copies", () => {
+    const { layout, added } = repeatField(
+      [initials(3)],
+      7,
+      { kind: "allButLast" },
+      frames5,
+    );
+    expect(added).toEqual([1, 2, 4]);
+    expect(layout.map((f) => f.page).sort()).toEqual([1, 2, 3, 4]);
+  });
+
+  it("repeating twice adds nothing the second time (no stacked duplicates)", () => {
+    const once = repeatField([initials(1)], 7, { kind: "all" }, frames5);
+    const twice = repeatField(once.layout, 7, { kind: "all" }, frames5);
+    expect(twice.added).toEqual([]);
+    expect(twice.layout).toEqual(once.layout);
+  });
+
+  it("stops at the request's box limit and says so", () => {
+    const many = Array.from({ length: 48 }, (_, i) => ({
+      ...initials(1),
+      id: 100 + i,
+      type: "text" as const,
+    }));
+    const { layout, added, limited } = repeatField(
+      [...many, initials(1)],
+      7,
+      { kind: "all" },
+      frames5,
+    );
+    expect(layout).toHaveLength(MAX_REQUEST_FIELDS);
+    expect(added).toEqual([2]);
+    expect(limited).toBe(true);
+  });
+
+  it("on a page of another size the box keeps its size in points and stays on the page", () => {
+    const frames = [letter, { width: 842, height: 595 }];
+    const { layout } = repeatField([initials(1)], 7, { kind: "all" }, frames);
+    const copy = layout.find((f) => f.page === 2)!;
+    expect(copy.width * 842).toBeCloseTo(0.098 * 612, 0);
+    expect(copy.height * 595).toBeCloseTo(0.0455 * 792, 0);
+    expect(copy.x + copy.width).toBeLessThanOrEqual(1);
+    expect(accepted(copy).ok).toBe(true);
   });
 });
