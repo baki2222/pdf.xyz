@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterAll, afterEach, beforeEach, vi } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { readNotoTtf } from "@/lib/pdf/noto-source";
@@ -10,6 +10,7 @@ import { resetWorkerStatusForTests } from "@/components/tools/use-worker-status"
 import { observeClassesForTests } from "@/lib/utils";
 import { droppedClasses } from "./class-conflicts";
 import { assertNoPollLeft } from "./poll-leak-guard";
+import { ASYNC_UTIL_TIMEOUT_MS } from "./async-util-timeout";
 import {
   drainWaitRecords,
   installViWaitRecorder,
@@ -79,6 +80,13 @@ observeClassesForTests((classes) => {
 afterEach(() => {
   cleanup();
 });
+
+// testing-library's default wait, the same value locally and on CI.
+// `./async-util-timeout.ts` has the CI data it was derived from, and its
+// test lets a real findBy fail to prove the value is the one waits use.
+// It is set the same way for every file, so isolate:false cannot leak a
+// different value from one file into the next.
+configure({ asyncUtilTimeout: ASYNC_UTIL_TIMEOUT_MS });
 
 // Every testing-library wait is timed, and its record handed to the test's
 // meta for the headroom reporter (`./wait-recorder.ts` has how, and why it

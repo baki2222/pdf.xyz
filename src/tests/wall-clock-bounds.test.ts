@@ -122,7 +122,11 @@ const BOUNDS = {
   // total below is the one that must not fall. Each lane that drains past
   // it lowers it to its own count minus a few, in its own PR, with the
   // count it saw (this file is shared: merge it, do not take either side).
-  comparisons: [80, 500],
+  // Lane 1b (test/flake-lane-1b), merged on top of lane 2 on 2026-11-28:
+  // 77 raw (routed 68, debt 68, exempt 1), so the floor goes to 71.
+  comparisons: [71, 500],
+  // Routed calls alone, so a routing walk that goes blind fails on its own.
+  routed: [30, 300],
   routedDebtExempt: [100, 500],
 } as const;
 
@@ -372,7 +376,10 @@ describe.skipIf(MODE)(
         `routed ${audit.routed.length}, debt ${parseDebt(WALL_CLOCK_DEBT_TSV).length}, exempt ${WALL_CLOCK_EXEMPT.length}, comparisons ${audit.comparisons.length}`,
       );
       within("routedDebtExempt", total);
+      // Each recognizer's set bounded on its own (review 2026-11-22: a sum
+      // of the two let the raw set lose half its members unseen).
       within("comparisons", audit.comparisons.length);
+      within("routed", audit.routed.length);
     });
 
     it("every rule catches a real member, or says what it is waiting for (rule 1, both directions)", () => {

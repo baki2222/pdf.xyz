@@ -256,8 +256,9 @@ describe("rule tables", () => {
     // Word-style two-column table, round 3's finding 9); 4 and 17 until
     // slice S3 added dot-leader, box-glyph, toc-leader and ticked-box; 6
     // and 19 until slice S4 added entry-box and filled-box; 7 and 20 until
-    // slice S5 added header-cell, filled-cells and large-table.
-    expect(DETECTION_RULES).toHaveLength(8);
+    // slice S5 added header-cell, filled-cells and large-table; 8 until
+    // slice S6 added comb-boxes and radio-stack.
+    expect(DETECTION_RULES).toHaveLength(10);
     expect(EXCLUSION_RULES).toHaveLength(22);
   });
 
@@ -4613,10 +4614,18 @@ describe("square-checkbox", () => {
             txt("Date of arrival", 72, 573, { size: 10, width: 70 }),
           ],
         });
-      expect(labels(p("DDMMYYYY"))).toEqual([]);
-      const rules = run(p("DDMMYYYY")).excluded.map((e) => e.rule);
-      expect(rules).toHaveLength(16);
-      expect(new Set(rules)).toEqual(new Set(["comb"]));
+      // INVERTED in part by slice S6 (2026-11-22): this read
+      // `labels(...)` = [] and 16 `comb` exclusions (no checkbox, and no
+      // field either). Each labelled 8-box row is now ONE text field
+      // limited to 8, named from its row; still never a checkbox.
+      const combs = run(p("DDMMYYYY"));
+      expect(
+        combs.proposals.map((x) => [x.rule, x.label, x.maxLength]),
+      ).toEqual([
+        ["comb-boxes", "Date of birth", 8],
+        ["comb-boxes", "Date of arrival", 8],
+      ]);
+      expect(combs.excluded).toEqual([]);
       // One repeat is enough: a two-box comb under "D D" (COMB_MIN is 2).
       // Review round 6 test honesty: mutant R1 (a row needing two repeats)
       // stayed green.
