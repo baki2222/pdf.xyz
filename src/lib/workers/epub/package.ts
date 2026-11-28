@@ -346,7 +346,9 @@ export function openEpub(bytes: Uint8Array): OpenEpubResult {
     joined(description.filter(Boolean).slice(0, 1), METADATA_MAX_CHARS);
 
   // The fonts' key: the identifier the package names as unique, and all.
-  const identifiers = metadata ? childElements(metadata, "identifier") : [];
+  // Deep, like the creator: a <dc-metadata> wrapper left the font keyless
+  // (verify review of wave 3).
+  const identifiers = metaElements("identifier");
   const uniqueId = opf.attrs["unique-identifier"];
   const uniqueEl = identifiers.find((el) => el.attrs.id === uniqueId);
   const ids = {

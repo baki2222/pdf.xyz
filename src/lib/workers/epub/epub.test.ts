@@ -613,6 +613,31 @@ describe("wave 3 review: the cap, the Subject, the Author, the key", () => {
     expect(book.creator).toBe("Wrapped Author");
   });
 
+  for (const method of ["idpf", "adobe"] as const)
+    it(`epub-to-pdf#4: a <dc-metadata> package still keys its ${method} font (the identifier is read deep too)`, async () => {
+      // Verify review: identifiers were read from direct children of
+      // <metadata> only, so a wrapped package's font had no key and was
+      // left out while a reader would show it.
+      const wrap = (opf: string) =>
+        opf
+          .replace("<dc:identifier", "<dc-metadata><dc:identifier")
+          .replace(
+            "<dc:language>en</dc:language>",
+            "<dc:language>en</dc:language></dc-metadata>",
+          );
+      const book = open(await obfuscatedRealFontBook(method, undefined, wrap));
+      expect({
+        restored: book.fontsRestored,
+        leftOut: book.fontsLeftOut.size,
+      }).toEqual({ restored: 1, leftOut: 0 });
+      // Health: the wrapper really landed around the identifier.
+      const probe = wrap(
+        `<metadata><dc:identifier id="x">i</dc:identifier><dc:language>en</dc:language></metadata>`,
+      );
+      expect(probe).toContain("<dc-metadata><dc:identifier");
+      expect(probe).toContain("</dc:language></dc-metadata>");
+    });
+
   it("epub-to-pdf#4: the IDPF key drops white space INSIDE the identifier (OCF 4.2)", async () => {
     const spaced = `urn:uuid:12345678-1234-4234-${String.fromCharCode(10)}   8234-123456789abc`;
     // The fixture keys the font with its own white-space removal; the
