@@ -2,8 +2,15 @@ import { describe, expect, it } from "vitest";
 import { ANNOTATION_GROUPS } from "@/lib/pdf/annotation-groups";
 import { flattenPdf } from "@/lib/pdf/flatten";
 import { inventoryAnnotations } from "@/lib/pdf/remove-annotations";
-import { FULL_FIXTURE_GROUPS, fullFixture } from "@/tests/annotation-fixtures";
-import { getToolBySlug } from "@/lib/tools";
+import { PDFArray, PDFDict, PDFDocument, PDFName } from "pdf-lib";
+import {
+  FULL_FIXTURE_GROUPS,
+  apStream,
+  fullFixture,
+} from "@/tests/annotation-fixtures";
+import { getToolBySlug, tools } from "@/lib/tools";
+import { guides } from "@/lib/guides/catalog";
+import { pageFaq } from "./page-copy";
 import { FLATTEN_MARKUP_HINT } from "@/components/tools/runner/flatten-markup-copy";
 import { toolContent } from "./content";
 
@@ -39,7 +46,35 @@ describe("Flatten is forms-only, as both pages say", () => {
   });
 
   it("with the opt-in, Flatten PDF draws the comments in and removes them; links and the rest stay", async () => {
-    const flattened = await flattenPdf(await fullFixture(), {
+    // Verify finding (2026-11-28): the full fixture's Redact and attachment
+    // marks had no /AP, so they were kept as "nothing to draw" whether or not
+    // the kept-kinds check existed, and the assertions below were decoration.
+    // Each gets a saved look here, so only that check keeps them.
+    const doc = await PDFDocument.load(await fullFixture());
+    let given = 0;
+    for (const page of doc.getPages()) {
+      const annots = page.node.lookup(PDFName.of("Annots"));
+      if (!(annots instanceof PDFArray)) continue;
+      for (const ref of annots.asArray()) {
+        const dict = doc.context.lookup(ref);
+        if (!(dict instanceof PDFDict)) continue;
+        const kind = dict.lookup(PDFName.of("Subtype"));
+        if (
+          kind instanceof PDFName &&
+          /^\/(Redact|FileAttachment)$/.test(kind.toString())
+        ) {
+          dict.set(
+            PDFName.of("AP"),
+            doc.context.obj({ N: apStream(doc.context, "LOOK") }),
+          );
+          given++;
+        }
+      }
+    }
+    expect(given).toBe(
+      FULL_FIXTURE_GROUPS["redaction-marks"] + FULL_FIXTURE_GROUPS.attachments,
+    );
+    const flattened = await flattenPdf(await doc.save(), {
       annotations: true,
     });
     const after = await inventoryAnnotations(flattened.bytes);
@@ -93,6 +128,94 @@ describe("Flatten PDF's lede and hint follow the comments option (review finding
     const lede = getToolBySlug("flatten-pdf")!.description;
     expect(lede).not.toMatch(ALWAYS_KEPT);
     expect(lede).toMatch(/unless you/);
+  });
+
+  /**
+   * Verify finding (2026-11-28): the ban above read ONE named surface (the
+   * lede) while the served page also carried tool-facts' FAQ answer, word
+   * for word "saved as they were", which the pattern could not match. So the
+   * subjects are now DISCOVERED: every string leaf of every tool's catalog
+   * entry, authored content and served FAQ (pageFaq, which feeds the visible
+   * FAQ and the FAQPage JSON-LD), and of every guide. A block is in scope if
+   * it is on Flatten PDF's own page or names Flatten PDF. In scope, a
+   * sentence saying comments are kept must sit in a block that names the
+   * opt-in; without it the sentence is true only of the default.
+   */
+  const SHIPPED_KEPT = [
+    ...SHIPPED_LEDE,
+    // tool-facts.ts factFaq "Does Flatten PDF flatten comments and annotations too?"
+    "No — only fillable form fields: text boxes, checkboxes, radio buttons, dropdowns, list boxes and push buttons. Comments, ink drawings and layers are saved as they were.",
+    // remove-annotations.ts intro
+    "It is not Flatten PDF. Flatten PDF draws a filled form's answers into the page and then removes the fields, and leaves comments as they are.",
+    // guides/catalog.ts "Signing and locking the finished form"
+    "When the answers are final, Flatten PDF locks the fillable fields into the page itself so their values can no longer be edited, while other annotations and layers are kept as-is.",
+  ];
+  /** Each alternative is exercised by a shipped sentence (checked below). */
+  const KEPT_ALTERNATIVES = [
+    /\b(?:comments|annotations|markup|ink drawings|layers|highlights)\b[^.;]*?\b(?:are|is) (?:always )?(?:kept|saved|left)\b/i,
+    /\b(?:comments|annotations|markup|highlights)\b[^.;]*?\b(?:stays?|remains?)\b/i,
+    /\bleaves?\b[^.;]*?\b(?:comments|annotations|highlights|markup)\b/i,
+  ];
+  const keptClaim = (s: string) => KEPT_ALTERNATIVES.some((re) => re.test(s));
+  const OPT_IN =
+    /Also flatten comments and markup|unless you (?:tick|flatten)/i;
+  const sentences = (block: string) =>
+    block.split(/(?<=[.!?])\s+(?=[A-Z"“])/).filter(Boolean);
+  const leaves = (value: unknown, out: string[] = []): string[] => {
+    if (typeof value === "string") out.push(value);
+    else if (Array.isArray(value)) for (const v of value) leaves(v, out);
+    else if (value && typeof value === "object")
+      for (const v of Object.values(value)) leaves(v, out);
+    return out;
+  };
+  /** Blocks that break the rule: a kept-claim with no opt-in beside it. */
+  const offenders = (blocks: readonly string[]) =>
+    blocks.filter((b) => !OPT_IN.test(b) && sentences(b).some(keptClaim));
+
+  const flattenPage = (() => {
+    const tool = getToolBySlug("flatten-pdf")!;
+    return leaves([tool, toolContent["flatten-pdf"], pageFaq(tool)]);
+  })();
+  const naming = leaves([
+    tools.map((t) => [t, toolContent[t.slug], pageFaq(t)]),
+    guides,
+  ]).filter((b) => /\bFlatten PDF\b/.test(b));
+  const inScope = [...new Set([...flattenPage, ...naming])];
+
+  it("the corpus: every shipped sentence is caught, and every alternative catches one", () => {
+    for (const s of SHIPPED_KEPT) {
+      expect(keptClaim(s), s).toBe(true);
+      expect(offenders([s]), s).toEqual([s]);
+    }
+    for (const re of KEPT_ALTERNATIVES) {
+      const hits = [...SHIPPED_KEPT, getToolBySlug("flatten-pdf")!.description]
+        .flatMap(sentences)
+        .filter((s) => re.test(s));
+      expect(hits.length, String(re)).toBeGreaterThan(0);
+    }
+    // Positive control: the same sentence beside the opt-in passes.
+    expect(
+      offenders([`${SHIPPED_KEPT[1]} Tick Also flatten comments and markup.`]),
+    ).toEqual([]);
+  });
+
+  it("the discovered set is the size of the real surfaces", () => {
+    // Health checks: an empty or collapsed walk would pass vacuously.
+    expect(flattenPage.length).toBeGreaterThan(30);
+    expect(naming.length).toBeGreaterThan(10);
+    expect(naming.length).toBeLessThan(400);
+    // Each surface a verify pass found stale is a member of the set.
+    for (const where of [
+      (b: string) => b.startsWith("It is not Flatten PDF."),
+      (b: string) => /Flatten PDF locks the fillable fields/.test(b),
+      (b: string) =>
+        pageFaq(getToolBySlug("flatten-pdf")!).some((f) => f.answer === b),
+    ])
+      expect(inScope.some(where)).toBe(true);
+  });
+
+  it("no served block says Flatten PDF keeps comments without naming the opt-in", () => {
+    expect(offenders(inScope)).toEqual([]);
   });
 
   it("the page and the box's hint say pending redactions, attachments and media are kept", () => {

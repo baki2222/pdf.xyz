@@ -1554,7 +1554,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: `Does ${tool.name} flatten comments and annotations too?`,
           answer:
-            "No — only fillable form fields: text boxes, checkboxes, radio buttons, dropdowns, list boxes and push buttons. Comments, ink drawings and layers are saved as they were.",
+            "Only if you tick Also flatten comments and markup. Without it, only fillable form fields are flattened: text boxes, checkboxes, radio buttons, dropdowns, list boxes and push buttons. Layers are never flattened.",
         },
       ];
     case "overlay":

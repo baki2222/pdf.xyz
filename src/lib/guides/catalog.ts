@@ -1943,7 +1943,7 @@ export const guides: Guide[] = [
         heading: "Signing and locking the finished form",
         body: [
           "Many forms want a signature once the blanks are done. The Sign PDF tool creates one by drawing, typing, or picking a signature image, and lets you place it precisely on the page — so the natural order is fill first, then add the signature to the completed file.",
-          "When the answers are final, Flatten PDF locks the fillable fields into the page itself so their values can no longer be edited, while other annotations and layers are kept as-is. That is the right last step before sending a form whose field values you do not want edited. Sign PDF and Flatten PDF both take a PDF and return a PDF, and both run in the browser the same way Fill Forms does.",
+          "When the answers are final, Flatten PDF locks the fillable fields into the page itself so their values can no longer be edited, while comments and other annotations are kept as-is unless you tick Also flatten comments and markup. That is the right last step before sending a form whose field values you do not want edited. Sign PDF and Flatten PDF both take a PDF and return a PDF, and both run in the browser the same way Fill Forms does.",
         ],
       },
       {
@@ -1981,7 +1981,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-22",
+    updated: "2026-11-28",
   },
   {
     slug: "how-to-sign-a-pdf",

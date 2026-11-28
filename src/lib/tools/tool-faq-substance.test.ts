@@ -1606,9 +1606,18 @@ describe("the form tools answer what happens to the fields", () => {
       const editedAgain = answer(tool.slug, /edited again/);
       expect(editedAgain).toMatch(/^Not the fields that were flattened\b/);
       expect(editedAgain).toMatch(/\bSignature fields stay signature fields\b/);
-      expect(answer(tool.slug, /comments and annotations/)).toMatch(
-        /saved as they were/,
+      // INVERTED 2026-11-28, history kept. This asserted /saved as they
+      // were/ — "No — only fillable form fields ... Comments, ink drawings and
+      // layers are saved as they were." — which stayed true only of the
+      // default once audit flatten-pdf#3 added "Also flatten comments and
+      // markup", and the served page then contradicted its own FAQ. The
+      // default (asserted on the engine above: the /Text comment survives)
+      // must now be stated beside the box that changes it.
+      const comments = answer(tool.slug, /comments and annotations/);
+      expect(comments).toMatch(
+        /^Only if you tick Also flatten comments and markup\./,
       );
+      expect(comments).not.toMatch(/saved as they were/);
     }
   });
 
