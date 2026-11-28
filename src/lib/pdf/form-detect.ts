@@ -3293,10 +3293,19 @@ function squareGroups(
  * corpus P30, P31). An option list in columns under one instruction is no
  * grid: its other columns have no head. A square with its own label on its
  * right does not take its grid label (`squareCandidates`; corpus P36).
+ *
+ * Every text search here reads a baseline band of `tix`, never the whole
+ * page. A band is 1 pt wider at each end than its filter, so rounding at
+ * an edge cannot drop an item, and is in page order: each filter still
+ * decides, so every test and tie-break is unchanged. A search over
+ * `p.text` per row or column was quadratic on a page of comb rows: one
+ * full read of the page per row, the cost S6 removed from
+ * `squareCandidates`' own loop.
  */
 function gridLabels(
   p: CardPage,
   squares: readonly CardRect[],
+  tix: TextIndex,
 ): Map<CardRect, string> {
   const out = new Map<CardRect, string>();
   const columnOf = new Map<CardRect, CardRect[]>();
@@ -3315,7 +3324,11 @@ function gridLabels(
   for (const col of new Set(columnOf.values())) {
     const top = col.reduce((a, b) => (b.y1 > a.y1 ? b : a));
     const over: CardText[] = [];
-    for (const t of p.text) {
+    for (const t of textBand(
+      tix,
+      top.y1 - 1,
+      top.y1 + DETECT.GRID_HEAD_ABOVE + 1,
+    )) {
       if (!t.upright || !cleanLabel(t.str)) continue;
       if (t.y <= top.y1 || t.y - top.y1 > DETECT.GRID_HEAD_ABOVE) continue;
       if (overlap(t.x, t.x + Math.max(0, t.width), top.x0, top.x1) <= 0)
@@ -3333,7 +3346,13 @@ function gridLabels(
     // text over the head row, up to 2 x GRID_HEAD_ABOVE over the column's
     // top square, across the column. Read only where heads repeat (below).
     let group: CardText | undefined;
-    for (const t of p.text) {
+    // Every item it keeps lies over `base` (> top.y1) and within twice
+    // GRID_HEAD_ABOVE of the top square.
+    for (const t of textBand(
+      tix,
+      top.y1 - 1,
+      top.y1 + 2 * DETECT.GRID_HEAD_ABOVE + 1,
+    )) {
       if (!t.upright || !cleanLabel(t.str)) continue;
       if (t.y - base <= DETECT.GRID_ROW_EPS) continue;
       if (t.y - top.y1 > 2 * DETECT.GRID_HEAD_ABOVE) continue;
@@ -3353,11 +3372,12 @@ function gridLabels(
     const items = heads.flatMap((h) => h!.items);
     if (new Set(items).size !== items.length) continue;
     const first = row.reduce((a, b) => (b.x0 < a.x0 ? b : a));
+    const rowLo = first.y0 - DETECT.RUN_BASELINE_EMS * 12;
     const rowText = leftOf(
-      p.text,
+      textBand(tix, rowLo - 1, first.y1 + 1),
       first.x0,
       p.width,
-      first.y0 - DETECT.RUN_BASELINE_EMS * 12,
+      rowLo,
       () => first.y1,
     ).find((h) => h.text.upright);
     // Heads that repeat ("Yes No | Yes No" under "Left eye | Right eye")
@@ -3394,7 +3414,8 @@ function gridLabels(
  * its grid label ({@link gridLabels}) instead.
  */
 function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
-  const grid = gridLabels(p, lines.squares);
+  const tix = textIndex(p.text);
+  const grid = gridLabels(p, lines.squares, tix);
   type Sides = {
     right: LabelHit[];
     left: LabelHit[];
@@ -3408,7 +3429,6 @@ function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
   // every test and tie-break is unchanged: scanning every text item for
   // every square was quadratic on a page of labelled squares (S6 review
   // round 1; form-detect-combs-cost.test.ts read 70x at 16x the page).
-  const tix = textIndex(p.text);
   for (const sq of lines.squares) {
     const right: LabelHit[] = [];
     const band = ySlice(
@@ -3545,11 +3565,12 @@ function squareCandidates(p: CardPage, lines: PageLines): Candidate[] {
     if (!col.every((s) => bySquare.get(s)!.labelState === "none")) continue;
     if (!col.every((s) => rowCount.get(s) === 1)) continue;
     for (const s of col) {
+      const lo = s.y0 - DETECT.RUN_BASELINE_EMS * 12;
       const lettered = leftOf(
-        p.text,
+        textBand(tix, lo - 1, s.y1 + 1),
         s.x0,
         p.width,
-        s.y0 - DETECT.RUN_BASELINE_EMS * 12,
+        lo,
         () => s.y1,
       ).filter((h) => h.text.upright && LETTER.test(h.str));
       const first =

@@ -91,4 +91,10 @@ export const WALL_CLOCK_PENDING: readonly PendingEntry[] = [
     reason:
       "The comb and radio-stack rules' label paths (each stacked square's label, a stack's caption and the words over it, the squares' own labels, a comb's left label and what stands between, a scale's heads) must stay linear in the page's blocks, and only this ratio sees a quadratic step there: the test's health checks cover what the page returns, not what it costs. Back to assert once 5 CI runs calibrate the id (readings in the test file).",
   },
+  {
+    id: "grid rows",
+    file: "src/lib/pdf/form-detect-grid-cost.test.ts",
+    reason:
+      "A checkbox grid's row text, column heads and group heads must stay linear in its rows, and only this ratio sees a whole-page read per row: every label on the page is the same with or without it. Back to assert once 5 CI runs calibrate the id (readings in the test file).",
+  },
 ];
