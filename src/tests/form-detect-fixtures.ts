@@ -39,6 +39,7 @@ import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import { PRECISION_CASES } from "./form-detect-precision-fixtures";
 import { BOX_CASES } from "./form-detect-boxes-fixtures";
 import { TABLE_CASES } from "./form-detect-tables-fixtures";
+import { COMB_CASES } from "./form-detect-combs-fixtures";
 
 /**
  * TEST ONLY. The Create Forms field finder's corpus: every case is a small
@@ -55,7 +56,7 @@ import { TABLE_CASES } from "./form-detect-tables-fixtures";
 
 export interface Expect {
   rule: DetectionRuleId;
-  type: "text" | "checkbox";
+  type: "text" | "checkbox" | "radio";
   label: string | null;
   page: number;
   /** Card frame, +-1 pt. */
@@ -67,6 +68,13 @@ export interface Expect {
    * {@link matches}: a proposal is multiline exactly when this is true.
    */
   multiline?: boolean;
+  /**
+   * A comb's character limit (slice S6). Compared both ways by
+   * {@link matches}: a proposal has one exactly when this is set, and equal.
+   */
+  maxLength?: number;
+  /** A radio group's choices, top to bottom (slice S6); compared both ways. */
+  options?: string[];
 }
 
 export interface DetectCase {
@@ -1728,9 +1736,17 @@ export const DETECT_CASES: readonly DetectCase[] = [
     at: { page: 1, x: 300, y: 525 },
   },
   {
+    // INVERTED by slice S6 (2026-11-22), id kept. This case read "eight
+    // equal squares edge to edge: a comb for single characters", expect
+    // "none", decided by `comb` (with `unlabelled` also off for its seam):
+    // S1 excluded every comb so a row of character boxes could never be
+    // eight checkboxes, and left the comb-to-character-limit rule to S6.
+    // A labelled run of four or more is now ONE text field over the run,
+    // limited to its cell count; unlabelled and shorter runs stay `comb`
+    // (S6's N91 and N92 hold that half).
     id: "N5",
-    kind: "negative",
-    note: "eight equal squares edge to edge: a comb for single characters",
+    kind: "positive",
+    note: '"Account" beside eight equal squares edge to edge: one text field over the eight, limited to 8 characters, never eight checkboxes',
     build: async () => {
       const d = await doc();
       const page = d.addPage(LETTER);
@@ -1738,10 +1754,16 @@ export const DETECT_CASES: readonly DetectCase[] = [
       for (let k = 0; k < 8; k++) square(page, 200 + 14 * k, 400, 14);
       return save(d);
     },
-    expect: "none",
-    decidedBy: "comb",
-    at: { page: 1, x: 207, y: 407 },
-    seamAlsoDisable: ["unlabelled"],
+    expect: [
+      {
+        rule: "comb-boxes",
+        type: "text",
+        label: "Account",
+        page: 1,
+        box: { x: 200, y: 400, width: 112, height: 14 },
+        maxLength: 8,
+      },
+    ],
   },
   {
     id: "N6",
@@ -2168,9 +2190,16 @@ export const DETECT_CASES: readonly DetectCase[] = [
     at: { page: 1, x: N32_X0 + 50, y: 605 },
   },
   {
+    // INVERTED in part by slice S6 (2026-11-22), id kept. This case was a
+    // negative, expect "none", decided by `comb` at the date's first box:
+    // every group was a comb and nothing was proposed. The date's three
+    // groups now stand together as one comb row of eight boxes, so each
+    // group is a text field limited to its boxes (2, 2 and 4), named from
+    // "Date of birth"; the two-box "Age" and three-box "House no." stand
+    // alone, fewer than four, and stay `comb` (the point moved to Age).
     id: "N33",
-    kind: "negative",
-    note: 'digit boxes: "Date of birth" and DD / MM / YYYY boxes with "/" between the groups, a two-box "Age", a three-box "House no."',
+    kind: "positive",
+    note: 'digit boxes: "Date of birth" and DD / MM / YYYY boxes with "/" between the groups (a field per group), a two-box "Age" and a three-box "House no." (no field)',
     // Review round 3, finding 2: a comb needed four adjoining squares, so
     // every group here but the year was proposed as checkboxes, the date's
     // labelled "/".
@@ -2188,9 +2217,20 @@ export const DETECT_CASES: readonly DetectCase[] = [
       for (const dx of [0, 16, 32]) square(page, N33.house + dx, 536, 16);
       return save(d);
     },
-    expect: "none",
+    expect: [
+      [0, 32],
+      [44, 76],
+      [88, 152],
+    ].map(([a, b]) => ({
+      rule: "comb-boxes" as const,
+      type: "text" as const,
+      label: "Date of birth",
+      page: 1,
+      box: rounded(N33.date + a!, 616, N33.date + b!, 632),
+      maxLength: (b! - a!) / 16,
+    })),
     decidedBy: "comb",
-    at: { page: 1, x: N33.date + 8, y: 624 },
+    at: { page: 1, x: N33.age + 8, y: 584 },
   },
   {
     id: "N34",
@@ -2975,9 +3015,14 @@ export const DETECT_CASES: readonly DetectCase[] = [
     seamAlsoDisable: ["no-clearance"],
   },
   {
+    // INVERTED by slice S6 (2026-11-22), id kept. This case was a
+    // negative, expect "none", decided by `comb`: no checkboxes, and no
+    // field either. Each 8-box row is now one text field limited to 8
+    // characters, named from the row's own label to its left; the heads
+    // over each box still never make it a grid of 16 checkboxes.
     id: "N47",
-    kind: "negative",
-    note: "headed date combs: D D M M Y Y Y Y over two aligned 8-box combs, no checkboxes",
+    kind: "positive",
+    note: "headed date combs: D D M M Y Y Y Y over two aligned 8-box combs: one 8-character field a row, no checkboxes",
     // Review round 5 fixes, finding 1: P40's grid exemption made these 16
     // checkboxes ("Date of birth D", ...). A comb's heads repeat; a grid's
     // do not. P40 and N33 are its neighbours.
@@ -2993,9 +3038,14 @@ export const DETECT_CASES: readonly DetectCase[] = [
       }
       return save(d);
     },
-    expect: "none",
-    decidedBy: "comb",
-    at: { page: 1, x: N47.x(3) + 7, y: N47.ys[0]! + 7 },
+    expect: N47.rows.map((label, i) => ({
+      rule: "comb-boxes" as const,
+      type: "text" as const,
+      label,
+      page: 1,
+      box: rounded(N47.x(0), N47.ys[i]!, N47.x(8), N47.ys[i]! + 14),
+      maxLength: 8,
+    })),
   },
   {
     id: "N48",
@@ -3541,6 +3591,8 @@ export const DETECT_CASES: readonly DetectCase[] = [
   ...BOX_CASES,
   // Slice S5 (tables: empty ruled cells): src/tests/form-detect-tables-fixtures.ts.
   ...TABLE_CASES,
+  // Slice S6 (combs and radio clusters): src/tests/form-detect-combs-fixtures.ts.
+  ...COMB_CASES,
 ];
 
 /* ------------------------------------------------------------------ *
@@ -3610,6 +3662,8 @@ export function matches(p: FieldProposal, e: Expect): boolean {
     p.label === e.label &&
     p.page === e.page &&
     (p.multiline === true) === (e.multiline === true) &&
+    p.maxLength === e.maxLength &&
+    JSON.stringify(p.options) === JSON.stringify(e.options) &&
     near(p.x, e.box.x) &&
     near(p.y, e.box.y) &&
     near(p.width, e.box.width) &&
