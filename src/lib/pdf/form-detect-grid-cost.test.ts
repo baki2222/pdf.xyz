@@ -3,13 +3,15 @@
  * same-run size ratio, never a wall-clock bound, in a file of its own as
  * S4's, S5's and S6's are.
  *
- * WHAT IS TIMED. A grid of N rows down one column: a "Yes" and a "No"
- * square per row, heads over the top squares, the condition far to the
- * left of each row and a note far to its right. That gives every row a
- * head for each of its columns, so every row asks for its row text, the
- * search that read the whole page once per row. With the squares' own
- * side labels out of reach, each one takes its grid label. Columns ask for
- * their heads and group heads.
+ * WHAT IS TIMED. N small Yes / No grids, each with its own two columns
+ * and two rows (`grids` below), so the page's rows AND columns grow with
+ * N. Every row asks for its row text, and every column for its head and
+ * its group head: the three searches that read the whole page once per
+ * row or column.
+ *
+ * The first version timed one tall grid. It had two columns however long
+ * it was, so it timed the row search alone while its pending entry claimed
+ * the column searches too (#401 review, upheld 2 of 2).
  *
  * Why its own page: S6's comb page never reaches that search. Its comb
  * columns share one "PIN" head item, so each row is skipped before it.
@@ -81,31 +83,49 @@ function interleavedBest<T>(fns: readonly (() => T)[], reps = 3): Timed<T>[] {
   return out;
 }
 
-/** 200 against 12,800 rows (64x): linear reads about 64. */
-const SMALL = 200;
-const K = 64;
+/** SMALL against SMALL x K grids: linear reads about K. */
+const SMALL = 100;
+const K = 128;
 
 /** The proposals a page returns at most (the rest are counted as capped). */
 const PAGE_CAP = 60;
 
-/** A Yes / No grid of n rows, 20 pt apart. */
-function grid(n: number): CardPage {
+/** Squares per grid: two rows of a Yes and a No. */
+const PER_GRID = 4;
+
+/**
+ * n small Yes / No grids, each a step right of and above the last. Every
+ * grid has its OWN two columns and two rows, so the page's columns grow
+ * with n as fast as its rows do. A tall grid has two columns however long
+ * it is, so it cannot time the column searches: that page timed only the
+ * row search (#401 review). Each grid's rows:
+ * - its condition, 120 pt left of the row, beyond a square's own reach
+ *   (DETECT.LABEL_LEFT_GAP 24), so every square takes its grid label;
+ * - its heads, 4 pt over its top squares.
+ * The next grid is 100 pt right and 60 pt up, clear of every band.
+ */
+function grids(n: number): CardPage {
   const rects: CardRect[] = [];
   const text: CardText[] = [];
-  const top = 100 + 20 * (n - 1);
-  text.push(txt("Yes", 300, top + 16));
-  text.push(txt("No", 340, top + 16));
   for (let i = 0; i < n; i++) {
-    const y = 100 + 20 * i;
-    rects.push(rect(300, y, 12));
-    rects.push(rect(340, y, 12));
-    text.push(txt(`Condition ${i}`, 120, y + 2));
-    text.push(txt(`note ${i}`, 420, y + 2));
+    const x = 260 + 100 * i;
+    const y = 100 + 60 * i;
+    for (const [row, dy] of [
+      ["a", 0],
+      ["b", 20],
+    ] as const) {
+      rects.push(rect(x, y + dy, 12));
+      rects.push(rect(x + 40, y + dy, 12));
+      const cond = `Cond ${i}${row}`;
+      text.push(txt(cond, x - 120 - 5 * cond.length, y + dy + 2));
+    }
+    text.push(txt("Yes", x, y + 20 + 16));
+    text.push(txt("No", x + 40, y + 20 + 16));
   }
   return {
     page: 1,
-    width: 612,
-    height: top + 100,
+    width: 400 + 100 * n,
+    height: 200 + 60 * n,
     segs: [],
     rects,
     text,
@@ -114,22 +134,24 @@ function grid(n: number): CardPage {
   };
 }
 
-describe("cost of a checkbox grid stays linear in its rows", () => {
-  it("health: a small grid labels every square '<condition> <head>'", () => {
-    const result = classifyPage(grid(3));
+describe("cost of checkbox grids stays linear in their rows and columns", () => {
+  it("health: two grids label every square '<condition> <head>'", () => {
+    const result = classifyPage(grids(2));
     expect(result.proposals.map((p) => p.label).sort()).toEqual([
-      "Condition 0 No",
-      "Condition 0 Yes",
-      "Condition 1 No",
-      "Condition 1 Yes",
-      "Condition 2 No",
-      "Condition 2 Yes",
+      "Cond 0a No",
+      "Cond 0a Yes",
+      "Cond 0b No",
+      "Cond 0b Yes",
+      "Cond 1a No",
+      "Cond 1a Yes",
+      "Cond 1b No",
+      "Cond 1b Yes",
     ]);
   });
 
-  it("64x the rows cost under GRID_BOUND x the time (same run, interleaved, time-boxed)", () => {
-    const small = grid(SMALL);
-    const large = grid(SMALL * K);
+  it("128x the grids cost under GRID_BOUND x the time (same run, interleaved, time-boxed)", () => {
+    const small = grids(SMALL);
+    const large = grids(SMALL * K);
     const [a, b] = interleavedBest([
       () => classifyPage(small),
       () => classifyPage(large),
@@ -139,12 +161,12 @@ describe("cost of a checkbox grid stays linear in its rows", () => {
       [b!.got, SMALL * K],
     ] as const) {
       expect(result.proposals).toHaveLength(PAGE_CAP);
-      expect(result.counts.capped).toBe(2 * n - PAGE_CAP);
+      expect(result.counts.capped).toBe(PER_GRID * n - PAGE_CAP);
       for (const p of result.proposals)
-        expect(p.label).toMatch(/^Condition \d+ (Yes|No)$/);
+        expect(p.label).toMatch(/^Cond \d+[ab] (Yes|No)$/);
       expect(result.excluded).toEqual([]);
     }
-    expectRatioBelow("grid rows", b!.ms, a!.ms, GRID_BOUND, {
+    expectRatioBelow("checkbox grids", b!.ms, a!.ms, GRID_BOUND, {
       mode: "measure",
       detail: `${b!.calls} / ${a!.calls} calls`,
     });
@@ -152,21 +174,28 @@ describe("cost of a checkbox grid stays linear in its rows", () => {
 });
 
 /**
- * The bound, measured 2026-11-28 (Windows 11, Node 24): 2x over the worst
- * reading of the fixed code, and at least 1.5x under the lowest reading of
- * the mutant it sees. The runs alternated fixed, mutant, fixed, ...
+ * The bound, measured 2026-11-28 (Windows 11, Node 24) on 100 against
+ * 12,800 grids (128x): 2x over the worst reading of the fixed code, and at
+ * least 1.5x under the lowest reading of each mutant it sees. Fixed and
+ * mutant runs alternated. Each mutant puts ONE whole-page read back:
  *
- *  - Fixed (each search reads a baseline band): 77.8, 87.3, 74.6. The
- *    worst is 87.3, so the bound is at least 174.6.
- *  - Mutant: main 8f379e1a's form-detect.ts, with the whole-page reads put
- *    back in `gridLabels`' row text, its heads and group heads, and the
- *    checklist pass. It read 281, 284 and 287: red 3 of 3. Lowest / 1.5 =
- *    187.3. The window is 174.6 to 187.3, so GRID_BOUND is 180.
+ *  - Fixed (every search reads a baseline band): 218, 215, 229. The worst
+ *    is 229, so the bound is at least 458.
+ *  - Mutant R, the row text reading `p.text`: 1026, 995 and 1070, red 3 of
+ *    3. Lowest / 1.5 = 663. The window is 458 to 663, so GRID_BOUND is 500.
+ *  - Mutant H, the head and group-head loops reading `p.text`: one call of
+ *    the large page runs past 400 s, so the test never finishes. At 64x it
+ *    read 3673x, and one call of the large page took 66 s. main 8f379e1a's
+ *    file, with all four reads, behaves the same (3339x at 64x). A
+ *    regression there fails CI by its job timeout, not by this bound:
+ *    vitest cannot interrupt a synchronous call.
+ *  - At 64x, R did not separate from the fixed code (242-277 against
+ *    90-96), which is why K is 128.
  *
- * NOT SEEN, said so: the checklist pass (lettered labels for a column of
- * unlabelled squares) never runs on this page, since every square here
- * takes its grid label. Its band read rests on review, and on the corpus
- * reading the same with and without it.
+ * NOT SEEN, said so: mutant C, the checklist pass reading `p.text`, read
+ * 223, the same as the fixed code. That pass labels a column of unlabelled
+ * squares, and every square here takes its grid label. Its band read rests
+ * on review, and on the corpus reading the same with and without it.
  *
  * MEASURE MODE: #390 holds a new bound to a CI calibration that does not
  * exist yet, so this one records and does not fail. It is listed in
@@ -174,4 +203,4 @@ describe("cost of a checkbox grid stays linear in its rows", () => {
  * above say what the page returns, and the labels are identical with the
  * whole-page reads or without them.
  */
-const GRID_BOUND = 180;
+const GRID_BOUND = 500;
