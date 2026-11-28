@@ -49,6 +49,10 @@ const SHIPPED = [
   "The font and the margins are fixed.",
   "The margins and the font cannot be changed.",
   "Every page has 0.75 in margins and a page number (1 / N) at the foot.",
+  // text-to-pdf#7, found by the 2026-11-28 review: a use case kept saying
+  // this after tabs moved to stops. It named "tab stop", which exempted it
+  // from the first ban, and "a fixed run of" was two words, not one.
+  "Two things can still break a column: a line wider than the page wraps onto the next line, and a tab becomes a fixed run of spaces rather than a jump to a tab stop.",
 ];
 
 const BANS: Record<string, (s: string) => boolean> = {
@@ -56,6 +60,11 @@ const BANS: Record<string, (s: string) => boolean> = {
     /\btabs? (?:become|turns? into|are replaced (?:by|with)) (?:\w+ )?spaces\b/i.test(
       s,
     ) && !/\btab stop\b/i.test(s),
+  "a tab is a fixed run of spaces, not a jump to a stop": (s) =>
+    /\bfixed (?:run|number) of spaces\b/i.test(s) ||
+    /\brather than (?:a )?jump(?:ing)? to (?:the |a )?(?:next )?tab stop\b/i.test(
+      s,
+    ),
   "margins fixed or unchangeable": (s) =>
     /\bmargins?\b[^.]*\b(?:are|is) fixed\b/i.test(s) ||
     /\bmargins?\b[^.]*\bcannot be changed\b/i.test(s),

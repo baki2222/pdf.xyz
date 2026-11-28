@@ -71,9 +71,18 @@ export function expandTabs(text: string, stop: number = TEXT_TAB_STOP): string {
     .split("\n")
     .map((line) => {
       let out = "";
+      // Columns are characters (code points), not UTF-16 units: an astral
+      // character before a tab is one column (review 2026-11-28).
+      let column = 0;
       for (const ch of line) {
-        if (ch === TAB) out += " ".repeat(stop - (out.length % stop));
-        else out += ch;
+        if (ch === TAB) {
+          const n = stop - (column % stop);
+          out += " ".repeat(n);
+          column += n;
+        } else {
+          out += ch;
+          column += 1;
+        }
       }
       return out;
     })

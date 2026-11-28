@@ -43,7 +43,7 @@ import {
  *    back keeps it; a reload does not), and a failed fetch is not cached.
  *
  * Layout facts (Courier for WinAnsi text, file name as a running heading and
- * as the PDF Title, "page / total" footer, tabs to a fixed run of spaces,
+ * as the PDF Title, "page / total" footer, tabs to the next tab stop,
  * over-long words broken, whitespace-led wrapping) are from
  * `src/lib/pdf/text-to-pdf.ts`. The page setup (sizes, orientation, text
  * size, and the regional paper it starts on) is TEXT_PAGE_SETUP_SENTENCE,
@@ -121,7 +121,7 @@ const content: ToolContent = {
   useCases: [
     {
       title: "Keep a log or terminal session as a document",
-      body: "Server logs, build output and command transcripts in Western European characters keep their space-aligned columns in Courier, ready to attach to a ticket. Two things can still break a column: a line wider than the page wraps onto the next line, and a tab becomes a fixed run of spaces rather than a jump to a tab stop.",
+      body: `Server logs, build output and command transcripts in Western European characters keep their space-aligned columns in Courier, ready to attach to a ticket, and ${TEXT_TAB_PHRASE}, so tab-separated columns line up too. A line wider than the page still breaks its column: it wraps onto the next line.`,
     },
     {
       title: "Print or share notes from a plain-text app",

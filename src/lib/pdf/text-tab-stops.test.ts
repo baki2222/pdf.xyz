@@ -31,6 +31,19 @@ describe("expandTabs", () => {
     expect(expandTabs("no tabs")).toBe("no tabs");
   });
 
+  // Review of text-to-pdf#7 (2026-11-28): the column was counted in UTF-16
+  // units, so a character outside the Basic Multilingual Plane (an emoji, a
+  // rare CJK ideograph: two units, one character) before a tab moved that
+  // row's next column one place short. Characters are counted.
+  it("counts characters, not UTF-16 units: an astral character is one column", () => {
+    const astral = String.fromCodePoint(0x20000);
+    expect(expandTabs(`${astral}${TAB}b`)).toBe(`${astral}${" ".repeat(7)}b`);
+    // CONTROL: the same row with a one-unit character lands identically.
+    expect([...expandTabs(`${astral}${TAB}b`)].length).toBe(
+      [...expandTabs(`a${TAB}b`)].length,
+    );
+  });
+
   it("counts per line, not across the text", () => {
     expect(expandTabs(`abc\nd${TAB}e`)).toBe(`abc\nd${" ".repeat(7)}e`);
   });
