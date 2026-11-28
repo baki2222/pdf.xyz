@@ -1730,6 +1730,18 @@ export const PDF_TO_WORD_TABLES_QUESTION =
   "How are tables and multi-column pages handled?";
 
 /**
+ * Audit wave 2 pdf-to-word#2 (2026-11-28): the tables WITHOUT a column of
+ * figures that PDF to Word writes as Word tables (`isTextTable` in
+ * `workers/pdf-text/table-grid.ts`; heartbeat `docxTextTables`). Its two
+ * numbers are held to `MIN_TEXT_TABLE_ROWS` and `MAX_TEXT_TABLE_CELL_WORDS`
+ * by table-grid.test.ts ("the copy's numbers are the rule's"). Served by
+ * `PDF_TO_WORD_KEEPS` and PDF to Word's intro and FAQ; the publish
+ * workflow ships the worker image with the page, so it is stated plainly.
+ */
+export const PDF_TO_WORD_TEXT_TABLE =
+  "at least four rows of short entries of up to three words each, such as a list of names or a form's labels and values";
+
+/**
  * The short wrapped-cell sentence, served by PDF to Word's intro and by
  * `PDF_TO_WORD_KEEPS` (so its keep FAQ answer and the convert guide). It is
  * definite and defers its limits to the tables FAQ entry by its question.
@@ -1828,8 +1840,15 @@ export const PDF_TO_WORD_WRAPS = `A cell whose text wraps onto further lines on 
  * `PDF_TO_WORD_WRAPS`, one short sentence that points to the tables FAQ's
  * list of limits instead of naming all nine itself. The same rollback rule
  * applies to it and to that list.
+ *
+ * CHANGED 2026-11-28 (audit wave 2 pdf-to-word#2): it said a table comes
+ * through as a Word table "with a column of figures such as amounts or
+ * dates", true until then. A table of short entries with no figures, such
+ * as a staff list or a form's labels and values, is now one too
+ * (`PDF_TO_WORD_TEXT_TABLE`, heartbeat `docxTextTables`); a rollback to an
+ * image without that key makes this sentence false — revert it with it.
  */
-export const PDF_TO_WORD_KEEPS = `The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line, with a column of figures such as amounts or dates, comes through as a Word table, each value in the column it sits under. Each picture on a page, such as a photo, a screenshot or a scan, comes through on a line of its own between the paragraphs above and below it, at the size the page shows it, scaled down if it is wider or taller than the Word page, with anything the page draws over it, such as a box or an arrow, drawn into it. Past ${MAX_DOCX_PICTURES.toLocaleString("en-US")} pictures, or past the size of one file or the time one conversion may take, a document's remaining pictures are left out and counted in the note beside the download; the text still comes through whole. Each word keeps its bold, italics, size and color where they can be matched, and such a word in the Latin alphabet is set in a font that comes with Windows or Office, a substitute of the same kind as the PDF's font where our reader can tell its kind; drawings made of lines and shapes elsewhere on the page, and the page layout, are not carried over. ${PDF_TO_WORD_WRAPS} Other tables come through as lines of text, their cells separated by tabs. The result is a document ready to edit — not a copy of the page.`;
+export const PDF_TO_WORD_KEEPS = `The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through as a Word table, each value in the column it sits under, when it has a column of figures such as amounts or dates, or ${PDF_TO_WORD_TEXT_TABLE}. Each picture on a page, such as a photo, a screenshot or a scan, comes through on a line of its own between the paragraphs above and below it, at the size the page shows it, scaled down if it is wider or taller than the Word page, with anything the page draws over it, such as a box or an arrow, drawn into it. Past ${MAX_DOCX_PICTURES.toLocaleString("en-US")} pictures, or past the size of one file or the time one conversion may take, a document's remaining pictures are left out and counted in the note beside the download; the text still comes through whole. Each word keeps its bold, italics, size and color where they can be matched, and such a word in the Latin alphabet is set in a font that comes with Windows or Office, a substitute of the same kind as the PDF's font where our reader can tell its kind; drawings made of lines and shapes elsewhere on the page, and the page layout, are not carried over. ${PDF_TO_WORD_WRAPS} Other tables come through as lines of text, their cells separated by tabs. The result is a document ready to edit — not a copy of the page.`;
 
 /** Every language Translate PDF offers, named, from the list its panel renders. */
 export const TRANSLATE_LANGUAGES_ANSWER = `${TRANSLATE_LANGUAGES.length} languages: ${listed(

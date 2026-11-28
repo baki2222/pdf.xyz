@@ -81,6 +81,7 @@ export function emptyCapabilities(): HeartbeatCapabilities {
     ocrOwnerPassword: false,
     requestSignatureLabels: false,
     pdfaUnicodeDocInfo: false,
+    docxTextTables: false,
     htmlAdBlock: false,
   };
 }

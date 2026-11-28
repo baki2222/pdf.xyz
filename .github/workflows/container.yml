@@ -188,7 +188,10 @@ jobs:
       # as the measured tables AND rows (a count alone could not tell
       # whether slice 3 happened); and the probe, the wrapped invoice and
       # the bank statement must give the measured tables, rows and absorbed
-      # lines, each absorbed cell one paragraph in the .docx. No user
+      # lines, each absorbed cell one paragraph in the .docx. Since
+      # 2026-11-28 (audit wave 2 pdf-to-word#2) provesDocxTextTables (the
+      # heartbeat's docxTextTables) must be true: a staff list with no
+      # column of figures is one Word table on the image's poppler. No user
       # document, secret, queue or store.
       - name: Worker image PDF to Word tables, wraps and typefaces proof (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:docx-tables-proof

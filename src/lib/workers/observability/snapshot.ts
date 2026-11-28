@@ -463,6 +463,15 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "PDF to PDF/A carries a title, author, subject or keywords with round brackets, a backslash or accented letters into the copy's document properties and XMP, instead of leaving them out",
     proves: provenByFlag,
   },
+  docxTextTables: {
+    label: "PDF to Word's tables without figures",
+    promise:
+      // Audit wave 2 pdf-to-word#2. The catalogue says a table of four or
+      // more rows of short entries comes through as a Word table; an image
+      // that reads false here writes it as tabbed rows.
+      "PDF to Word writes a table of at least four rows of short entries, with no column of figures, as a Word table, instead of tabbed rows",
+    proves: provenByFlag,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */

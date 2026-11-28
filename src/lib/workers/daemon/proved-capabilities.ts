@@ -70,6 +70,7 @@ import {
   provesDocxRunStyles,
   provesDocxTables,
   provesDocxTableWraps,
+  provesDocxTextTables,
   provesDocxTypefaces,
   provesPptxPictures,
   provesPptxPresentationChain,
@@ -218,6 +219,13 @@ export const PROVED_CAPABILITIES = defineProvers({
   // Ghostscript, its Info and XMP read back for a bracket and accents.
   pdfaUnicodeDocInfo: {
     prove: (env) => provesPdfaUnicodeDocInfo(env),
+    parse: bool,
+  },
+  // Audit wave 2 pdf-to-word#2: the text-tables probe (a staff list with no
+  // figures, a numbered list under it) through the executor on the image's
+  // own extractor and page reader.
+  docxTextTables: {
+    prove: (env) => provesDocxTextTables(pdfOfficeExportDeps(env)),
     parse: bool,
   },
 });

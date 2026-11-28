@@ -559,6 +559,23 @@ export interface HeartbeatCapabilities {
    * while a fresh beat carries this. The absence parses as `false`.
    */
   readonly pdfaUnicodeDocInfo: boolean;
+  /**
+   * This image's PDF to Word writes a table with NO column of figures — a
+   * form grid of labels and values, a staff list of names and roles — as a
+   * Word table when it is clearly a table of short entries (audit wave 2
+   * pdf-to-word#2, `pdf-text/table-grid.ts` `isTextTable`: at least four
+   * rows, every cell short, an entry in every row's first column, no column
+   * of list numbering). An older image writes such a table as tabbed rows.
+   *
+   * PROVEN AT START-UP (`pdf-office-export/capability.ts`,
+   * `provesDocxTextTables`): the text-tables probe PDF through the
+   * executor's order on `pdfOfficeExportDeps(env)`, read back by
+   * `docx-structure`; true only when the .docx holds exactly one Word table
+   * of the probe's rows and columns, each cell the page's text, and the
+   * numbered list below it outside any table. The absence parses as
+   * `false`.
+   */
+  readonly docxTextTables: boolean;
 }
 
 /**

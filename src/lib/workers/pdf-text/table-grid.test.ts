@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_GRID_COLUMNS } from "@/lib/workers/pdf-office-export/docx-structure";
+import { LONG_CELL_WORDS } from "./flow";
 import {
   chainColumns,
   isNumberCell,
@@ -7,6 +8,9 @@ import {
   MAX_TABLE_CELLS_PER_PAGE,
   MAX_TABLE_COLUMNS,
   MAX_TABLE_SLOTS_PER_PAGE,
+  MAX_TEXT_TABLE_CELL_WIDTH,
+  MAX_TEXT_TABLE_CELL_WORDS,
+  MIN_TEXT_TABLE_ROWS,
   MIN_WORD_TABLE_ROWS,
   tableGrid,
   wordTableDoubt,
@@ -334,5 +338,180 @@ describe("wordTableDoubt", () => {
     ];
     expect(yes.filter((t) => !isNumberCell(t))).toEqual([]);
     expect(no.filter((t) => isNumberCell(t))).toEqual([]);
+  });
+});
+
+/**
+ * Audit wave 2 pdf-to-word#2 (2026-11-28): a table with NO column of figures
+ * — a form grid of labels and values, a staff list of names and roles — was
+ * always tabbed rows ("numbers"). It is now a Word table when it is clearly
+ * a table of short entries (`isTextTable`): at least MIN_TEXT_TABLE_ROWS
+ * rows, every cell short, every row with an entry in the first column, and
+ * no column that is only list numbering or bullets. Each false table the
+ * round-2 review built stays refused, each on the leg named.
+ */
+describe("text-only tables (pdf-to-word#2)", () => {
+  const doubt = (rows: [number, string][][]) => {
+    const cells = rows.map((row) =>
+      row.map(([x, text]) => ({ xMin: x, xMax: x + 6 * text.length, text })),
+    );
+    const grid = tableGrid(cells, PAGE);
+    if (typeof grid === "string") throw new Error(grid);
+    return wordTableDoubt(cells, grid);
+  };
+  const STAFF: [number, string][][] = [
+    [
+      [72, "Name"],
+      [220, "City"],
+      [380, "Role"],
+    ],
+    [
+      [72, "Ada"],
+      [220, "London"],
+      [380, "Engineer"],
+    ],
+    [
+      [72, "Grace"],
+      [220, "Arlington"],
+      [380, "Admiral"],
+    ],
+    [
+      [72, "Jamal"],
+      [220, "Dhaka"],
+      [380, "Physicist"],
+    ],
+  ];
+
+  it("a staff list of names, cities and roles (four rows, no figures) is a Word table", () => {
+    expect(MIN_TEXT_TABLE_ROWS).toBe(4);
+    expect(doubt(STAFF)).toBeNull();
+  });
+
+  it("a form grid of labels and values is a Word table", () => {
+    expect(
+      doubt([
+        [
+          [72, "Full name"],
+          [240, "Rahim Uddin"],
+        ],
+        [
+          [72, "Email"],
+          [240, "rahim@example.com"],
+        ],
+        [
+          [72, "Department"],
+          [240, "Accounts"],
+        ],
+        [
+          [72, "Manager"],
+          [240, "Salma Begum"],
+        ],
+      ]),
+    ).toBeNull();
+  });
+
+  it('"numbers": the same staff list with three rows stays tabbed', () => {
+    expect(doubt(STAFF.slice(0, 3))).toBe("numbers");
+  });
+
+  it('"numbers": a cell of four or more words is text, not a table entry', () => {
+    const long = STAFF.map((r) => [...r]);
+    long[2]![2] = [380, "Admiral of the fleet"];
+    expect(MAX_TEXT_TABLE_CELL_WORDS).toBe(3);
+    // One fewer than flow.ts's LONG_CELL_WORDS, as its docblock says.
+    expect(MAX_TEXT_TABLE_CELL_WORDS).toBe(LONG_CELL_WORDS - 1);
+    expect(doubt(long)).toBe("numbers");
+  });
+
+  it('"numbers": a cell wider than the character limit is text', () => {
+    const wide = STAFF.map((r) => [...r]);
+    wide[1]![1] = [220, "Llanfairpwllgwyngyllgogery"];
+    expect([..."Llanfairpwllgwyngyllgogery"].length).toBeGreaterThan(
+      MAX_TEXT_TABLE_CELL_WIDTH,
+    );
+    expect(doubt(wide)).toBe("numbers");
+  });
+
+  it('"numbers": two columns of Chinese prose, four lines each, stay tabbed', () => {
+    expect(
+      doubt(
+        [
+          ["我们公司去年取得了很好的成绩", "今年我们将继续扩大市场份额"],
+          ["收入增长了百分之二十左右", "并在亚洲开设新的分公司"],
+          ["成本也得到了有效的控制", "同时加强研发投入和人才"],
+          ["员工人数也有所增加", "培养计划以支持长期发展"],
+        ].map(([a, b]) => [
+          [50, a!],
+          [320, b!],
+        ]),
+      ),
+    ).toBe("numbers");
+  });
+
+  it("POSITIVE CONTROL: short Chinese entries in a four-row grid are a Word table", () => {
+    expect(
+      doubt(
+        [
+          ["姓名", "部门"],
+          ["王伟", "财务部"],
+          ["李娜", "市场部"],
+          ["张敏", "研发部"],
+        ].map(([a, b]) => [
+          [50, a!],
+          [320, b!],
+        ]),
+      ),
+    ).toBeNull();
+  });
+
+  it('"numbers": a numbered list of four short steps stays tabbed', () => {
+    expect(
+      doubt(
+        ["Open the file", "Choose a page", "Press Save", "Close it"].map(
+          (t, k) => [
+            [50, `${k + 1}.`],
+            [120, t],
+          ],
+        ),
+      ),
+    ).toBe("numbers");
+  });
+
+  it('"numbers": a bulleted list of four short items stays tabbed', () => {
+    expect(
+      doubt(
+        ["Milk", "Bread", "Eggs", "Rice"].map((t) => [
+          [50, "•"],
+          [70, t],
+        ]),
+      ),
+    ).toBe("numbers");
+  });
+
+  it('"numbers": a row with nothing in the first column stays tabbed', () => {
+    const gap: [number, string][][] = STAFF.map((r) => [...r]);
+    gap[2] = gap[2]!.slice(1);
+    expect(doubt(gap)).toBe("numbers");
+  });
+
+  it('"rows", "prose" and "header" still come first', () => {
+    expect(doubt(STAFF.slice(0, 2))).toBe("rows");
+    const prose = STAFF.map((r) => [...r]);
+    prose[1]![2] = [380, "Sales rose."];
+    prose[2]![2] = [380, "Costs fell."];
+    expect(doubt(prose)).toBe("prose");
+  });
+});
+
+describe("the copy's numbers are the rule's (pdf-to-word#2)", () => {
+  it("PDF_TO_WORD_TEXT_TABLE names MIN_TEXT_TABLE_ROWS and MAX_TEXT_TABLE_CELL_WORDS", async () => {
+    const { PDF_TO_WORD_TEXT_TABLE } = await import("@/lib/tools/tool-facts");
+    const spelled = ["zero", "one", "two", "three", "four", "five", "six"];
+    expect(PDF_TO_WORD_TEXT_TABLE).toContain(
+      `at least ${spelled[MIN_TEXT_TABLE_ROWS]} rows`,
+    );
+    expect(PDF_TO_WORD_TEXT_TABLE).toContain(
+      `up to ${spelled[MAX_TEXT_TABLE_CELL_WORDS]} words`,
+    );
   });
 });

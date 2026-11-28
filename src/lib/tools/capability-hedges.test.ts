@@ -693,6 +693,16 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /\btitle, author, subject and keywords\b|\bDOCINFO\b|\bcarried\b[^.]{0,120}\b(?:accented|brackets?)\b/i,
     catalogueCopy: true,
   },
+  docxTextTables: {
+    // Added 2026-11-28 with the key (audit wave 2 pdf-to-word#2). The
+    // sentences about tables with no figures: "rows of short entries", the
+    // shape PDF_TO_WORD_TEXT_TABLE and the guides use.
+    // TRUE: PDF to Word's intro, FAQ, facts and two guides say such a table
+    // comes through as a Word table, with no hedge (the publish workflow
+    // ships the worker image with the page).
+    subject: /\brows of short entries\b/i,
+    catalogueCopy: true,
+  },
 };
 
 /* ------------------------------------------------------------------ *

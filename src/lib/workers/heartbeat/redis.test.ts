@@ -47,6 +47,7 @@ const CAPS: HeartbeatCapabilities = {
   ocrOwnerPassword: true,
   requestSignatureLabels: true,
   pdfaUnicodeDocInfo: true,
+  docxTextTables: true,
   htmlAdBlock: true,
 };
 

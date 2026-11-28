@@ -254,6 +254,7 @@ function heartbeat(malwareScan: boolean): WorkerHeartbeat {
       ocrOwnerPassword: true,
       requestSignatureLabels: true,
       pdfaUnicodeDocInfo: true,
+      docxTextTables: true,
       htmlAdBlock: true,
     },
     at: Date.now(),

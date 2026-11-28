@@ -185,6 +185,7 @@ function capabilitiesOf(value: unknown): HeartbeatCapabilities {
     ocrOwnerPassword: boolOf(src.ocrOwnerPassword),
     requestSignatureLabels: boolOf(src.requestSignatureLabels),
     pdfaUnicodeDocInfo: boolOf(src.pdfaUnicodeDocInfo),
+    docxTextTables: boolOf(src.docxTextTables),
     htmlAdBlock: boolOf(src.htmlAdBlock),
   };
 }
@@ -256,6 +257,7 @@ export function serializeHeartbeat(hb: WorkerHeartbeat): string {
       ocrOwnerPassword: hb.capabilities.ocrOwnerPassword,
       requestSignatureLabels: hb.capabilities.requestSignatureLabels,
       pdfaUnicodeDocInfo: hb.capabilities.pdfaUnicodeDocInfo,
+      docxTextTables: hb.capabilities.docxTextTables,
       htmlAdBlock: hb.capabilities.htmlAdBlock,
     },
     at: hb.at,

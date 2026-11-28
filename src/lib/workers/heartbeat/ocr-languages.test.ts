@@ -54,6 +54,7 @@ const BEAT: WorkerHeartbeat = {
     ocrOwnerPassword: true,
     requestSignatureLabels: true,
     pdfaUnicodeDocInfo: true,
+    docxTextTables: true,
     htmlAdBlock: true,
   },
   at: 1_700_000_000_000,

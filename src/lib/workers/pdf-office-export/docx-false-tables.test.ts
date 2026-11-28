@@ -282,3 +282,96 @@ describe("the same false tables through the whole engine (review round 2)", () =
     expect(await engineTables(await sidebarPdf())).toEqual([]);
   });
 });
+
+/**
+ * Audit wave 2 pdf-to-word#2 (2026-11-28): a table with no column of figures
+ * is a Word table when it is clearly a table of short entries
+ * (`isTextTable`). The five false tables above stay refused; these are the
+ * pages nearest to the new rule, through the same composed chain.
+ */
+const TEXT_CASES: Record<string, string> = {
+  "two columns of Chinese prose, four lines each": page([
+    block(
+      [
+        "我们公司去年取得了很好的成绩",
+        "收入增长了百分之二十左右",
+        "成本也得到了有效的控制",
+        "员工人数也有所增加",
+      ].map((t, k) => line(100 + 14 * k, [[50, t.length * 10, t]])),
+    ),
+    block(
+      [
+        "今年我们将继续扩大市场份额",
+        "并在亚洲开设新的分公司",
+        "同时加强研发投入和人才",
+        "培养计划以支持长期发展",
+      ].map((t, k) => line(100 + 14 * k, [[320, t.length * 10, t]])),
+    ),
+  ]),
+  "a numbered list of four short steps": page([
+    block(
+      ["Open the file", "Choose a page", "Press Save", "Close it"].map((t, k) =>
+        line(100 + 14 * k, [...ws(50, `${k + 1}.`), ...ws(120, t)]),
+      ),
+    ),
+  ]),
+  "a staff list of three rows": page([
+    block(
+      [
+        ["Name", "City", "Role"],
+        ["Ada", "London", "Engineer"],
+        ["Grace", "Arlington", "Admiral"],
+      ].map(([a, b, c], k) =>
+        line(100 + 14 * k, [...ws(50, a!), ...ws(200, b!), ...ws(350, c!)]),
+      ),
+    ),
+  ]),
+};
+
+describe("tables without figures (pdf-to-word#2)", () => {
+  it("POSITIVE: a staff list of four rows, no figures, IS one Word table with its cells", async () => {
+    const rows = [
+      ["Name", "City", "Role"],
+      ["Ada", "London", "Engineer"],
+      ["Grace", "Arlington", "Admiral"],
+      ["Jamal", "Dhaka", "Physicist"],
+    ];
+    const out = await chain(
+      page([
+        block(
+          rows.map(([a, b, c], k) =>
+            line(100 + 14 * k, [...ws(50, a!), ...ws(200, b!), ...ws(350, c!)]),
+          ),
+        ),
+      ]),
+    );
+    expect(out.tables).toHaveLength(1);
+    const t = out.tables[0]!;
+    expect(t.gridCols).toHaveLength(3);
+    expect(
+      t.rows.map((r) =>
+        r.cells.map((c) =>
+          c.blocks
+            .flatMap((b) => (b.kind === "p" ? b.runs : []))
+            .map((x) => x.text)
+            .join(""),
+        ),
+      ),
+    ).toEqual(rows);
+    expect(out.problems).toEqual([]);
+    expect(out.conserved).toBe(true);
+  });
+
+  it("health: three nearest non-tables", () => {
+    expect(Object.keys(TEXT_CASES)).toHaveLength(3);
+  });
+
+  for (const [name, xhtml] of Object.entries(TEXT_CASES))
+    it(`${name}: no Word table, text conserved, a file Word opens`, async () => {
+      const out = await chain(xhtml);
+      expect(out.tables).toEqual([]);
+      expect(out.problems).toEqual([]);
+      expect(out.conserved).toBe(true);
+      expect(out.flow.pages[0]!.tablesAsTabs).toBe(1);
+    });
+});

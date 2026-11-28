@@ -277,6 +277,97 @@ export function chainColumns<T extends GridCellInput>(
 export const MIN_WORD_TABLE_ROWS = 3;
 
 /**
+ * Audit wave 2 pdf-to-word#2 (2026-11-28): the fewest rows a table with NO
+ * column of figures is written with as a Word table ({@link isTextTable}).
+ * One more than {@link MIN_WORD_TABLE_ROWS}: a letterhead (a name and an
+ * address beside an invoice number and two dates) is three short lines in
+ * two columns, and stays the tabbed rows it was.
+ */
+export const MIN_TEXT_TABLE_ROWS = 4;
+
+/**
+ * The most words a cell of a table with no column of figures may hold —
+ * one fewer than `flow.ts`'s `LONG_CELL_WORDS`, where a cell starts to
+ * read as text (held equal by table-grid.test.ts). Prose set beside a
+ * sidebar of names has lines of five words and more.
+ */
+export const MAX_TEXT_TABLE_CELL_WORDS = 3;
+
+/**
+ * The most characters a cell of a table with no column of figures may hold,
+ * each Chinese, Japanese or Korean character counting as three (one such
+ * character often carries a word). Two columns of Chinese prose, whose lines
+ * have no spaces to count words by, have lines of nine characters and more;
+ * a table's entries such as 财务部 have two to four.
+ */
+export const MAX_TEXT_TABLE_CELL_WIDTH = 24;
+
+const WIDE_SCRIPT =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+
+/**
+ * A list's numbering or bullet: "1.", "a)", "iv.", "•", "-". One
+ * definition: {@link isNumberCell} refuses the numbering, and
+ * {@link isTextTable} refuses a column of nothing else.
+ */
+export function isListMarker(text: string): boolean {
+  const t = text.trim();
+  return (
+    /^(?:\p{N}{1,3}[.)]|\(?(?:[a-z]|[ivxlc]{1,5})[.)])$/iu.test(t) ||
+    /^[•◦▪▫‣∙·○●■□*\-–—]$/u.test(t)
+  );
+}
+
+/** A cell's width in {@link MAX_TEXT_TABLE_CELL_WIDTH}'s units. */
+function textCellWidth(text: string): number {
+  let width = 0;
+  for (const ch of text.trim()) width += WIDE_SCRIPT.test(ch) ? 3 : 1;
+  return width;
+}
+
+/**
+ * Is the grid of `rows` clearly a table of short entries, although no
+ * column holds figures — a form grid of labels and values, a staff list of
+ * names and roles (audit wave 2 pdf-to-word#2, 2026-11-28)? Until then such
+ * a table always stayed tabbed rows ("numbers"). All of:
+ *  - at least {@link MIN_TEXT_TABLE_ROWS} rows;
+ *  - every cell at most {@link MAX_TEXT_TABLE_CELL_WORDS} words and at most
+ *    {@link MAX_TEXT_TABLE_CELL_WIDTH} characters (prose beside a sidebar,
+ *    two columns of Chinese prose);
+ *  - every row has an entry in the first column (the labels of a form, the
+ *    names of a list);
+ *  - no column whose every cell is a list's numbering or bullet
+ *    ({@link isListMarker}): a numbered list of short steps is a list.
+ * The other legs of {@link wordTableDoubt} ("rows", "header", "prose") are
+ * judged before this one.
+ */
+export function isTextTable(
+  rows: readonly (readonly { text: string }[])[],
+  grid: TableGrid,
+): boolean {
+  if (rows.length < MIN_TEXT_TABLE_ROWS) return false;
+  const columns = grid.spans.length;
+  const cells = Array.from({ length: columns }, () => 0);
+  const markers = Array.from({ length: columns }, () => 0);
+  for (let r = 0; r < rows.length; r++) {
+    if (grid.col[r]![0] !== 0) return false;
+    const row = rows[r]!;
+    for (let c = 0; c < row.length; c++) {
+      const text = row[c]!.text.trim();
+      const words = text.split(/\s+/u).filter(Boolean).length;
+      if (words > MAX_TEXT_TABLE_CELL_WORDS) return false;
+      if (textCellWidth(text) > MAX_TEXT_TABLE_CELL_WIDTH) return false;
+      const k = grid.col[r]![c]!;
+      cells[k]! += 1;
+      if (isListMarker(text)) markers[k]! += 1;
+    }
+  }
+  for (let k = 0; k < columns; k++)
+    if (cells[k]! > 0 && markers[k] === cells[k]) return false;
+  return true;
+}
+
+/**
  * Why a grid is NOT written as a Word table although its geometry is sound
  * (#28 slice 2, review round 2, 2026-11-15) — scope cut, not a heuristic to
  * place more: a doubtful table stays the tabbed rows main delivered and is
@@ -286,7 +377,11 @@ export const MIN_WORD_TABLE_ROWS = 3;
  *    ({@link isNumberCell}) — a letterhead ("12 Harbour Road | Date
  *    2026-11-15"), Bengali prose beside a sidebar of names, two columns of
  *    Chinese prose (flow.ts's rule 4 cannot see wrapping in a script
- *    without letter case, so these passed as tables of one line per row);
+ *    without letter case, so these passed as tables of one line per row).
+ *    Since 2026-11-28 (audit wave 2 pdf-to-word#2) a table with no such
+ *    column is still a Word table when {@link isTextTable} finds it clearly
+ *    a table of short entries; "numbers" is now "no column of figures, and
+ *    not that either";
  *  - "prose": a column with two or more cells that end a sentence — the
  *    right-hand column of a two-column page set beside a table, which the
  *    page-wide bands made the table's third column ("Item | Qty | Sales
@@ -296,8 +391,10 @@ export const MIN_WORD_TABLE_ROWS = 3;
  *    "Staff" over 12 / 30 / 18), so the values got a column of their own
  *    with no heading and the heading headed an empty column: each value
  *    MOVED out from under its header.
- * A table of names and words with no figures in it is therefore tabbed, and
- * the copy says a Word table needs a column of figures.
+ * Until 2026-11-28 a table of names and words with no figures in it was
+ * therefore tabbed, and the copy said a Word table needs a column of
+ * figures; now one of at least {@link MIN_TEXT_TABLE_ROWS} rows of short
+ * entries is a Word table, and the copy says so.
  */
 export type WordTableDoubt = "rows" | "numbers" | "prose" | "header";
 
@@ -311,8 +408,7 @@ export type WordTableDoubt = "rows" | "numbers" | "prose" | "header";
 export function isNumberCell(text: string): boolean {
   const t = text.trim();
   if (!/\p{N}/u.test(t)) return false;
-  if (/^(?:\p{N}{1,3}[.)]|\(?(?:[a-z]|[ivxlc]{1,5})[.)])$/iu.test(t))
-    return false;
+  if (isListMarker(t)) return false;
   if (/^[\p{N}\p{Sc}\s.,:;%‰()[\]+\-–—−/'’#*]+$/u.test(t)) return true;
   if (/\s/u.test(t)) return false;
   return (t.match(/\p{L}/gu) ?? []).length <= 3;
@@ -374,7 +470,8 @@ export function wordTableDoubt(
   for (let k = 0; k < columns; k++)
     if (inFirstRow.has(k) && filled[k] === 0) return "header";
   if (sentences.some((n) => n >= 2)) return "prose";
-  return figureColumns(rows, grid).size > 0 ? null : "numbers";
+  if (figureColumns(rows, grid).size > 0) return null;
+  return isTextTable(rows, grid) ? null : "numbers";
 }
 
 /**

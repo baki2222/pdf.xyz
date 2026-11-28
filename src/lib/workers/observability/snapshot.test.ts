@@ -494,6 +494,7 @@ describe("advertised capabilities — the deploy gap becomes a reported state", 
     ocrOwnerPassword: false,
     requestSignatureLabels: false,
     pdfaUnicodeDocInfo: false,
+    docxTextTables: false,
     htmlAdBlock: false,
     ...extra,
   });

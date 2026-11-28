@@ -287,6 +287,7 @@ describe("the advertised set and the wire contract agree", () => {
       ocrOwnerPassword: true,
       requestSignatureLabels: true,
       pdfaUnicodeDocInfo: true,
+      docxTextTables: true,
       htmlAdBlock: true,
     };
     expect(Object.keys(proven).sort()).toEqual(

@@ -90,6 +90,7 @@ const SPEC = {
     ocrOwnerPassword: true,
     requestSignatureLabels: true,
     pdfaUnicodeDocInfo: true,
+    docxTextTables: true,
     htmlAdBlock: true,
     chatRetrieval: true,
     summarizePages: true,
