@@ -554,6 +554,7 @@ export function liveWorkerProves(
 export const WORKER_PANEL_FLAGS = [
   "htmlAdBlock",
   "pdfaUnicodeDocInfo",
+  "sheetPageSetupAnyFormat",
 ] as const;
 export type WorkerPanelFlag = (typeof WORKER_PANEL_FLAGS)[number];
 

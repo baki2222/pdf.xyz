@@ -208,6 +208,10 @@ jobs:
       # LibreOffice, handed them directly, makes no PDF; their unlocked twin
       # converts. Generated or committed fixtures only; no user document,
       # secret, queue or store.
+      # Since 2026-11-28 (audit wave 2 excel-to-pdf#1) the same step runs
+      # Landscape and fit on a wide .csv and .ods (each saved as .xlsx by the
+      # image's LibreOffice first): every page A4 landscape with the last
+      # column on it, rows 1-400 present (sheetLayoutProofVerdict).
       - name: Worker image OpenDocument and RTF input proof (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:office-input-proof
 

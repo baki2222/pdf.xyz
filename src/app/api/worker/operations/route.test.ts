@@ -208,6 +208,7 @@ describe("GET /api/worker/operations — daemon liveness heartbeat (Phase 30)", 
           requestSignatureLabels: true,
           pdfaUnicodeDocInfo: true,
           docxTextTables: true,
+          sheetPageSetupAnyFormat: true,
           htmlAdBlock: true,
         },
         at: Date.now() - 10 * 60 * 1000, // 10 minutes old ⇒ far past the fresh window

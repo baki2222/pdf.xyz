@@ -48,6 +48,7 @@ const CAPS: HeartbeatCapabilities = {
   requestSignatureLabels: true,
   pdfaUnicodeDocInfo: true,
   docxTextTables: true,
+  sheetPageSetupAnyFormat: true,
   htmlAdBlock: true,
 };
 

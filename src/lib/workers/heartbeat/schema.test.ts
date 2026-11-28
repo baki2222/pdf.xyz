@@ -46,6 +46,7 @@ const CAPS: HeartbeatCapabilities = {
   requestSignatureLabels: true,
   pdfaUnicodeDocInfo: true,
   docxTextTables: true,
+  sheetPageSetupAnyFormat: true,
   htmlAdBlock: true,
 };
 
@@ -127,6 +128,7 @@ describe("buildHeartbeat / serialize / parse", () => {
       requestSignatureLabels: false,
       pdfaUnicodeDocInfo: false,
       docxTextTables: false,
+      sheetPageSetupAnyFormat: false,
       htmlAdBlock: false,
     });
     expect(JSON.stringify(hb)).not.toContain("evil.example.com");
@@ -292,6 +294,7 @@ describe("buildHeartbeat / serialize / parse", () => {
         requestSignatureLabels: false,
         pdfaUnicodeDocInfo: false,
         docxTextTables: false,
+        sheetPageSetupAnyFormat: false,
         htmlAdBlock: false,
       },
       at: 1234,

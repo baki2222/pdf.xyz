@@ -82,6 +82,7 @@ export function emptyCapabilities(): HeartbeatCapabilities {
     requestSignatureLabels: false,
     pdfaUnicodeDocInfo: false,
     docxTextTables: false,
+    sheetPageSetupAnyFormat: false,
     htmlAdBlock: false,
   };
 }

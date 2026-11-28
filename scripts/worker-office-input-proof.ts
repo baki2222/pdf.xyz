@@ -25,7 +25,17 @@
 import { runOfficeInputProof } from "@/lib/workers/office-conversion/input-proof";
 import { nativeOfficeConversionDeps } from "@/lib/workers/office-conversion/native";
 import { pdfOfficeExportDeps } from "@/lib/workers/pdf-office-export/native";
-import { OFFICE_INPUT_FIXTURES, odsWith } from "@/tests/office-input-fixtures";
+import {
+  OFFICE_INPUT_FIXTURES,
+  odsWith,
+  wideSheetCsv,
+  wideSheetOds,
+} from "@/tests/office-input-fixtures";
+import {
+  EXCEL_TO_PDF_TOOL,
+  runOfficeToPdf,
+} from "@/lib/workers/office-conversion/engine";
+import { sheetLayoutProofVerdict } from "@/lib/workers/office-conversion/sheet-layout-proof";
 import { lockedOdfFixtures } from "@/tests/locked-odf";
 import {
   CSV_CHARSET_CASES,
@@ -61,8 +71,44 @@ async function main(): Promise<number> {
     csvFileNames: CSV_FILE_NAME_CASES,
   });
   for (const line of result.lines) console.log(line);
-  console.log(result.ok ? "PROVEN" : "FAIL");
-  return result.ok ? 0 : 1;
+  // Audit wave 2 excel-to-pdf#1: Landscape and fit on a .csv and an .ods,
+  // each saved as .xlsx by this image's LibreOffice first, judged on the
+  // PDF by the same verdict the production .xlsx proof uses.
+  let layoutOk = true;
+  for (const [name, bytes] of [
+    ["wide.csv", wideSheetCsv()],
+    ["wide.ods", await wideSheetOds()],
+  ] as const) {
+    const run = await runOfficeToPdf(
+      EXCEL_TO_PDF_TOOL,
+      bytes,
+      name,
+      { libreoffice },
+      undefined,
+      {
+        onePagePerSheet: false,
+        orientation: "landscape",
+        fitColumnsToWidth: true,
+      },
+    );
+    if (!run.ok) {
+      console.log(`page setup (${name}): FAIL — ${run.kind}: ${run.message}`);
+      layoutOk = false;
+      continue;
+    }
+    const text = await extract(run.output);
+    const verdict = await sheetLayoutProofVerdict(
+      run.output,
+      text.pages.map((p) => p.text),
+    );
+    console.log(
+      `page setup (${name}): ${verdict.ok ? "ok" : "FAIL"} — ${verdict.detail}`,
+    );
+    layoutOk &&= verdict.ok;
+  }
+  const ok = result.ok && layoutOk;
+  console.log(ok ? "PROVEN" : "FAIL");
+  return ok ? 0 : 1;
 }
 
 main().then(

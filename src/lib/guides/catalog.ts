@@ -4904,7 +4904,7 @@ export const guides: Guide[] = [
     ],
     steps: [
       `Open the ${nameOf("excel-to-pdf")} tool.`,
-      `If a wide sheet must not split across pages, tick ${FIT_COLUMNS_TO_WIDTH_LABEL} in the tool (an .xlsx only, with Landscape under ${ORIENTATION_LABEL} if you like), or tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page.`,
+      `If a wide sheet must not split across pages, tick ${FIT_COLUMNS_TO_WIDTH_LABEL} in the tool (with Landscape under ${ORIENTATION_LABEL} if you like), or tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page.`,
       "Drag your .xlsx, .xls, .csv or .ods onto the box that says “Add your workbook, or browse”, or click it to choose the file. Remove swaps it for another.",
       "Press Convert to PDF. Your spreadsheet uploads over an encrypted connection, and the button follows the job while LibreOffice converts it.",
       `When “Your PDF is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the PDF before you close the tab.`,
@@ -4915,7 +4915,7 @@ export const guides: Guide[] = [
         heading: "How the pages are laid out",
         body: [
           "Left as it is, the converter follows your file: orientation, scaling and where wide columns break onto a new page come from the page setup saved in the workbook, and LibreOffice's defaults fill in the rest.",
-          `For an .xlsx file, the tool can change two of those settings. ${ORIENTATION_LABEL} sets ${ORIENTATION_CHOICE_WORDS} for every sheet, and ${FIT_COLUMNS_TO_WIDTH_LABEL} scales each sheet down until every column fits across the page, with rows carrying on to further pages. Both are written into the workbook's page setup before LibreOffice opens it. An .xls, .csv or .ods keeps the setup saved in it; save it as .xlsx to use them.`,
+          `The tool can change two of those settings, for any spreadsheet. ${ORIENTATION_LABEL} sets ${ORIENTATION_CHOICE_WORDS} for every sheet, and ${FIT_COLUMNS_TO_WIDTH_LABEL} scales each sheet down until every column fits across the page, with rows carrying on to further pages. Both are written into the workbook's page setup before LibreOffice opens it; an .xls, .csv or .ods is first saved as an .xlsx on our server so they can be.`,
           `Tick ${ONE_PAGE_PER_SHEET_LABEL} and nothing is split: each sheet becomes one page as large as its content, so a long sheet makes a long page. Its paper size and print areas are ignored, and hidden sheets are included. It works for a CSV too, which cannot store any page setup of its own, and while it is ticked the orientation and fit settings are hidden, because it overrides them.`,
         ],
       },
@@ -4953,7 +4953,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Why are my columns split across pages?",
-        answer: `Because, left as it is, the converter follows the workbook's own page setup. For an .xlsx, tick ${FIT_COLUMNS_TO_WIDTH_LABEL}, with Landscape under ${ORIENTATION_LABEL} if the sheet is wide, and every column fits across each page while rows carry on to the next. Or tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page sized to fit, CSV files included.`,
+        answer: `Because, left as it is, the converter follows the workbook's own page setup. Tick ${FIT_COLUMNS_TO_WIDTH_LABEL}, with Landscape under ${ORIENTATION_LABEL} if the sheet is wide, and every column fits across each page while rows carry on to the next. Or tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page sized to fit, CSV files included.`,
       },
       {
         question: "Which files can I convert?",
@@ -4975,7 +4975,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-17",
+    updated: "2026-11-28",
   },
   {
     slug: "how-to-convert-powerpoint-to-pdf",

@@ -472,6 +472,14 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "PDF to Word writes a table of at least four rows of short entries, with no column of figures, as a Word table, instead of tabbed rows",
     proves: provenByFlag,
   },
+  sheetPageSetupAnyFormat: {
+    label: "Excel to PDF's page setup for .csv, .xls and .ods",
+    promise:
+      // Audit wave 2 excel-to-pdf#1. The panel offers Orientation and fit
+      // for those files only while this reads true on a fresh heartbeat.
+      "Excel to PDF applies Orientation and Fit all columns on the page width to a .csv, .xls or .ods, instead of refusing them",
+    proves: provenByFlag,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */

@@ -91,6 +91,7 @@ const SPEC = {
     requestSignatureLabels: true,
     pdfaUnicodeDocInfo: true,
     docxTextTables: true,
+    sheetPageSetupAnyFormat: true,
     htmlAdBlock: true,
     chatRetrieval: true,
     summarizePages: true,

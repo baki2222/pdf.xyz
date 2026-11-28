@@ -195,6 +195,7 @@ describe("the 2026-08-12 worker, as it actually was", () => {
         requestSignatureLabels: true,
         pdfaUnicodeDocInfo: true,
         docxTextTables: true,
+        sheetPageSetupAnyFormat: true,
         htmlAdBlock: true,
       },
     });
@@ -323,6 +324,7 @@ describe("the build fingerprint reaches the operator, or says it could not", () 
           requestSignatureLabels: chunked,
           pdfaUnicodeDocInfo: chunked,
           docxTextTables: chunked,
+          sheetPageSetupAnyFormat: chunked,
           htmlAdBlock: chunked,
           chatRetrieval: chunked,
           summarizePages: chunked,

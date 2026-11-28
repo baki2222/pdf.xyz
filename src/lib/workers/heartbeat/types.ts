@@ -576,6 +576,21 @@ export interface HeartbeatCapabilities {
    * `false`.
    */
   readonly docxTextTables: boolean;
+  /**
+   * This image's Excel to PDF applies Orientation and "Fit all columns on
+   * the page width" to a .csv, .xls or .ods by saving it as .xlsx with
+   * LibreOffice first (audit wave 2 excel-to-pdf#1). An older image refuses
+   * those options on any file but .xlsx.
+   *
+   * PROVEN AT START-UP (`office-conversion/sheet-setup-capability.ts`,
+   * `provesSheetPageSetupAnyFormat`): a .csv and an .ods through the
+   * executor's order on the daemon's registry and the image's own runner
+   * (soffice a recording stand-in): two starts, the second on an .xlsx
+   * carrying the page setup; the control with no options one start. The
+   * panel offers the controls for those files only while a fresh beat
+   * carries this. The absence parses as `false`.
+   */
+  readonly sheetPageSetupAnyFormat: boolean;
 }
 
 /**

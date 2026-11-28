@@ -287,6 +287,61 @@ describe("Excel to PDF: the layout controls reach the job", () => {
     ).toBeNull();
   });
 
+  // Audit wave 2 excel-to-pdf#1 (2026-11-28): a worker that proves
+  // `sheetPageSetupAnyFormat` takes page setup on a .csv, .xls and .ods.
+  for (const filename of ["towns.csv", "towns.xls", "towns.ods"])
+    it(`${filename}: a worker proving sheetPageSetupAnyFormat shows the controls, no note, and Landscape and fit reach the job`, async () => {
+      resetWorkerStatusForTests({ sleep: () => Promise.resolve() });
+      const network = stubJobNetwork({
+        ...READY,
+        sheetPageSetupAnyFormat: true,
+      });
+      render(
+        <InToolPage tool={tool("excel-to-pdf")}>
+          <OfficeConversionWorkerPanel tool={tool("excel-to-pdf")} />
+        </InToolPage>,
+      );
+      const input = await waitFor(() => {
+        const el =
+          document.querySelector<HTMLInputElement>('input[type="file"]');
+        expect(el).not.toBeNull();
+        return el!;
+      });
+      fireEvent.change(input, {
+        target: { files: [new File(["PK"], filename)] },
+      });
+      await screen.findByText(filename);
+      const select = await screen.findByRole("combobox", {
+        name: ORIENTATION_LABEL,
+      });
+      expect(screen.queryByText(PAGE_SETUP_XLSX_ONLY_NOTE)).toBeNull();
+      fireEvent.change(select, { target: { value: "landscape" } });
+      fireEvent.click(
+        screen.getByRole("checkbox", { name: FIT_COLUMNS_TO_WIDTH_LABEL }),
+      );
+      expect(await convert(network)).toEqual({
+        orientation: "landscape",
+        fitColumnsToWidth: true,
+      });
+    });
+
+  it("an orientation chosen for an .xlsx is NOT sent once a .csv replaces it on a worker that does not prove sheetPageSetupAnyFormat", async () => {
+    const network = await pick("excel-to-pdf", "wide.xlsx");
+    fireEvent.change(
+      screen.getByRole("combobox", { name: ORIENTATION_LABEL }),
+      { target: { value: "landscape" } },
+    );
+    const input =
+      document.querySelector<HTMLInputElement>('input[type="file"]');
+    if (input) {
+      fireEvent.change(input, {
+        target: { files: [new File(["a,b"], "towns.csv")] },
+      });
+      await screen.findByText("towns.csv");
+      expect(await convert(network)).toEqual({});
+    }
+  });
+
   it("a CSV gets the note, not controls it cannot honour", async () => {
     const network = await pick("excel-to-pdf", "towns.csv");
     expect(

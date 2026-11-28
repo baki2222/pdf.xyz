@@ -32,6 +32,12 @@ export interface OfficeConversionWorkerInput {
    * (`./office-conversion/csv-import`); null on either is Auto.
    */
   csv?: CsvImportChoice;
+  /**
+   * True while the live worker proves `sheetPageSetupAnyFormat` (audit
+   * wave 2 excel-to-pdf#1): orientation and fit are then sent for a .csv,
+   * .xls or .ods too. Absent or false: for an .xlsx only, as before.
+   */
+  pageSetupAnyFormat?: boolean;
 }
 
 /**
@@ -54,8 +60,9 @@ function csvJobOptions(input: OfficeConversionWorkerInput) {
  * The job's option bag: empty, as it always was, unless Excel to PDF asked
  * for a layout or a CSV choice ({@link csvJobOptions}). One page per sheet
  * ignores page setup, so with it ticked no page setup is sent; orientation and fit-to-width are sent only for a
- * file whose page setup the worker can rewrite (.xlsx), which is also the
- * only file the panel shows those controls for. Nothing else ever carries
+ * file whose page setup the worker can rewrite (.xlsx, and a .csv, .xls or
+ * .ods while it proves `sheetPageSetupAnyFormat`), which is also the only
+ * file the panel shows those controls for. Nothing else ever carries
  * these keys, so a Word or PowerPoint job is byte-for-byte the request it
  * was.
  */
@@ -67,7 +74,8 @@ export function officeJobOptions(
   if (input.tool !== "excel-to-pdf" || !layout) return csv;
   if (layout.onePagePerSheet)
     return { [ONE_PAGE_PER_SHEET_OPTION]: true, ...csv };
-  if (!acceptsPageSetup(input.filename)) return csv;
+  if (!acceptsPageSetup(input.filename, input.pageSetupAnyFormat === true))
+    return csv;
   return {
     ...csv,
     ...(layout.orientation ? { [ORIENTATION_OPTION]: layout.orientation } : {}),

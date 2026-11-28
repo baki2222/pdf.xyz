@@ -703,6 +703,15 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     subject: /\brows of short entries\b/i,
     catalogueCopy: true,
   },
+  sheetPageSetupAnyFormat: {
+    // Added 2026-11-28 with the key (audit wave 2 excel-to-pdf#1). The
+    // sentences about page setup on a .csv, .xls or .ods: one saved as an
+    // .xlsx on our server first, the shape Excel to PDF's page and guide use.
+    // TRUE: they say a .csv, .xls or .ods takes Orientation and fit, with no
+    // hedge (the panel shows the controls only on a worker that proves it).
+    subject: /\bsaved as an \.xlsx\b/i,
+    catalogueCopy: true,
+  },
 };
 
 /* ------------------------------------------------------------------ *

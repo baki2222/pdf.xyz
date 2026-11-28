@@ -288,6 +288,7 @@ describe("the advertised set and the wire contract agree", () => {
       requestSignatureLabels: true,
       pdfaUnicodeDocInfo: true,
       docxTextTables: true,
+      sheetPageSetupAnyFormat: true,
       htmlAdBlock: true,
     };
     expect(Object.keys(proven).sort()).toEqual(
