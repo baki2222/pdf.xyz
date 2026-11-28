@@ -145,4 +145,10 @@ export const WALL_CLOCK_PENDING: readonly PendingEntry[] = [
     reason:
       "The table rule's cost must stay linear in the page's tables. This ratio sees a quadratic read of each cell's words, but NOT any one of the three band lookups S5 added put back alone (each reads under the bound at 16x; all three together read over it), so those rest on review and the before-and-after readings. The test's health checks cover what the rule returns, not what it costs. Back to assert once 5 CI runs calibrate the id (readings in the test file).",
   },
+  {
+    id: "S6 combs and radio stacks",
+    file: "src/lib/pdf/form-detect-combs-cost.test.ts",
+    reason:
+      "The comb and radio-stack rules' label paths (each stacked square's label, a stack's caption and the words over it, the squares' own labels, a comb's left label and what stands between, a scale's heads) must stay linear in the page's blocks, and only this ratio sees a quadratic step there: the test's health checks cover what the page returns, not what it costs. Back to assert once 5 CI runs calibrate the id (readings in the test file).",
+  },
 ];
