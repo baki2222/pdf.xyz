@@ -43,7 +43,7 @@ import {
 } from "@/lib/jobs/webpage-capture-options";
 import { EpubLayoutOptions } from "./epub-layout-options";
 import { EpubFilePicker } from "./epub-file-picker";
-import { EpubResultNote } from "./epub-result-note";
+import { EpubResultNote, epubResultSentence } from "./epub-result-note";
 import {
   DEFAULT_EPUB_RENDER_OPTIONS,
   epubRenderOptionsBag,
@@ -379,6 +379,9 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
             )
           }
           settings={bookOptions}
+          // Each finished book says what its card would (the FAQ points at
+          // this note for a batch too: wave 3 review).
+          rowNote={(result) => epubResultSentence(result.job) ?? undefined}
         />
       </div>
     );

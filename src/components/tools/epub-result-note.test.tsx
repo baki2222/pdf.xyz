@@ -15,7 +15,12 @@ import { createEpubRenderProcessor } from "@/lib/workers/processor/epub";
 import type { EpubRenderDeps } from "@/lib/workers/epub/engine";
 import { sanitizeJobResults } from "@/lib/jobs/results";
 import type { Job } from "@/lib/jobs/types";
-import { epub3Book, obfuscatedRealFontBook } from "@/tests/epub-fixtures";
+import {
+  epub3Book,
+  manyNotesBook,
+  obfuscatedRealFontBook,
+} from "@/tests/epub-fixtures";
+import { EPUB_MAX_SPINE_ITEMS } from "@/lib/workers/epub/native-config";
 import { EpubResultNote } from "./epub-result-note";
 
 afterEach(cleanup);
@@ -64,7 +69,7 @@ describe("the EPUB note beside the download", () => {
     );
   }, 30_000);
 
-  it("counts the fonts that could not be used", async () => {
+  it("counts the fonts that could not be restored", async () => {
     const job = await jobFor(
       await obfuscatedRealFontBook(
         "idpf",
@@ -73,7 +78,7 @@ describe("the EPUB note beside the download", () => {
     );
     render(<EpubResultNote job={job} />);
     expect(screen.getByRole("status").textContent).toBe(
-      "1 of the book's fonts could not be used, so the text set in it prints in a standard font.",
+      "1 of the book's fonts could not be restored, so the text set in it prints in a standard font.",
     );
   }, 30_000);
 
@@ -83,12 +88,26 @@ describe("the EPUB note beside the download", () => {
     expect(job.results?.epub).toEqual({
       chapters: 3,
       extraSections: 0,
+      extraSectionsLeftOut: 0,
       fontsRestored: 1,
       fontsLeftOut: 0,
     });
     const { container } = render(<EpubResultNote job={job} />);
     expect(container.textContent).toBe("");
   }, 30_000);
+
+  it("a book whose extras reach the chapter cap says how many printed and how many were left out (wave 3 review)", async () => {
+    const job = await jobFor(await manyNotesBook(EPUB_MAX_SPINE_ITEMS - 2));
+    expect(job.results?.epub).toMatchObject({
+      chapters: EPUB_MAX_SPINE_ITEMS,
+      extraSections: EPUB_MAX_SPINE_ITEMS - 3,
+      extraSectionsLeftOut: 1,
+    });
+    render(<EpubResultNote job={job} />);
+    expect(screen.getByRole("status").textContent).toBe(
+      `${EPUB_MAX_SPINE_ITEMS - 3} extra sections the book keeps outside its reading order, such as notes or answers, are printed at the end, after the last chapter. 1 more extra section was left out, because a book can have at most ${EPUB_MAX_SPINE_ITEMS} chapter files.`,
+    );
+  }, 60_000);
 
   it("a job from a worker that did not report has no note", () => {
     const { container } = render(
