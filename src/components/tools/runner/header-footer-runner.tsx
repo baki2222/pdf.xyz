@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { RunReason } from "@/components/tools/runner/run-reason";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Download, PanelTop } from "lucide-react";
 import {
   addHeaderFooter,
@@ -150,18 +150,20 @@ function BandFields({
   // Each box's wrapper, to read its input's caret: an input keeps its
   // selection after it loses focus to the field button.
   const boxes = useRef<Partial<Record<HAlign, HTMLDivElement | null>>>({});
-  // Where the caret goes once the inserted text has rendered: placed after
-  // the render that shows it, then forgotten.
-  const caret = useRef<{ box: HAlign; at: number } | null>(null);
-  useEffect(() => {
+  // Where the caret goes once the inserted text has rendered: placed in the
+  // commit whose input shows that text, then forgotten. Until then it is
+  // kept: an effect left over from an earlier render could run first, see
+  // the old text, and place the caret in it (the race organize-runner's
+  // focus return lost, review of lane w1a, 2026-11-28).
+  const caret = useRef<{ box: HAlign; at: number; value: string } | null>(null);
+  useLayoutEffect(() => {
     const want = caret.current;
     if (!want) return;
-    caret.current = null;
     const input = boxes.current[want.box]?.querySelector("input");
-    if (input) {
-      input.focus();
-      input.setSelectionRange(want.at, want.at);
-    }
+    if (!input || input.value !== want.value) return;
+    caret.current = null;
+    input.focus();
+    input.setSelectionRange(want.at, want.at);
   });
   // A field goes in at the caret of the box it fills, over any selection,
   // and the caret lands after it (audit header-footer#7: it was appended to
@@ -171,11 +173,9 @@ function BandFields({
     const input = boxes.current[target]?.querySelector("input");
     const start = input?.selectionStart ?? current.length;
     const end = input?.selectionEnd ?? start;
-    onChange({
-      ...text,
-      [target]: current.slice(0, start) + token + current.slice(end),
-    });
-    caret.current = { box: target, at: start + token.length };
+    const value = current.slice(0, start) + token + current.slice(end);
+    onChange({ ...text, [target]: value });
+    caret.current = { box: target, at: start + token.length, value };
   };
   return (
     <div className="flex flex-col gap-3">

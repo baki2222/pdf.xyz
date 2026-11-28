@@ -303,15 +303,27 @@ function OrganizeEditor({
       }
     };
 
-  useEffect(() => {
+  // The wanted page is forgotten only once its button has focus, or once the
+  // page is gone. It was forgotten on the effect's first run, and a passive
+  // effect left over from an earlier render (thumbnails still drawing) could
+  // be that run: it read the tile while it still showed the field, found no
+  // button, cleared the wish, and focus stayed on <body> (review of lane w1a,
+  // 2026-11-28: 3 of 6 runs of organize-move-to.mobile under load). A layout
+  // effect also runs in the commit that draws the button, before paint.
+  useLayoutEffect(() => {
     const uid = refocusUid.current;
     if (!uid) return;
-    refocusUid.current = null;
     const at = items.findIndex((item) => item.uid === uid);
-    const tile = listRef.current?.children[at];
-    tile
-      ?.querySelector<HTMLButtonElement>('button[data-action="move-to"]')
-      ?.focus();
+    if (at < 0) {
+      refocusUid.current = null;
+      return;
+    }
+    const button = listRef.current?.children[at]?.querySelector<HTMLElement>(
+      'button[data-action="move-to"]',
+    );
+    if (!button) return;
+    refocusUid.current = null;
+    button.focus();
   });
 
   const openMoveTo = (item: OrganizeItem) => {
