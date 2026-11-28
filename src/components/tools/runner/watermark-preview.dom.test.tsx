@@ -22,6 +22,8 @@ import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared
 import { PDFDocument } from "pdf-lib";
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import { OPTIONS_STORAGE_KEY } from "@/lib/intent/options-key";
+import { getToolBySlug } from "@/lib/tools";
+import { pageFaq, pageIntro, pageSteps, stepText } from "@/lib/tools/page-copy";
 import { readAsViewer } from "@/tests/pdfjs-viewer";
 import { WatermarkEditor } from "./watermark-runner";
 import type { LoadedPdf } from "./use-single-pdf";
@@ -119,8 +121,13 @@ describe("live watermark preview (audit watermark-pdf#1)", () => {
       expect(mark().getAttribute("transform")).toMatch(/rotate\(-10\)/),
     );
 
+    // Review finding 9 (2026-11-28): one value let a constant `0.5` pass.
+    // The starting value and two different values each have to show.
+    expect(mark().getAttribute("opacity")).toBe("0.18");
     setValue("Opacity", 50);
     await waitFor(() => expect(mark().getAttribute("opacity")).toBe("0.5"));
+    setValue("Opacity", 73);
+    await waitFor(() => expect(mark().getAttribute("opacity")).toBe("0.73"));
   });
 
   it("tiling draws every copy, and another preview page changes the sheet", async () => {
@@ -206,11 +213,11 @@ describe("the page stops saying there is no preview", () => {
   ];
   const NO_PREVIEW = /\b(?:no|without a|without any)\s+preview\b/i;
 
-  it("the ban catches what shipped, and the page now names the Preview", async () => {
+  // Imported statically (review finding 7, 2026-11-28): a dynamic import of
+  // the whole catalogue inside the test ran under the 5 s test timeout and
+  // went red under load for a reason that had nothing to do with the copy.
+  it("the ban catches what shipped, and the page now names the Preview", () => {
     for (const s of SHIPPED) expect(NO_PREVIEW.test(s), s).toBe(true);
-    const { getToolBySlug } = await import("@/lib/tools");
-    const { pageFaq, pageIntro, pageSteps, stepText } =
-      await import("@/lib/tools/page-copy");
     const tool = getToolBySlug("watermark-pdf")!;
     const served = [
       ...pageIntro(tool),
