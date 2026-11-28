@@ -1739,7 +1739,7 @@ export const PDF_TO_WORD_TABLES_QUESTION =
  * workflow ships the worker image with the page, so it is stated plainly.
  */
 export const PDF_TO_WORD_TEXT_TABLE =
-  "at least four rows of short entries of up to three words each, such as a list of names or a form's labels and values";
+  "at least four rows and three columns of short entries of up to three words each, such as a staff list of names, cities and roles";
 
 /**
  * The short wrapped-cell sentence, served by PDF to Word's intro and by
@@ -1844,7 +1844,7 @@ export const PDF_TO_WORD_WRAPS = `A cell whose text wraps onto further lines on 
  * CHANGED 2026-11-28 (audit wave 2 pdf-to-word#2): it said a table comes
  * through as a Word table "with a column of figures such as amounts or
  * dates", true until then. A table of short entries with no figures, such
- * as a staff list or a form's labels and values, is now one too
+ * as a staff list of three columns, is now one too
  * (`PDF_TO_WORD_TEXT_TABLE`, heartbeat `docxTextTables`); a rollback to an
  * image without that key makes this sentence false — revert it with it.
  */

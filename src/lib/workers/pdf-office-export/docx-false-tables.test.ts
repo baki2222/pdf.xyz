@@ -315,6 +315,54 @@ const TEXT_CASES: Record<string, string> = {
       ),
     ),
   ]),
+  // Review of pdf-to-word#2 (2026-11-28): two-column blocks of four short
+  // lines, which a four-row rule alone turned into bordered Word tables. A
+  // table with no figures now needs MIN_TEXT_TABLE_COLUMNS columns.
+  "a four-line letterhead beside an invoice block": page([
+    block(
+      ["ACME Corporation", "12 Harbour Road", "Dhaka 1207", "Bangladesh"].map(
+        (t, k) => line(40 + 14 * k, ws(50, t)),
+      ),
+    ),
+    block(
+      ["Invoice 1042", "Date 2026-11-15", "Due 2026-12-15", "Ref PO-77"].map(
+        (t, k) => line(40 + 14 * k, ws(430, t)),
+      ),
+    ),
+    block([line(140, ws(50, "Thank you for your order, which we shipped."))]),
+  ]),
+  "a two-column signature block of four lines": page([
+    block(
+      [
+        "Yours sincerely,",
+        "Rahim Uddin",
+        "Head of Accounts",
+        "Acme Trading Ltd",
+      ].map((t, k) => line(40 + 14 * k, ws(50, t))),
+    ),
+    block(
+      [
+        "Approved by",
+        "Salma Begum",
+        "Managing Director",
+        "Acme Trading Ltd",
+      ].map((t, k) => line(40 + 14 * k, ws(340, t))),
+    ),
+    block([line(140, ws(50, "Thank you for your order, which we shipped."))]),
+  ]),
+  "a form's labels and short values, two columns": page([
+    block(
+      ["Name", "City", "Phone", "Role"].map((t, k) =>
+        line(40 + 14 * k, ws(50, t)),
+      ),
+    ),
+    block(
+      ["Jane Smith", "Dhaka", "+880 1711 000000", "Manager"].map((t, k) =>
+        line(40 + 14 * k, ws(200, t)),
+      ),
+    ),
+    block([line(140, ws(50, "Thank you for your order, which we shipped."))]),
+  ]),
   "a staff list of three rows": page([
     block(
       [
@@ -362,8 +410,8 @@ describe("tables without figures (pdf-to-word#2)", () => {
     expect(out.conserved).toBe(true);
   });
 
-  it("health: three nearest non-tables", () => {
-    expect(Object.keys(TEXT_CASES)).toHaveLength(3);
+  it("health: six nearest non-tables", () => {
+    expect(Object.keys(TEXT_CASES)).toHaveLength(6);
   });
 
   for (const [name, xhtml] of Object.entries(TEXT_CASES))

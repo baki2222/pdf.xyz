@@ -286,6 +286,19 @@ export const MIN_WORD_TABLE_ROWS = 3;
 export const MIN_TEXT_TABLE_ROWS = 4;
 
 /**
+ * The fewest columns a table with NO column of figures is written with as a
+ * Word table (review of pdf-to-word#2, 2026-11-28). Two columns of four
+ * short lines are a letterhead beside an invoice block ("ACME Corporation /
+ * 12 Harbour Road / Dhaka 1207 / Bangladesh"), a signature block ("Yours
+ * sincerely," beside "Approved by") or an address beside a reference: with
+ * {@link MIN_TEXT_TABLE_ROWS} alone each became a bordered Word table.
+ * docx-false-tables.test.ts holds all three as negatives. A form's labels
+ * and values, two columns, therefore stays tabbed rows too, and the copy no
+ * longer names it.
+ */
+export const MIN_TEXT_TABLE_COLUMNS = 3;
+
+/**
  * The most words a cell of a table with no column of figures may hold —
  * one fewer than `flow.ts`'s `LONG_CELL_WORDS`, where a cell starts to
  * read as text (held equal by table-grid.test.ts). Prose set beside a
@@ -327,10 +340,11 @@ function textCellWidth(text: string): number {
 
 /**
  * Is the grid of `rows` clearly a table of short entries, although no
- * column holds figures — a form grid of labels and values, a staff list of
- * names and roles (audit wave 2 pdf-to-word#2, 2026-11-28)? Until then such
- * a table always stayed tabbed rows ("numbers"). All of:
- *  - at least {@link MIN_TEXT_TABLE_ROWS} rows;
+ * column holds figures — a staff list of names, cities and roles (audit
+ * wave 2 pdf-to-word#2, 2026-11-28)? Until then such a table always stayed
+ * tabbed rows ("numbers"). All of:
+ *  - at least {@link MIN_TEXT_TABLE_ROWS} rows and
+ *    {@link MIN_TEXT_TABLE_COLUMNS} columns;
  *  - every cell at most {@link MAX_TEXT_TABLE_CELL_WORDS} words and at most
  *    {@link MAX_TEXT_TABLE_CELL_WIDTH} characters (prose beside a sidebar,
  *    two columns of Chinese prose);
@@ -347,6 +361,7 @@ export function isTextTable(
 ): boolean {
   if (rows.length < MIN_TEXT_TABLE_ROWS) return false;
   const columns = grid.spans.length;
+  if (columns < MIN_TEXT_TABLE_COLUMNS) return false;
   const cells = Array.from({ length: columns }, () => 0);
   const markers = Array.from({ length: columns }, () => 0);
   for (let r = 0; r < rows.length; r++) {

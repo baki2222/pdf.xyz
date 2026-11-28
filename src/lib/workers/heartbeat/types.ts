@@ -561,10 +561,10 @@ export interface HeartbeatCapabilities {
   readonly pdfaUnicodeDocInfo: boolean;
   /**
    * This image's PDF to Word writes a table with NO column of figures — a
-   * form grid of labels and values, a staff list of names and roles — as a
+   * staff list of names, cities and roles (three columns or more) — as a
    * Word table when it is clearly a table of short entries (audit wave 2
    * pdf-to-word#2, `pdf-text/table-grid.ts` `isTextTable`: at least four
-   * rows, every cell short, an entry in every row's first column, no column
+   * rows and three columns, every cell short, an entry in every row's first column, no column
    * of list numbering). An older image writes such a table as tabbed rows.
    *
    * PROVEN AT START-UP (`pdf-office-export/capability.ts`,

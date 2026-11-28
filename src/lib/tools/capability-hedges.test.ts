@@ -700,7 +700,9 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     // TRUE: PDF to Word's intro, FAQ, facts and two guides say such a table
     // comes through as a Word table, with no hedge (the publish workflow
     // ships the worker image with the page).
-    subject: /\brows of short entries\b/i,
+    // Since 2026-11-28 the shape is "rows and three columns of short
+    // entries" (MIN_TEXT_TABLE_COLUMNS); either spelling is the subject.
+    subject: /\b(?:rows|columns) of short entries\b/i,
     catalogueCopy: true,
   },
   sheetPageSetupAnyFormat: {

@@ -469,7 +469,7 @@ const WORKER_CAPABILITY_PROMISES: Record<
       // Audit wave 2 pdf-to-word#2. The catalogue says a table of four or
       // more rows of short entries comes through as a Word table; an image
       // that reads false here writes it as tabbed rows.
-      "PDF to Word writes a table of at least four rows of short entries, with no column of figures, as a Word table, instead of tabbed rows",
+      "PDF to Word writes a table of at least four rows and three columns of short entries, with no column of figures, as a Word table, instead of tabbed rows",
     proves: provenByFlag,
   },
   sheetPageSetupAnyFormat: {
