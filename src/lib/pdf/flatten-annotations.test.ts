@@ -5,10 +5,12 @@ import {
   PDFDocument,
   PDFName,
   PDFString,
+  StandardFonts,
   type PDFContext,
   type PDFRef,
 } from "pdf-lib";
 import { describe, expect, it } from "vitest";
+import { ANNOTATION_GROUPS } from "./annotation-groups";
 import {
   regionMean,
   renderPdfPages,
@@ -282,5 +284,190 @@ describe("flatten comments and markup too (audit flatten-pdf#3)", () => {
     expect(darkness(after!, [40, 400, 340, 430])).toBeGreaterThan(5);
     // Control: the empty area beside it stays white.
     expect(darkness(after!, [40, 300, 340, 330])).toBeLessThan(3);
+  });
+});
+
+/**
+ * Review finding 1 (2026-11-28): with the box ticked, an UNAPPLIED Redact
+ * mark was drawn as its black box and the annotation deleted, while the text
+ * under it stayed in the file: a redaction that looks done and is not, and
+ * can no longer be applied in Acrobat. Kinds that carry data or are not a
+ * drawing (a pending redaction, an attached file or sound, media, a 3D model)
+ * are now kept and listed with a reason. The kept set is checked against
+ * Remove Annotations' own groups, so a kind added there is asked about here.
+ */
+const KEPT_GROUPS = ["redaction-marks", "attachments"] as const;
+const KEPT_MEDIA = ["Movie", "Screen", "RichMedia", "3D"];
+
+describe("kinds that carry data are kept, not drawn (review finding 1)", () => {
+  const kept = [
+    ...ANNOTATION_GROUPS.filter((g) =>
+      (KEPT_GROUPS as readonly string[]).includes(g.id),
+    ).flatMap((g) => g.subtypes),
+    ...KEPT_MEDIA,
+  ];
+
+  it("health: the kept set is the redaction and attachment groups plus media", () => {
+    expect(kept).toContain("Redact");
+    expect(kept).toContain("FileAttachment");
+    expect(kept.length).toBeGreaterThanOrEqual(7);
+    // The media kinds are all in Remove Annotations' table.
+    const other = ANNOTATION_GROUPS.find((g) => g.id === "other")!.subtypes;
+    for (const kind of KEPT_MEDIA) expect(other).toContain(kind);
+  });
+
+  it("a pending redaction over text is kept and listed; the text is not hidden under a baked box", async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([PAGE.width, PAGE.height]);
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    page.drawText("SSN 123-45-6789", { x: 50, y: 400, size: 14, font });
+    const ctx = doc.context;
+    const redact = ctx.register(
+      ctx.obj({
+        Type: "Annot",
+        Subtype: "Redact",
+        Rect: [45, 395, 200, 418],
+        P: page.ref,
+        AP: ctx.obj({ N: darkAppearance(ctx, 155, 23, 0) }),
+      }),
+    );
+    page.node.set(PDFName.of("Annots"), ctx.obj([redact]));
+    const source = await doc.save();
+    expect((await inspectForm(source)).annotations).toBe(0);
+
+    const out = await flattenPdf(source, { annotations: true });
+    expect(await subtypesOn(out.bytes)).toEqual(["Redact"]);
+    expect(out.flattenedAnnotations).toBe(0);
+    expect(out.annotationsLeft).toHaveLength(1);
+    expect(out.annotationsLeft[0]!.name).toBe("Redact on page 1");
+    expect(out.annotationsLeft[0]!.reason).toMatch(/Redact PDF/);
+    // Nothing was drawn into the page content where the mark sits.
+    const flat = await PDFDocument.load(out.bytes);
+    flat.getPage(0).node.delete(PDFName.of("Annots"));
+    const [bare] = await renderPdfPages(await flat.save(), 500);
+    expect(darkness(bare!, [150, 396, 199, 417])).toBeLessThan(10);
+  });
+
+  it("every kept kind stays live and listed, while a Square beside it is drawn (the control)", async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([PAGE.width, PAGE.height]);
+    const ctx = doc.context;
+    const refs = [...kept, "Square"].map((subtype, i) =>
+      ctx.register(
+        ctx.obj({
+          Type: "Annot",
+          Subtype: subtype,
+          Rect: [20, 20 + i * 40, 60, 50 + i * 40],
+          P: page.ref,
+          AP: ctx.obj({ N: darkAppearance(ctx, 40, 30) }),
+        }),
+      ),
+    );
+    page.node.set(PDFName.of("Annots"), ctx.obj(refs));
+    const out = await flattenPdf(await doc.save(), { annotations: true });
+    expect(await subtypesOn(out.bytes)).toEqual([...kept].sort());
+    expect(out.flattenedAnnotations).toBe(1);
+    expect(out.annotationsLeft.map((l) => l.name)).toEqual(
+      kept.map((k) => `${k} on page 1`),
+    );
+    for (const l of out.annotationsLeft)
+      expect(l.reason.length).toBeGreaterThan(10);
+  });
+});
+
+/**
+ * Review findings 4 and 6 (2026-11-28): an annotation's own /CA applies to
+ * everything it shows (ISO 32000 12.5.2), and many highlighters keep the
+ * appearance opaque and put the see-through effect only there. Drawn at full
+ * strength, a 30% highlight became a solid yellow block over the text. pdf.js
+ * ignores /CA on the SOURCE, so "render matches the source" could not see it;
+ * this reads the flattened page, where /CA must now be page content (an
+ * ExtGState around a transparency group), against the black bar beneath.
+ */
+describe("a see-through highlight stays see-through (review findings 4 and 6)", () => {
+  async function highlightOverBar(ca?: number): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([PAGE.width, PAGE.height]);
+    page.drawRectangle({ x: 40, y: 400, width: 120, height: 20 });
+    const ctx = doc.context;
+    const yellow = ctx.register(
+      ctx.flateStream("1 1 0 rg 0 0 120 20 re f", {
+        Type: "XObject",
+        Subtype: "Form",
+        BBox: [0, 0, 120, 20],
+      }),
+    );
+    const dict: Record<string, unknown> = {
+      Type: "Annot",
+      Subtype: "Highlight",
+      Rect: [40, 400, 160, 420],
+      QuadPoints: [40, 420, 160, 420, 40, 400, 160, 400],
+      P: page.ref,
+      AP: ctx.obj({ N: yellow }),
+    };
+    if (ca !== undefined) dict.CA = ca;
+    page.node.set(
+      PDFName.of("Annots"),
+      ctx.obj([ctx.register(ctx.obj(dict as never))]),
+    );
+    return doc.save();
+  }
+
+  it("with /CA 0.3 the bar under it still shows dark on the flattened page", async () => {
+    const out = await flattenPdf(await highlightOverBar(0.3), {
+      annotations: true,
+    });
+    expect(await subtypesOn(out.bytes)).toEqual([]);
+    const [after] = await renderPdfPages(out.bytes, 500);
+    const [r, g, b] = regionMean(after!, ...area([40, 400, 160, 420]));
+    // 30% yellow over black is about (77, 77, 0); opaque would be (255, 255, 0).
+    expect(Math.max(r, g), `${r},${g},${b}`).toBeLessThan(140);
+    expect(Math.max(r, g)).toBeGreaterThan(40);
+  });
+
+  it("control: without /CA the highlight is drawn opaque, as its appearance says", async () => {
+    const out = await flattenPdf(await highlightOverBar(), {
+      annotations: true,
+    });
+    const [after] = await renderPdfPages(out.bytes, 500);
+    const [r, g] = regionMean(after!, ...area([40, 400, 160, 420]));
+    expect(Math.min(r, g)).toBeGreaterThan(220);
+  });
+});
+
+describe("the annotation's opacity applies to its whole look, not only until the look sets its own", () => {
+  it("an appearance that sets its own full-opacity gs still comes out see-through", async () => {
+    // Without painting the look as a transparency group, the stream's own
+    // `/G0 gs` (ca 1) replaces the outer /CA and the box is opaque again.
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([PAGE.width, PAGE.height]);
+    page.drawRectangle({ x: 40, y: 400, width: 120, height: 20 });
+    const ctx = doc.context;
+    const look = ctx.register(
+      ctx.flateStream("/G0 gs 1 1 0 rg 0 0 120 20 re f", {
+        Type: "XObject",
+        Subtype: "Form",
+        BBox: [0, 0, 120, 20],
+        Resources: ctx.obj({
+          ExtGState: ctx.obj({ G0: ctx.obj({ Type: "ExtGState", ca: 1 }) }),
+        }),
+      }),
+    );
+    const annot = ctx.register(
+      ctx.obj({
+        Type: "Annot",
+        Subtype: "Square",
+        Rect: [40, 400, 160, 420],
+        P: page.ref,
+        CA: 0.3,
+        AP: ctx.obj({ N: look }),
+      }),
+    );
+    page.node.set(PDFName.of("Annots"), ctx.obj([annot]));
+    const out = await flattenPdf(await doc.save(), { annotations: true });
+    expect(out.flattenedAnnotations).toBe(1);
+    const [after] = await renderPdfPages(out.bytes, 500);
+    const [r, g, b] = regionMean(after!, ...area([40, 400, 160, 420]));
+    expect(Math.max(r, g), `${r},${g},${b}`).toBeLessThan(140);
   });
 });

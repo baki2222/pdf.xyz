@@ -4,6 +4,7 @@ import { flattenPdf } from "@/lib/pdf/flatten";
 import { inventoryAnnotations } from "@/lib/pdf/remove-annotations";
 import { FULL_FIXTURE_GROUPS, fullFixture } from "@/tests/annotation-fixtures";
 import { getToolBySlug } from "@/lib/tools";
+import { FLATTEN_MARKUP_HINT } from "@/components/tools/runner/flatten-markup-copy";
 import { toolContent } from "./content";
 
 /**
@@ -46,6 +47,13 @@ describe("Flatten is forms-only, as both pages say", () => {
     expect(flattened.flattenedAnnotations).toBeGreaterThan(0);
     expect(after.groups.links).toBe(FULL_FIXTURE_GROUPS.links);
     expect(after.groups["form-fields"]).toBe(0);
+    // Review finding 1 (2026-11-28): a pending redaction and an attachment
+    // carry data, so they stay live; drawn in, the redaction looked applied.
+    expect(FULL_FIXTURE_GROUPS["redaction-marks"]).toBeGreaterThan(0);
+    expect(after.groups["redaction-marks"]).toBe(
+      FULL_FIXTURE_GROUPS["redaction-marks"],
+    );
+    expect(after.groups.attachments).toBe(FULL_FIXTURE_GROUPS.attachments);
     // Whatever is left is listed, by name, with a reason: nothing vanished.
     const leftCount = ANNOTATION_GROUPS.filter(
       (g) => g.id !== "links" && g.id !== "form-fields",
@@ -69,6 +77,28 @@ describe("Flatten is forms-only, as both pages say", () => {
     );
     expect(getToolBySlug("remove-annotations")!.related?.slice(0, 3)).toContain(
       "flatten-pdf",
+    );
+  });
+});
+
+describe("Flatten PDF's lede and hint follow the comments option (review findings 1 and 5)", () => {
+  /** What the served lede (catalog description) shipped until 2026-11-28. */
+  const SHIPPED_LEDE = [
+    "Flatten a filled PDF form in your browser, so its answers become part of the page and can't be edited. Comments and layers are kept as they are.",
+  ];
+  const ALWAYS_KEPT = /\bComments(?: and layers)? are (?:always )?kept\b/i;
+
+  it("the ban catches what shipped; the lede now says comments stay unless the box is ticked", () => {
+    for (const s of SHIPPED_LEDE) expect(ALWAYS_KEPT.test(s), s).toBe(true);
+    const lede = getToolBySlug("flatten-pdf")!.description;
+    expect(lede).not.toMatch(ALWAYS_KEPT);
+    expect(lede).toMatch(/unless you/);
+  });
+
+  it("the page and the box's hint say pending redactions, attachments and media are kept", () => {
+    expect(FLATTEN_MARKUP_HINT).toMatch(/redaction/i);
+    expect(prose("flatten-pdf")).toMatch(
+      /redaction marks not yet applied, attached files and media are kept and listed/i,
     );
   });
 });

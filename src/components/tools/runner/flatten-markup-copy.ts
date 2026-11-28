@@ -6,7 +6,7 @@
 export const FLATTEN_MARKUP_LABEL = "Also flatten comments and markup";
 
 export const FLATTEN_MARKUP_HINT =
-  "Highlights, stamps, ink, typed comments and sticky notes become part of the page, so they can no longer be moved or deleted. A sticky note keeps its icon, not its text. Links stay clickable.";
+  "Highlights, stamps, ink, typed comments and sticky notes become part of the page, so they can no longer be moved or deleted. A sticky note keeps its icon, not its text. Links stay clickable. Redaction marks not yet applied, attached files and media are kept and listed.";
 
 /** "1 comment or markup annotation", "3 comments or markup annotations". */
 export function markupCount(n: number): string {

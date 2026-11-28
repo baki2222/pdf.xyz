@@ -170,10 +170,7 @@ export async function inspectForm(bytes: Uint8Array): Promise<FormInspection> {
           dict instanceof lib.PDFDict
             ? dict.lookup(lib.PDFName.of("Subtype"))
             : undefined;
-        if (
-          subtype instanceof lib.PDFName &&
-          !KEPT_LIVE.has(subtype.decodeText())
-        )
+        if (subtype instanceof lib.PDFName && isDrawnKind(subtype.decodeText()))
           count += 1;
       }
       return sum + count;
@@ -340,12 +337,19 @@ function drawWidget(placed: PlacedWidget, lib: PdfLibModule): void {
   drawAppearance(page, appearance, widget.getRectangle(), lib);
 }
 
-/** Draw an appearance stream on `rect` of `page` as a reader does (12.5.5). */
+/**
+ * Draw an appearance stream on `rect` of `page` as a reader does (12.5.5).
+ * With `state` (an annotation's /CA, /ca, /BM) the stream is painted as a
+ * transparency group under that state, so the opacity applies to the whole
+ * appearance at once, as a reader applies /CA, and a `gs` inside the stream
+ * cannot override it.
+ */
 function drawAppearance(
   page: PDFPage,
   appearance: PDFRef,
   rect: { x: number; y: number; width: number; height: number },
   lib: PdfLibModule,
+  state?: PDFDict,
 ): void {
   const stream = page.doc.context.lookup(appearance);
   const dict = stream instanceof lib.PDFStream ? stream.dict : undefined;
@@ -355,8 +359,19 @@ function drawAppearance(
     dict && numbers(dict, "BBox", 4, lib),
     dict && numbers(dict, "Matrix", 6, lib),
   );
+  const ops = [lib.pushGraphicsState()];
+  if (state && dict) {
+    if (!dict.has(lib.PDFName.of("Group")))
+      dict.set(
+        lib.PDFName.of("Group"),
+        page.doc.context.obj({ Type: "Group", S: "Transparency" }),
+      );
+    ops.push(
+      lib.setGraphicsState(page.node.newExtGState("FlatAnnotGS", state)),
+    );
+  }
   page.pushOperators(
-    lib.pushGraphicsState(),
+    ...ops,
     lib.concatTransformationMatrix(...placement),
     lib.drawObject(key),
     lib.popGraphicsState(),
@@ -533,6 +548,64 @@ const isolatePageContent = async (
 const KEPT_LIVE = new Set(["Link", "Widget", "Popup"]);
 
 /**
+ * Kinds that carry data or are not a drawing: kept as they are and LISTED,
+ * because drawing their look and deleting them loses something. A pending
+ * redaction drawn in looks done while the text under it stays in the file,
+ * and it can no longer be applied (review finding 1, 2026-11-28). An attached
+ * file or sound would lose the file; media and 3D would stop playing. Checked
+ * against Remove Annotations' groups in `flatten-annotations.test.ts`.
+ */
+const KEPT_LISTED: ReadonlyMap<string, string> = new Map([
+  [
+    "Redact",
+    "a redaction mark not yet applied, so the text under it is still there; use Redact PDF to remove it",
+  ],
+  ["FileAttachment", "an attached file, kept so it is not lost"],
+  ["Sound", "a sound clip, kept so it is not lost"],
+  ["Movie", "a video, kept so it still plays"],
+  ["Screen", "a media player, kept so it still plays"],
+  ["RichMedia", "a media player, kept so it still plays"],
+  ["3D", "a 3D model, kept so it still works"],
+]);
+
+/** Whether "Also flatten comments and markup" draws this kind at all. */
+const isDrawnKind = (kind: string): boolean =>
+  !KEPT_LIVE.has(kind) && !KEPT_LISTED.has(kind);
+
+/**
+ * The annotation's own opacity and blend mode (ISO 32000 12.5.2: /CA applies
+ * to everything it shows, /ca in PDF 2.0 to fills, /BM its blend), as an
+ * ExtGState for the drawn appearance, or `undefined` when it is opaque and
+ * normal. Without it a highlight whose look is an opaque box made see-through
+ * only by /CA was drawn as a solid block over the text (review findings 4 and
+ * 6, 2026-11-28).
+ */
+function annotationState(
+  dict: PDFDict,
+  lib: PdfLibModule,
+): PDFDict | undefined {
+  const { PDFName, PDFNumber } = lib;
+  const read = (key: string): number | undefined => {
+    const value = dict.lookup(PDFName.of(key));
+    return value instanceof PDFNumber
+      ? Math.min(1, Math.max(0, value.asNumber()))
+      : undefined;
+  };
+  const stroke = read("CA") ?? 1;
+  const fill = read("ca") ?? stroke;
+  const blend = dict.lookup(PDFName.of("BM"));
+  const hasBlend = blend instanceof PDFName && blend.decodeText() !== "Normal";
+  if (stroke === 1 && fill === 1 && !hasBlend) return undefined;
+  const state = dict.context.obj({
+    Type: "ExtGState",
+    CA: stroke,
+    ca: fill,
+  });
+  if (hasBlend) state.set(PDFName.of("BM"), blend);
+  return state;
+}
+
+/**
  * The appearance an annotation shows right now: its /AP /N stream, or the
  * state its /AS names when /N is a dictionary of states.
  */
@@ -588,6 +661,11 @@ export async function flattenAnnotations(
       const kind = subtype instanceof PDFName ? subtype.decodeText() : "";
       if (KEPT_LIVE.has(kind)) continue;
       const name = `${kind || "Annotation"} on page ${index + 1}`;
+      const keptReason = KEPT_LISTED.get(kind);
+      if (keptReason) {
+        left.push({ name, reason: keptReason });
+        continue;
+      }
       const flags = dict.lookup(PDFName.of("F"));
       const bits =
         flags instanceof PDFNumber ? Math.trunc(flags.asNumber()) : 0;
@@ -606,7 +684,7 @@ export async function flattenAnnotations(
     if (drawn.length === 0) continue;
 
     await isolatePageContent(page, lib);
-    for (const { appearance, rect } of drawn) {
+    for (const { dict, appearance, rect } of drawn) {
       const [x0 = 0, y0 = 0, x1 = 0, y1 = 0] = rect;
       drawAppearance(
         page,
@@ -618,6 +696,7 @@ export async function flattenAnnotations(
           height: Math.abs(y1 - y0),
         },
         lib,
+        annotationState(dict, lib),
       );
       flattened += 1;
     }
