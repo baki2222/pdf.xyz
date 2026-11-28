@@ -351,7 +351,7 @@ function attachedFiles(
   // optional), and neither pass below saw that shape (verify 2026-11-28,
   // redact-attachments.test.ts "inline filespec"). References are not
   // followed: what they point at is an indirect object, walked on its own.
-  const dicts: PDFDict[] = [];
+  const dicts: PdfDict[] = [];
   const stack: PDFObject[] = [...objects];
   while (stack.length) {
     const o = stack.pop()!;
