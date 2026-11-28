@@ -104,6 +104,7 @@ export function createEpubRenderProcessor(deps: EpubRenderDeps): Processor {
           epub: {
             chapters: run.meta.chapters,
             extraSections: run.meta.extraSections,
+            extraSectionsLeftOut: run.meta.extraSectionsLeftOut,
             fontsRestored: run.meta.fontsRestored,
             fontsLeftOut: run.meta.fontsLeftOut,
           },

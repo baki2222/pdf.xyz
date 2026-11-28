@@ -29,6 +29,8 @@ import {
   EPUB_TOC_TITLES,
   OFL_FONT_POSTSCRIPT_NAME,
   EPUB_WEB_LINK,
+  EPUB_PROOF_AUTHOR,
+  EPUB_PROOF_ILLUSTRATOR,
 } from "@/lib/workers/epub/proof";
 
 export {
@@ -307,6 +309,48 @@ export async function epub3Book(
     ...options.extra,
   };
   return packageZip(entries, options.storedExtra);
+}
+
+/**
+ * The 3-chapter EPUB 3 book plus `notes` one-line files the spine marks
+ * `linear="no"`, listed after the chapters: a book whose READING ORDER is far
+ * under the chapter cap while its spine is not (wave 3 review: it was
+ * refused as "301 chapter files" once the extras were counted).
+ */
+export function manyNotesBook(notes: number): Promise<Uint8Array> {
+  const extra: Record<string, string> = {};
+  let items = "";
+  let refs = "";
+  for (let i = 0; i < notes; i += 1) {
+    extra[`OEBPS/Text/note-${i}.xhtml`] = xhtml(
+      `Note ${i}`,
+      `<p>Note ${i}.</p>`,
+    );
+    items += `<item id="note${i}" href="Text/note-${i}.xhtml" media-type="application/xhtml+xml"/>`;
+    refs += `<itemref idref="note${i}" linear="no"/>`;
+  }
+  return epub3Book({
+    extra,
+    editOpf: (opf) =>
+      opf
+        .replace("</manifest>", `${items}</manifest>`)
+        .replace("</spine>", `${refs}</spine>`),
+  });
+}
+
+/**
+ * The metadata proof book (epub-to-pdf#5): an author, an illustrator the
+ * EPUB 3 role refinement says is NOT an author, and a description stored as
+ * escaped HTML holding entities — the shape calibre writes.
+ */
+export function metadataProofBook(): Promise<Uint8Array> {
+  return epub3Book({
+    metadata:
+      `<dc:creator>${EPUB_PROOF_AUTHOR}</dc:creator>` +
+      `<dc:creator id="ill">${EPUB_PROOF_ILLUSTRATOR}</dc:creator>` +
+      `<meta refines="#ill" property="role" scheme="marc:relators">ill</meta>` +
+      "<dc:description>&lt;p&gt;Tom &amp;amp; Jerry&amp;#8217;s &lt;b&gt;tale&lt;/b&gt;&lt;/p&gt;</dc:description>",
+  });
 }
 
 /** An EPUB 2 book: an NCX table of contents, no nav document. */

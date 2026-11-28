@@ -35,11 +35,13 @@ import { HTML_DOCUMENT_URL } from "../html-render/document-url";
 import {
   docxNamedEpub,
   drmBook,
+  EPUB_IDENTIFIER,
   epub2Book,
   epub3Book,
   escapingSpineBook,
   fixedLayoutBook,
   fontObfuscatedBook,
+  manyNotesBook,
   obfuscatedRealFontBook,
   oflFontBytes,
   zipBombBook,
@@ -523,5 +525,109 @@ describe("competitor audit 2026-11-06: the whole book, its fonts, its author", (
     expect((await PDFDocument.load(run.output)).getAuthor()).toBe(
       "José Müller",
     );
+  });
+});
+
+describe("wave 3 review: the cap, the Subject, the Author, the key", () => {
+  it("epub-to-pdf#3: the chapter cap counts the READING ORDER; extras past it are left out and counted", async () => {
+    // 3 chapters + 298 notes: on main the notes were skipped and the book
+    // converted; counting them refused it as "301 chapter files".
+    const full = open(await manyNotesBook(EPUB_MAX_SPINE_ITEMS - 2));
+    expect(full.chapters.filter((c) => c.linear)).toHaveLength(3);
+    expect(full.chapters).toHaveLength(EPUB_MAX_SPINE_ITEMS);
+    expect(full.extraSectionsLeftOut).toBe(1);
+    // Exactly at the cap: every note prints, none left out.
+    const atCap = open(await manyNotesBook(EPUB_MAX_SPINE_ITEMS - 3));
+    expect(atCap.chapters).toHaveLength(EPUB_MAX_SPINE_ITEMS);
+    expect(atCap.extraSectionsLeftOut).toBe(0);
+    // Through the engine: the counts the note is built from.
+    const { deps } = counting();
+    const run = await runEpubToPdf(
+      await manyNotesBook(EPUB_MAX_SPINE_ITEMS - 2),
+      deps,
+    );
+    if (!run.ok) throw new Error(run.message);
+    expect(run.meta).toMatchObject({
+      chapters: EPUB_MAX_SPINE_ITEMS,
+      extraSections: EPUB_MAX_SPINE_ITEMS - 3,
+      extraSectionsLeftOut: 1,
+    });
+  }, 60_000);
+
+  it("epub-to-pdf#5: an escaped-HTML description becomes plain text, entities decoded", async () => {
+    const book = open(
+      await epub3Book({
+        metadata:
+          "<dc:description>&lt;p&gt;Tom &amp;amp; Jerry&amp;#8217;s &lt;b&gt;tale&lt;/b&gt;&lt;/p&gt;</dc:description>",
+      }),
+    );
+    expect(book.subject).toBe("Tom & Jerry’s tale");
+  });
+
+  it("epub-to-pdf#5: the Author is the authors: illustrators, editors and translators are left out", async () => {
+    const epub3 = open(
+      await epub3Book({
+        metadata:
+          "<dc:creator>Ann Author</dc:creator>" +
+          '<dc:creator id="i">Ivan Illustrator</dc:creator>' +
+          '<meta refines="#i" property="role" scheme="marc:relators">ill</meta>' +
+          '<dc:creator id="a2">Bea Writer</dc:creator>' +
+          '<meta refines="#a2" property="role">aut</meta>',
+      }),
+    );
+    expect(epub3.creator).toBe("Ann Author, Bea Writer");
+    const epub2 = open(
+      await epub3Book({
+        metadata:
+          '<dc:creator opf:role="aut">Ann Author</dc:creator>' +
+          '<dc:creator opf:role="edt">Ed Editor</dc:creator>' +
+          '<dc:creator opf:role="trl">Tia Translator</dc:creator>',
+      }),
+    );
+    expect(epub2.creator).toBe("Ann Author");
+    // Only other roles: kept, rather than no Author at all.
+    const onlyEditor = open(
+      await epub3Book({
+        metadata: '<dc:creator opf:role="edt">Ed Editor</dc:creator>',
+      }),
+    );
+    expect(onlyEditor.creator).toBe("Ed Editor");
+  });
+
+  it("epub-to-pdf#5: an OPF 2 package that wraps its Dublin Core in <dc-metadata> still gets an Author", async () => {
+    const book = open(
+      await epub3Book({
+        editOpf: (opf) =>
+          opf
+            .replace(
+              "<dc:identifier",
+              "<dc-metadata><dc:creator>Wrapped Author</dc:creator><dc:identifier",
+            )
+            .replace(
+              "<dc:language>en</dc:language>",
+              "<dc:language>en</dc:language></dc-metadata>",
+            ),
+      }),
+    );
+    expect(book.title).toBe("The Lanternfly Proof");
+    expect(book.creator).toBe("Wrapped Author");
+  });
+
+  it("epub-to-pdf#4: the IDPF key drops white space INSIDE the identifier (OCF 4.2)", async () => {
+    const spaced = `urn:uuid:12345678-1234-4234-${String.fromCharCode(10)}   8234-123456789abc`;
+    // The fixture keys the font with its own white-space removal; the
+    // package carries the identifier WITH the space and the line break.
+    const book = open(
+      await obfuscatedRealFontBook("idpf", spaced, (opf) =>
+        opf.replace(EPUB_IDENTIFIER, spaced),
+      ),
+    );
+    expect(book.fontsRestored).toBe(1);
+    expect([...book.fontsLeftOut]).toEqual([]);
+    // Health: the identifier really has inner white space in the package.
+    expect(spaced).toContain(" ");
+    expect(
+      spaced.split(" ").join("").split(String.fromCharCode(10)).join(""),
+    ).toBe(EPUB_IDENTIFIER);
   });
 });

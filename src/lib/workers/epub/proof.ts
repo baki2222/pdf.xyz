@@ -45,6 +45,14 @@ export const EPUB_NOTE_LINK_TEXT = "See the note";
  * (Mr Dafoe): a PDF that USED the restored font embeds it (epub-to-pdf#4).
  */
 export const OFL_FONT_POSTSCRIPT_NAME = "MrDafoe-Regular";
+/**
+ * The Author and Subject the metadata proof book must arrive with
+ * (epub-to-pdf#5): a non-Latin author beside an illustrator who is NOT an
+ * author, and a description stored as escaped HTML with entities.
+ */
+export const EPUB_PROOF_AUTHOR = "রবীন্দ্রনাথ ঠাকুর";
+export const EPUB_PROOF_ILLUSTRATOR = "Nandalal Bose";
+export const EPUB_PROOF_SUBJECT = "Tom & Jerry’s tale";
 
 /** Every font name the PDF's font dictionaries carry (BaseFont, FontName). */
 export async function pdfFontNames(pdf: Uint8Array): Promise<string[]> {

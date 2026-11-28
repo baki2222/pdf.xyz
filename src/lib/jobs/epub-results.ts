@@ -20,9 +20,20 @@ export interface EpubResultMeta {
    * `linear="no"`: endnotes, answer keys), printed after the last chapter.
    */
   extraSections: number;
-  /** Obfuscated fonts restored and used. */
+  /**
+   * Extra sections NOT printed: the book reached the chapter cap
+   * (`EPUB_MAX_SPINE_ITEMS`) with its reading order. Absent from a worker
+   * older than the wave 3 review, read as 0 (that worker refused such a
+   * book instead).
+   */
+  extraSectionsLeftOut?: number;
+  /**
+   * Obfuscated fonts RESTORED and served. Restored is not used: a restored
+   * font Chromium refuses still prints in a fallback font, unreported, so
+   * the note and the FAQ speak of fonts that could not be RESTORED only.
+   */
   fontsRestored: number;
-  /** Obfuscated fonts that could not be restored, so were not used. */
+  /** Obfuscated fonts that could not be restored, so were never served. */
   fontsLeftOut: number;
 }
 
@@ -48,6 +59,7 @@ export function buildEpubResultMeta(raw: EpubResultMeta): EpubResultMeta {
   return {
     chapters,
     extraSections: Math.min(count(raw.extraSections), chapters),
+    extraSectionsLeftOut: count(raw.extraSectionsLeftOut),
     fontsRestored: count(raw.fontsRestored),
     fontsLeftOut: count(raw.fontsLeftOut),
   };

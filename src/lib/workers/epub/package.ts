@@ -28,6 +28,7 @@ import {
 } from "./font-deobfuscate";
 import {
   childElements,
+  decodeEntities,
   findAll,
   findFirst,
   parseXml,
@@ -95,6 +96,11 @@ export interface EpubBook {
   toc: EpubTocEntry[];
   /** Where the outline came from. */
   tocSource: "nav" | "ncx" | null;
+  /**
+   * Non-linear items NOT printed because the chapter cap
+   * (`EPUB_MAX_SPINE_ITEMS`) was reached: the reading order always prints.
+   */
+  extraSectionsLeftOut: number;
   /** Obfuscated fonts restored (`./font-deobfuscate`) and served restored. */
   fontsRestored: number;
   /** Obfuscated fonts that could not be restored: never served. */
@@ -290,20 +296,51 @@ export function openEpub(bytes: Uint8Array): OpenEpubResult {
   const metadata = findFirst(opf, "metadata");
   const title = metadata ? findFirst(metadata, "title") : undefined;
   const language = metadata ? findFirst(metadata, "language") : undefined;
-  const texts = (name: string) =>
-    (metadata ? childElements(metadata, name) : [])
-      .map((el) => textOf(el).replace(/\s+/g, " ").trim())
-      .filter(Boolean);
+  // Deep, as the title is read: an OPF 2 package may wrap its Dublin Core
+  // in <dc-metadata>, and a direct-children read gave such a book a Title
+  // but no Author (wave 3 review).
+  const metaElements = (name: string) =>
+    metadata ? findAll(metadata, name) : [];
+  const textsOf = (els: XmlElement[]) =>
+    els.map((el) => textOf(el).replace(/\s+/g, " ").trim()).filter(Boolean);
+  const texts = (name: string) => textsOf(metaElements(name));
   const joined = (values: string[], max: number) =>
     values.length > 0 ? values.join(", ").slice(0, max) : null;
-  // dc:description may be HTML in a text node; its tags are dropped.
+  // dc:description is usually ESCAPED HTML (calibre writes it so): the XML
+  // reader decodes one level, leaving tags and HTML entities. The tags are
+  // dropped, then the entities decoded, so "Tom &amp; Jerry&#8217;s" reads
+  // "Tom & Jerry’s" in the PDF's Subject, not the escapes (wave 3 review).
   const description = texts("description").map((d) =>
-    d
-      .replace(/<[^>]*>/g, " ")
+    decodeEntities(d.replace(/<[^>]*>/g, " "))
       .replace(/\s+/g, " ")
       .trim(),
   );
-  const creator = joined(texts("creator"), METADATA_MAX_CHARS);
+  // The Author is the book's AUTHORS: a creator whose role (EPUB 2's
+  // opf:role, EPUB 3's <meta refines="#id" property="role">) is "aut", or
+  // who has none. An illustrator, editor or translator is a creator too,
+  // and was written into the Author until the wave 3 review. A book that
+  // names only other roles keeps them all rather than no Author at all.
+  const creators = metaElements("creator");
+  const roleOf = (el: XmlElement): string | null => {
+    const own = el.attrs.role?.trim().toLowerCase();
+    if (own) return own;
+    const id = el.attrs.id;
+    if (!id) return null;
+    const refine = metaElements("meta").find(
+      (m) =>
+        m.attrs.refines?.trim() === `#${id}` && m.attrs.property === "role",
+    );
+    const refined = refine ? textOf(refine).trim().toLowerCase() : "";
+    return refined || null;
+  };
+  const authors = creators.filter((el) => {
+    const role = roleOf(el);
+    return role === null || role === "aut";
+  });
+  const creator = joined(
+    textsOf(authors.length > 0 ? authors : creators),
+    METADATA_MAX_CHARS,
+  );
   const subject =
     joined(texts("subject"), METADATA_MAX_CHARS) ??
     joined(description.filter(Boolean).slice(0, 1), METADATA_MAX_CHARS);
@@ -391,13 +428,10 @@ export function openEpub(bytes: Uint8Array): OpenEpubResult {
       linear,
     });
   }
-  // Each item once: one the spine also lists as linear prints in place.
-  const printed = new Set(chapters.map((c) => c.path));
-  for (const item of extra) {
-    if (printed.has(item.path)) continue;
-    printed.add(item.path);
-    chapters.push(item);
-  }
+  // The chapter cap is the READING ORDER's: a book that converted before
+  // the extras were printed still converts. Until the wave 3 review the
+  // extras were counted too, so 3 chapters and 298 one-line notes were
+  // refused as "301 chapter files".
   if (chapters.length === 0)
     return { ok: false, refusal: { kind: "no_chapters" } };
   if (chapters.length > EPUB_MAX_SPINE_ITEMS)
@@ -405,6 +439,17 @@ export function openEpub(bytes: Uint8Array): OpenEpubResult {
       ok: false,
       refusal: { kind: "too_many_chapters", count: chapters.length },
     };
+  // Each item once: one the spine also lists as linear prints in place.
+  // Extras are printed while the total stays within the cap; the rest are
+  // left out and COUNTED, for the note beside the download.
+  const printed = new Set(chapters.map((c) => c.path));
+  let extraSectionsLeftOut = 0;
+  for (const item of extra) {
+    if (printed.has(item.path)) continue;
+    printed.add(item.path);
+    if (chapters.length >= EPUB_MAX_SPINE_ITEMS) extraSectionsLeftOut += 1;
+    else chapters.push(item);
+  }
 
   // The outline: EPUB 3's nav document, else the EPUB 2 NCX.
   const chapterIndex = new Map<string, number>();
@@ -442,6 +487,7 @@ export function openEpub(bytes: Uint8Array): OpenEpubResult {
     chapters,
     toc,
     tocSource,
+    extraSectionsLeftOut,
     fontsRestored: restoredFonts.size,
     fontsLeftOut,
     fixedLayout,

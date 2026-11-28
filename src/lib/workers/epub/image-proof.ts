@@ -30,6 +30,8 @@ import { runEpubToPdf, type EpubRun } from "./engine";
 import type { EpubRefusal } from "./package";
 import {
   EPUB_NOTES_MARK,
+  EPUB_PROOF_AUTHOR,
+  EPUB_PROOF_SUBJECT,
   EPUB_REMOTE_IMAGE,
   OFL_FONT_POSTSCRIPT_NAME,
   pdfFontNames,
@@ -55,6 +57,10 @@ export interface EpubImageProofDeps {
     readonly fontObfuscated: Book;
     /** A real font, obfuscated with the IDPF method (epub-to-pdf#4). */
     readonly fontRestored: Book;
+    /** The same font, obfuscated with the Adobe method (epub-to-pdf#4). */
+    readonly fontRestoredAdobe: Book;
+    /** An author, an illustrator and an escaped-HTML description (#5). */
+    readonly metadata: Book;
     /** A book with a linear="no" notes file (epub-to-pdf#3). */
     readonly nonLinear: Book;
     readonly drm: Book;
@@ -143,24 +149,51 @@ export async function runEpubImageProof(
 
   // Audit epub-to-pdf#4: an obfuscated font restored, and USED — read off
   // the PDF's font dictionaries, not the engine's counters alone.
-  const restored = await convert(await deps.books.fontRestored());
-  const pr4 = await judged("font restored", restored, epub3Verdict);
-  if (pr4 && restored.ok) {
-    const names = await pdfFontNames(restored.output);
-    const embedded = names.some((n) => n.includes(OFL_FONT_POSTSCRIPT_NAME));
+  // Both methods (the wave 3 review found the image proof held IDPF only).
+  for (const [method, book] of [
+    ["IDPF", deps.books.fontRestored],
+    ["Adobe", deps.books.fontRestoredAdobe],
+  ] as const) {
+    const label = `font restored (${method})`;
+    const restored = await convert(await book());
+    const pr4 = await judged(label, restored, epub3Verdict);
+    if (pr4 && restored.ok) {
+      const names = await pdfFontNames(restored.output);
+      const embedded = names.some((n) => n.includes(OFL_FONT_POSTSCRIPT_NAME));
+      if (
+        pr4.length ||
+        !embedded ||
+        restored.meta.fontsRestored !== 1 ||
+        restored.meta.fontsLeftOut !== 0
+      )
+        fail(
+          `${label}: ${[...pr4, `embedded ${embedded}`, `restored ${restored.meta.fontsRestored}`, `left out ${restored.meta.fontsLeftOut}`].join("; ")}`,
+        );
+      else
+        pass(
+          `${label}: the book's font is embedded (${OFL_FONT_POSTSCRIPT_NAME})`,
+        );
+    }
+  }
+
+  // Audit epub-to-pdf#5: the Author is the author alone, and the Subject
+  // is the description as text — read back from the PDF's Info dictionary.
+  const described = await convert(await deps.books.metadata());
+  const pr5 = await judged("author and subject", described, epub3Verdict);
+  if (pr5 && described.ok) {
+    const { PDFDocument } = await import("pdf-lib");
+    const doc = await PDFDocument.load(described.output);
+    const author = doc.getAuthor();
+    const subject = doc.getSubject();
     if (
-      pr4.length ||
-      !embedded ||
-      restored.meta.fontsRestored !== 1 ||
-      restored.meta.fontsLeftOut !== 0
+      pr5.length ||
+      author !== EPUB_PROOF_AUTHOR ||
+      subject !== EPUB_PROOF_SUBJECT
     )
       fail(
-        `font restored: ${[...pr4, `embedded ${embedded}`, `restored ${restored.meta.fontsRestored}`, `left out ${restored.meta.fontsLeftOut}`].join("; ")}`,
+        `author and subject: ${[...pr5, `author ${JSON.stringify(author)}`, `subject ${JSON.stringify(subject)}`].join("; ")}`,
       );
-    else
-      pass(
-        `font restored: the book's font is embedded (${OFL_FONT_POSTSCRIPT_NAME})`,
-      );
+    else pass("author and subject: the author alone, the description as text");
   }
 
   // Audit epub-to-pdf#3: a linear="no" section printed after the last chapter.

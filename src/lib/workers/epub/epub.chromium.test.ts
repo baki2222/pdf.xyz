@@ -255,6 +255,8 @@ describe.skipIf(!BIN)(
           fixedLayout: fixtures.fixedLayoutBook,
           fontObfuscated: fixtures.fontObfuscatedBook,
           fontRestored: () => fixtures.obfuscatedRealFontBook("idpf"),
+          fontRestoredAdobe: () => fixtures.obfuscatedRealFontBook("adobe"),
+          metadata: fixtures.metadataProofBook,
           nonLinear: () => fixtures.epub3Book({ nonLinearNotes: true }),
           drm: fixtures.drmBook,
           zipBomb: fixtures.zipBombBook,
@@ -265,7 +267,17 @@ describe.skipIf(!BIN)(
       expect(result.lines.filter((l) => l.startsWith("FAIL"))).toEqual([]);
       expect(result.ok).toBe(true);
       // Health: every check reported a line.
-      expect(result.lines.length).toBeGreaterThanOrEqual(10);
+      expect(result.lines.length).toBeGreaterThanOrEqual(12);
+      // The wave 3 checks reported, by name (a dropped check is not a pass).
+      for (const check of [
+        "font restored (IDPF)",
+        "font restored (Adobe)",
+        "author and subject",
+      ])
+        expect(
+          result.lines.some((l) => l.startsWith(`ok    ${check}`)),
+          check,
+        ).toBe(true);
     }, 180_000);
   },
 );

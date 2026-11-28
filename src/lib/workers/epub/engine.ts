@@ -59,7 +59,9 @@ export interface EpubRenderResultMeta {
    * after the reading order and counted in `chapters` too.
    */
   extraSections: number;
-  /** Obfuscated fonts restored and used. */
+  /** Non-linear items left out because the chapter cap was reached. */
+  extraSectionsLeftOut: number;
+  /** Obfuscated fonts restored (served restored; Chromium may still refuse one). */
   fontsRestored: number;
   /** Obfuscated fonts that could not be restored, so were not used. */
   fontsLeftOut: number;
@@ -233,6 +235,7 @@ export async function runEpubToPdf(
       bookmarks: joined.bookmarks,
       fixedLayoutPages: book.chapters.filter((c) => c.viewport).length,
       extraSections: book.chapters.filter((c) => !c.linear).length,
+      extraSectionsLeftOut: book.extraSectionsLeftOut,
       fontsRestored: book.fontsRestored,
       fontsLeftOut: book.fontsLeftOut.size,
     },
