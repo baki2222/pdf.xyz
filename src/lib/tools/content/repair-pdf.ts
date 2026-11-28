@@ -192,7 +192,8 @@ const content: ToolContent = {
       // repair-faq-once.test.ts holds the order and every derived sentence.
       a: REPAIR_WARNINGS_ANSWER.replace(
         /(holds qpdf's own messages[^.]*\.)/,
-        "$1 For example, a message can say that the cross-reference table was damaged or that an object was not where the file said.",
+        (said) =>
+          `${said} For example, a message can say that the cross-reference table was damaged or that an object was not where the file said.`,
       ),
     },
     {
