@@ -185,9 +185,113 @@ const [kind = "", arg = "", arg2 = "", arg3 = ""] = (
   process.argv[2] ?? ""
 ).split(":");
 
+/**
+ * `pair:<small>:<big>:<rounds>` (CI-flake audit lane 2, board L175): both
+ * flat trees past the limit in ONE process, alternating small, big, small,
+ * big..., so the two sides share one contention window instead of two
+ * children run one after the other. Each timed call gets a FRESH copy of
+ * its fixture, taken before the clock starts: the preflight's answer is
+ * cached per Uint8Array (pdfjs-guard.ts), so a reused array would skip the
+ * preflight, and the ratio would time pdf.js's open alone. `entries` is
+ * what each call's preflight counted: the health check that it ran.
+ *
+ * `fetched` is the pages pdf.js was asked for during each sample, counted
+ * on the document prototype every open shares (review 2026-11-22: `entries`
+ * is the same for a board that walks pdf.js's tree before refusing, and the
+ * ratio is printed only, so nothing could fail on the walk this test names).
+ * Refused before any page is fetched means 0 on any runner;
+ * `controlFetched`, one board read of a 3-page file, is its positive
+ * control (a counter that saw nothing would read 0 there too).
+ */
+async function countPageFetches(): Promise<() => number> {
+  const { loadPdfjs, awaitPdfjsDocument } = await import("../../lib/pdf/pdfjs");
+  const { PDFJS_DOCUMENT_DEFAULTS } = await import("../../lib/pdf/wasm-assets");
+  const pdfjs = await loadPdfjs();
+  const task = pdfjs.getDocument({
+    data: flatTree(1),
+    ...PDFJS_DOCUMENT_DEFAULTS,
+  });
+  let fetched = 0;
+  try {
+    const probe = await awaitPdfjsDocument(task);
+    const proto = Object.getPrototypeOf(probe) as {
+      getPage: (...args: unknown[]) => unknown;
+    };
+    const getPage = proto.getPage;
+    proto.getPage = function (this: unknown, ...args: unknown[]) {
+      fetched += 1;
+      return Reflect.apply(getPage, this, args);
+    };
+  } finally {
+    await task.destroy().catch(() => {});
+  }
+  return () => fetched;
+}
+
+async function pair(small: number, big: number, rounds: number) {
+  const { preflightPdfjsOpen } = await import("../../lib/pdf/pdfjs-guard");
+  const fixtures = { small: flatTree(small), big: flatTree(big) };
+  const fetchedSoFar = await countPageFetches();
+  const beforeControl = fetchedSoFar();
+  await board(flatTree(3));
+  const out = {
+    controlFetched: fetchedSoFar() - beforeControl,
+    fetched: [] as number[],
+    smallMs: [] as number[],
+    bigMs: [] as number[],
+    entries: [] as number[],
+    typed: [] as boolean[],
+    bytes: { small: fixtures.small.length, big: fixtures.big.length },
+    calls: 0,
+    // Distinct preflight answers: the guard returns its cached answer object
+    // for an array it has seen, so one answer per call shows every call ran
+    // its own preflight.
+    distinctPreflights: 0,
+  };
+  const answers = new Set<unknown>();
+  for (let k = 0; k < rounds; k += 1)
+    for (const side of ["small", "big"] as const) {
+      // One sample: calls repeated until at least 100 ms have passed, each
+      // on its own copy (the copy is a memcpy of a few MB, a small share of
+      // a preflight and an open), read as time per call.
+      let calls = 0;
+      let ms = 0;
+      let entries = -1;
+      let typed = true;
+      const fetchedBefore = fetchedSoFar();
+      const t0 = performance.now();
+      do {
+        const b = fixtures[side].slice();
+        const pre = await preflightPdfjsOpen(b).catch(() => null);
+        answers.add(pre);
+        out.calls += 1;
+        let refused = false;
+        try {
+          await board(b);
+        } catch (err) {
+          refused = err instanceof PdfEngineError;
+        }
+        typed &&= refused;
+        entries = pre?.pageTree?.entries ?? -1;
+        calls += 1;
+        ms = performance.now() - t0;
+      } while (ms < 100);
+      (side === "small" ? out.smallMs : out.bigMs).push(ms / calls);
+      out.entries.push(entries);
+      out.typed.push(typed);
+      out.fetched.push(fetchedSoFar() - fetchedBefore);
+    }
+  out.distinctPreflights = answers.size;
+  return out;
+}
+
 void (async () => {
   // pdf.js loads lazily on the first open; that is not this file's cost.
   await board(flatTree(1));
+  if (kind === "pair") {
+    reportResult(await pair(Number(arg), Number(arg2), Number(arg3)));
+    return;
+  }
   let bytes: Uint8Array;
   if (kind === "flat") bytes = flatTree(Number(arg));
   else if (kind === "balanced") bytes = balancedTree(Number(arg));

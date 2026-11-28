@@ -231,6 +231,12 @@ export function summarize(report: DetectReport): SummaryLine[] {
     lines.push({
       text: `${plural(c.rotatedText, "line has", "lines have")} a label that is not upright, so ${c.rotatedText === 1 ? "it was" : "they were"} skipped: add ${c.rotatedText === 1 ? "it" : "those"} by hand.`,
     });
+  // A table of over 200 empty cells is not expanded (slice S5): one line,
+  // however many cells, so it never floods the review list.
+  if (c.largeTables > 0)
+    lines.push({
+      text: `${plural(c.largeTables, "table has", "tables have")} more than 200 empty cells, too many to suggest one by one: add ${c.largeTables === 1 ? "its" : "their"} fields with Add field.`,
+    });
   // The pages the caps took from, named, so a page the run cap emptied is
   // never read as one with nothing on it (review round 7).
   const short = report.pages

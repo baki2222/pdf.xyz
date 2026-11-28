@@ -22,7 +22,16 @@
  *   - Cancel sends DELETE exactly once, and only for a job that exists;
  *   - nothing is written to `useWorkerJob`'s sessionStorage resume key.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 import {
   configureTelemetry,
   resetTelemetry,
@@ -33,6 +42,7 @@ import { toolErrorReason } from "@/lib/telemetry/events";
 import { RATE_LIMIT_POLICIES } from "@/lib/ratelimit/policy";
 import { WORKER_JOB_STORAGE_PREFIX } from "@/lib/workers/job-resume-key";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { observeFor } from "@/tests/time-bound";
 import { RATE_LIMITS } from "@/lib/jobs/types";
 import { jobPollFor } from "@/lib/jobs/client-wait";
 import {
@@ -42,7 +52,9 @@ import {
   type PdfSecurityWorkerOptions,
 } from "@/lib/workers/pdf-security-client";
 import { workerFileCeilingBytes } from "@/lib/workers/engine-file-ceilings";
+import { loadJobRun } from "@/lib/workers/job-run-lazy";
 import { useBatchRunner, type BatchUnit } from "../use-batch-runner";
+import { warmEnding } from "../runner-kit";
 import {
   BatchItemError,
   WORKER_BATCH_DOWNLOAD_RETRIES,
@@ -73,6 +85,8 @@ interface Script {
   limitCreateAt?: number;
   /** Refuse this many downloads with a 429 (Retry-After 1) before serving. */
   limitDownloads?: number;
+  /** The Retry-After, in seconds, of the hourly limits' 429s (default "1"). */
+  retryAfter?: string;
 }
 
 function respond(status: number, body: unknown, headers = {}) {
@@ -91,6 +105,8 @@ function respond(status: number, body: unknown, headers = {}) {
 /** The worker API, at the wire, recording every request in order. */
 function wire(script: Script = {}) {
   const log: string[] = [];
+  // When each reservation arrived (Date.now()), by its index.
+  const reservedAt: number[] = [];
   let reservations = 0;
   let jobs = 0;
   let puts = 0;
@@ -130,11 +146,12 @@ function wire(script: Script = {}) {
     if (url === "/api/uploads") {
       const n = reservations++;
       log.push(`reserve ${n}`);
+      reservedAt[n] = Date.now();
       if (script.limitUploadAt === n)
         return respond(
           429,
           { error: { code: "rate_limited", message: "Too many requests." } },
-          { "Retry-After": "1" },
+          { "Retry-After": script.retryAfter ?? "1" },
         );
       return respond(200, {
         slots: [
@@ -165,7 +182,7 @@ function wire(script: Script = {}) {
         return respond(
           429,
           { error: { code: "rate_limited", message: "Too many jobs." } },
-          { "Retry-After": "1" },
+          { "Retry-After": script.retryAfter ?? "1" },
         );
       }
       const id = `job_${jobs++}`;
@@ -205,7 +222,7 @@ function wire(script: Script = {}) {
     }
     throw new Error(`unexpected ${method} ${url}`);
   };
-  return { log, fetchImpl, maxLive: () => maxLive };
+  return { log, reservedAt, fetchImpl, maxLive: () => maxLive };
 }
 
 const pdf = (name: string, size = 64) =>
@@ -224,6 +241,18 @@ const resume = (jobId: string, controls: PdfSecurityWorkerOptions) =>
 
 /** Instant polling: every wait in the client resolves at once. */
 const FAST = { sleep: async () => {}, pollIntervalMs: 0 } as const;
+
+// Three lazy imports sit on this file's paths: job-run (uncapped), the
+// result ending (raced against ENDING_WAIT_MS, 800 ms, before the LAST
+// file settles) and recents (fire-and-forget from the completion report:
+// the only storage write here). Cold, they put up to 800 ms under a 1 s
+// default wait, depending on test order and what the isolate:false module
+// cache held. Loaded once here, the waits below cover in-memory work.
+beforeAll(async () => {
+  await loadJobRun();
+  await warmEnding();
+  await import("@/lib/intent/recents");
+});
 
 let storageWrites: string[] = [];
 let events: RedactedEvent[] = [];
@@ -304,12 +333,16 @@ describe("one in flight: file k+1 uploads only after job k is terminal", () => {
         `download job_${k}`,
       ]),
     );
+    // Positive control for the setItem patch: the one writer on this path is
+    // the fire-and-forget recents record of a finished run, which nothing
+    // here awaits. A bare check raced it (0-50 ms against an import); this
+    // waits for it, so the absence check below runs after it has written.
+    await waitFor(() => expect(storageWrites.length).toBeGreaterThan(0));
     // useWorkerJob's resume key, never written (the recents a finished run
     // records are not a job).
     expect(
       storageWrites.filter((k) => k.startsWith(WORKER_JOB_STORAGE_PREFIX)),
     ).toEqual([]);
-    expect(storageWrites.length).toBeGreaterThan(0);
     // One outcome per file, and the client's own reporting stayed off.
     expect(outcomes()).toEqual([
       "tool_completed",
@@ -360,10 +393,20 @@ describe("one in flight: file k+1 uploads only after job k is terminal", () => {
 
 describe("a 429 pauses the batch: typed wait, never an error, nothing after it runs", () => {
   it("puts the limited file back in the queue and no later file reaches the network", async () => {
-    const w = wire({ limitUploadAt: 1 });
+    // Retry-After 30 s: the runner's own resume timer is then 30 s away, so
+    // nothing legitimate can happen in the window below. At "1" the whole
+    // pause-to-cancel stretch, a fixed 300 ms included, had to beat a real
+    // 1 s timer, and losing read exactly like the leak this test is for.
+    const w = wire({ limitUploadAt: 1, retryAfter: "30" });
     const units = unitsOf(pdf("a.pdf"), pdf("b.pdf"), pdf("c.pdf"));
     const { result } = batch(w, units);
-    const before = Date.now();
+    // Only Date is faked (timers stay real), so the clock the pause is
+    // computed from stands still and resumeAt can be checked EXACTLY.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const now = Date.now();
     act(() => result.current.start());
     await waitFor(() => expect(result.current.state.phase).toBe("paused"));
     expect(result.current.state.items.map((i) => i.status)).toEqual([
@@ -371,13 +414,22 @@ describe("a 429 pauses the batch: typed wait, never an error, nothing after it r
       "queued",
       "queued",
     ]);
-    // resumeAt is the limit's own Retry-After (1 s), not a guess.
-    expect(result.current.resumeAt).toBeGreaterThanOrEqual(before + 1000);
-    expect(result.current.resumeAt).toBeLessThan(before + 1000 + 2000);
+    // resumeAt is exactly the limit's own Retry-After (30 s): not a guess,
+    // not padded, not read as milliseconds. Exact on a clock that stands
+    // still, so no runner speed is in it (it replaced a 2 s slack on
+    // 2026-11-21).
+    expect(result.current.resumeAt).toBe(now + 30_000);
     const atPause = [...w.log];
     expect(atPause[atPause.length - 1]).toBe("reserve 1");
-    // While paused, nothing.
-    await act(() => new Promise((r) => setTimeout(r, 300)));
+    // While paused, nothing — a window, kept: a pause timer that read the
+    // wait as milliseconds would land inside it.
+    await act(() =>
+      observeFor(
+        "worker-batch.paused-no-network",
+        300,
+        "no later file may reach the network while the batch is paused",
+      ),
+    );
     expect(w.log).toEqual(atPause);
     act(() => result.current.cancel());
     await waitFor(() => expect(result.current.state.phase).toBe("canceled"));
@@ -395,6 +447,12 @@ describe("a 429 pauses the batch: typed wait, never an error, nothing after it r
       "done",
       "queued",
     ]);
+    const resumeAt = result.current.resumeAt!;
+    // 4000 ms over a real 1 s Retry-After: this whole test took at most
+    // 1075 ms on CI (failed run 44164715213, the max over 33 CI runs of
+    // 11-09..11-21; 1058 ms among the 12 passing runs of 11-18, run
+    // 44272458560), so > 3.7x, and it stays under the 5 s test
+    // timeout, so this wait's own message wins.
     await waitFor(() => expect(result.current.state.phase).toBe("done"), {
       timeout: 4000,
     });
@@ -405,6 +463,11 @@ describe("a 429 pauses the batch: typed wait, never an error, nothing after it r
       "create job_0",
       "create job_1",
     ]);
+    // Never early: the paused file's new reservation comes at resumeAt. A
+    // Node timer can fire ~1 ms early against Date.now(); 50 ms of slack
+    // still sees a resume at half the wait (500 ms early). One-directional:
+    // a slower runner only makes it later.
+    expect(w.reservedAt[2]! - resumeAt).toBeGreaterThanOrEqual(-50);
     expect(outcomes()).toEqual(["tool_completed", "tool_completed"]);
   });
 
@@ -504,6 +567,12 @@ describe("a 429 pauses the batch: typed wait, never an error, nothing after it r
   });
 
   it("the adapter throws the typed wait; workerBatchPause turns only an HOURLY limit into a moment", () => {
+    // Date stands still (timers are not touched), so the wait is checked
+    // exactly: it replaced a bracket with a 1 s slack on 2026-11-21.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const now = Date.now();
     for (const stage of ["reserve", "create"] as const) {
       const limited = new BatchItemError(
@@ -512,9 +581,7 @@ describe("a 429 pauses the batch: typed wait, never an error, nothing after it r
         30,
         stage,
       );
-      const at = workerBatchPause(limited)!;
-      expect(at).toBeGreaterThanOrEqual(now + 30_000);
-      expect(at).toBeLessThan(now + 31_000);
+      expect(workerBatchPause(limited)).toBe(now + 30_000);
     }
     // A 429 from storage, the download or a poll is not the hourly limit.
     for (const stage of ["put", "download", "poll", undefined] as const)
@@ -597,7 +664,15 @@ describe("refusals before the network, and Cancel", () => {
     const big = pdf("big.pdf", workerFileCeilingBytes(TOOL) + 1);
     const { result } = batch(w, unitsOf(big, pdf("small.pdf")));
     act(() => result.current.start());
-    await waitFor(() => expect(result.current.state.phase).toBe("done"));
+    // 4500 ms: the client reads every byte of the 100 MiB + 1 file before it
+    // can refuse it, and ~300 MB of dead copies invite a GC inside the wait.
+    // The whole test took at most 423 ms on CI (failed run 43636213581, the
+    // max over 33 CI runs of 11-09..11-21; 380 ms among the 12 passing runs
+    // of 11-18, run 44321190257), so > 10x; and it stays under
+    // the 5 s test timeout, so this wait's own message wins.
+    await waitFor(() => expect(result.current.state.phase).toBe("done"), {
+      timeout: 4_500,
+    });
     expect(result.current.state.items[0]!.status).toBe("error");
     expect(result.current.state.items[0]!.error).toMatch(
       /Nothing was uploaded/,
@@ -620,7 +695,11 @@ describe("refusals before the network, and Cancel", () => {
     act(() => result.current.cancel());
     act(() => result.current.cancel());
     await waitFor(() => expect(result.current.running).toBe(false));
-    await act(() => new Promise((r) => setTimeout(r, 50)));
+    // The row settles only once process() has returned: after this, the
+    // file can send nothing more, which a 50 ms sleep could not show.
+    await waitFor(() =>
+      expect(result.current.state.items[0]!.status).not.toBe("running"),
+    );
     expect(w.log.filter((l) => l.startsWith("delete"))).toEqual([
       "delete job_0",
     ]);
@@ -644,7 +723,11 @@ describe("refusals before the network, and Cancel", () => {
     // The server answers the request the page already sent: a job exists.
     release();
     await waitFor(() => expect(result.current.running).toBe(false));
-    await act(() => new Promise((r) => setTimeout(r, 50)));
+    // The row settles only once process() has returned: after this, the
+    // file can send nothing more, which a 50 ms sleep could not show.
+    await waitFor(() =>
+      expect(result.current.state.items[0]!.status).not.toBe("running"),
+    );
     expect(w.log.filter((l) => l.startsWith("delete"))).toEqual([
       "delete job_0",
     ]);
@@ -661,7 +744,11 @@ describe("refusals before the network, and Cancel", () => {
     act(() => result.current.cancel());
     release();
     await waitFor(() => expect(result.current.running).toBe(false));
-    await act(() => new Promise((r) => setTimeout(r, 50)));
+    // The row settles only once process() has returned: after this, the
+    // file can send nothing more, which a 50 ms sleep could not show.
+    await waitFor(() =>
+      expect(result.current.state.items[0]!.status).not.toBe("running"),
+    );
     expect(w.log.filter((l) => l.startsWith("delete"))).toEqual([]);
     expect(w.log.filter((l) => l.startsWith("create"))).toEqual([]);
   });

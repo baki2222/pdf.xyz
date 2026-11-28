@@ -18,6 +18,7 @@
 import { InToolPage } from "@/tests/in-tool-page";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -58,6 +59,7 @@ import {
   stubJobNetwork,
   type StubbedJobOutcome,
 } from "@/tests/stub-job-network";
+import { observeFor } from "@/tests/time-bound";
 import { PdfSecurityWorkerPanel } from "../../pdf-security-worker-panel";
 import { NO_PASSWORD_FROZEN } from "./security-batch";
 import { WORKER_BATCH_PAUSED } from "@/lib/batch/worker-copy";
@@ -66,6 +68,37 @@ import { BATCH_VIEW_LOADED } from "./batch-view";
 const FIRST = "Fz-first-7Q2w";
 const SECOND = "Fz-second-8R3e";
 const OWNER = "Fz-owner-9T4r";
+
+/**
+ * Every wait here that passed none of its own — the panel's lazy chunks
+ * (cold per file in the native-canvas project) and Run's readiness. The
+ * end-of-batch effect that empties the frozen password is not waited for:
+ * `heldOnceEffectsRan` flushes it and reads at once.
+ *
+ * CI: the slowest test in this file took 1203 ms (run 44197730601, a passing
+ * run, "a rate-limit pause keeps the frozen password…"; 108 CI runs, passing
+ * and failing, to 11-21), and the slowest wait the wait-headroom block saw
+ * took 1018 ms (:544, run 44917160721; now `RESUMED_END_MS`, which follows
+ * the stub's Retry-After). 3 s is 2.4x the slowest TEST, so it holds the
+ * slowest wait too, and stays below every test's own timeout (20 s), so a
+ * wait that times out fails with its DOM dump, not "test timed out".
+ */
+const WAIT_MS = 3_000;
+/** The batch's end message, across uploads and jobs; already 10 s on main. */
+const BATCH_END_MS = 10_000;
+/** The stubbed limit's `Retry-After`, in seconds (the rate-limit test). */
+const RATE_LIMIT_RETRY_AFTER_S = 1;
+/**
+ * The end of a batch paused by that limit. The batch resumes at
+ * now + Retry-After x 1000 (`worker-batch.ts`, resumeAt), so the wait is
+ * the stub's pause plus ordinary work. CI: this wait took 1002, 1008 and
+ * 1018 ms (wait-headroom, the last in run 44917160721), i.e. the 1 s pause
+ * plus under 20 ms; 1 s + WAIT_MS = 4 s is 3.9x that, and below the test's
+ * 20 s. A literal, so the wait-headroom reporter can read it; the rate-limit
+ * test asserts it still leaves WAIT_MS beyond the stub's pause, so raising
+ * the stub's Retry-After without it goes red there, not as a timeout.
+ */
+const RESUMED_END_MS = 4_000;
 
 let events: RedactedEvent[] = [];
 let leave: () => void = () => {};
@@ -199,16 +232,21 @@ async function drop(slug: "protect-pdf" | "unlock-pdf", files: File[]) {
       <PdfSecurityWorkerPanel tool={tool} />
     </InToolPage>,
   );
-  const input = await waitFor(() => {
-    const el = document.querySelector<HTMLInputElement>('input[type="file"]');
-    expect(el).not.toBeNull();
-    return el!;
-  });
+  const input = await waitFor(
+    () => {
+      const el = document.querySelector<HTMLInputElement>('input[type="file"]');
+      expect(el).not.toBeNull();
+      return el!;
+    },
+    { timeout: WAIT_MS },
+  );
   fireEvent.change(input, { target: { files } });
-  await waitFor(() =>
-    expect(
-      view.container.querySelector(`[data-chunk="${BATCH_VIEW_LOADED}"]`),
-    ).not.toBeNull(),
+  await waitFor(
+    () =>
+      expect(
+        view.container.querySelector(`[data-chunk="${BATCH_VIEW_LOADED}"]`),
+      ).not.toBeNull(),
+    { timeout: WAIT_MS },
   );
   return view;
 }
@@ -222,9 +260,34 @@ function type(label: string, value: string, within: ParentNode = document) {
 }
 
 async function pressWhenReady(name: string) {
-  const button = await screen.findByRole("button", { name });
-  await waitFor(() => expect(button).not.toHaveAttribute("aria-disabled"));
+  const button = await screen.findByRole(
+    "button",
+    { name },
+    { timeout: WAIT_MS },
+  );
+  await waitFor(() => expect(button).not.toHaveAttribute("aria-disabled"), {
+    timeout: WAIT_MS,
+  });
   fireEvent.click(button);
+}
+
+/**
+ * What still holds `secret`, refs included, once the effects of the commits
+ * so far have run. The end message renders in a commit, and the runner's
+ * `onEnd` (which empties `frozenRef`) runs in that commit's passive effect,
+ * so a findBy can resolve between the two: a full local run went red here
+ * (2026-11-21) with the password still in the ref the effect was about to
+ * empty. One effect flush closes that race and nothing is polled, so a ref
+ * emptied any later (a timer, a later render) is still red: "at once" means
+ * at once (review of lane 3, mutant D: onEnd emptying the ref 1.5 s late
+ * passed a 3 s poll in four tests).
+ */
+async function heldOnceEffectsRan(
+  container: HTMLElement,
+  secret: string,
+): Promise<string[]> {
+  await act(async () => {});
+  return secretsHeldByReact(container, secret, { includeRefs: true });
 }
 
 /**
@@ -357,7 +420,11 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
       base64Pdf(USER_PASSWORD_PDF_BASE64, "statement-b"),
     ]);
     // Run waits for the password.
-    const run = await screen.findByRole("button", { name: "Unlock 3 PDFs" });
+    const run = await screen.findByRole(
+      "button",
+      { name: "Unlock 3 PDFs" },
+      { timeout: WAIT_MS },
+    );
     expect(run).toHaveAttribute("aria-disabled", "true");
     expect(view.container.textContent).toContain(
       "Type the password that opens these PDFs first.",
@@ -374,8 +441,8 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
     await pressWhenReady("Unlock 3 PDFs");
     await screen.findByText(
       "Batch complete. 1 done, 1 failed, 1 skipped.",
-      undefined,
-      { timeout: 10_000 },
+      {},
+      { timeout: BATCH_END_MS },
     );
     // The not-locked file never left: two uploads, two jobs.
     expect(view.container.textContent).toContain(UNLOCK_NOT_LOCKED_REASON);
@@ -390,11 +457,7 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
     // The failed row says the processor's own sentence.
     expect(view.container.textContent).toContain(WRONG_PASSWORD_MESSAGE);
     // The batch ended: the page holds the password nowhere, refs included.
-    await waitFor(() =>
-      expect(
-        secretsHeldByReact(view.container, FIRST, { includeRefs: true }),
-      ).toEqual([]),
-    );
+    expect(await heldOnceEffectsRan(view.container, FIRST)).toEqual([]);
     expect(leaks(view.container, FIRST)).toEqual([]);
 
     // Try another password, for the failed row only.
@@ -409,8 +472,8 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
     fireEvent.click(tryIt);
     await screen.findByText(
       "Batch complete. 2 done, 0 failed, 1 skipped.",
-      undefined,
-      { timeout: 10_000 },
+      {},
+      { timeout: BATCH_END_MS },
     );
     // Only the failed file ran again, with the new password.
     expect(net.jobBodies).toHaveLength(3);
@@ -436,12 +499,14 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
     expectStorageUntouched("unlock-pdf");
     for (const secret of [FIRST, SECOND]) {
       expect(leaks(view.container, secret), secret).toEqual([]);
-      expect(
-        secretsHeldByReact(view.container, secret, { includeRefs: true }),
-        secret,
-      ).toEqual([]);
+      // Read once the end commit's effects ran (`heldOnceEffectsRan`): a
+      // bare read went red in a full local run (2026-11-21) with SECOND still
+      // in the ref the passive effect was about to empty.
+      expect(await heldOnceEffectsRan(view.container, secret), secret).toEqual(
+        [],
+      );
     }
-  });
+  }, 20_000);
 
   it("a restricted file and an unreadable one are sent with the frozen password: Unlock skips only a file that is not locked", async () => {
     // Jobs run in drop order: restricted, unreadable, locked. The restricted
@@ -467,9 +532,13 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
     ]);
     type("Current password", FIRST);
     await pressWhenReady("Unlock 3 PDFs");
-    await screen.findByText("Batch complete. 1 done, 2 failed.", undefined, {
-      timeout: 10_000,
-    });
+    await screen.findByText(
+      "Batch complete. 1 done, 2 failed.",
+      {},
+      {
+        timeout: BATCH_END_MS,
+      },
+    );
     // None was left out: all three uploaded, each with the frozen password.
     expect(view.container.textContent).not.toContain(UNLOCK_NOT_LOCKED_REASON);
     expect(net.uploads()).toBe(3);
@@ -488,9 +557,13 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
     expect(retry.textContent).toContain(unlockRetryHeading(2));
     type("Another password", OWNER, retry);
     fireEvent.click(screen.getByRole("button", { name: "Try it on 2 PDFs" }));
-    await screen.findByText("Batch complete. 2 done, 1 failed.", undefined, {
-      timeout: 10_000,
-    });
+    await screen.findByText(
+      "Batch complete. 2 done, 1 failed.",
+      {},
+      {
+        timeout: BATCH_END_MS,
+      },
+    );
     expect(net.jobBodies).toHaveLength(5);
     expect(net.jobBodies[3]!.options).toEqual({ password: OWNER });
     expect(net.jobBodies[4]!.options).toEqual({ password: OWNER });
@@ -506,6 +579,10 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
       completed(net.jobBodies.length),
     );
     let reservations = 0;
+    // The end wait below is the stub's pause plus ordinary work.
+    expect(
+      RESUMED_END_MS - RATE_LIMIT_RETRY_AFTER_S * 1000,
+    ).toBeGreaterThanOrEqual(WAIT_MS);
     const served = wrapFetch(async (url, method, pass) => {
       if (url === "/api/uploads" && method === "POST") {
         reservations += 1;
@@ -518,7 +595,7 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
               status: 429,
               headers: {
                 "content-type": "application/json",
-                "Retry-After": "1",
+                "Retry-After": String(RATE_LIMIT_RETRY_AFTER_S),
               },
             },
           );
@@ -531,9 +608,13 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
     ]);
     type("Current password", FIRST);
     await pressWhenReady("Unlock 2 PDFs");
-    await screen.findByText(WORKER_BATCH_PAUSED, undefined, {
-      timeout: 10_000,
-    });
+    await screen.findByText(
+      WORKER_BATCH_PAUSED,
+      {},
+      {
+        timeout: BATCH_END_MS,
+      },
+    );
     // Paused, not ended: the frozen password is still held (in a ref only).
     expect(
       secretsHeldByReact(view.container, FIRST, { includeRefs: true }).length,
@@ -541,9 +622,11 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
     expect(
       secretsHeldByReact(view.container, FIRST, { includeRefs: false }),
     ).toEqual([]);
-    await screen.findByText("Batch complete. 2 done, 0 failed.", undefined, {
-      timeout: 10_000,
-    });
+    await screen.findByText(
+      "Batch complete. 2 done, 0 failed.",
+      {},
+      { timeout: RESUMED_END_MS },
+    );
     // The refused reservation was asked for again; both jobs carry it.
     expect(served.count("/api/uploads")).toBe(3);
     expect(net.jobBodies.map((b) => b.options)).toEqual([
@@ -551,11 +634,7 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
       { password: FIRST },
     ]);
     expect(view.container.textContent).not.toContain(NO_PASSWORD_FROZEN);
-    await waitFor(() =>
-      expect(
-        secretsHeldByReact(view.container, FIRST, { includeRefs: true }),
-      ).toEqual([]),
-    );
+    expect(await heldOnceEffectsRan(view.container, FIRST)).toEqual([]);
     expect(leaks(view.container, FIRST)).toEqual([]);
   }, 20_000);
 
@@ -573,25 +652,36 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
     ]);
     type("Current password", FIRST);
     await pressWhenReady("Unlock 2 PDFs");
-    const cancel = await screen.findByRole("button", { name: "Cancel" });
+    const cancel = await screen.findByRole(
+      "button",
+      { name: "Cancel" },
+      { timeout: WAIT_MS },
+    );
     // Control: while the first file uploads, the password is held.
-    await waitFor(() =>
-      expect(
-        secretsHeldByReact(view.container, FIRST, { includeRefs: true }).length,
-      ).toBeGreaterThan(0),
+    await waitFor(
+      () =>
+        expect(
+          secretsHeldByReact(view.container, FIRST, { includeRefs: true })
+            .length,
+        ).toBeGreaterThan(0),
+      { timeout: WAIT_MS },
     );
     fireEvent.click(cancel);
-    await screen.findByText("Batch canceled.");
+    await screen.findByText("Batch canceled.", {}, { timeout: WAIT_MS });
     // Canceled is an end: no ref holds it, even with a file still in flight.
-    await waitFor(() =>
-      expect(
-        secretsHeldByReact(view.container, FIRST, { includeRefs: true }),
-      ).toEqual([]),
-    );
+    expect(await heldOnceEffectsRan(view.container, FIRST)).toEqual([]);
     release();
-    await waitFor(() => expect(net.uploads()).toBe(1));
-    // The queued second file never left the browser.
-    await new Promise((r) => setTimeout(r, 200));
+    await waitFor(() => expect(net.uploads()).toBe(1), { timeout: WAIT_MS });
+    // The queued second file never left the browser. A declared absence
+    // window: on the defect the queue would start the next upload as soon as
+    // the first settles, one stubbed (in-process) round trip away; CI's
+    // slowest whole test here is 364 ms (run 44331878323), so 200 ms covers
+    // several such round trips on the slowest runner seen.
+    await observeFor(
+      "security-batch-cancel-queued-unsent",
+      200,
+      "a canceled batch starts no queued upload after the in-flight one settles",
+    );
     expect(net.uploads()).toBe(1);
     expect(net.jobBodies.length).toBeLessThanOrEqual(1);
     expect(leaks(view.container, FIRST)).toEqual([]);
@@ -605,11 +695,19 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
     ]);
     type("Current password", FIRST);
     await pressWhenReady("Unlock 2 PDFs");
-    await screen.findByText("Batch complete. 2 done, 0 failed.", undefined, {
-      timeout: 10_000,
-    });
+    await screen.findByText(
+      "Batch complete. 2 done, 0 failed.",
+      {},
+      {
+        timeout: BATCH_END_MS,
+      },
+    );
     fireEvent.click(screen.getByRole("button", { name: "Run again" }));
-    const run = await screen.findByRole("button", { name: "Unlock 2 PDFs" });
+    const run = await screen.findByRole(
+      "button",
+      { name: "Unlock 2 PDFs" },
+      { timeout: WAIT_MS },
+    );
     expect(run).toHaveAttribute("aria-disabled", "true");
     expect(view.container.textContent).toContain(
       "Type the password that opens these PDFs first.",
@@ -617,7 +715,7 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
     expect(
       secretsHeldByReact(view.container, FIRST, { includeRefs: true }),
     ).toEqual([]);
-  });
+  }, 20_000);
 
   it("a password typed for one file does not follow the files into a batch", async () => {
     stubJobNetwork(READY_WORKER_STATUS, () => completed(1));
@@ -642,7 +740,11 @@ describe("Unlock PDF's batch (batch plan P4)", () => {
         ],
       },
     });
-    await screen.findByRole("button", { name: "Unlock 2 PDFs" });
+    await screen.findByRole(
+      "button",
+      { name: "Unlock 2 PDFs" },
+      { timeout: WAIT_MS },
+    );
     expect(
       secretsHeldByReact(view.container, FIRST, { includeRefs: true }),
     ).toEqual([]);
@@ -664,7 +766,11 @@ describe("Protect PDF's batch (batch plan P4)", () => {
     type("Confirm password", FIRST);
     // One permission off: the owner password is asked for, once.
     fireEvent.click(screen.getByRole("checkbox", { name: /^Printing/ }));
-    const run = await screen.findByRole("button", { name: "Protect 4 PDFs" });
+    const run = await screen.findByRole(
+      "button",
+      { name: "Protect 4 PDFs" },
+      { timeout: WAIT_MS },
+    );
     expect(run).toHaveAttribute("aria-disabled", "true");
     type("Owner password", OWNER);
     type("Confirm owner password", OWNER);
@@ -674,8 +780,8 @@ describe("Protect PDF's batch (batch plan P4)", () => {
     await pressWhenReady("Protect 4 PDFs");
     await screen.findByText(
       "Batch complete. 2 done, 0 failed, 2 skipped.",
-      undefined,
-      { timeout: 10_000 },
+      {},
+      { timeout: BATCH_END_MS },
     );
     expect(view.container.textContent).toContain(PROTECT_RESTRICTED_REASON);
     expect(view.container.textContent).toContain(PROTECT_NEEDS_PASSWORD_REASON);
@@ -692,12 +798,13 @@ describe("Protect PDF's batch (batch plan P4)", () => {
     expectStorageUntouched("protect-pdf");
     for (const secret of [FIRST, OWNER]) {
       expect(leaks(view.container, secret), secret).toEqual([]);
-      expect(
-        secretsHeldByReact(view.container, secret, { includeRefs: true }),
-        secret,
-      ).toEqual([]);
+      // Read once the end commit's effects ran: `onEnd` empties `frozenRef`
+      // in the passive effect after the commit that rendered the end message.
+      expect(await heldOnceEffectsRan(view.container, secret), secret).toEqual(
+        [],
+      );
     }
-  });
+  }, 20_000);
 
   it("a file the browser cannot read is not refused locally on Protect: it goes to the server, which says what is wrong", async () => {
     // The page says only a file "this browser can tell is already encrypted"
@@ -717,9 +824,13 @@ describe("Protect PDF's batch (batch plan P4)", () => {
     type("New password", FIRST);
     type("Confirm password", FIRST);
     await pressWhenReady("Protect 2 PDFs");
-    await screen.findByText("Batch complete. 1 done, 1 failed.", undefined, {
-      timeout: 10_000,
-    });
+    await screen.findByText(
+      "Batch complete. 1 done, 1 failed.",
+      {},
+      {
+        timeout: BATCH_END_MS,
+      },
+    );
     expect(net.uploads()).toBe(2);
     expect(view.container.textContent).toContain(UNREADABLE_MESSAGE);
     expect(view.container.textContent).not.toContain(PROTECT_RESTRICTED_REASON);
@@ -735,12 +846,18 @@ describe("Protect PDF's batch (batch plan P4)", () => {
       await plainPdf("two"),
     ]);
     type("New password", FIRST);
-    const run = await screen.findByRole("button", { name: "Protect 2 PDFs" });
+    const run = await screen.findByRole(
+      "button",
+      { name: "Protect 2 PDFs" },
+      { timeout: WAIT_MS },
+    );
     expect(run).toHaveAttribute("aria-disabled", "true");
     expect(view.container.textContent).toContain(
       "Type the new password again in Confirm password.",
     );
     type("Confirm password", FIRST);
-    await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
+    await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"), {
+      timeout: WAIT_MS,
+    });
   });
 });

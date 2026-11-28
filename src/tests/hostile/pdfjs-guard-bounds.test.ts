@@ -7,7 +7,7 @@ import {
 } from "@/lib/pdf/pdfjs-guard";
 import { UNREADABLE_PDF_MESSAGE } from "@/lib/pdf/engine-errors";
 import { runBounded, type BoundedOutcome } from "./bounded";
-import { expectFasterThan, expectRatioBelow } from "../time-bound";
+import { expectFasterThan, expectRatioBelow, measureTime } from "../time-bound";
 
 // The hostile matrix's resource findings on pdf.js consumers, each run at the
 // entry point a tool calls (extractPdfText, rasterizePdf) in a child process
@@ -70,14 +70,122 @@ const CHILD = "src/tests/hostile/pdfjs-guard.child.ts";
  * (2.86-3.14) stays the resolution limit and passes, as before. The
  * re-run path itself was forced live by lowering the bound to 1.0 on a
  * copy: objstm-bomb via access read 1.88, re-ran, read 1.66, judged 1.66.
+ *
+ * History (2026-11-22, CI-flake audit lane 2): 3.5 had 1.14x over CI. 144
+ * objstm-bomb samples from 24 CI logs read median 1.44, max 3.08
+ * (44386549494, auto-crop; 2.90 access in the same run, a whole-run shift
+ * best of two cannot absorb), and the ratio RISES as the yardstick gets
+ * faster (fit: refusal = 7,307 ms + 0.921 x budget-read). The attempts of
+ * 2026-11-21 read 1.09-1.84 (44917160721, 44924793701).
+ *
+ * 6.5 was set from 3.08 and was 1.77x over the real CI max (review,
+ * 2026-11-22): that harvest read `gh run view <id> --log`, which returns
+ * only a run's LATEST attempt, so every failed first attempt that a re-run
+ * turned green was dropped (rule 4). The failed attempts read 3.68
+ * (43804932617 attempt 1, viewer-render, the red cited above) and 3.16
+ * (44465012923 attempt 1, access). Now 7.5, 2.04x over 3.68.
+ *
+ * What that costs, measured (Windows, so a shape, not a bound): the object
+ * scanners fed every chunk 8 times read 4.76-4.79 budget-reads against an
+ * honest 1.60-1.83, so a 2.6-3x slowdown of the refusal is GREEN on time.
+ * The work count beside this bound (`expectBombScannedOnce`) is what
+ * catches that mutant: each scanner counts the bytes it is fed inside its
+ * own `feed`, so a caller that hands a chunk over k times reads k.0 against
+ * an honest 1.0 on any runner. Neither sees extra work INSIDE one scanner
+ * for bytes it was fed once; this ratio is the only check on that, and it
+ * fires from about 4.5x the honest median, not 2.4x.
  */
-const BUDGET_READS_ALLOWED = 3.5;
+const BUDGET_READS_ALLOWED = 7.5;
 /**
- * And an absolute ceiling beside it, under runBounded's 90 s kill, so a
- * preflight that crawls is reported with its number rather than as a hang,
- * even if the yardstick were slow for the same reason.
+ * And an absolute ceiling beside it, under the open's kill, so a preflight
+ * that crawls is reported with its number rather than as a hang, even if
+ * the yardstick were slow for the same reason. WAS 60,000 under a 90 s
+ * kill: CI's refusal reached 27,826 ms (44299285879, auto-crop) and
+ * 30,179 ms before best of two (43629904891), about 2x. Now 100,000 (3.3x
+ * over 30,179, the failed attempt; 3.6x over the passing 27,826) under a 150 s kill ({@link OPEN_KILL_MS}): the child spends
+ * up to 15.8 s outside the refusal (43998624497), so the ceiling still
+ * reports before the kill.
  */
-const REFUSAL_CEILING_MS = 60_000;
+const REFUSAL_CEILING_MS = 100_000;
+/**
+ * The kill on an `open:<file>:<reader>` child. WAS 90,000: the objstm-bomb
+ * child reached about 44,678 ms on CI (43998624497, auto-crop), 2.01x.
+ * 150,000 is 3.4x.
+ */
+const OPEN_KILL_MS = 150_000;
+
+/**
+ * A first attempt killed at its bound is run ONCE more (CI-flake audit lane
+ * 2, L631/L863): best of two re-ran a slow refusal but not a child that a
+ * stalled runner pushed past its kill, which failed `settled()` at once. A
+ * real hang hangs twice and is still red, with the bound it exceeded; only
+ * a one-off stall is absorbed, as best of two already absorbs one. Pure,
+ * so the selection is tested below with fixed outcomes.
+ */
+async function rerunOnHang(
+  attempt: () => Promise<BoundedOutcome>,
+): Promise<{ attempts: number; outcome: BoundedOutcome }> {
+  const first = await attempt();
+  if (first.kind !== "hang") return { attempts: 1, outcome: first };
+  return { attempts: 2, outcome: await attempt() };
+}
+
+/**
+ * The most `files` refusals can take before every kill has fired: each is
+ * an {@link openChild} (up to two kills) and, through best of two, a second
+ * {@link openChild} (two more). A test's timeout is built from this, so it
+ * moves with {@link OPEN_KILL_MS} instead of going stale beside it.
+ */
+const OPENS_KILL_BUDGET_MS = (files: number) => files * 4 * OPEN_KILL_MS;
+
+/** One `open:` child, its kill and its single re-run on a hang. */
+async function openChild(arg: string): Promise<BoundedOutcome> {
+  const { attempts, outcome } = await rerunOnHang(() =>
+    runBounded(CHILD, [arg], OPEN_KILL_MS, { maxOldSpaceMb: 1024 }),
+  );
+  if (attempts > 1)
+    console.log(
+      `[kill-headroom] ${arg}: the first attempt was killed at ${OPEN_KILL_MS} ms; re-run once`,
+    );
+  return outcome;
+}
+
+/**
+ * The object-stream bomb's refusal, as work (CI-flake audit lane 2, L156):
+ * the bytes the preflight inflated before it stopped, and the bytes each
+ * object scanner (`refs`, `contents`, `kids`) was fed, counted inside the
+ * scanner's own `feed` (`pdfjsScanWork`) around the reader alone. The bomb
+ * is all object streams, so an honest refusal feeds each scanner each
+ * inflated byte once; a chunk handed over k times reads k.0 on any runner,
+ * wherever the extra call is made (review 2026-11-22: a count taken at the
+ * call site missed a mutant that looped the three calls below it, 4.76
+ * budget-reads and green). Health: it inflated the whole budget (a counter
+ * in another module instance would read 0), and every scanner was fed at
+ * least most of it (a scanner nobody feeds would read 0, the strongest pass).
+ */
+function expectBombScannedOnce(v: Record<string, unknown>, said: string) {
+  const { work } = v.growth as {
+    work: { inflated: number; refs: number; contents: number; kids: number };
+  };
+  const detail = `${said}: inflated ${work.inflated}, fed refs ${work.refs}, contents ${work.contents}, kids ${work.kids} (budget ${MAX_DECODED_TOTAL_BYTES})`;
+  console.log(`[scan-work] ${detail}`);
+  expect(work.inflated, detail).toBeGreaterThanOrEqual(
+    0.9 * MAX_DECODED_TOTAL_BYTES,
+  );
+  expect(work.inflated, detail).toBeLessThanOrEqual(
+    MAX_DECODED_TOTAL_BYTES + 2 ** 20,
+  );
+  for (const scanner of ["refs", "contents", "kids"] as const) {
+    expect(
+      work[scanner] / work.inflated,
+      `${scanner}: ${detail}`,
+    ).toBeGreaterThanOrEqual(0.9);
+    expect(
+      work[scanner] / work.inflated,
+      `${scanner}: ${detail}`,
+    ).toBeLessThanOrEqual(1.25);
+  }
+}
 
 /** One timed refusal, read against its own child's yardstick. */
 interface TimedRefusal {
@@ -188,20 +296,26 @@ describe("the res1 time bound's best of two", () => {
     expect(r.attempts).toHaveLength(1);
     expect(r.judged.reads).toBe(2.0);
   });
+  // The fixed numbers follow the bound (2026-11-22: 3.5 -> 6.5 -> 7.5).
+  // These two read 3.68 (the red of run 43804932617) and 4.89/4.49 (the 8x
+  // re-feed mutant on Windows) against 3.5; inverted to the same shapes
+  // above the bound, now 7.8 and 8.9/8.4. The 8x re-feed mutant itself now
+  // reads 4.76 on time, inside 7.5: it is caught by the work count
+  // (expectBombScannedOnce), not by this bound.
   test("an outlier re-runs once and the lower ratio is judged", async () => {
     let reruns = 0;
-    const r = await bestOfTwo(t(3.68), async () => {
+    const r = await bestOfTwo(t(7.8), async () => {
       reruns++;
       return t(1.9);
     });
     expect(reruns).toBe(1);
-    expect(r.attempts.map((a) => a.reads)).toEqual([3.68, 1.9]);
+    expect(r.attempts.map((a) => a.reads)).toEqual([7.8, 1.9]);
     expect(r.judged.reads).toBe(1.9);
     expect(withinTimeBounds(r.judged)).toBe(true);
   });
-  test("a slow guard is slow twice and still fails (the 8x mutation's shape)", async () => {
-    const r = await bestOfTwo(t(4.89), async () => t(4.49));
-    expect(r.judged.reads).toBe(4.49);
+  test("a slow guard is slow twice and still fails", async () => {
+    const r = await bestOfTwo(t(8.9), async () => t(8.4));
+    expect(r.judged.reads).toBe(8.4);
     expect(withinTimeBounds(r.judged)).toBe(false);
   });
   test("a first attempt over the absolute ceiling alone also re-runs, and a clean re-run is the one judged", async () => {
@@ -214,6 +328,45 @@ describe("the res1 time bound's best of two", () => {
     });
     expect(reruns).toBe(1);
     expect(withinTimeBounds(r.judged)).toBe(true);
+  });
+
+  test("a first attempt killed at its bound is re-run once; a settled one is not; a hang twice stays a hang", async () => {
+    const outcomes = (...kinds: BoundedOutcome["kind"][]) => {
+      const queue = kinds.map((kind): BoundedOutcome =>
+        kind === "settled"
+          ? { kind, value: {}, ms: 1 }
+          : { kind, message: "", ms: 1 },
+      );
+      let calls = 0;
+      return {
+        attempt: async () => {
+          calls += 1;
+          return queue.shift()!;
+        },
+        calls: () => calls,
+      };
+    };
+    const settledFirst = outcomes("settled", "settled");
+    const a = await rerunOnHang(settledFirst.attempt);
+    expect([a.attempts, a.outcome.kind, settledFirst.calls()]).toEqual([
+      1,
+      "settled",
+      1,
+    ]);
+    const stalled = outcomes("hang", "settled");
+    const b = await rerunOnHang(stalled.attempt);
+    expect([b.attempts, b.outcome.kind, stalled.calls()]).toEqual([
+      2,
+      "settled",
+      2,
+    ]);
+    const hung = outcomes("hang", "hang", "settled");
+    const c = await rerunOnHang(hung.attempt);
+    expect([c.attempts, c.outcome.kind, hung.calls()]).toEqual([2, "hang", 2]);
+    // A crash is never re-run: only the kill is the runner's to absorb.
+    const crashed = outcomes("internal", "settled");
+    const d = await rerunOnHang(crashed.attempt);
+    expect([d.attempts, d.outcome.kind]).toEqual([1, "internal"]);
   });
 
   test("negative control: both attempts over the ceiling still fail", async () => {
@@ -328,6 +481,20 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
       await runBounded(CHILD, ["scan-unmatched-dict-preflight"], 20_000),
     );
     expect(v).toMatchObject({ ok: true, bytes: 4_500_015 });
+    // Kept as an assertion (CI-flake audit lane 2): on the fastest box the
+    // 64 KB walk-back takes 18 s, under the 20 s kill, so this bound is
+    // what catches it there. CI's estimated preflightMs is about 0.5-1.2 s
+    // (test max 3,759 ms in 43636213581, child start-up included), and it
+    // is now printed on every pass. The input's length was named as its
+    // witness once; it cannot change, so a quarter-window walk-back passed
+    // it (witness audit, 2026-11-22). Pending (wall-clock-pending.ts): the
+    // raw bound below is what fails.
+    measureTime(
+      "pdfjs-guard-scan-unmatched-dict",
+      v.preflightMs as number,
+      3_000,
+      {},
+    );
     expect(v.preflightMs as number).toBeLessThan(3_000);
   }, 60_000);
 
@@ -338,7 +505,22 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
     const v = settled(
       await runBounded(CHILD, ["scan-no-endstream-preflight"], 20_000),
     );
-    expect(v).toMatchObject({ ok: true, bytes: 4_000_015 });
+    expect(v).toMatchObject({ ok: true, bytes: 1_000_015 });
+    // 2026-11-22 (CI-flake audit lane 2): 1 MB, where it was 4 MB. CI's
+    // 4 MB preflight was about 5.0-5.8 s against this 8 s (test max 9,027
+    // ms in 43632313634), 1.4x; at 1 MB a linear scan is about 1.5 s on CI
+    // (over 5x), and the forward-to-EOF search is about 47 s on the dev
+    // box (7.5 s x 2.5^2): past the 20 s kill on every runner seen. The
+    // input's length was named as its witness once; it cannot change, so a
+    // capped forward search passed it at 87% of 8 s (witness audit,
+    // 2026-11-22). Pending (wall-clock-pending.ts): the raw bound below is
+    // what fails.
+    measureTime(
+      "pdfjs-guard-scan-no-endstream",
+      v.preflightMs as number,
+      8_000,
+      {},
+    );
     // The property is LINEAR, seconds and not minutes: the quadratic scan took
     // 7.5 s for 400 KB and did not finish 1.6 MB in 2 minutes. WAS 3,000 ms,
     // which CI went over on PR #306 (3,967 ms) with the scan still linear.
@@ -413,6 +595,9 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
     // The image's place is the white sheet: skipped, not decoded.
     expect(v.ink).toEqual([765, 765]);
     expect(v.notice as string).toContain(PDF_IMAGE_TOO_LARGE_MESSAGE);
+    // Kept raw (review 2026-11-22): never flaky (test CI max 4,366 ms over
+    // 12 runs of 2026-11-18, the render alone less), and white ink is the
+    // same however slowly it was reached, so it cannot stand in for this.
     expect(v.renderMs as number).toBeLessThan(10_000);
     expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 60_000);
@@ -466,6 +651,9 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
     expect(v).toMatchObject({ ok: true, drawn: true, size: [300, 200] });
     expect(v.ink).toEqual([765, 765]);
     expect(v.notice as string).toContain(PDF_IMAGE_TOO_LARGE_MESSAGE);
+    // Kept raw (review 2026-11-22): never flaky (test CI max 4,690 ms over
+    // 12 runs of 2026-11-18, the render alone less), and white ink is the
+    // same however slowly it was reached, so it cannot stand in for this.
     expect(v.renderMs as number).toBeLessThan(10_000);
   }, 60_000);
 
@@ -506,8 +694,27 @@ describe("pdf.js consumers stay bounded on hostile streams", () => {
         await runBounded(CHILD, [name], 30_000, { maxOldSpaceMb: 2048 }),
       );
       expect(v).toMatchObject({ ok: true, drawn: true, size: [300, 200] });
-      expect(v.ink).toEqual([765, 765]);
+      const drawnInk = v.ink;
+      expect(drawnInk).toEqual([765, 765]);
       expect(v.notice as string).toContain(PDF_IMAGE_TOO_LARGE_MESSAGE);
+      // Ink and notice cannot see the mask decoded (a zero mask paints white
+      // either way). Memory can: decoding the 100 MP mask allocates 100 MB
+      // or more. A first guess of 64 MB read 77 MB honest on a loaded
+      // Windows box, so the bound is this file's GROWTH_MB (300), the one
+      // every other decode in it is held to (witness audit, 2026-11-22:
+      // with masks no longer charged, the "with" instance grew 1,121 MB
+      // while ink stayed [765, 765]). Memory, not time: no runner's speed
+      // moves it.
+      const maskGrowth = Math.max(0, (v.growthMb as number) - GROWTH_MB);
+      expect(maskGrowth, `growth ${v.growthMb as number} MB`).toBe(0);
+      // The 500 ms bound stays until its CI spread is read: it is printed
+      // now, never before (CI's tests took up to 4,170 / 5,681 ms with the
+      // fixture build and the open).
+      measureTime("pdfjs-guard-softmask-render", v.renderMs as number, 500, {
+        instance: typed,
+        detail: `growth ${v.growthMb as number} MB`,
+        witness: "maskGrowth",
+      });
       expect(v.renderMs as number).toBeLessThan(500);
     }, 60_000);
   }
@@ -638,44 +845,50 @@ describe("lane res1: every pdf.js open goes through the preflight", () => {
     },
   };
   for (const reader of READERS) {
-    test(`${reader}: each hostile file is refused, typed, and a plain file still opens`, async () => {
-      for (const [file, error] of Object.entries(FILES)) {
-        const v = settled(
-          await runBounded(CHILD, [`open:${file}:${reader}`], 90_000, {
-            maxOldSpaceMb: 1024,
-          }),
+    test(
+      `${reader}: each hostile file is refused, typed, and a plain file still opens`,
+      async () => {
+        for (const [file, error] of Object.entries(FILES)) {
+          const v = settled(await openChild(`open:${file}:${reader}`));
+          expect(v.error, `${file} via ${reader}`).toMatchObject(error);
+          if (file === "objstm-bomb")
+            expectBombScannedOnce(v, `${file} via ${reader}`);
+          // Second bound: refused in about the time it takes to read the
+          // preflight's budget, before pdf.js parsed anything. See
+          // `expectRefusedInBudgetTime` for the shape and its history.
+          await expectRefusedInBudgetTime(
+            v,
+            `${file} via ${reader}`,
+            async () => {
+              const again = settled(await openChild(`open:${file}:${reader}`));
+              expect(
+                again.error,
+                `${file} via ${reader} (re-run)`,
+              ).toMatchObject(error);
+              return again;
+            },
+          );
+          const { mb } = v.growth as { mb: number };
+          // Third bound, memory: the bomb's refusal comes from a preflight that
+          // streams up to 1.6 GB through inflate, so what it KEEPS is the bound
+          // worth pinning (added after review; the child always reported it).
+          // Read from the fixture's end, after the warm-up (GROWTH_MB above).
+          expect(mb, `${file} via ${reader}`).toBeLessThan(GROWTH_MB);
+        }
+        const control = settled(
+          await runBounded(CHILD, [`open:control:${reader}`], 60_000),
         );
-        expect(v.error, `${file} via ${reader}`).toMatchObject(error);
-        // Second bound: refused in about the time it takes to read the
-        // preflight's budget, before pdf.js parsed anything. See
-        // `expectRefusedInBudgetTime` for the shape and its history.
-        await expectRefusedInBudgetTime(
-          v,
-          `${file} via ${reader}`,
-          async () => {
-            const again = settled(
-              await runBounded(CHILD, [`open:${file}:${reader}`], 90_000, {
-                maxOldSpaceMb: 1024,
-              }),
-            );
-            expect(again.error, `${file} via ${reader} (re-run)`).toMatchObject(
-              error,
-            );
-            return again;
-          },
-        );
-        const { mb } = v.growth as { mb: number };
-        // Third bound, memory: the bomb's refusal comes from a preflight that
-        // streams up to 1.6 GB through inflate, so what it KEEPS is the bound
-        // worth pinning (added after review; the child always reported it).
-        // Read from the fixture's end, after the warm-up (GROWTH_MB above).
-        expect(mb, `${file} via ${reader}`).toBeLessThan(GROWTH_MB);
-      }
-      const control = settled(
-        await runBounded(CHILD, [`open:control:${reader}`], 60_000),
-      );
-      expect(control, `control via ${reader}`).toMatchObject({ ok: true });
-    }, 500_000);
+        expect(control, `control via ${reader}`).toMatchObject({ ok: true });
+        // Three files, each up to FOUR kills: openChild may kill twice (a hang
+        // re-run), and best of two's re-run is another openChild, two more.
+        // Plus the control's 60 s and 30 s for the parent's own work, so a
+        // kill's message always lands before vitest's "Test timed out"
+        // (review 2026-11-22: the old 3 x 2 x 150 s + 60 s counted two kills
+        // per file, and a 101 s open, a killed re-run and an 80 s one already
+        // overran 330 s on the access test below).
+      },
+      OPENS_KILL_BUDGET_MS(3) + 60_000 + 30_000,
+    );
   }
 });
 
@@ -718,6 +931,9 @@ describe("the PDF Viewer's open, on every hostile class it meets first", () => {
     // The image's place is the white sheet: skipped, not decoded.
     expect(v.ink).toEqual([765, 765]);
     expect(v.imageTooLarge).toBe(true);
+    // Kept raw (review 2026-11-22): never flaky (test CI max 4,406 ms over
+    // 12 runs of 2026-11-18, the render alone less), and white ink is the
+    // same however slowly it was reached, so it cannot stand in for this.
     expect(v.renderMs as number).toBeLessThan(10_000);
     expect(v.growthMb as number).toBeLessThan(GROWTH_MB);
   }, 60_000);
@@ -783,8 +999,11 @@ describe("the PDF Viewer's open, on every hostile class it meets first", () => {
     // +144 MB (three pages).
     const { EDITOR_KEPT_IMAGE_PIXELS } =
       await import("@/lib/pdf/editor/page-render");
+    // Kill 330 s (CI-flake audit lane 2): the child reached 110,987 ms on
+    // CI (44307575570), 2.16x under the old 240 s, with a 1.9x spread
+    // between runners. The bound under test is memory, not time.
     const v = settled(
-      await runBounded(CHILD, ["editor-retention"], 240_000, {
+      await runBounded(CHILD, ["editor-retention"], 330_000, {
         maxOldSpaceMb: 2048,
       }),
     );
@@ -797,7 +1016,7 @@ describe("the PDF Viewer's open, on every hostile class it meets first", () => {
     for (const [i, held] of mb.entries()) {
       expect(held, `after page ${i + 1}`).toBeLessThanOrEqual(bound);
     }
-  }, 300_000);
+  }, 400_000);
 
   test.each([
     ["editor", "editor-retention-inline"],
@@ -871,28 +1090,28 @@ describe("lane res1: the access probe's open goes through the preflight too", ()
   // object-stream bomb was opened and walked, verdict "unencrypted", in
   // 11.3 s at 621 MB peak RSS.
   for (const file of ["objstm-bomb", "zero-width-xref", "q-split"]) {
-    test(`${file}: "unreadable", in seconds and bounded memory`, async () => {
-      const v = settled(
-        await runBounded(CHILD, [`open:${file}:access`], 90_000, {
-          maxOldSpaceMb: 1024,
-        }),
-      );
-      expect(v, file).toMatchObject({ ok: true, access: "unreadable" });
-      await expectRefusedInBudgetTime(v, `${file} via access`, async () => {
-        const again = settled(
-          await runBounded(CHILD, [`open:${file}:access`], 90_000, {
-            maxOldSpaceMb: 1024,
-          }),
-        );
-        expect(again, `${file} (re-run)`).toMatchObject({
-          ok: true,
-          access: "unreadable",
+    test(
+      `${file}: "unreadable", in seconds and bounded memory`,
+      async () => {
+        const v = settled(await openChild(`open:${file}:access`));
+        expect(v, file).toMatchObject({ ok: true, access: "unreadable" });
+        if (file === "objstm-bomb")
+          expectBombScannedOnce(v, `${file} via access`);
+        await expectRefusedInBudgetTime(v, `${file} via access`, async () => {
+          const again = settled(await openChild(`open:${file}:access`));
+          expect(again, `${file} (re-run)`).toMatchObject({
+            ok: true,
+            access: "unreadable",
+          });
+          return again;
         });
-        return again;
-      });
-      const { mb } = v.growth as { mb: number };
-      expect(mb, file).toBeLessThan(GROWTH_MB);
-    }, 210_000);
+        const { mb } = v.growth as { mb: number };
+        expect(mb, file).toBeLessThan(GROWTH_MB);
+        // The first open and its best-of-two re-run, each up to two kills:
+        // four kills, plus 30 s for the parent (see the reader loop above).
+      },
+      OPENS_KILL_BUDGET_MS(1) + 30_000,
+    );
   }
 
   test("positive control: a plain file is still unencrypted", async () => {

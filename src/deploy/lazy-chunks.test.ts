@@ -1484,8 +1484,29 @@ describe("Compare PDF's redline is a chunk of its own", () => {
  * this measurement plus 5%, as before: 26.1. The raise (24.3 to 26.1) is
  * the owner's to approve, in the PR; the page's first load is unchanged
  * (first-load and bundle-budget tests green on the same build).
+ *
+ * Slice S5 (2026-11-22, zlib -9, Windows, from an empty .next): 26,925 B
+ * gz (26.29 KB), 74,856 B raw, +1,449 B over S4's review round 1 for
+ * tables: one grid finder for the label table, the headed table and the
+ * row of captioned boxes, the header and row reading, the large-table
+ * cap, a box drawn twice read once, and the plumb-line bands that keep a
+ * page of tables linear. That is over 26.1, so the bound is this
+ * measurement plus 5%: 27.6. The raise (26.1 to 27.6) is the owner's to
+ * approve, in the PR; the page's first load is unchanged (first-load and
+ * bundle-budget tests green on the same build).
+ *
+ * That figure went stale inside the same PR: review round 1 (cells that
+ * hold a mark, filled rows, headerless data, lines drawn twice, heavy
+ * rules) grew the chunk after it was taken, and the bound still passed,
+ * so nothing said so. Re-measured on the build of the branch merged with
+ * main (2026-11-22, zlib -9, Windows, from an empty .next): 27,516 B gz
+ * (26.87 KB), 76,532 B raw, +2,040 B over main's 25,476. The bound is
+ * this measurement plus 5%: 28.2 (26.1 to 28.2 in all, the owner's to
+ * approve in the PR). Every page's first load moved by 1 B gz on that
+ * build, and only in the webpack runtime's map of chunk hashes: this
+ * chunk's and the preview's hashes changed, at the same length.
  */
-const FIND_FIELDS_FETCH_GZ_KB = 26.1;
+const FIND_FIELDS_FETCH_GZ_KB = 28.2;
 /*
  * HISTORY (review rounds 7 and 8, 2026-11-19). Round 7 added a bound here
  * for the press on a page whose preview chunk never arrived: every chunk

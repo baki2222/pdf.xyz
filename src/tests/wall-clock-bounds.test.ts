@@ -113,12 +113,18 @@ const BOUNDS = {
   testOnly: [10, 80],
   workflowScripts: [20, 60],
   sleeps: [100, 400],
-  // Raw comparisons alone. 102 on 2026-11-21; 92 on 2026-11-22 after lane
-  // 1b routed its scope (routing moves a comparison out of this set by
-  // design). The floor sits where a recognizer gone half blind (92 -> 46)
-  // still fails; a lane that routes the set below it lowers it here, with
-  // its own dated count, never by folding another set into this one.
-  comparisons: [60, 500],
+  // Raw comparisons shrink BY DESIGN as the fix lanes route them: 104 at
+  // eea2c3ca, 86 on lane 2's branch (test/flake-lane-2, 2026-11-22: it
+  // routed 18 and kept raw the bounds whose witnesses could not see the
+  // defect). The floor that says "the detector went blind" sits just under
+  // the count a lane leaves, never at a guess of later drains, so a
+  // blindness of more than 6 still reds it; the routed + debt + exempt
+  // total below is the one that must not fall. Each lane that drains past
+  // it lowers it to its own count minus a few, in its own PR, with the
+  // count it saw (this file is shared: merge it, do not take either side).
+  // Lane 1b (test/flake-lane-1b), merged on top of lane 2 on 2026-11-28:
+  // 77 raw (routed 68, debt 68, exempt 1), so the floor goes to 71.
+  comparisons: [71, 500],
   // Routed calls alone, so a routing walk that goes blind fails on its own.
   routed: [30, 300],
   routedDebtExempt: [100, 500],

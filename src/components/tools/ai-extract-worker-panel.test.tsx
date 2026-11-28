@@ -36,6 +36,19 @@ import { PDFDocument, StandardFonts } from "pdf-lib";
 import { extractPdfText } from "@/lib/pdf/text";
 import { stubJobNetwork, type JobNetwork } from "@/tests/stub-job-network";
 import { AiExtractWorkerPanel } from "./ai-extract-worker-panel";
+import { observeFor } from "@/tests/time-bound";
+
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
+ *
+ * CI: the slowest test here took 741 ms (run 44152260505, a passing run; 108 CI
+ * runs, passing and failing, to 11-21). A wait cannot outlast its test, so 3 s
+ * is at least 4x any wait in it, and it stays below the test's own timeout, so
+ * a wait that times out fails with its DOM dump.
+ */
+const WAIT_MS = 3_000;
 
 const tool = getToolBySlug("ai-extract")!;
 const providers = getProviderReadiness("remote-configured");
@@ -91,11 +104,14 @@ async function openBuilder(
       <AiExtractWorkerPanel tool={tool} />
     </InToolPage>,
   );
-  const input = await waitFor(() => {
-    const found = document.querySelector('input[type="file"]');
-    expect(found).not.toBeNull();
-    return found!;
-  });
+  const input = await waitFor(
+    () => {
+      const found = document.querySelector('input[type="file"]');
+      expect(found).not.toBeNull();
+      return found!;
+    },
+    { timeout: WAIT_MS },
+  );
   fireEvent.change(input, {
     target: {
       files: [
@@ -117,7 +133,11 @@ async function nameTwoFields(first: string, second: string) {
   fireEvent.change(nameInput(1), { target: { value: first } });
   fireEvent.click(screen.getByRole("button", { name: /add field/i }));
   fireEvent.change(
-    await screen.findByRole("textbox", { name: "Field 2 name" }),
+    await screen.findByRole(
+      "textbox",
+      { name: "Field 2 name" },
+      { timeout: WAIT_MS },
+    ),
     {
       target: { value: second },
     },
@@ -142,7 +162,13 @@ describe("AiExtractWorkerPanel — duplicate field names", () => {
 
     expect(extractButton()).toHaveAttribute("aria-disabled", "true");
     fireEvent.click(extractButton());
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // A declared absence window, as main had: a click that got through would
+    // reserve the upload within a stubbed round trip.
+    await observeFor(
+      "ai-extract-refused-schema-sends-nothing",
+      20,
+      "a schema the server refuses starts no upload and no job",
+    );
     expect(
       [network.uploads(), network.jobBodies.length],
       "a schema our server refuses was sent — the upload and the reservation happen first",
@@ -168,11 +194,14 @@ describe("AiExtractWorkerPanel — duplicate field names", () => {
     await nameTwoFields("Total", "Vendor");
 
     expect(nameInput(2)).not.toHaveAttribute("aria-invalid");
-    await waitFor(() =>
-      expect(extractButton()).not.toHaveAttribute("aria-disabled"),
+    await waitFor(
+      () => expect(extractButton()).not.toHaveAttribute("aria-disabled"),
+      { timeout: WAIT_MS },
     );
     fireEvent.click(extractButton());
-    await waitFor(() => expect(network.jobBodies).toHaveLength(1));
+    await waitFor(() => expect(network.jobBodies).toHaveLength(1), {
+      timeout: WAIT_MS,
+    });
     const body = network.jobBodies[0]!;
     expect(body.tool).toBe("ai-extract");
     expect((body.options as Record<string, unknown>).schema).toEqual([
@@ -213,12 +242,15 @@ describe("AiExtractWorkerPanel — what the job declares", () => {
 
     const network = await openBuilder(bytes);
     fireEvent.change(nameInput(1), { target: { value: "Total" } });
-    await waitFor(() =>
-      expect(extractButton()).not.toHaveAttribute("aria-disabled"),
+    await waitFor(
+      () => expect(extractButton()).not.toHaveAttribute("aria-disabled"),
+      { timeout: WAIT_MS },
     );
     fireEvent.click(extractButton());
 
-    await waitFor(() => expect(network.jobBodies).toHaveLength(1));
+    await waitFor(() => expect(network.jobBodies).toHaveLength(1), {
+      timeout: WAIT_MS,
+    });
     expect(network.jobBodies[0]!.tool).toBe("ai-extract");
     expect(network.jobBodies[0]!.declaredCharacters).toBe(counted);
   });
@@ -234,9 +266,13 @@ describe("AiExtractWorkerPanel — what the job declares", () => {
 describe("AiExtractWorkerPanel — every row's controls say which field they act on", () => {
   it("names each type select and each remove button by its row", async () => {
     await openBuilder();
-    await waitFor(() => nameInput(1));
+    await waitFor(() => nameInput(1), { timeout: WAIT_MS });
     fireEvent.click(screen.getByRole("button", { name: /add field/i }));
-    await screen.findByRole("textbox", { name: "Field 2 name" });
+    await screen.findByRole(
+      "textbox",
+      { name: "Field 2 name" },
+      { timeout: WAIT_MS },
+    );
     const selects = screen.getAllByRole("combobox");
     expect(selects.map((s) => s.getAttribute("aria-label") ?? "")).toEqual([
       "Field 1 type",
