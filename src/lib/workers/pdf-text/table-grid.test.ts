@@ -735,5 +735,8 @@ describe("the copy's numbers are the rule's (pdf-to-word#2)", () => {
         (m) => m[0],
       ),
     ).toEqual([]);
-  });
+    // Its own time limit: the two imports load every tool page and guide
+    // cold, 1.2 s alone and past vitest's 5 s default under a file-parallel
+    // run (verifier of lane w2r, 2026-11-28). A limit, not a timing check.
+  }, 30_000);
 });
