@@ -35,6 +35,18 @@ import type { LoadedPdf } from "./use-single-pdf";
 import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 import { recallOptions, rememberOptions } from "@/lib/intent/option-memory";
 
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
+ *
+ * CI: the slowest test here took 688 ms (run 44171428723, a passing run; 108 CI
+ * runs, passing and failing, to 11-21). A wait cannot outlast its test, so 3 s
+ * is at least 4.3x any wait in it, and it stays below the test's own timeout,
+ * so a wait that times out fails with its DOM dump.
+ */
+const WAIT_MS = 3_000;
+
 const NOW = new Date(2026, 8, 27, 12, 0, 0);
 
 const RealDateTimeFormat = Intl.DateTimeFormat;
@@ -118,11 +130,14 @@ describe("header-footer runner: {date} in a locale we cannot draw", () => {
       });
 
       // The preview settles on a date written in Latin digits.
-      const pill = await waitFor(() => {
-        const found = screen.getByText(/^Printed /);
-        expect(found.textContent).toMatch(/^Printed [0-9]/);
-        return found;
-      });
+      const pill = await waitFor(
+        () => {
+          const found = screen.getByText(/^Printed /);
+          expect(found.textContent).toMatch(/^Printed [0-9]/);
+          return found;
+        },
+        { timeout: WAIT_MS },
+      );
       const previewed = pill.textContent!;
 
       fireEvent.click(screen.getByRole("button", { name: /add header/i }));
@@ -162,9 +177,7 @@ describe("header-footer runner: a header too wide for the page", () => {
       target: { value: NOTICE },
     });
     fireEvent.click(screen.getByRole("button", { name: /add header/i }));
-    const alert = await screen.findByRole("alert", undefined, {
-      timeout: 3000,
-    });
+    const alert = await screen.findByRole("alert", {}, { timeout: 3000 });
     expect(alert.textContent).toMatch(
       /too wide for page 1.*room for [0-9]+ of its 151 characters/,
     );
@@ -293,7 +306,11 @@ describe("header-footer runner: left, center and right in one band", () => {
       target: { value: "Confidential" },
     });
     fireEvent.click(screen.getByRole("button", { name: /add header/i }));
-    await screen.findByRole("heading", { name: /header & footer added/i });
+    await screen.findByRole(
+      "heading",
+      { name: /header & footer added/i },
+      { timeout: WAIT_MS },
+    );
     fireEvent.click(screen.getByRole("button", { name: /download pdf/i }));
     const pages = await readAsViewer(
       new Uint8Array(await downloaded!.arrayBuffer()),
@@ -327,7 +344,11 @@ describe("header-footer runner: left, center and right in one band", () => {
       target: { value: "{n}" },
     });
     fireEvent.click(screen.getByRole("button", { name: /add header/i }));
-    await screen.findByRole("heading", { name: /header & footer added/i });
+    await screen.findByRole(
+      "heading",
+      { name: /header & footer added/i },
+      { timeout: WAIT_MS },
+    );
     expect(recallOptions("header-footer")).toEqual({ footerAlign: "left" });
   });
 
@@ -424,7 +445,11 @@ describe("header-footer runner: size, margin, font and color", () => {
       target: { value: "#cc0000" },
     });
     fireEvent.click(screen.getByRole("button", { name: /add header/i }));
-    await screen.findByRole("heading", { name: /header & footer added/i });
+    await screen.findByRole(
+      "heading",
+      { name: /header & footer added/i },
+      { timeout: WAIT_MS },
+    );
     fireEvent.click(screen.getByRole("button", { name: /download pdf/i }));
     const bytes = new Uint8Array(await downloaded!.arrayBuffer());
     const { baseFonts, ops } = await drawnWith(bytes);
@@ -443,7 +468,11 @@ describe("header-footer runner: size, margin, font and color", () => {
       target: { value: "FOOTMARK" },
     });
     fireEvent.click(screen.getByRole("button", { name: /add header/i }));
-    await screen.findByRole("heading", { name: /header & footer added/i });
+    await screen.findByRole(
+      "heading",
+      { name: /header & footer added/i },
+      { timeout: WAIT_MS },
+    );
     fireEvent.click(screen.getByRole("button", { name: /download pdf/i }));
     const bytes = new Uint8Array(await downloaded!.arrayBuffer());
     const { baseFonts, ops } = await drawnWith(bytes);

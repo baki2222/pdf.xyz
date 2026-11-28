@@ -199,9 +199,17 @@ describe("POSITIVE CONTROL: the same panels once the worker is known to be off",
       const { container, unmount } = render(
         createElement(Panel, { tool: toolOf(subject.slug) }),
       );
+      // Only the first subject can wait: it fetches the status and meets the
+      // OffBox lazy chunk (worker-panel-shell.tsx) cold, and React holds a
+      // Suspense retry commit for its 300 ms fallback throttle. The whole
+      // test, all 21 subjects and 41 renders, took up to 1407 ms on CI
+      // (failed run 43636213581, the max over 33 CI runs of 11-09..11-21;
+      // 1349 ms among the 12 passing runs of 11-18, run 44331878323): 2000
+      // ms was 1.4x of that. 10 s is 7.1x, and a miss (at most 10 s) still lands
+      // inside this test's 30 s with its own message.
       await waitFor(
         () => expect(container.textContent ?? "").toMatch(NOTIFY_CLAIM),
-        { timeout: 2000 },
+        { timeout: 10_000 },
       ).catch(() => {
         throw new Error(`${subject.slug}: no notify button for an OFF worker`);
       });

@@ -30,6 +30,18 @@ import { PDFDocument } from "pdf-lib";
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { CropRunner } from "./crop-runner";
 
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
+ *
+ * CI: the slowest test here took 638 ms (run 42638025531, a failing run; 108 CI
+ * runs, passing and failing, to 11-21). A wait cannot outlast its test, so 3 s
+ * is at least 4.7x any wait in it, and it stays below the test's own timeout,
+ * so a wait that times out fails with its DOM dump.
+ */
+const WAIT_MS = 3_000;
+
 /** Page 2 is landscape, so the preview's proportions name the page shown. */
 const SIZES: [number, number][] = [
   [400, 600],
@@ -104,7 +116,11 @@ async function openRunner() {
       ],
     },
   });
-  await screen.findByRole("radiogroup", { name: "Crop mode" });
+  await screen.findByRole(
+    "radiogroup",
+    { name: "Crop mode" },
+    { timeout: WAIT_MS },
+  );
 }
 
 function scope(name: string) {
@@ -117,11 +133,14 @@ function scope(name: string) {
 }
 
 async function shownRatio(): Promise<string> {
-  return waitFor(() => {
-    const sheet = document.querySelector<HTMLElement>("[data-crop-sheet]");
-    expect(sheet).not.toBeNull();
-    return sheet!.style.aspectRatio.replace(/\s+/g, "");
-  });
+  return waitFor(
+    () => {
+      const sheet = document.querySelector<HTMLElement>("[data-crop-sheet]");
+      expect(sheet).not.toBeNull();
+      return sheet!.style.aspectRatio.replace(/\s+/g, "");
+    },
+    { timeout: WAIT_MS },
+  );
 }
 
 /** What each page of the download lost on its left edge. */
@@ -135,7 +154,9 @@ async function cropAndReadLeft(): Promise<number[]> {
       { timeout: 5000 },
     ),
   );
-  await waitFor(() => expect(blobs.length).toBeGreaterThan(before));
+  await waitFor(() => expect(blobs.length).toBeGreaterThan(before), {
+    timeout: WAIT_MS,
+  });
   const out = await PDFDocument.load(
     new Uint8Array(await blobs[blobs.length - 1]!.arrayBuffer()),
   );
@@ -164,8 +185,9 @@ describe("Crop PDF · every page in the preview", () => {
     expect(document.querySelector("[data-crop-box]")).toBeNull();
     expect(screen.getByText(/not one of the pages you chose/i)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: /next page/i }));
-    await waitFor(() =>
-      expect(document.querySelector("[data-crop-box]")).not.toBeNull(),
+    await waitFor(
+      () => expect(document.querySelector("[data-crop-box]")).not.toBeNull(),
+      { timeout: WAIT_MS },
     );
   });
 });
@@ -177,13 +199,13 @@ describe("Crop PDF · odd and even pages", () => {
     // The preview moves to the first page that will be cropped.
     expect(await shownRatio()).toBe("600/400");
     expect(await cropAndReadLeft()).toEqual([0, START, 0]);
-  });
+  }, 20_000);
 
   it("Odd pages crops pages 1, 3, …", async () => {
     await openRunner();
     scope("Odd pages");
     expect(await cropAndReadLeft()).toEqual([START, 0, START]);
-  });
+  }, 20_000);
 });
 
 describe("Crop PDF · the page says what the preview does", () => {

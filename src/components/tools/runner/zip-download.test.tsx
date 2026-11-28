@@ -32,6 +32,18 @@ import {
 import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 
 /**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
+ *
+ * CI: the slowest test here took 570 ms (run 44910288854, a passing run; 108 CI
+ * runs, passing and failing, to 11-21). A wait cannot outlast its test, so 3 s
+ * is at least 5.2x any wait in it, and it stays below the test's own timeout,
+ * so a wait that times out fails with its DOM dump.
+ */
+const WAIT_MS = 3_000;
+
+/**
  * What a person gets when they press "Download ZIP" — the file the browser
  * saves, opened and read back — and what they are told when there is no file.
  *
@@ -232,9 +244,17 @@ const SCENARIOS: Record<string, () => Promise<Mounted>> = {
       <SplitEditor pdf={loaded(source, "deck.pdf", 4)} onReset={() => {}} />,
     );
     fireEvent.click(
-      await screen.findByRole("button", { name: /split into 2 files/i }),
+      await screen.findByRole(
+        "button",
+        { name: /split into 2 files/i },
+        { timeout: WAIT_MS },
+      ),
     );
-    await screen.findByRole("button", { name: /download zip \(2 files\)/i });
+    await screen.findByRole(
+      "button",
+      { name: /download zip \(2 files\)/i },
+      { timeout: WAIT_MS },
+    );
     return {
       button: () =>
         screen.getByRole("button", { name: /download zip \(2 files\)/i }),
@@ -272,7 +292,11 @@ const SCENARIOS: Record<string, () => Promise<Mounted>> = {
       target: { files: photos },
     });
     fireEvent.click(
-      await screen.findByRole("button", { name: "One PDF per image (ZIP)" }),
+      await screen.findByRole(
+        "button",
+        { name: "One PDF per image (ZIP)" },
+        { timeout: WAIT_MS },
+      ),
     );
     fireEvent.click(screen.getByRole("button", { name: /create pdf/i }));
     await screen.findByRole(
@@ -351,25 +375,29 @@ describe("Download ZIP — a failed archive is reported, a good one is delivered
       expect(said, "an allocation failure read as a lost connection").toBe(
         ZIP_OUT_OF_MEMORY_MESSAGE,
       );
-      const alert = await screen.findByRole("alert");
+      const alert = await screen.findByRole("alert", {}, { timeout: WAIT_MS });
       expect(alert).toHaveTextContent(said);
       expect(generate).toHaveBeenCalledTimes(1);
       expect(downloads).toEqual([]);
       // The button is theirs again: not stuck in "Preparing ZIP…".
-      await waitFor(() =>
-        expect(mounted.button()).not.toHaveAttribute("aria-busy", "true"),
+      await waitFor(
+        () => expect(mounted.button()).not.toHaveAttribute("aria-busy", "true"),
+        { timeout: WAIT_MS },
       );
       expect(mounted.button()).not.toHaveAttribute("aria-disabled", "true");
 
       // Positive control through the same button: the retry builds a real
       // archive, the stale error goes away, and the file holds the outputs.
       fireEvent.click(mounted.button());
-      await waitFor(() => expect(downloads).toHaveLength(1));
+      await waitFor(() => expect(downloads).toHaveLength(1), {
+        timeout: WAIT_MS,
+      });
       expect(generate).toHaveBeenCalledTimes(2);
       expect(downloads[0]!.name).toBe(mounted.filename);
       await mounted.check(await openZip(downloads[0]!.blob));
-      await waitFor(() =>
-        expect(screen.queryByText(said, { exact: false })).toBe(null),
+      await waitFor(
+        () => expect(screen.queryByText(said, { exact: false })).toBe(null),
+        { timeout: WAIT_MS },
       );
     },
     20_000,

@@ -800,6 +800,8 @@ describe(
 const PROPOSED_TYPES: Record<FieldProposal["type"], true> = {
   text: true,
   checkbox: true,
+  // Slice S6 (2026-11-22): a stack of option boxes is one radio group.
+  radio: true,
 };
 
 describe("Create Forms: Find fields names a type as the type switch does", () => {

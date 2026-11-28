@@ -37,6 +37,26 @@ import { readRestrictedFixture } from "@/tests/restricted-pdf-fixtures";
 import { readyFileInput } from "@/tests/worker-ready";
 import { OCR_OWNER_HINT } from "./ocr-owner-password";
 import { OcrWorkerPanel } from "./ocr-worker-panel";
+import { observeFor } from "@/tests/time-bound";
+
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
+ *
+ * CI: the wait-headroom blocks of the 5 instrumented runs (44917160721,
+ * 44924793701, 44931945692, 44938151052, 44941026100) list no wait in this file
+ * above 500 ms, half the 1 s default most of them ran under. Its slowest test
+ * took 1829 ms (run 44331878323, a passing run, "restricted file, worker proves
+ * it"; 108 CI runs, passing and failing, to 11-21), most of it outside any
+ * wait, so the test alone does not hold its waits to 2x. 3 s is 6x the waits
+ * seen (five samples; re-harvest before tightening), and stays below every
+ * test's own timeout, so a wait that times out fails with its DOM dump.
+ */
+const WAIT_MS = 3_000;
+
+/** OCR PDF's ready badge (`readyLabel` in ocr-worker-panel.tsx): shown once the status says OCR is on. */
+const OCR_READY_BADGE = "Available";
 
 const ocrTool = getToolBySlug("ocr-pdf")!;
 const providers = getProviderReadiness("remote-configured");
@@ -225,18 +245,24 @@ async function addFile(
       <OcrWorkerPanel tool={ocrTool} />
     </InToolPage>,
   );
-  const input = await vi.waitFor(() => {
-    const found = readyFileInput();
-    if (!found) throw new Error("no file input yet");
-    return found;
-  });
+  const input = await vi.waitFor(
+    () => {
+      const found = readyFileInput();
+      if (!found) throw new Error("no file input yet");
+      return found;
+    },
+    { timeout: WAIT_MS },
+  );
   // The live worker's answer is in before the file is chosen, so the panel
   // knows it may offer the field (a test of Run's gap is blind otherwise).
-  await vi.waitFor(() => {
-    const calls = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
-    if (!calls.includes("/api/worker/status")) throw new Error("no status");
-  });
-  await new Promise((r) => setTimeout(r, 50));
+  // WAS: the status request seen, then a 50 ms sleep for its answer to land.
+  // The shell's badge reads the same status the field does: once it says
+  // "Available", the answer is in the panel's state, on any runner.
+  await screen.findByText(
+    OCR_READY_BADGE,
+    { selector: "span" },
+    { timeout: WAIT_MS },
+  );
   fireEvent.change(input, {
     target: {
       files: [
@@ -246,7 +272,7 @@ async function addFile(
       ],
     },
   });
-  await screen.findByText(name);
+  await screen.findByText(name, {}, { timeout: WAIT_MS });
 }
 
 /**
@@ -256,16 +282,31 @@ async function addFile(
  */
 function heldFile(bytes: Uint8Array, name = "scan.pdf") {
   let release!: () => void;
+  let asked = 0;
   const gate = new Promise<void>((r) => (release = r));
   const file = new File([bytes.slice()], name, { type: "application/pdf" });
   const read = file.arrayBuffer.bind(file);
   Object.defineProperty(file, "arrayBuffer", {
     value: async () => {
+      asked += 1;
       await gate;
       return read();
     },
   });
-  return { file, release };
+  /**
+   * The probe has asked for the bytes: the lazy field has mounted and its
+   * probe is under way, held at the gate. From here until `release()`, the
+   * gap between choosing a file and the probe's answer is OPEN — the moment
+   * the review finding below was about, reached by an event, not a sleep.
+   */
+  const probing = () =>
+    vi.waitFor(
+      () => expect(asked, "the probe asked for the bytes").toBeGreaterThan(0),
+      {
+        timeout: WAIT_MS,
+      },
+    );
+  return { file, release, probing };
 }
 
 const runButton = () => screen.getByRole("button", { name: /recognize text/i });
@@ -288,12 +329,14 @@ describe("OCR PDF's Owner password field: panel → job → worker", () => {
       { timeout: 10_000 },
     );
     expect(screen.getByText(OCR_OWNER_HINT)).toBeInTheDocument();
-    await waitFor(() =>
-      expect(runButton()).toHaveAttribute("aria-disabled", "true"),
+    await waitFor(
+      () => expect(runButton()).toHaveAttribute("aria-disabled", "true"),
+      { timeout: WAIT_MS },
     );
     fireEvent.change(input, { target: { value: OWNER } });
-    await waitFor(() =>
-      expect(runButton()).not.toHaveAttribute("aria-disabled"),
+    await waitFor(
+      () => expect(runButton()).not.toHaveAttribute("aria-disabled"),
+      { timeout: WAIT_MS },
     );
     fireEvent.click(runButton());
     await screen.findByText(/OCR complete/, {}, { timeout: 10_000 });
@@ -303,7 +346,7 @@ describe("OCR PDF's Owner password field: panel → job → worker", () => {
     expect(net.decrypts).toEqual([OWNER]);
     // The engine read the decrypted copy, never the restricted upload.
     expect(net.engineInputs).toEqual([PLAIN]);
-  });
+  }, 20_000);
 
   it("a wrong password: the worker's refusal is shown, nothing decrypted", async () => {
     const net = stubNetwork(true, RESTRICTED);
@@ -314,8 +357,9 @@ describe("OCR PDF's Owner password field: panel → job → worker", () => {
       { timeout: 10_000 },
     );
     fireEvent.change(input, { target: { value: "not-the-owner" } });
-    await waitFor(() =>
-      expect(runButton()).not.toHaveAttribute("aria-disabled"),
+    await waitFor(
+      () => expect(runButton()).not.toHaveAttribute("aria-disabled"),
+      { timeout: WAIT_MS },
     );
     fireEvent.click(runButton());
     expect(
@@ -327,13 +371,14 @@ describe("OCR PDF's Owner password field: panel → job → worker", () => {
     ).toBeInTheDocument();
     expect(net.decrypts).toEqual([]);
     expect(net.engineInputs).toEqual([]);
-  });
+  }, 20_000);
 
   it("restricted file, worker does NOT prove it: no field, no key, and today's refusal", async () => {
     const net = stubNetwork(false, RESTRICTED);
     await addFile(RESTRICTED);
-    await waitFor(() =>
-      expect(runButton()).not.toHaveAttribute("aria-disabled"),
+    await waitFor(
+      () => expect(runButton()).not.toHaveAttribute("aria-disabled"),
+      { timeout: WAIT_MS },
     );
     expect(field()).toBeNull();
     fireEvent.click(runButton());
@@ -347,7 +392,7 @@ describe("OCR PDF's Owner password field: panel → job → worker", () => {
     expect(net.sent).toHaveLength(1);
     expect("ownerPassword" in net.sent[0]!).toBe(false);
     expect(net.decrypts).toEqual([]);
-  });
+  }, 20_000);
 
   // Review finding (2026-11-18): Run was live for about 0.7 s after a
   // restricted PDF was chosen, before the field's probe had answered, and a
@@ -356,46 +401,63 @@ describe("OCR PDF's Owner password field: panel → job → worker", () => {
     const net = stubNetwork(true, RESTRICTED);
     const held = heldFile(RESTRICTED);
     await addFile(held.file);
-    await new Promise((r) => setTimeout(r, 300));
+    // WAS a 300 ms sleep: the gap is open once the probe is held at the gate.
+    await held.probing();
     expect(field()).toBeNull();
     expect(runButton()).toHaveAttribute("aria-disabled", "true");
     fireEvent.click(runButton());
-    await new Promise((r) => setTimeout(r, 300));
+    // A declared absence window: a job a click had started would reserve
+    // its upload (POST /api/uploads, no bytes needed) and post within a few
+    // stubbed round trips; the bytes stay held, so nothing else moves.
+    await observeFor(
+      "ocr-owner-click-in-gap-posts-nothing",
+      300,
+      "a click on Run while the owner-password probe is held posts no job",
+    );
     expect(net.sent).toEqual([]);
     held.release();
     await screen.findByLabelText(OWNER_PASSWORD_LABEL, {}, { timeout: 10_000 });
     expect(runButton()).toHaveAttribute("aria-disabled", "true");
     expect(net.sent).toEqual([]);
-  });
+  }, 20_000);
 
   it("POSITIVE CONTROL: the same held probe, on an unrestricted PDF, frees Run once it answers", async () => {
     const net = stubNetwork(true, PLAIN);
     const held = heldFile(PLAIN);
     await addFile(held.file);
-    await new Promise((r) => setTimeout(r, 300));
+    await held.probing();
     expect(runButton()).toHaveAttribute("aria-disabled", "true");
     held.release();
-    await waitFor(() =>
-      expect(runButton()).not.toHaveAttribute("aria-disabled"),
+    await waitFor(
+      () => expect(runButton()).not.toHaveAttribute("aria-disabled"),
+      { timeout: WAIT_MS },
     );
     expect(field()).toBeNull();
     fireEvent.click(runButton());
     await screen.findByText(/OCR complete/, {}, { timeout: 10_000 });
     expect(net.sent).toHaveLength(1);
     expect("ownerPassword" in net.sent[0]!).toBe(false);
-  });
+  }, 20_000);
 
   it("an unrestricted PDF, worker proves it: no field, no key", async () => {
     const net = stubNetwork(true, PLAIN);
     await addFile(PLAIN);
-    await waitFor(() =>
-      expect(runButton()).not.toHaveAttribute("aria-disabled"),
+    await waitFor(
+      () => expect(runButton()).not.toHaveAttribute("aria-disabled"),
+      { timeout: WAIT_MS },
     );
-    // Give the lazy field and its probe time to decide.
-    await new Promise((r) => setTimeout(r, 500));
+    // Run is free, so the probe has answered "not restricted"; a field shown
+    // for it anyway would be a lazy chunk away. A declared window, as main
+    // had: the slowest test here took 1829 ms on CI (run 44331878323), this
+    // one 883 ms (run 44321190257).
+    await observeFor(
+      "ocr-owner-unrestricted-no-field",
+      500,
+      "an unrestricted PDF, once probed, shows no Owner password field",
+    );
     expect(field()).toBeNull();
     fireEvent.click(runButton());
     await screen.findByText(/OCR complete/, {}, { timeout: 10_000 });
     expect("ownerPassword" in net.sent[0]!).toBe(false);
-  });
+  }, 20_000);
 });

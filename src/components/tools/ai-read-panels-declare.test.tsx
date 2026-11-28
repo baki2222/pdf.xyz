@@ -43,6 +43,18 @@ import { resetTelemetry } from "@/lib/telemetry/track";
 import { SummarizeWorkerPanel } from "./summarize-worker-panel";
 
 /**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
+ *
+ * CI: the slowest test here took 615 ms (run 44174247970, a passing run; 108 CI
+ * runs, passing and failing, to 11-21). A wait cannot outlast its test, so 3 s
+ * is at least 4.8x any wait in it, and it stays below the test's own timeout,
+ * so a wait that times out fails with its DOM dump.
+ */
+const WAIT_MS = 3_000;
+
+/**
  * The read-bound (per-call) AI tools, from the pricing table the route charges
  * by. This lane first typed them in `ai-read-declaration.ts`, subsumed at its
  * integration by the panels' own counters (`countDeclaredCharacters`,
@@ -210,11 +222,14 @@ describe("summarize-pdf panel — a real PDF dropped by a user", () => {
         <SummarizeWorkerPanel tool={getToolBySlug("summarize-pdf")!} />
       </InToolPage>,
     );
-    const input = await waitFor(() => {
-      const found = document.querySelector('input[type="file"]');
-      expect(found).not.toBeNull();
-      return found!;
-    });
+    const input = await waitFor(
+      () => {
+        const found = document.querySelector('input[type="file"]');
+        expect(found).not.toBeNull();
+        return found!;
+      },
+      { timeout: WAIT_MS },
+    );
     fireEvent.change(input, {
       target: {
         files: [
@@ -222,14 +237,22 @@ describe("summarize-pdf panel — a real PDF dropped by a user", () => {
         ],
       },
     });
-    const button = await screen.findByRole("button", {
-      name: /summarize pdf/i,
+    const button = await screen.findByRole(
+      "button",
+      {
+        name: /summarize pdf/i,
+      },
+      { timeout: WAIT_MS },
+    );
+    await waitFor(() => expect(button).not.toBeDisabled(), {
+      timeout: WAIT_MS,
     });
-    await waitFor(() => expect(button).not.toBeDisabled());
     fireEvent.click(button);
 
-    await waitFor(() =>
-      expect(jobBodies, `requests: ${requested.join(", ")}`).toHaveLength(1),
+    await waitFor(
+      () =>
+        expect(jobBodies, `requests: ${requested.join(", ")}`).toHaveLength(1),
+      { timeout: WAIT_MS },
     );
     // Health: this IS the summarize job — not some other request.
     expect(jobBodies[0]!.tool).toBe("summarize-pdf");

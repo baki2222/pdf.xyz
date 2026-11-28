@@ -10,11 +10,13 @@ import {
 import type {
   NewCheckBoxField,
   NewFormContext,
+  NewRadioField,
   NewTextField,
   validateFormFields,
 } from "@/lib/pdf/create-forms";
 import {
   DETECTION_RULES,
+  DETECT_COMBS,
   filterValid,
   nameFor,
   type FieldProposal,
@@ -50,6 +52,9 @@ import {
  */
 export const CREATE_FORMS_DETECT_CHUNK = "pdfxyz:lazy:create-forms-detect";
 
+/** The builder's radio gap, as the finder carries it (held equal to field-boxes.ts'). */
+const RADIO_GAP = DETECT_COMBS.RADIO_STACK_GAP;
+
 /** Sign PDF, linked from the skipped-signature-lines line (held to the catalogue by linked-tool-names.test.ts). */
 export const CREATE_FORMS_SIGN_PDF = {
   slug: "sign-pdf",
@@ -79,7 +84,14 @@ export type Pending = FieldProposal & { name?: string; refused?: string };
  * must not import: a second importer breaks its concatenation). Held equal
  * to it by create-forms-find-fields.test.tsx.
  */
-export const KINDS = { text: "Text field", checkbox: "Checkbox" } as const;
+export const KINDS = {
+  text: "Text field",
+  checkbox: "Checkbox",
+  radio: "Radio group",
+} as const;
+
+/** What Add can hand the builder: the kinds the finder suggests. */
+type Suggested = NewTextField | NewCheckBoxField | NewRadioField;
 
 const join = (items: readonly string[]) =>
   items.length <= 1
@@ -231,6 +243,12 @@ export function summarize(report: DetectReport): SummaryLine[] {
     lines.push({
       text: `${plural(c.rotatedText, "line has", "lines have")} a label that is not upright, so ${c.rotatedText === 1 ? "it was" : "they were"} skipped: add ${c.rotatedText === 1 ? "it" : "those"} by hand.`,
     });
+  // A table of over 200 empty cells is not expanded (slice S5): one line,
+  // however many cells, so it never floods the review list.
+  if (c.largeTables > 0)
+    lines.push({
+      text: `${plural(c.largeTables, "table has", "tables have")} more than 200 empty cells, too many to suggest one by one: add ${c.largeTables === 1 ? "its" : "their"} fields with Add field.`,
+    });
   // The pages the caps took from, named, so a page the run cap emptied is
   // never read as one with nothing on it (review round 7).
   const short = report.pages
@@ -272,7 +290,7 @@ export function suggestedNames(
   taken: Iterable<string>,
 ): Map<string, string> {
   const names = new Set(taken);
-  const per = { text: 0, checkbox: 0 };
+  const per = { text: 0, checkbox: 0, radio: 0 };
   const out = new Map<string, string>();
   for (const p of pending) {
     per[p.type]++;
@@ -286,8 +304,12 @@ export function suggestedNames(
   return out;
 }
 
-/** A suggestion as the builder's spec, under `name`. */
-function toSpec(p: Pending, name: string): NewTextField | NewCheckBoxField {
+/**
+ * A suggestion as the builder's spec, under `name`: a comb's text field
+ * with its character limit, a radio group with its choices (its box is
+ * the top button; the builder stacks the rest at its own gap).
+ */
+function toSpec(p: Pending, name: string): Suggested {
   const at = {
     name,
     page: p.page,
@@ -296,8 +318,15 @@ function toSpec(p: Pending, name: string): NewTextField | NewCheckBoxField {
     width: p.width,
     height: p.height,
   };
+  if (p.type === "radio")
+    return { type: "radio", ...at, options: [...(p.options ?? [])] };
   return p.type === "text"
-    ? { type: "text", ...at, ...(p.multiline ? { multiline: true } : {}) }
+    ? {
+        type: "text",
+        ...at,
+        ...(p.multiline ? { multiline: true } : {}),
+        ...(p.maxLength !== undefined ? { maxLength: p.maxLength } : {}),
+      }
     : { type: "checkbox", ...at, checked: false };
 }
 
@@ -311,11 +340,9 @@ export function toAdd(
   pending: readonly Pending[],
   keys: ReadonlySet<string>,
   taken: Iterable<string>,
-  validate: (
-    specs: (NewTextField | NewCheckBoxField)[],
-  ) => { index: number; message?: string }[],
+  validate: (specs: Suggested[]) => { index: number; message?: string }[],
 ): {
-  added: { key: string; spec: NewTextField | NewCheckBoxField }[];
+  added: { key: string; spec: Suggested }[];
   /** Each suggestion refused, with the builder's reason. */
   dropped: { key: string; reason: string }[];
 } {
@@ -359,6 +386,10 @@ export interface DraftLike {
   height: number;
   /** A text card's "Multiple lines" (a multiline suggestion turns it on). */
   multiline?: boolean;
+  /** A text card's "Max length", as typed (a comb's suggestion fills it). */
+  maxLength?: string;
+  /** A choice card's options, one per line (a radio suggestion's choices). */
+  optionsText?: string;
 }
 
 /** The suggestions waiting, and a note from the last Add, if any. */
@@ -448,8 +479,9 @@ export function addKeys<D extends DraftLike>(f: Finder<D>, keys: string[]) {
   const made = added.map(({ spec }) => {
     const { type, name, page, x, y, width, height } = spec;
     const multiline = spec.type === "text" && spec.multiline === true;
+    const card = f.make(`s${++series}`);
     return {
-      ...f.make(`s${++series}`),
+      ...card,
       type,
       name,
       page,
@@ -458,6 +490,12 @@ export function addKeys<D extends DraftLike>(f: Finder<D>, keys: string[]) {
       width,
       height,
       multiline,
+      ...(spec.type === "text" && spec.maxLength !== undefined
+        ? { maxLength: String(spec.maxLength) }
+        : {}),
+      ...(spec.type === "radio"
+        ? { optionsText: spec.options.join("\n") }
+        : {}),
     };
   });
   // The starter card goes only when something takes its place: a refused
@@ -501,11 +539,24 @@ export function dismissKeys<D extends DraftLike>(f: Finder<D>, keys: string[]) {
 /** What a press, Enter or Delete on the preview's suggestion asks for. */
 export type ProposalAct = "select" | "add" | "dismiss";
 
-/** The preview's third state: the suggestions on `page`, with their kind. */
+/**
+ * The preview's third state: the suggestions on `page`, with their kind. A
+ * radio group's dotted box is its whole stack (its box is the top button):
+ * the buttons the builder would stack, at its own gap, from the top one.
+ */
 export function onPage(list: readonly Pending[], page: number) {
   return list
     .filter((p) => p.page === page)
-    .map((p) => ({ ...p, kind: KINDS[p.type] }));
+    .map((p) => {
+      const n = p.type === "radio" ? (p.options?.length ?? 1) : 1;
+      const drop = (n - 1) * (p.height + RADIO_GAP);
+      return {
+        ...p,
+        y: p.y - drop,
+        height: p.height + drop,
+        kind: KINDS[p.type],
+      };
+    });
 }
 
 /** A suggestion acted on from the preview: a press selects, never adds. */

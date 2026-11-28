@@ -53,6 +53,7 @@ import { WATERMARK_BATCH_PAGES_NOTE } from "@/lib/batch/tools";
 import { addPageNumbers, PAGE_NUMBER_MARGINS } from "@/lib/pdf/page-numbers";
 import { getRunnerKind } from "@/lib/pdf/registry";
 import { DEFAULT_IMAGE_SCALE, watermarkPdf } from "@/lib/pdf/watermark";
+import { parsePageList } from "@/lib/pdf/ranges";
 import { readAsViewer } from "@/tests/pdf-viewer-read";
 import { runnerMounted } from "@/tests/runner-mounted";
 import { PageNumbersEditor } from "../page-numbers-runner";
@@ -67,6 +68,19 @@ import {
 } from "./settings-batch-runner";
 import { SplitHalfBatch } from "./split-half-batch";
 import { WatermarkBatch } from "./watermark-batch";
+import { measureTime } from "@/tests/time-bound";
+
+/**
+ * The timeout every wait in this file passes (CI-flake lane 3): its panels'
+ * lazy chunks load cold per file in the native-canvas project, where waits have
+ * outrun the 1 s default on CI (sign-runner's took 1855 ms in run 44931945692).
+ *
+ * CI: the slowest test here took 855 ms (run 43629904891, a failing run; 108 CI
+ * runs, passing and failing, to 11-21). A wait cannot outlast its test, so 3 s
+ * is at least 3.5x any wait in it, and it stays below the test's own timeout,
+ * so a wait that times out fails with its DOM dump.
+ */
+const WAIT_MS = 3_000;
 
 const router = {
   back: () => {},
@@ -168,7 +182,9 @@ describe("Add Page Numbers' batch restarts in each file", () => {
           { timeout: 30_000 },
         ),
       );
-      await waitFor(() => expect(downloads).toHaveLength(1));
+      await waitFor(() => expect(downloads).toHaveLength(1), {
+        timeout: WAIT_MS,
+      });
       const zip = await zipOf();
       // {total} is the last number printed: 5 + pages - 1.
       expect(await textOf(zip.get("three-numbered.pdf")!, 1)).toContain(
@@ -219,7 +235,9 @@ describe("Add Watermark's batch: one page list, never cut down", () => {
         'This PDF has 2 pages — "3-4" is out of range.',
       );
       fireEvent.click(screen.getByRole("button", { name: "Download all (1)" }));
-      await waitFor(() => expect(downloads).toHaveLength(1));
+      await waitFor(() => expect(downloads).toHaveLength(1), {
+        timeout: WAIT_MS,
+      });
       const zip = await zipOf();
       expect([...zip.keys()]).toEqual(["long-watermarked.pdf"]);
       const long = zip.get("long-watermarked.pdf")!;
@@ -250,13 +268,51 @@ describe("Add Watermark's batch: an open-ended page range", () => {
       const field = screen.getByLabelText(/^Pages in every file/);
       const run = screen.getByRole("button", { name: "Watermark 2 PDFs" });
       // On the way to "1-3", the dash alone is a whole range, not an error.
+      // Checked, not expanded. One FORM of the defect is counted: every
+      // Set.add made while the two keystrokes render. The 2026-11-08 defect
+      // expanded the open range into a Set, one add per page; an expansion
+      // that finishes (a large bound short of the Set's maximum) still froze
+      // the tab and threw nothing (review of lane 3, mutant C2:
+      // parsePageList(list, 5_000_000) passed the throw witness). Pinned at
+      // 0, as measured: the check resolves no page while typing (each file
+      // resolves the list only when the batch runs), so a single numeric add
+      // is an expansion. Mutant C2 made 9,999,998.
+      // This count is NOT the property. It names the old mechanism: the
+      // same expansion into an array (30M pushes, 471 ms -> 1.01 s) or a Map
+      // (5M sets, 471 ms -> 2.25 s) keeps it at 0 (witness audit,
+      // 2026-11-22). Only the time sees work that grows with the range, so
+      // the bound below is listed in wall-clock-pending.ts, not witnessed.
+      const setAdds = vi.spyOn(Set.prototype, "add");
       const typedAt = performance.now();
+      const openRangeBlocks: (string | null)[] = [];
       fireEvent.change(field, { target: { value: "1-" } });
-      expect(run).not.toHaveAttribute("aria-disabled");
+      openRangeBlocks.push(run.getAttribute("aria-disabled"));
       fireEvent.change(field, { target: { value: "3-" } });
-      expect(run).not.toHaveAttribute("aria-disabled");
-      // Checked, not expanded: two keystrokes, nowhere near a second.
-      expect(performance.now() - typedAt).toBeLessThan(500);
+      openRangeBlocks.push(run.getAttribute("aria-disabled"));
+      // Page indices are numbers; React and jsdom add objects and strings
+      // (about 1,100 of them here), so only numeric adds are counted.
+      const numericAdds = () =>
+        setAdds.mock.calls.filter(([value]) => typeof value === "number")
+          .length;
+      const typingMs = performance.now() - typedAt;
+      const addsWhileTyping = numericAdds();
+      // Positive control on the same spy: one real expansion of 50 pages is
+      // seen as at least 50 adds, so a count of 0 means "nothing expanded",
+      // not "the spy saw nothing".
+      parsePageList("1-", 50);
+      const controlAdds = numericAdds() - addsWhileTyping;
+      setAdds.mockRestore();
+      expect(controlAdds).toBeGreaterThanOrEqual(50);
+      expect(addsWhileTyping).toBe(0);
+      // The throwing form of the defect: expanding to Number.MAX_SAFE_INTEGER
+      // pages throws "Set maximum size exceeded" (review 2026-11-08), which
+      // blocks Run with that message.
+      expect(openRangeBlocks).toEqual([null, null]);
+      // The time, recorded beside it, no longer asserted: 500 ms was 1.36x
+      // this whole test's CI maximum (367 ms, run 44331878323), and a
+      // Windows-era constant. Measure mode until CI harvests calibrate it;
+      // pending, with no witness (see wall-clock-pending.ts).
+      measureTime("watermark-open-range-checked-not-expanded", typingMs, 500);
       // Control: a token no file could meet still blocks Run, in the
       // parser's own words.
       fireEvent.change(field, { target: { value: "5-3" } });
@@ -270,7 +326,9 @@ describe("Add Watermark's batch: an open-ended page range", () => {
         { timeout: 30_000 },
       );
       fireEvent.click(screen.getByRole("button", { name: "Download all (2)" }));
-      await waitFor(() => expect(downloads).toHaveLength(1));
+      await waitFor(() => expect(downloads).toHaveLength(1), {
+        timeout: WAIT_MS,
+      });
       const zip = await zipOf();
       const stamped = async (name: string, pages: number) => {
         const out: number[] = [];
@@ -313,7 +371,9 @@ describe("Add Page Numbers' batch: a file its settings number no page of", () =>
       const coverRow = screen.getByText("cover.pdf").closest("li")!;
       expect(coverRow).toHaveTextContent(`Skipped · ${PAGE_NUMBER_BATCH_NONE}`);
       fireEvent.click(screen.getByRole("button", { name: "Download all (1)" }));
-      await waitFor(() => expect(downloads).toHaveLength(1));
+      await waitFor(() => expect(downloads).toHaveLength(1), {
+        timeout: WAIT_MS,
+      });
       const zip = await zipOf();
       expect([...zip.keys()]).toEqual(["three-numbered.pdf"]);
       const three = zip.get("three-numbered.pdf")!;
@@ -366,7 +426,9 @@ describe("Split PDF Pages in Half's batch: Page order reaches every file", () =>
           { timeout: 30_000 },
         ),
       );
-      await waitFor(() => expect(downloads).toHaveLength(1));
+      await waitFor(() => expect(downloads).toHaveLength(1), {
+        timeout: WAIT_MS,
+      });
       const zip = await zipOf();
       expect(zip.size).toBe(2);
       for (const [name, bytes] of zip) {
@@ -716,7 +778,9 @@ describe("option drift: the batch starts where the single-file editor does", () 
           { timeout: 20_000 },
         ),
       );
-      await waitFor(() => expect(downloads).toHaveLength(1));
+      await waitFor(() => expect(downloads).toHaveLength(1), {
+        timeout: WAIT_MS,
+      });
       const single = new Uint8Array(await downloads[0]!.blob.arrayBuffer());
       one.unmount();
 
@@ -735,7 +799,9 @@ describe("option drift: the batch starts where the single-file editor does", () 
           { timeout: 30_000 },
         ),
       );
-      await waitFor(() => expect(downloads).toHaveLength(2));
+      await waitFor(() => expect(downloads).toHaveLength(2), {
+        timeout: WAIT_MS,
+      });
       const batch = (await zipOf()).get("a-watermarked.pdf")!;
 
       const drawn = await drawingOf(single);
@@ -843,7 +909,9 @@ describe("a Remove that leaves one file, through the page's runner", () => {
       const editor = container.querySelector(
         '[data-single-pdf-runner="loaded"]',
       );
-      await waitFor(() => expect(document.activeElement).toBe(editor));
+      await waitFor(() => expect(document.activeElement).toBe(editor), {
+        timeout: WAIT_MS,
+      });
     },
   );
 });

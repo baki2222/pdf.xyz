@@ -1484,8 +1484,59 @@ describe("Compare PDF's redline is a chunk of its own", () => {
  * this measurement plus 5%, as before: 26.1. The raise (24.3 to 26.1) is
  * the owner's to approve, in the PR; the page's first load is unchanged
  * (first-load and bundle-budget tests green on the same build).
+ *
+ * Slice S5 (2026-11-22, zlib -9, Windows, from an empty .next): 26,925 B
+ * gz (26.29 KB), 74,856 B raw, +1,449 B over S4's review round 1 for
+ * tables: one grid finder for the label table, the headed table and the
+ * row of captioned boxes, the header and row reading, the large-table
+ * cap, a box drawn twice read once, and the plumb-line bands that keep a
+ * page of tables linear. That is over 26.1, so the bound is this
+ * measurement plus 5%: 27.6. The raise (26.1 to 27.6) is the owner's to
+ * approve, in the PR; the page's first load is unchanged (first-load and
+ * bundle-budget tests green on the same build).
+ *
+ * That figure went stale inside the same PR: review round 1 (cells that
+ * hold a mark, filled rows, headerless data, lines drawn twice, heavy
+ * rules) grew the chunk after it was taken, and the bound still passed,
+ * so nothing said so. Re-measured on the build of the branch merged with
+ * main (2026-11-22, zlib -9, Windows, from an empty .next): 27,516 B gz
+ * (26.87 KB), 76,532 B raw, +2,040 B over main's 25,476. The bound is
+ * this measurement plus 5%: 28.2 (26.1 to 28.2 in all, the owner's to
+ * approve in the PR). Every page's first load moved by 1 B gz on that
+ * build, and only in the webpack runtime's map of chunk hashes: this
+ * chunk's and the preview's hashes changed, at the same length.
+ *
+ * Slice S6 (2026-11-22, zlib -9, Windows, from an empty .next, built on
+ * S5's reviewed head 7913d83c): 28,975 B gz (28.30 KB), 81,107 B raw,
+ * +1,459 B over S5's 27,516 for combs and radio clusters: comb rows (runs
+ * joined across a date's gaps, graph paper refused, a row label or a
+ * caption over it), radio stacks (a column at the builder's gap, right
+ * labels, a caption, buttons sized to the printed pitch), and Add making
+ * a card with its Max length or its choices. That is over 28.2, so the
+ * bound is this measurement plus 5%: 29.7 (28.2 to 29.7, the owner's to
+ * approve in the PR). The page's first load is unchanged (first-load,
+ * first-load-duplicates and bundle-budget tests green on the same build).
+ *
+ * S6's review round 1 (2026-11-22, zlib -9, Windows, same tree's .next
+ * rebuilt, merged with main 56414931): 29,935 B gz (29.23 KB), 83,858 B
+ * raw, +960 B over 28,975 for the multi-answer and own-statement words,
+ * the columns and drift checks, a scale's heads and a comb label's reach
+ * and barrier. Inside 29.7, so the bound stands; stylesheet unchanged at
+ * 15,328 B gz.
+ *
+ * S6's verify round (2026-11-22, zlib -9, Windows, merged with main
+ * e8421596): 30,358 B gz (29.65 KB), 85,019 B raw, +423 B over 29,935
+ * for reading a stack's instructions as lines (joined items, the passage
+ * over it, the note under it, a wrapped caption). Stylesheet unchanged at
+ * 15,328 B gz.
+ *
+ * CORRECTED before landing (2026-11-28). 30,358 B is "inside 29.7" by about
+ * 50 B, so the bound no longer followed the rule every raise above uses
+ * (the latest measurement plus 5%), and the next change of any size would
+ * trip it for no reason. The bound is 30,358 B + 5% = 31.1. The chunk still
+ * loads only when someone presses Find fields; first load is unchanged.
  */
-const FIND_FIELDS_FETCH_GZ_KB = 26.1;
+const FIND_FIELDS_FETCH_GZ_KB = 31.1;
 /*
  * HISTORY (review rounds 7 and 8, 2026-11-19). Round 7 added a bound here
  * for the press on a page whose preview chunk never arrived: every chunk
