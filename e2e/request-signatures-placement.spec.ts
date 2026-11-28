@@ -72,11 +72,15 @@ test("drag, resize, nudge, add on pages 1 and 3, delete: the request carries exa
   await page.getByRole("button", { name: "Initials", exact: true }).click();
   await page.getByRole("button", { name: "Date", exact: true }).click();
   await expect(sheet.locator("[data-field-box]")).toHaveCount(4);
-  // Delete the starting date box with the keyboard.
-  const startDate = sheet
+  // Delete a Date box with the keyboard. `.first()` in reading order is
+  // the Date just added (centred, id 4), not the starting one (id 2), so
+  // the page-1 boxes added below take ids 4, 5 and 6. axe names boxes by
+  // id: main's target-size failure on 8f379e1a named box 4, the page-1
+  // Name box, not a page-3 one.
+  const newDate = sheet
     .getByRole("button", { name: /Date box, page 3/ })
     .first();
-  await startDate.focus();
+  await newDate.focus();
   await page.keyboard.press("Delete");
   await expect(sheet.locator("[data-field-box]")).toHaveCount(3);
   await expect(page.getByText(/^Removed Signer 1 Date box$/)).toBeVisible();

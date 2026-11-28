@@ -1,6 +1,4 @@
 import { createHash } from "node:crypto";
-import { createRequire } from "node:module";
-import { join } from "node:path";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { fileInput, waitForHydration } from "./helpers";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
@@ -17,6 +15,7 @@ import {
   continueTargetsFor,
 } from "../src/lib/intent/next-steps";
 import { getToolBySlug, tools } from "../src/lib/tools";
+import { injectAxe } from "./axe-inject";
 
 /**
  * The PDF Viewer at the point of consumption: the served build, a real
@@ -503,8 +502,7 @@ test.describe("PDF Viewer", () => {
     await expect(page.locator("[data-viewer-search-status]")).toContainText(
       "1 match",
     );
-    const fromRoot = createRequire(join(process.cwd(), "package.json"));
-    await page.addScriptTag({ path: fromRoot.resolve("axe-core/axe.min.js") });
+    await injectAxe(page);
     const found = await page.evaluate(async () => {
       const axe = (
         window as unknown as {

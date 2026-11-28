@@ -1,9 +1,8 @@
-import { createRequire } from "node:module";
-import { join } from "node:path";
 import { expect, type Locator, type Page } from "@playwright/test";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
 import { textPdf } from "./ai-results-fixture";
 import { fileInput, waitForHydration } from "./helpers";
+import { injectAxe } from "./axe-inject";
 
 /**
  * PDF to Markdown's preview on the served build (sweep finding F2,
@@ -12,9 +11,6 @@ import { fileInput, waitForHydration } from "./helpers";
  * and scroll it with the arrow keys. The desktop pass is
  * pdf-to-markdown-preview.spec.ts, the phone pass its .mobile twin.
  */
-
-const fromRoot = createRequire(join(process.cwd(), "package.json"));
-const AXE = fromRoot.resolve("axe-core/axe.min.js");
 
 export async function denyConsent(page: Page) {
   await page.addInitScript((key) => {
@@ -99,7 +95,7 @@ export async function expectTabThenScroll(page: Page, preview: Locator) {
 export async function scrollableRegionViolations(
   page: Page,
 ): Promise<string[]> {
-  await page.addScriptTag({ path: AXE });
+  await injectAxe(page);
   return page.evaluate(async () => {
     const axe = (
       window as unknown as {

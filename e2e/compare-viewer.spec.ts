@@ -1,10 +1,9 @@
-import { createRequire } from "node:module";
-import { join } from "node:path";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { fileInput, waitForHydration } from "./helpers";
 import { PAGE_IMAGES_NOTE } from "../src/lib/pdf/pdfjs-guard";
 import { rawPdf } from "../src/tests/hostile/conversion-out.fixtures";
+import { injectAxe } from "./axe-inject";
 
 /**
  * Compare PDF's page view in a real browser, on a served build (audit
@@ -116,8 +115,38 @@ async function axeViolations(page: Page): Promise<string[]> {
   await page.waitForFunction(() =>
     document.getAnimations().every((a) => a.playState !== "running"),
   );
-  const fromRoot = createRequire(join(process.cwd(), "package.json"));
-  await page.addScriptTag({ path: fromRoot.resolve("axe-core/axe.min.js") });
+  // Judge the panel's layout, scrolled so the panel starts just below the
+  // sticky site header.
+  //
+  // Why scroll: Playwright's click on "Show changes on the pages" first
+  // scrolls the button into view (its actionability scroll). Once the page
+  // settles, the phone layout's unpinned bar has its top row under the
+  // header, and axe's target-size reads Previous/Next change as covered
+  // (44 x 18 px of a 44 px button showing). A tap or Enter does not move
+  // the window (review probe on #404: scrollY stayed put and the row stayed
+  // in view), so that resting place comes from the harness, not the
+  // product. This comment once said the app scrolled there "by design"; it
+  // does not.
+  //
+  // Not covered here: whether a pinned bar slides under the header. At
+  // this scroll the bar is not stuck, so that is compare-pdf.mobile.spec.ts's
+  // "the changes bar is not pinned under the site header". Where focus goes
+  // after the pages open is not covered by either.
+  //
+  // Until e2e/axe-inject.ts waited for a still page, axe ran mid-scroll
+  // here and passed on rects that were still moving.
+  await page.evaluate(() => {
+    const panel = document.querySelector("[data-tool-panel]")!;
+    const header = document.querySelector("header")!;
+    window.scrollTo({
+      top:
+        panel.getBoundingClientRect().top +
+        window.scrollY -
+        header.getBoundingClientRect().height,
+      behavior: "instant",
+    });
+  });
+  await injectAxe(page);
   return page.evaluate(async () => {
     const axe = (
       window as unknown as {

@@ -1,11 +1,10 @@
-import { createRequire } from "node:module";
-import { join } from "node:path";
 import { test, expect, type Page, type Route } from "@playwright/test";
 import { fileInput, makePdfBytes, waitForHydration } from "./helpers";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
 import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
 import { buildTablesZip } from "../src/lib/workers/table-extract/engine";
 import { TABLE_PREVIEW_ROWS } from "../src/lib/jobs/table-preview-limits";
+import { injectAxe } from "./axe-inject";
 
 /**
  * Extract Tables' result preview (competitor audit #22, 2026-11-17) through
@@ -47,9 +46,6 @@ const TABLES = [
     ],
   },
 ];
-
-const fromRoot = createRequire(join(process.cwd(), "package.json"));
-const AXE = fromRoot.resolve("axe-core/axe.min.js");
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 test.beforeEach(async ({ page }) => {
@@ -167,7 +163,7 @@ async function runOnce(page: Page) {
 
 /** axe over `selector`, or over its result card (`[role="group"]`) with `card`. */
 async function axeViolations(page: Page, selector: string, card = false) {
-  await page.addScriptTag({ path: AXE });
+  await injectAxe(page);
   return page.evaluate(
     async ({ tags, selector, card }) => {
       const axe = (

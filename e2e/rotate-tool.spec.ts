@@ -1,7 +1,6 @@
-import { createRequire } from "node:module";
-import { join } from "node:path";
 import { test, expect } from "@playwright/test";
 import { attachConsoleGuard, writeTempPdf, uploadFiles } from "./helpers";
+import { injectAxe } from "./axe-inject";
 
 /**
  * End-to-end proof that the single-file rotate runner works entirely in the
@@ -88,11 +87,7 @@ test("a page's rotate buttons work from the keyboard and leave its selection alo
   expect(nesting.nested).toBe(0);
   // The rule the production sweep failed, run by axe itself on the loaded
   // page (e2e/axe.spec.ts holds its positive control for this rule).
-  await page.addScriptTag({
-    path: createRequire(join(process.cwd(), "package.json")).resolve(
-      "axe-core/axe.min.js",
-    ),
-  });
+  await injectAxe(page);
   const axeNested = await page.evaluate(async () => {
     const axe = (
       window as unknown as {

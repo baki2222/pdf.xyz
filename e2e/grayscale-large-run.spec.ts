@@ -1,5 +1,4 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
@@ -7,6 +6,7 @@ import { PDFDocument, StandardFonts } from "pdf-lib";
 import { encodeGrayJpeg } from "../src/lib/pdf/gray-jpeg";
 import { drawRasterImage, embedRasterImage } from "../src/lib/pdf/pdf-lib";
 import { uploadFiles } from "./helpers";
+import { injectAxe } from "./axe-inject";
 
 /**
  * Grayscale PDF on a long text document (perf sweep 2026-11-18, P3 and P4).
@@ -383,9 +383,6 @@ test("Cancel stops a grayscale run: no more pages are drawn, no result, no error
   await expect(page.locator("main [role=alert]")).toHaveCount(0);
 });
 
-const fromRoot = createRequire(join(process.cwd(), "package.json"));
-const AXE = fromRoot.resolve("axe-core/axe.min.js");
-
 /**
  * `e2e/axe.spec.ts` checks landing pages at rest. The busy state, where the
  * Cancel button and the progress bar appear, is only seen here (review: axe
@@ -406,7 +403,7 @@ test("axe WCAG 2.x A/AA finds nothing on Grayscale PDF while it is converting", 
   await expect(
     page.getByRole("button", { name: "Cancel", exact: true }),
   ).toBeVisible();
-  await page.addScriptTag({ path: AXE });
+  await injectAxe(page);
   const found = await page.evaluate(async () => {
     const axe = (
       window as unknown as {

@@ -1,11 +1,10 @@
-import { createRequire } from "node:module";
-import { join } from "node:path";
 import { expect, type Page, type Request, type Route } from "@playwright/test";
 import JSZip from "jszip";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { fileInput, waitForHydration } from "./helpers";
 import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
 import type { Rgb } from "../src/lib/png-probe";
+import { injectAxe } from "./axe-inject";
 
 /**
  * The served chat page with its worker mocked at the wire (`page.route`),
@@ -177,12 +176,9 @@ export async function citationBoxes(page: Page) {
     );
 }
 
-const fromRoot = createRequire(join(process.cwd(), "package.json"));
-const AXE = fromRoot.resolve("axe-core/axe.min.js");
-
 /** axe-core's WCAG 2.x A/AA rules on the page as it stands, as axe.spec.ts runs them. */
 export async function axeViolations(page: Page): Promise<string[]> {
-  await page.addScriptTag({ path: AXE });
+  await injectAxe(page);
   return page.evaluate(async () => {
     const axe = (
       window as unknown as {

@@ -22,6 +22,7 @@ import {
   pdfPageTexts,
   zipEntries,
 } from "./client-proof/artifacts";
+import { injectAxe } from "./axe-inject";
 
 /**
  * End-to-end proof that a "client" tool really runs in the browser: we generate
@@ -653,11 +654,6 @@ test.describe("merge page mode on a 375 x 812 touch screen", () => {
 });
 
 test("merge page mode passes axe with files mixed", async ({ page }) => {
-  const { createRequire } = await import("node:module");
-  const { join } = await import("node:path");
-  const axePath = createRequire(join(process.cwd(), "package.json")).resolve(
-    "axe-core/axe.min.js",
-  );
   await page.goto("/tools/merge-pdf");
   await stage(page, [
     pdfPayload("alpha.pdf", await makeTextPdf("alpha.pdf", { pages: 2 })),
@@ -670,7 +666,7 @@ test("merge page mode passes axe with files mixed", async ({ page }) => {
     .getByRole("button", { name: "Move page 1 of beta.pdf earlier" })
     .click();
   await expect(page.getByText(/^Your files' pages are mixed/)).toBeVisible();
-  await page.addScriptTag({ path: axePath });
+  await injectAxe(page);
   const found = await page.evaluate(async () => {
     const axe = (
       window as unknown as {
