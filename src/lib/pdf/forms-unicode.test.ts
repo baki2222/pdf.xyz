@@ -36,6 +36,13 @@ const VALUES = {
   latin: "Ada Lovelace",
 } as const;
 type Key = keyof typeof VALUES;
+/**
+ * The Latin answers are drawn with the form's NON-embedded Helvetica. With
+ * no standard font data pdf.js paints it in whatever the host offers: a
+ * fallback outline on Windows, nothing at all on Linux CI (ink 0, 2026-11-28).
+ * With the data it draws the real glyphs on both, so the ink is the answer's.
+ */
+const RENDER = { standardFonts: true } as const;
 const KEYS = Object.keys(VALUES) as Key[];
 
 const PAGE = { width: 400, height: 600 };
@@ -135,7 +142,7 @@ describe("non-Latin values in form fields (audit fill-forms#6)", () => {
       ).toBe(true);
     }
 
-    const [page] = await renderPdfPages(result.bytes, 800);
+    const [page] = await renderPdfPages(result.bytes, 800, RENDER);
     for (const [i, key] of KEYS.entries()) {
       expect(inkIn(page!, rectOf(i)), key).toBeGreaterThan(40);
     }
@@ -171,7 +178,7 @@ describe("non-Latin values in form fields (audit fill-forms#6)", () => {
       { flatten: true },
     );
     expect(result.flattened).toBe(true);
-    const [page] = await renderPdfPages(result.bytes, 800);
+    const [page] = await renderPdfPages(result.bytes, 800, RENDER);
     expect(inkIn(page!, rectOf(KEYS.indexOf("cyrillic")))).toBeGreaterThan(40);
     expect(inkIn(page!, rectOf(KEYS.indexOf("bengali")))).toBeGreaterThan(40);
   });
@@ -319,8 +326,8 @@ describe("a form flagged /NeedAppearances (review finding 2)", () => {
     expect(
       doc.getForm().acroForm.dict.get(PDFName.of("NeedAppearances")),
     ).not.toBe(PDFBool.True);
-    const [a] = await renderPdfPages(flagged.bytes, 800);
-    const [b] = await renderPdfPages(plain.bytes, 800);
+    const [a] = await renderPdfPages(flagged.bytes, 800, RENDER);
+    const [b] = await renderPdfPages(plain.bytes, 800, RENDER);
     // Health: the answer is drawn at all.
     expect(inkIn(b!, rectOf(0))).toBeGreaterThan(40);
     expect(pixelsDiffering(a!, b!, rectOf(0))).toBe(0);
@@ -347,7 +354,7 @@ describe("a form flagged /NeedAppearances (review finding 2)", () => {
     const flat = await flattenPdf(filled.bytes);
     expect(flat.flattenedFields).toBe(2);
     expect(flat.skipped).toEqual([]);
-    const [page] = await renderPdfPages(flat.bytes, 800);
+    const [page] = await renderPdfPages(flat.bytes, 800, RENDER);
     expect(inkIn(page!, rectOf(0))).toBeGreaterThan(40);
     expect(inkIn(page!, rectOf(1))).toBeGreaterThan(40);
   });

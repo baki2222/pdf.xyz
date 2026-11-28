@@ -344,8 +344,22 @@ describe("kinds that carry data are kept, not drawn (review finding 1)", () => {
     // Nothing was drawn into the page content where the mark sits.
     const flat = await PDFDocument.load(out.bytes);
     flat.getPage(0).node.delete(PDFName.of("Annots"));
-    const [bare] = await renderPdfPages(await flat.save(), 500);
-    expect(darkness(bare!, [150, 396, 199, 417])).toBeLessThan(10);
+    // Real Helvetica (standard font data) ends the text near x=162; the
+    // probe is the part of the mark's box past it. CHANGED 2026-11-28: the
+    // probe began at x=150 and rendered with no font data, so Linux CI's
+    // wider fallback face ran into it (17.9 against < 10) while Windows'
+    // narrower one did not. A baked box still fills the probe either way.
+    const probe: [number, number, number, number] = [170, 396, 199, 417];
+    const [bare] = await renderPdfPages(await flat.save(), 500, {
+      standardFonts: true,
+    });
+    expect(darkness(bare!, probe)).toBeLessThan(10);
+    // Positive control: where the mark's look IS painted (the output, with
+    // its live mark), the same probe reads dark, so the probe can see a box.
+    const [shown] = await renderPdfPages(out.bytes, 500, {
+      standardFonts: true,
+    });
+    expect(darkness(shown!, probe)).toBeGreaterThan(100);
   });
 
   it("every kept kind stays live and listed, while a Square beside it is drawn (the control)", async () => {
