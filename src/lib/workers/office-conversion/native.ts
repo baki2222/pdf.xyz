@@ -12,6 +12,7 @@ import {
   signalOption,
   throwIfAttemptAborted,
 } from "../attempt-abort";
+import type { OfficeRunControl } from "./engine";
 import {
   resolveNativeOfficeConversionConfig,
   type NativeOfficeConversionConfig,
@@ -60,6 +61,8 @@ export interface LibreOfficeSeams {
    * the way LibreOffice imports it with no options and compare the output.
    */
   importFilter?: typeof csvImportFilter;
+  /** The clock a shared time limit is measured on; `Date.now` unless replaced. */
+  now?: () => number;
 }
 
 /** The real subprocess runner; exported so an abort test drives THIS function. */
@@ -167,6 +170,24 @@ export const CALC_SINGLE_PAGE_SHEETS_TARGET = `pdf:calc_pdf_Export:${JSON.string
   { SinglePageSheets: { type: "boolean", value: "true" } },
 )}`;
 
+/**
+ * What follows `--convert-to` to save a spreadsheet as .xlsx (Excel
+ * 2007-365), the format `./xlsx-page-setup` rewrites (audit wave 2
+ * excel-to-pdf#1). LibreOffice's own filter name; no shell sees it.
+ */
+export const XLSX_CONVERT_TARGET = "xlsx:Calc MS Excel 2007 XML";
+
+/** A ZIP's local-file signature, as every .xlsx starts. */
+function looksLikeZip(bytes: Uint8Array): boolean {
+  return (
+    bytes.length >= 4 &&
+    bytes[0] === 0x50 &&
+    bytes[1] === 0x4b &&
+    bytes[2] === 0x03 &&
+    bytes[3] === 0x04
+  );
+}
+
 /** What follows `--convert-to`: plain `pdf` unless a layout asks for more. */
 export function pdfConvertTarget(layout?: SheetLayout): string {
   return layout?.onePagePerSheet ? CALC_SINGLE_PAGE_SHEETS_TARGET : "pdf";
@@ -242,70 +263,109 @@ export function createNativeLibreOfficePdfRunner(
   const exec = seams.exec ?? defaultLibreOfficeExec;
   const fs = seams.fs ?? defaultFs;
   const importFilter = seams.importFilter ?? csvImportFilter;
+  const now = seams.now ?? Date.now;
   const baseTmp = config.tmpDir ?? tmpdir();
   const binary =
     probeLibreOfficeFromConfig(config, seams) ??
     config.candidates[0] ??
     "soffice";
-  return {
-    async convertToPdf(input, filename, run = {}, layout, csv) {
-      if (input.byteLength > config.maxInputBytes)
-        throw new Error("Input exceeds size limit.");
+  /**
+   * One soffice start: `input` written under the user's own stem, converted
+   * to `target`, the `ext` file read back and judged by `looksRight`.
+   */
+  async function convert(
+    input: Uint8Array,
+    filename: string,
+    run: OfficeRunControl,
+    infilter: string | null,
+    target: string,
+    ext: "pdf" | "xlsx",
+    looksRight: (bytes: Uint8Array) => boolean,
+  ): Promise<Uint8Array> {
+    if (input.byteLength > config.maxInputBytes)
+      throw new Error("Input exceeds size limit.");
+    throwIfAttemptAborted(run.signal);
+    // A limit shared with the job's earlier start leaves only what that
+    // start did not spend (`OfficeRunControl`); nothing left is a timeout.
+    const shared = run.timeLimit;
+    if (shared) shared.startedAt ??= now();
+    const timeout = shared
+      ? config.timeoutMs - (now() - shared.startedAt!)
+      : config.timeoutMs;
+    if (timeout <= 0) throw new LibreOfficeRunError("timeout");
+    const dir = await fs.mkdtemp(path.join(baseTmp, "pdfxyz-office-"));
+    // The user's own stem (`./input-name`): LibreOffice names a CSV's
+    // sheet, and so its printed header, after the file it opens.
+    const inputName = officeInputName(filename);
+    const inputPath = path.join(dir, inputName);
+    const outputPath = path.join(dir, officeOutputName(inputName, ext));
+    try {
+      await fs.writeFile(inputPath, input);
       throwIfAttemptAborted(run.signal);
-      const dir = await fs.mkdtemp(path.join(baseTmp, "pdfxyz-office-"));
-      // The user's own stem (`./input-name`): LibreOffice names a CSV's
-      // sheet, and so its printed header, after the file it opens.
-      const inputName = officeInputName(filename);
-      const inputPath = path.join(dir, inputName);
-      const outputPath = path.join(dir, officeOutputName(inputName));
+      const result = await exec(
+        binary,
+        libreOfficeConvertArgs(inputPath, dir, infilter, target),
+        {
+          timeout,
+          maxBuffer: EXEC_MAX_BUFFER,
+          windowsHide: true,
+          env: libreOfficeEnv(process.env),
+          ...signalOption(run.signal),
+        },
+      );
+      // Typed by what a retry could change (see `./errors`). A timeout and
+      // an exit LibreOffice chose are answers about the DOCUMENT; a kill
+      // nobody asked for (code -1, not `timedOut` — an OOM, say) is not, so
+      // it stays a plain, retryable error.
+      if (result.timedOut) throw new LibreOfficeRunError("timeout");
+      if (result.code > 0) throw new LibreOfficeRunError("exit");
+      if (result.code !== 0)
+        throw new Error("LibreOffice was stopped before it finished.");
+      let output: Uint8Array;
       try {
-        await fs.writeFile(inputPath, input);
-        throwIfAttemptAborted(run.signal);
-        const result = await exec(
-          binary,
-          libreOfficeConvertArgs(
-            inputPath,
-            dir,
-            importFilter(input, inputName, csv),
-            pdfConvertTarget(layout),
-          ),
-          {
-            timeout: config.timeoutMs,
-            maxBuffer: EXEC_MAX_BUFFER,
-            windowsHide: true,
-            env: libreOfficeEnv(process.env),
-            ...signalOption(run.signal),
-          },
-        );
-        // Typed by what a retry could change (see `./errors`). A timeout and
-        // an exit LibreOffice chose are answers about the DOCUMENT; a kill
-        // nobody asked for (code -1, not `timedOut` — an OOM, say) is not, so
-        // it stays a plain, retryable error.
-        if (result.timedOut) throw new LibreOfficeRunError("timeout");
-        if (result.code > 0) throw new LibreOfficeRunError("exit");
-        if (result.code !== 0)
-          throw new Error("LibreOffice was stopped before it finished.");
-        let output: Uint8Array;
-        try {
-          output = await fs.readFile(outputPath);
-        } catch (error) {
-          // soffice exits 0 and writes nothing for a file it cannot load (an
-          // encrypted or corrupt document). Any other read error is IO.
-          if ((error as { code?: unknown } | null)?.code === "ENOENT")
-            throw new LibreOfficeRunError("no_output");
-          throw error;
-        }
-        const bytes =
-          output instanceof Uint8Array ? output : new Uint8Array(output);
-        if (bytes.byteLength > config.maxOutputBytes)
-          throw new LibreOfficeRunError("too_large");
-        if (bytes.byteLength === 0 || !looksLikePdf(bytes))
-          throw new LibreOfficeRunError("bad_output");
-        return bytes;
-      } finally {
-        await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+        output = await fs.readFile(outputPath);
+      } catch (error) {
+        // soffice exits 0 and writes nothing for a file it cannot load (an
+        // encrypted or corrupt document). Any other read error is IO.
+        if ((error as { code?: unknown } | null)?.code === "ENOENT")
+          throw new LibreOfficeRunError("no_output");
+        throw error;
       }
-    },
+      const bytes =
+        output instanceof Uint8Array ? output : new Uint8Array(output);
+      if (bytes.byteLength > config.maxOutputBytes)
+        throw new LibreOfficeRunError("too_large");
+      if (bytes.byteLength === 0 || !looksRight(bytes))
+        throw new LibreOfficeRunError("bad_output");
+      return bytes;
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+  return {
+    convertToPdf: async (input, filename, run = {}, layout, csv) =>
+      convert(
+        input,
+        filename,
+        run,
+        importFilter(input, officeInputName(filename), csv),
+        pdfConvertTarget(layout),
+        "pdf",
+        looksLikePdf,
+      ),
+    // Audit wave 2 excel-to-pdf#1: a .csv, .xls or .ods saved as .xlsx so
+    // its page setup can be written (`./xlsx-page-setup`). A .csv's import
+    // filter applies here, where the CSV is read.
+    convertToXlsx: async (input, filename, run = {}, csv) =>
+      convert(
+        input,
+        filename,
+        run,
+        importFilter(input, officeInputName(filename), csv),
+        XLSX_CONVERT_TARGET,
+        "xlsx",
+        looksLikeZip,
+      ),
   };
 }
 

@@ -143,3 +143,24 @@ describe("Excel to PDF's orientation and fit-to-width (review 2026-11-08)", () =
       expect(parseSheetLayout({ [ORIENTATION_OPTION]: raw }).ok).toBe(false);
   });
 });
+
+describe("page setup reaches every Excel to PDF input (excel-to-pdf#1)", () => {
+  it("PAGE_SETUP_EXTENSIONS and PAGE_SETUP_VIA_XLSX_EXTENSIONS are, together, exactly the tool's inputs", async () => {
+    const { OFFICE_INPUT_EXTENSIONS } = await import("./engine");
+    const { PAGE_SETUP_EXTENSIONS, PAGE_SETUP_VIA_XLSX_EXTENSIONS } =
+      await import("./sheet-layout");
+    expect(
+      [...PAGE_SETUP_EXTENSIONS, ...PAGE_SETUP_VIA_XLSX_EXTENSIONS].sort(),
+    ).toEqual([...OFFICE_INPUT_EXTENSIONS["excel-to-pdf"]].sort());
+  });
+
+  it("acceptsPageSetup: .xlsx always; .csv, .xls and .ods only via .xlsx", async () => {
+    const { acceptsPageSetup } = await import("./sheet-layout");
+    expect(acceptsPageSetup("a.xlsx")).toBe(true);
+    for (const name of ["a.csv", "a.XLS", "a.ods"]) {
+      expect(acceptsPageSetup(name)).toBe(false);
+      expect(acceptsPageSetup(name, true)).toBe(true);
+    }
+    expect(acceptsPageSetup("a.docx", true)).toBe(false);
+  });
+});

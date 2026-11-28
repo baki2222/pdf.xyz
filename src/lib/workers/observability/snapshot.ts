@@ -447,6 +447,39 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "Request Signatures writes each box's label into prepared.pdf as the box's tooltip, instead of only into manifest.json",
     proves: provenByFlag,
   },
+  htmlAdBlock: {
+    label: "Webpage to PDF's Hide common ads",
+    promise:
+      // Audit wave 2 webpage-to-pdf#1. The panel offers the box only while
+      // this reads true on a fresh heartbeat; an older image ignores it.
+      "Webpage to PDF refuses requests to the listed ad hosts and hides the ad slots they use when Hide common ads is ticked, instead of ignoring the box",
+    proves: provenByFlag,
+  },
+  pdfaUnicodeDocInfo: {
+    label: "PDF to PDF/A's titles with brackets or accents",
+    promise:
+      // Audit wave 2 pdf-to-pdfa#3. The panel's notes state the wider rule
+      // only while this reads true on a fresh heartbeat.
+      "PDF to PDF/A carries a title, author, subject or keywords with round brackets, a backslash or accented letters into the copy's document properties and XMP, instead of leaving them out",
+    proves: provenByFlag,
+  },
+  docxTextTables: {
+    label: "PDF to Word's tables without figures",
+    promise:
+      // Audit wave 2 pdf-to-word#2. The catalogue says a table of four or
+      // more rows of short entries comes through as a Word table; an image
+      // that reads false here writes it as tabbed rows.
+      "PDF to Word writes a table of at least four rows and three columns of short entries, with no column of figures, as a Word table, instead of tabbed rows",
+    proves: provenByFlag,
+  },
+  sheetPageSetupAnyFormat: {
+    label: "Excel to PDF's page setup for .csv, .xls and .ods",
+    promise:
+      // Audit wave 2 excel-to-pdf#1. The panel offers Orientation and fit
+      // for those files only while this reads true on a fresh heartbeat.
+      "Excel to PDF applies Orientation and Fit all columns on the page width to a .csv, .xls or .ods, instead of refusing them",
+    proves: provenByFlag,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */

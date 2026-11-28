@@ -184,6 +184,10 @@ function capabilitiesOf(value: unknown): HeartbeatCapabilities {
     csvImportOptions: boolOf(src.csvImportOptions),
     ocrOwnerPassword: boolOf(src.ocrOwnerPassword),
     requestSignatureLabels: boolOf(src.requestSignatureLabels),
+    pdfaUnicodeDocInfo: boolOf(src.pdfaUnicodeDocInfo),
+    docxTextTables: boolOf(src.docxTextTables),
+    sheetPageSetupAnyFormat: boolOf(src.sheetPageSetupAnyFormat),
+    htmlAdBlock: boolOf(src.htmlAdBlock),
   };
 }
 
@@ -253,6 +257,10 @@ export function serializeHeartbeat(hb: WorkerHeartbeat): string {
       csvImportOptions: hb.capabilities.csvImportOptions,
       ocrOwnerPassword: hb.capabilities.ocrOwnerPassword,
       requestSignatureLabels: hb.capabilities.requestSignatureLabels,
+      pdfaUnicodeDocInfo: hb.capabilities.pdfaUnicodeDocInfo,
+      docxTextTables: hb.capabilities.docxTextTables,
+      sheetPageSetupAnyFormat: hb.capabilities.sheetPageSetupAnyFormat,
+      htmlAdBlock: hb.capabilities.htmlAdBlock,
     },
     at: hb.at,
   });

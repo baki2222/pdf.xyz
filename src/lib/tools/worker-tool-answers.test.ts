@@ -139,6 +139,7 @@ import type { Guide } from "@/lib/guides/types";
 import {
   OFFICE_TO_PDF_SLUGS,
   PDF_TO_WORD_KEEPS,
+  PDF_TO_WORD_TEXT_TABLE,
   PRIVATE_ADDRESS_EXAMPLES,
   REPAIR_TAKES,
   TRANSLATE_LANGUAGES_ANSWER,
@@ -366,9 +367,32 @@ describe("PDF to Word: the DOCX is the page's sentence", () => {
     // CHANGED again 2026-11-15 (review round 2): "each value in its own
     // column" was false under a spanning heading, whose values share a
     // cell; and a Word table needs a column of figures, as this one has.
+    // CHANGED 2026-11-28 (audit wave 2 pdf-to-word#2): the clause read
+    // "a table whose cells each fit on one line, with a column of figures
+    // such as amounts or dates, comes through as a Word table, each value
+    // in the column it sits under". A table of short entries with no
+    // figures is a Word table too, held below on a real export.
     expect(PDF_TO_WORD_KEEPS).toContain(
-      "a table whose cells each fit on one line, with a column of figures such as amounts or dates, comes through as a Word table, each value in the column it sits under",
+      `a table whose cells each fit on one line comes through as a Word table, each value in the column it sits under, when it has a column of figures such as amounts or dates, or ${PDF_TO_WORD_TEXT_TABLE}.`,
     );
+    {
+      const { wordsOnlyTablePdf } = await import("@/tests/pdf-office-fixtures");
+      const { flowStandIn } = await import("@/tests/poppler-flow-standin");
+      const words = await runPdfOfficeExport(
+        "pdf-to-word",
+        await wordsOnlyTablePdf(false),
+        { extractFlow: flowStandIn, scanPages: scanPdfPages },
+      );
+      if (!words.ok) throw new Error(words.message);
+      const wordTables = (await readDocxStructure(words.output)).blocks.filter(
+        (b) => b.kind === "tbl",
+      );
+      // Four rows of names, cities and roles, no figures: one Word table.
+      expect(wordTables).toHaveLength(1);
+      expect(wordTables[0]!.kind === "tbl" && wordTables[0]!.rows).toHaveLength(
+        4,
+      );
+    }
     const tables = (await readDocxStructure(table)).blocks.filter(
       (b) => b.kind === "tbl",
     );

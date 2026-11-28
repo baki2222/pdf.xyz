@@ -184,3 +184,20 @@ describe("wideSheetXlsx — the proof's input", () => {
     expect(sheet).toMatch(/fitToWidth="1"/);
   });
 });
+
+describe("the wide sheet as a .csv and an .ods (excel-to-pdf#1)", () => {
+  it("each holds WIDE_SHEET's rows, every row ending in its QQ mark", async () => {
+    const { wideSheetCsv, wideSheetOds } =
+      await import("@/tests/office-input-fixtures");
+    const { default: JSZip } = await import("jszip");
+    const lines = new TextDecoder().decode(wideSheetCsv()).trim().split("\n");
+    expect(lines).toHaveLength(WIDE_SHEET.rows);
+    expect(lines.every((l, i) => l.endsWith(`,QQ${i + 1}`))).toBe(true);
+    expect(lines[0]!.split(",")).toHaveLength(WIDE_SHEET.cols);
+    const zip = await JSZip.loadAsync(await wideSheetOds());
+    expect(Object.keys(zip.files)[0]).toBe("mimetype");
+    const content = await zip.file("content.xml")!.async("string");
+    expect(content.match(/<table:table-row>/g)).toHaveLength(WIDE_SHEET.rows);
+    expect(content).toContain(`<text:p>QQ${WIDE_SHEET.rows}</text:p>`);
+  });
+});

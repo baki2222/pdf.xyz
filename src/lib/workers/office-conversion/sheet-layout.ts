@@ -21,10 +21,11 @@
  * Orientation (as the file sets it, portrait or landscape) and "fit all
  * columns on the page width" (review 2026-11-08) have no export filter
  * option, so the worker writes them into each worksheet's page setup before
- * LibreOffice opens the file (`./xlsx-page-setup`). That rewrite exists only
- * for .xlsx ({@link PAGE_SETUP_EXTENSIONS}); the panel offers the two
- * controls only for such a file, and the worker refuses them on anything
- * else. They do nothing beside one page per sheet, which ignores page
+ * LibreOffice opens the file (`./xlsx-page-setup`). That rewrite reads an
+ * .xlsx ({@link PAGE_SETUP_EXTENSIONS}); since 2026-11-28 a .csv, .xls or
+ * .ods ({@link PAGE_SETUP_VIA_XLSX_EXTENSIONS}) is saved as .xlsx first,
+ * and the panel offers the two controls for one only while the worker
+ * proves `sheetPageSetupAnyFormat`. They do nothing beside one page per sheet, which ignores page
  * setup, so the panel sends them only when that box is clear and the
  * worker refuses the combination.
  *
@@ -71,11 +72,28 @@ export const FIT_COLUMNS_TO_WIDTH_HINT =
 /** The extensions whose page setup the worker can rewrite. */
 export const PAGE_SETUP_EXTENSIONS = ["xlsx"] as const;
 
-/** True when orientation and fit-to-width can apply to a file of this name. */
-export function acceptsPageSetup(filename: string): boolean {
+/**
+ * The extensions the worker first saves as .xlsx, with LibreOffice, so it
+ * can rewrite their page setup (audit wave 2 excel-to-pdf#1, 2026-11-28).
+ * Together with {@link PAGE_SETUP_EXTENSIONS} they are every Excel to PDF
+ * input (held equal to `OFFICE_INPUT_EXTENSIONS` by sheet-layout.test.ts).
+ * Offered by the panel only while the live worker proves
+ * `sheetPageSetupAnyFormat`; an older image refuses them.
+ */
+export const PAGE_SETUP_VIA_XLSX_EXTENSIONS = ["xls", "csv", "ods"] as const;
+
+/**
+ * True when orientation and fit-to-width can apply to a file of this name:
+ * an .xlsx always, and with `viaXlsx` (a worker that proves
+ * `sheetPageSetupAnyFormat`) a .csv, .xls or .ods too.
+ */
+export function acceptsPageSetup(filename: string, viaXlsx = false): boolean {
   const dot = filename.lastIndexOf(".");
   const ext = dot > 0 ? filename.slice(dot + 1).toLowerCase() : "";
-  return (PAGE_SETUP_EXTENSIONS as readonly string[]).includes(ext);
+  const accepted: readonly string[] = viaXlsx
+    ? [...PAGE_SETUP_EXTENSIONS, ...PAGE_SETUP_VIA_XLSX_EXTENSIONS]
+    : PAGE_SETUP_EXTENSIONS;
+  return accepted.includes(ext);
 }
 
 /** Shown in place of the two controls when the chosen file is not .xlsx. */

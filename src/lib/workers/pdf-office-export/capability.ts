@@ -893,6 +893,144 @@ export async function provesDocxTables(
 }
 
 /**
+ * Audit wave 2 pdf-to-word#2 (2026-11-28): the text-tables probe's page — a
+ * staff list with NO column of figures (a bold header and four rows of
+ * names, departments and offices, every cell three words or fewer), then a
+ * heading, then a numbered list of four short steps. The staff list must
+ * come through as one Word table of 5 rows and 3 columns; the list must
+ * not (`isTextTable` refuses a column of list numbering), nor the heading.
+ */
+export const DOCX_TEXT_TABLES_PROBE = {
+  rows: [
+    ["Name", "Department", "Office"],
+    ["Rahim Uddin", "Accounts", "Dhaka"],
+    ["Salma Begum", "Design", "Chittagong"],
+    ["Jane Doe", "Legal", "London"],
+    ["Sam Lee", "Support", "Sylhet"],
+  ],
+  columns: [72, 240, 400],
+  sentence: "Steps to follow",
+  steps: ["Open the file", "Choose a page", "Press Save", "Close it"],
+  stepColumns: [72, 130],
+} as const;
+
+/**
+ * The text-tables probe's PDF: {@link DOCX_TEXT_TABLES_PROBE} on a US Letter
+ * page, the header in Helvetica-Bold 11 at y = 700 and the rows 16 points
+ * apart below it, the heading at 600, and the steps ("1." at 72, the step
+ * at 130, two line heights clear of it, so each step is a row of two
+ * cells) 16 points apart from 570.
+ */
+export async function docxTextTablesProbePdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const p = DOCX_TEXT_TABLES_PROBE;
+  const marks = p.steps.map((_, k) => `${k + 1}.`);
+  const texts = [...p.rows.flat(), p.sentence, ...p.steps, ...marks];
+  const regular = await embedDrawingFont(doc, texts, "sans");
+  const bold = await embedDrawingFont(doc, texts, "sans-bold");
+  const page = doc.addPage([612, 792]);
+  p.rows.forEach((row, r) =>
+    row.forEach((cell, c) =>
+      page.drawText(cell, {
+        x: p.columns[c]!,
+        y: 700 - r * 16,
+        size: 11,
+        font: r === 0 ? bold : regular,
+      }),
+    ),
+  );
+  page.drawText(p.sentence, { x: 72, y: 600, size: 11, font: regular });
+  p.steps.forEach((step, k) => {
+    const y = 570 - k * 16;
+    page.drawText(marks[k]!, {
+      x: p.stepColumns[0],
+      y,
+      size: 11,
+      font: regular,
+    });
+    page.drawText(step, { x: p.stepColumns[1], y, size: 11, font: regular });
+  });
+  return doc.save();
+}
+
+/**
+ * Why `docx` is NOT what the text-tables probe expects, or null when it is:
+ *   "structure": something Word could refuse (`docxStructureProblems`);
+ *   "text": the text read back is not poppler's, page by page — so no word
+ *     of the heading or the list is lost or moved into the table;
+ *   "shape": not exactly one top-level table of 3 grid columns and 5 rows,
+ *     each of 3 cells spanning 1 — the list as a second table fails here;
+ *   "cells": a cell's text is not the page's.
+ */
+export async function docxTextTablesProblem(
+  docx: Uint8Array,
+  flowText: string[],
+): Promise<string | null> {
+  if ((await docxStructureProblems(docx)).length > 0) return "structure";
+  const body = await readDocxStructure(docx);
+  const want = flowText.map(asXmlCarries);
+  const read = docxPageTexts(body).map(asXmlCarries);
+  if (read.length !== want.length || read.some((t, k) => t !== want[k]))
+    return "text";
+  const tables = body.blocks.filter((b): b is ReadTable => b.kind === "tbl");
+  const p = DOCX_TEXT_TABLES_PROBE;
+  const [tbl] = tables;
+  if (
+    tables.length !== 1 ||
+    tbl!.gridCols.length !== 3 ||
+    tbl!.rows.length !== p.rows.length ||
+    tbl!.rows.some(
+      (r) => r.cells.length !== 3 || r.cells.some((c) => c.span !== 1),
+    )
+  )
+    return "shape";
+  const textOf = (
+    blocks: ReadTable["rows"][number]["cells"][number]["blocks"],
+  ) =>
+    blocks
+      .flatMap((b) => (b.kind === "p" ? b.runs : []))
+      .map((r) => r.text)
+      .join("");
+  const cellsOk = p.rows.every((row, r) =>
+    row.every((cell, c) => textOf(tbl!.rows[r]!.cells[c]!.blocks) === cell),
+  );
+  return cellsOk ? null : "cells";
+}
+
+/**
+ * Does THIS worker image's PDF to Word write a table with no column of
+ * figures, of four or more rows of short entries, as a Word table — and
+ * keep a numbered list of short steps out of any table (audit wave 2
+ * pdf-to-word#2, key `docxTextTables`)?
+ *
+ * The probe PDF ({@link docxTextTablesProbePdf}) runs as a real job would,
+ * in the executor's order, on the deps the image's jobs run on, read back
+ * by `./docx-structure`; a pass needs every check of
+ * {@link docxTextTablesProblem}. An image before this key writes the staff
+ * list as tabbed rows ("shape": no table) and answers `false`; so does one
+ * without the extractor or the page reader. An image built before this key
+ * publishes nothing, and the reader parses the absence as `false`.
+ */
+export async function provesDocxTextTables(
+  deps: PdfOfficeExportDeps,
+  run?: typeof runPdfOfficeExport,
+  gates: ProbeGates = {},
+): Promise<boolean> {
+  try {
+    if (!deps.extractFlow || !deps.scanPages) return false;
+    const pdf = await docxTextTablesProbePdf();
+    const docx = await wordThroughExecutor(pdf, deps, run, gates);
+    if (!docx) return false;
+    const flow = await deps.extractFlow(pdf);
+    return (
+      (await docxTextTablesProblem(docx, flow.pages.map(flowPageText))) === null
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * #28 slice 3 (wraps): the probe's own words, split on whitespace — the
  * rows, the continuations and the total, as drawn. Check 6 ("source") of
  * {@link docxTableWrapsProblem} compares the .docx with THESE, not with

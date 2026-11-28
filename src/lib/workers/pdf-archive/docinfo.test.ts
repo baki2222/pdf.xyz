@@ -7,7 +7,11 @@ import {
   readCarriedDocInfo,
 } from "./docinfo";
 import { pdfaDefinition } from "./native";
-import { CARRIED_DOCINFO_RULE } from "./docinfo-words";
+import {
+  CARRIED_DOCINFO_RULE,
+  CARRIED_DOCINFO_RULE_ASCII,
+} from "./docinfo-words";
+import { widenedValue } from "./docinfo";
 
 async function pdf(set: (doc: PDFDocument) => void): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
@@ -98,12 +102,15 @@ describe("carrying document properties into the PDF/A prefix (audit pdf-to-pdfa#
     expect(carriedValue("   ")).toBeUndefined();
   });
 
-  it("the sentence every surface uses states the rule the predicate applies", () => {
-    expect(CARRIED_DOCINFO_RULE).toMatch(/plain ASCII/);
-    expect(CARRIED_DOCINFO_RULE).toMatch(/round brackets/);
-    expect(CARRIED_DOCINFO_RULE).toMatch(/backslash/);
-    expect(CARRIED_DOCINFO_RULE).toMatch(/not encrypted/);
-    expect(CARRIED_DOCINFO_RULE).toContain(
+  // Until 2026-11-22 this was CARRIED_DOCINFO_RULE, the sentence every
+  // surface used; it is now the rule an image before the after-Ghostscript
+  // writer keeps, stated by the notes block on such a worker.
+  it("the plain-ASCII rule states what the prefix predicate applies", () => {
+    expect(CARRIED_DOCINFO_RULE_ASCII).toMatch(/plain ASCII/);
+    expect(CARRIED_DOCINFO_RULE_ASCII).toMatch(/round brackets/);
+    expect(CARRIED_DOCINFO_RULE_ASCII).toMatch(/backslash/);
+    expect(CARRIED_DOCINFO_RULE_ASCII).toMatch(/not encrypted/);
+    expect(CARRIED_DOCINFO_RULE_ASCII).toContain(
       MAX_CARRIED_FIELD_CHARS.toLocaleString("en-US"),
     );
     // Each kind the sentence says is left out, the predicate leaves out.
@@ -113,9 +120,27 @@ describe("carrying document properties into the PDF/A prefix (audit pdf-to-pdfa#
       ["en dash", "–"],
       ["another script", "日"],
     ] as const) {
-      expect(CARRIED_DOCINFO_RULE).toContain(kind);
+      expect(CARRIED_DOCINFO_RULE_ASCII).toContain(kind);
       expect(carriedValue(`a${sample}b`), kind).toBeUndefined();
     }
+  });
+
+  it("the rule every surface uses states what the after-Ghostscript writer keeps", () => {
+    expect(CARRIED_DOCINFO_RULE).toMatch(/not encrypted/);
+    expect(CARRIED_DOCINFO_RULE).toContain(
+      MAX_CARRIED_FIELD_CHARS.toLocaleString("en-US"),
+    );
+    for (const [kind, sample] of [
+      ["accented letters", "é"],
+      ["round brackets", "("],
+      ["other alphabets", "日"],
+    ] as const) {
+      expect(CARRIED_DOCINFO_RULE).toContain(kind);
+      expect(widenedValue(`a${sample}b`), kind).toBe(`a${sample}b`);
+    }
+    expect(
+      widenedValue("x".repeat(MAX_CARRIED_FIELD_CHARS + 1)),
+    ).toBeUndefined();
   });
 
   it("writes PostScript strings that cannot break out of the pdfmark", () => {

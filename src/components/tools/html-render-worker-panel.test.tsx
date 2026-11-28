@@ -23,7 +23,10 @@ import { getProviderReadiness } from "@/lib/workers/providers";
 import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
 import { HtmlRenderWorkerPanel } from "./html-render-worker-panel";
-import { HTML_PAGE_SIZES } from "@/lib/jobs/html-render-options";
+import {
+  HTML_PAGE_SIZES,
+  HTML_START_VIEWPORT,
+} from "@/lib/jobs/html-render-options";
 import { imagePageSizeForLocales } from "@/lib/pdf/image-page-defaults";
 import { browserLocales, regionalChoice } from "./use-regional-paper";
 import {
@@ -63,6 +66,9 @@ const READY: WorkerStatus = {
     detail: "no server observed",
   },
 };
+
+/** A worker whose heartbeat proves "Hide common ads" (audit wave 2). */
+const ADS_READY: WorkerStatus = { ...READY, htmlAdBlock: true };
 
 afterEach(() => {
   cleanup();
@@ -393,17 +399,22 @@ describe("HtmlRenderWorkerPanel — the address is fixed or explained before any
  */
 describe("HtmlRenderWorkerPanel — Webpage to PDF capture options", () => {
   const urlTool = getToolBySlug("webpage-to-pdf")!;
-  /** The paper an untouched panel starts on in this browser (audit backlog #5). */
+  /**
+   * The paper an untouched panel starts on in this browser (audit backlog
+   * #5), and its Screen width, Desktop (audit wave 2 webpage-to-pdf#5):
+   * both travel, since both differ from the job API's defaults.
+   */
   const REGIONAL_PAPER = {
     pageSize: regionalChoice(
       HTML_PAGE_SIZES,
       imagePageSizeForLocales(browserLocales()),
     ),
+    viewport: HTML_START_VIEWPORT.site,
   };
   let fetchMock: ReturnType<typeof vi.fn>;
 
-  async function mountUrl() {
-    fetchMock = readyFetch();
+  async function mountUrl(status: WorkerStatus = READY) {
+    fetchMock = readyFetch(status);
     vi.stubGlobal("fetch", fetchMock);
     render(
       <InToolPage tool={urlTool}>
@@ -450,7 +461,7 @@ describe("HtmlRenderWorkerPanel — Webpage to PDF capture options", () => {
   });
 
   it("each capture checkbox is named by its label alone, and its hint is its description", async () => {
-    await mountUrl();
+    await mountUrl(ADS_READY);
     expect(WEBPAGE_CAPTURE_CHOICES.length).toBeGreaterThan(0);
     for (const choice of WEBPAGE_CAPTURE_CHOICES) {
       const box = screen.getByRole("checkbox", { name: choice.label });
@@ -458,6 +469,36 @@ describe("HtmlRenderWorkerPanel — Webpage to PDF capture options", () => {
       // The hint is read as a description, after the name, not as part of it.
       expect(box).toHaveAccessibleDescription(/\S{3,}/);
     }
+  });
+
+  // Audit wave 2 webpage-to-pdf#1: an image built before `hideAds` ignores
+  // the key, so the box is offered, and the key sent, only on a worker that
+  // proves `htmlAdBlock`.
+  it(`"${WEBPAGE_CAPTURE_LABELS.hideAds}" is offered only when the worker proves it, and travels when ticked`, async () => {
+    await mountUrl(ADS_READY);
+    const box = screen.getByRole<HTMLInputElement>("checkbox", {
+      name: WEBPAGE_CAPTURE_LABELS.hideAds,
+    });
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    run();
+    await vi.waitFor(() =>
+      expect(sentOptions()).toEqual([
+        { ...REGIONAL_PAPER, hideAds: true, url: "https://example.com/" },
+      ]),
+    );
+  });
+
+  it(`CONTROL: without the proof there is no "${WEBPAGE_CAPTURE_LABELS.hideAds}" box`, async () => {
+    await mountUrl();
+    expect(
+      screen.queryByRole("checkbox", { name: WEBPAGE_CAPTURE_LABELS.hideAds }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("checkbox", {
+        name: WEBPAGE_CAPTURE_LABELS.hideOverlays,
+      }),
+    ).toBeTruthy();
   });
 
   it(`"${WEBPAGE_CAPTURE_LABELS.hideOverlays}" is a named checkbox, off, and travels when ticked`, async () => {

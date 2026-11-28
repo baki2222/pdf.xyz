@@ -46,6 +46,10 @@ const CAPS: HeartbeatCapabilities = {
   csvImportOptions: true,
   ocrOwnerPassword: true,
   requestSignatureLabels: true,
+  pdfaUnicodeDocInfo: true,
+  docxTextTables: true,
+  sheetPageSetupAnyFormat: true,
+  htmlAdBlock: true,
 };
 
 /** A mutable fake clock. */

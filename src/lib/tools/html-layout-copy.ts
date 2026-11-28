@@ -34,9 +34,11 @@ import {
   HTML_PAGE_SIZES,
   HTML_VIEWPORTS,
   DEFAULT_HTML_RENDER_OPTIONS,
+  HTML_START_VIEWPORT,
   htmlPaperWidthPx,
   type HtmlPageSize,
 } from "@/lib/jobs/html-render-options";
+import { WEBPAGE_CAPTURE_LABELS } from "@/lib/jobs/webpage-capture-options";
 import {
   LETTER_REGION_PAGE_SIZE,
   WORLD_PAGE_SIZE,
@@ -96,6 +98,17 @@ const DEFAULT_MARGIN = HTML_MARGINS.find(
 )!.label;
 const TABLET_PX = HTML_VIEWPORTS.find((v) => v.id === "tablet")!.width;
 const DESKTOP = HTML_VIEWPORTS.find((v) => v.id === "desktop")!.label;
+const PRINT_STYLES_LABEL = WEBPAGE_CAPTURE_LABELS.printStyles;
+
+/**
+ * A webpage's print styles outrank the Screen width (review of audit wave 2
+ * webpage-to-pdf#5, 2026-11-28): while that box is ticked, a site whose print
+ * styles size the type, a box or the paper is laid out at the paper's width;
+ * rules that only hide things are not enough (verifier of lane w2r).
+ * `src/lib/workers/html-render/print-css.ts` decides it, and
+ * print-css.chromium.test.ts reads the sizes back from the PDF.
+ */
+export const HTML_PRINT_STYLES_WIDTH_SENTENCE = `While “${PRINT_STYLES_LABEL}” is ticked, a site whose print styles set a text size, a width or a paper size is printed with them at the paper's width, whatever Screen width is chosen, so its text keeps the size those styles set. Print styles that only hide parts of a page, such as its menu, keep the chosen Screen width. `;
 
 /** The FAQ answer to "Can I choose the page size, margins or orientation?". */
 export function htmlLayoutAnswer(source: "file" | "site"): string {
@@ -103,7 +116,16 @@ export function htmlLayoutAnswer(source: "file" | "site"): string {
     source === "file"
       ? "a CSS @page rule in your file"
       : "a page size the site's print stylesheet sets";
-  return `Yes, under Page layout: Page size (${ALL_SIZES}), Orientation, Margins (${MARGINS}), Screen width and One long page. Page size starts on ${START_SIZE}. Choose ${AUTO_SIZE} to let ${rule} decide the paper instead, ${FALLBACK_SIZE} when there is none; with a Screen width or One long page as well, ${AUTO_SIZE} prints on ${FALLBACK_SIZE}. Screen width lays the page out as on a ${WIDTHS} pixel wide screen and scales it to fit the paper. Its default, ${AUTO_WIDTH}, lays the page out at the paper's printable width: ${WORLD_WIDTH.px} pixels on ${WORLD_WIDTH.label} and ${LETTER_WIDTH.px} on ${LETTER_WIDTH.label}, with ${DEFAULT_MARGIN} margins. ${NARROWEST_PX < (TABLET_PX ?? 0) ? `Both are narrower than a ${TABLET_PX} pixel tablet screen, so a site without print styles may come out in its tablet or phone layout, and ${DESKTOP} gives its desktop layout. ` : ""}One long page prints the whole page on a single page as tall as its content, up to ${HTML_ONE_PAGE_MAX_INCHES} inches; anything longer continues on more pages.`;
+  const startWidth = HTML_VIEWPORTS.find(
+    (v) => v.id === HTML_START_VIEWPORT[source],
+  )!;
+  const paperWidth = `lays the page out at the paper's printable width: ${WORLD_WIDTH.px} pixels on ${WORLD_WIDTH.label} and ${LETTER_WIDTH.px} on ${LETTER_WIDTH.label}, with ${DEFAULT_MARGIN} margins`;
+  const narrow = NARROWEST_PX < (TABLET_PX ?? 0);
+  const widths =
+    startWidth.width === null
+      ? `Its default, ${AUTO_WIDTH}, ${paperWidth}. ${narrow ? `Both are narrower than a ${TABLET_PX} pixel tablet screen, so a site without print styles may come out in its tablet or phone layout, and ${DESKTOP} gives its desktop layout. ` : ""}`
+      : `It starts on ${startWidth.label}, so a site comes out in its desktop layout unless its print styles set a text size, a width or a paper size. ${AUTO_WIDTH} ${paperWidth}${narrow ? `, narrower than a ${TABLET_PX} pixel tablet screen` : ""}. `;
+  return `Yes, under Page layout: Page size (${ALL_SIZES}), Orientation, Margins (${MARGINS}), Screen width and One long page. Page size starts on ${START_SIZE}. Choose ${AUTO_SIZE} to let ${rule} decide the paper instead, ${FALLBACK_SIZE} when there is none; with a Screen width or One long page as well, ${AUTO_SIZE} prints on ${FALLBACK_SIZE}. Screen width lays the page out as on a ${WIDTHS} pixel wide screen and scales it to fit the paper. ${widths}${source === "site" ? HTML_PRINT_STYLES_WIDTH_SENTENCE : ""}One long page prints the whole page on a single page as tall as its content, up to ${HTML_ONE_PAGE_MAX_INCHES} inches; anything longer continues on more pages.`;
 }
 
 /** The how-to step for the layout group. */

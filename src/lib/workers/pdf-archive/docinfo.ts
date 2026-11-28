@@ -65,12 +65,40 @@ export function carriedValue(raw: string | undefined): string | undefined {
 }
 
 /**
+ * The value as the AFTER-Ghostscript writer carries it (audit wave 2,
+ * pdf-to-pdfa#3, `./docinfo-xmp`): any printable text, any script, round
+ * brackets and backslashes included; line breaks and tabs become spaces; a
+ * value with any other control character, a Unicode noncharacter or an
+ * unpaired surrogate (review 2026-11-28), or longer than
+ * {@link MAX_CARRIED_FIELD_CHARS}, is not carried.
+ */
+export function widenedValue(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  const text = raw.replace(/[\t\r\n]+/g, " ").trim();
+  if (text.length === 0 || text.length > MAX_CARRIED_FIELD_CHARS)
+    return undefined;
+  for (const ch of text) {
+    const code = ch.codePointAt(0)!;
+    if (code < 0x20 || (code >= 0x7f && code < 0xa0)) return undefined;
+    // An unpaired surrogate (iterated alone: a pair is one code point), and
+    // the Unicode noncharacters (U+FDD0..U+FDEF, and the last two code
+    // points of every plane): XML 1.0 forbids them in the XMP, and the
+    // UTF-16 Info and the UTF-8 XMP would not hold the same text.
+    if (code >= 0xd800 && code <= 0xdfff) return undefined;
+    if ((code >= 0xfdd0 && code <= 0xfdef) || (code & 0xfffe) === 0xfffe)
+      return undefined;
+  }
+  return text;
+}
+
+/**
  * Read the carried fields from the input. Never throws and never fails the
  * job: an unreadable or encrypted input simply carries nothing, which is the
  * conversion exactly as it ran before.
  */
 export async function readCarriedDocInfo(
   input: Uint8Array,
+  keep: (raw: string | undefined) => string | undefined = carriedValue,
 ): Promise<CarriedDocInfo> {
   let doc: PDFDocument;
   try {
@@ -93,13 +121,18 @@ export async function readCarriedDocInfo(
   for (const field of CARRIED_DOCINFO_FIELDS) {
     let value: string | undefined;
     try {
-      value = carriedValue(read[field]());
+      value = keep(read[field]());
     } catch {
       value = undefined;
     }
     if (value !== undefined) info[field] = value;
   }
   return info;
+}
+
+/** The fields the after-Ghostscript writer carries ({@link widenedValue}). */
+export function readWidenedDocInfo(input: Uint8Array): Promise<CarriedDocInfo> {
+  return readCarriedDocInfo(input, widenedValue);
 }
 
 /** A PostScript literal string: `\`, `(`, `)` escaped, any byte above 0x7E as octal. */

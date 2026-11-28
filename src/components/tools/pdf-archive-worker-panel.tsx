@@ -383,7 +383,10 @@ function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
         >
           {/* Above the download: a user who clicks and leaves is exactly the
               user who needs to know something was dropped from their file. */}
-          <PdfANotes job={outcome.job} />
+          <PdfANotes
+            job={outcome.job}
+            wideFields={status?.pdfaUnicodeDocInfo === true}
+          />
           <p className="text-ok text-sm">Your PDF/A file is ready.</p>
           <DownloadCta
             onClick={() =>

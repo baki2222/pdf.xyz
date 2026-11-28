@@ -3044,7 +3044,7 @@ describe("PDF to Word: the picture sentences hold of the engine", () => {
     // Until 2026-11-15 (#28 slice 4) this said "the typeface, link targets
     // and drawings …" — no longer the page's: each word is set in an Office
     // font of its kind now.
-    "Words keep their bold, italics, size and colour where our reader matches them, and a table whose cells each fit on one line, with a column of figures, comes through as a Word table; link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
+    "Words keep their bold, italics, size and colour where our reader matches them, and a table whose cells each fit on one line, with a column of figures or at least four rows and three columns of short entries, comes through as a Word table; link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
     "The pictures sit on lines of their own between the paragraphs, and a picture painted over another, or over text, comes through on its own line instead of on top.",
     // Until 2026-11-15 (#28 slice 2) also the sentence before this one with
     // "tables as tables" / "tables," in its list — no longer the page's:
@@ -3247,7 +3247,7 @@ describe("PDF to Word: the picture sentences hold of the engine", () => {
       // Until 2026-11-15 (#28 slice 4) this said "the typeface, link targets
       // and drawings …" — no longer the page's: each word is set in an Office
       // font of its kind now.
-      "Words keep their bold, italics, size and colour where our reader matches them, and a table whose cells each fit on one line, with a column of figures, comes through as a Word table; link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
+      "Words keep their bold, italics, size and colour where our reader matches them, and a table whose cells each fit on one line, with a column of figures or at least four rows and three columns of short entries, comes through as a Word table; link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
       // Until 2026-11-15 (#28 slice 2) also the sentence before this one with
       // "tables as tables" / "tables," in its list — no longer the page's:
       // a table whose cells fit on one line is a Word table now.
@@ -3938,7 +3938,7 @@ describe("PDF to Word: the table sentences hold of the engine", () => {
     // and lines of text, or as lines of text alone, and other tables come
     // through one row per paragraph, their cells separated by tabs." — the
     // interim sentence, now a DENIAL in the wrapped-cell describe's SHIPPED.
-    "A table whose cells each fit on one line, with at least three rows and a column of figures such as amounts, quantities or dates, comes through as a Word table, each value in the column it sits under and an empty cell left empty.",
+    "A table whose cells each fit on one line comes through as a Word table, each value in the column it sits under and an empty cell left empty, when it has at least three rows and a column of figures such as amounts, quantities or dates, or at least four rows and three columns of short entries of up to three words each, such as a staff list of names, cities and roles.",
     // Until 2026-11-16 (plain-copy ruling) WRAPS_DEFINITE_ONE_SENTENCE; it
     // is kept, still honest, beside what replaced it.
     WRAPS_DEFINITE_ONE_SENTENCE,
@@ -3948,13 +3948,13 @@ describe("PDF to Word: the table sentences hold of the engine", () => {
     // Until 2026-11-15 (#28 slice 4) this said "the typeface, link targets
     // and drawings …" — no longer the page's: each word is set in an Office
     // font of its kind now.
-    "Words keep their bold, italics, size and colour where our reader matches them, and a table whose cells each fit on one line, with a column of figures, comes through as a Word table; link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
-    "A table comes through as a Word table when each of its cells fits on one line, it has at least three rows, and one of its columns holds figures such as amounts, quantities or dates: each value stays in the column it sits under, an empty cell stays empty, and the words keep their formatting.",
+    "Words keep their bold, italics, size and colour where our reader matches them, and a table whose cells each fit on one line, with a column of figures or at least four rows and three columns of short entries, comes through as a Word table; link targets and drawings made of lines and shapes stay behind, and the page's positions, indentation and spacing are not kept.",
+    "A table comes through as a Word table when each of its cells fits on one line and it has either at least three rows and a column of figures such as amounts, quantities or dates, or at least four rows and three columns of short entries of up to three words each, such as a staff list of names, cities and roles: each value stays in the column it sits under, an empty cell stays empty, and the words keep their formatting.",
     "Where one heading spans two columns, the values under it can share a cell, separated by a tab.",
     "Thin grey borders are added, since the PDF's own lines and shading are not read.",
-    "A table we are less sure of comes through one row per paragraph with its cells separated by tabs instead: one with no column of figures, one with a column of sentences beside it, one whose heading does not sit over its values, one of more than 63 columns (Word's limit) or more than 10,000 cells, the tables of a page past its first 20,000 cells (empty ones counted), and every table of a document that would otherwise be too large to deliver, which the note beside the download then says.",
+    "A table we are less sure of comes through one row per paragraph with its cells separated by tabs instead: one with no column of figures that has fewer than four rows or three columns, an entry of more than three words, a gap in its first column or a first column of list numbers or bullets, one with a column of sentences beside it, one whose heading does not sit over its values, one of more than 63 columns (Word's limit) or more than 10,000 cells, the tables of a page past its first 20,000 cells (empty ones counted), and every table of a document that would otherwise be too large to deliver, which the note beside the download then says.",
     "A table that continues onto the next page is not joined into one: each page's part is judged on its own, so a part of one or two rows comes through as lines of text.",
-    "The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line, with a column of figures such as amounts or dates, comes through as a Word table, each value in the column it sits under.",
+    "The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through as a Word table, each value in the column it sits under, when it has a column of figures such as amounts or dates, or at least four rows and three columns of short entries of up to three words each, such as a staff list of names, cities and roles.",
     // Until 2026-11-16 (#28 slice 3, wraps) also "Other tables come through
     // as lines of text, their cells separated by tabs, and a table whose
     // cells wrap onto a second line may come through partly as a smaller
@@ -3968,10 +3968,10 @@ describe("PDF to Word: the table sentences hold of the engine", () => {
     // onto further lines may come through whole, in part or as lines of
     // text" — now DENIALS, in the wrapped-cell describe's SHIPPED.
     "Other tables come through as lines of text, their cells separated by tabs.",
-    "Headings keep their bold and size but not a Word heading style, lists arrive as lines of text, and a table comes through as a Word table only when it has at least three rows and one of its columns holds figures; in such a table a cell that wraps onto further lines may stay in its row as one paragraph or come through as a row or a line of its own, as it does in the table's first column, where the wrap ends the table, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
+    "Headings keep their bold and size but not a Word heading style, lists arrive as lines of text, and a table comes through as a Word table only when it has at least three rows and one of its columns holds figures, or at least four rows and three columns of short entries such as names, places and roles; in such a table a cell that wraps onto further lines may stay in its row as one paragraph or come through as a row or a line of its own, as it does in the table's first column, where the wrap ends the table, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
     // Until 2026-11-15 (#28 slice 4) this began "The typeface and page
     // layout are not recreated" — no longer the guide's.
-    "The page layout is not recreated, words are set in standard Office fonts, and only a table with at least three rows and a column of figures comes through as a Word table (a cell in it that wraps onto further lines may stay in its row or come through as a row or a line of its own, and in the table's first column the wrap ends the table), so it suits documents where the words matter more than the look.",
+    "The page layout is not recreated, words are set in standard Office fonts, and only a table with at least three rows and a column of figures, or at least four rows and three columns of short entries such as names, places and roles, comes through as a Word table (a cell in it that wraps onto further lines may stay in its row or come through as a row or a line of its own, and in the table's first column the wrap ends the table), so it suits documents where the words matter more than the look.",
     "Each scanned page comes through as its picture, followed by the text read from it, as plain paragraphs you can edit, search and copy; a table read from a scan may come through as a Word table or as lines of text.",
   ];
   const OVERCLAIMS: Record<string, RegExp> = {
@@ -4131,7 +4131,11 @@ describe("PDF to Word: the table sentences hold of the engine", () => {
     const { wordsOnlyTablePdf, continuedTablePdf } =
       await import("@/tests/pdf-office-fixtures");
     // "one line alone makes a Word table": a table of words, no figures.
-    expect(await tablesOf(await wordsOnlyTablePdf(false))).toEqual([]);
+    // INVERTED 2026-11-28 (audit wave 2 pdf-to-word#2): the counterexample
+    // was the FOUR-row words-only table, `wordsOnlyTablePdf(false)`, which
+    // is a Word table now (`isTextTable`; held in "tables without figures"
+    // below). A table of three rows with no figures is still tabbed.
+    expect(await tablesOf(await wordsOnlyTablePdf(false, 3))).toEqual([]);
     // Health: the same geometry with a column of figures IS a Word table.
     expect(await tablesOf(await wordsOnlyTablePdf(true))).toHaveLength(1);
     // "each value in its own column": a spanning heading's values share one.
@@ -4206,6 +4210,86 @@ describe("PDF to Word: the table sentences hold of the engine", () => {
  * stand-in predicted one table of three rows where the image printed none
  * and one. A stand-in run is kept beside it as a labelled stand-in pin.
  */
+/**
+ * Audit wave 2 pdf-to-word#2 (2026-11-28): a table with no column of figures
+ * — a staff list of three columns or more — comes through as a Word table
+ * when it has at least four rows and three columns of short entries (`isTextTable`). Until
+ * then every PDF to Word surface said a Word table needs a column of
+ * figures, true of the engine; these sentences are now DENIALS of what it
+ * writes, kept verbatim below, and none may be served while the engine's
+ * export of a four-row words-only table holds a Word table.
+ */
+describe("PDF to Word: tables without figures (pdf-to-word#2)", () => {
+  const DENIES_TEXT_TABLES: Record<string, RegExp> = {
+    // "only when … figures" / "only a table with … figures" with no other
+    // way named in the same sentence.
+    "only figure tables":
+      /^(?!.*\bshort entries\b).*\bonly (?:when|a table|if)\b[^.;]{0,120}?\bfigures?\b/i,
+    // "needs a column of figures" / "requires figures".
+    "a Word table needs figures":
+      /^(?!.*\bshort entries\b).*\bWord tables?\b[^.;]{0,60}?\b(?:needs?|requires?)\b[^.;]{0,30}?\bfigures?\b/i,
+  };
+  /** Served until 2026-11-28, each false of the engine since. */
+  const SHIPPED = [
+    "Headings keep their bold and size but not a Word heading style, lists arrive as lines of text, and a table comes through as a Word table only when it has at least three rows and one of its columns holds figures; in such a table a cell that wraps onto further lines may stay in its row as one paragraph or come through as a row or a line of its own, as it does in the table's first column, where the wrap ends the table, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
+    "The page layout is not recreated, words are set in standard Office fonts, and only a table with at least three rows and a column of figures comes through as a Word table (a cell in it that wraps onto further lines may stay in its row or come through as a row or a line of its own, and in the table's first column the wrap ends the table), so it suits documents where the words matter more than the look.",
+  ];
+  const SYNONYMS = [
+    "A Word table needs a column of figures.",
+    "Only if a table holds figures does it become a Word table.",
+  ];
+  /** What the surfaces say since; neither shape may catch them. */
+  const HONEST = [
+    "Headings keep their bold and size but not a Word heading style, lists arrive as lines of text, and a table comes through as a Word table only when it has at least three rows and one of its columns holds figures, or at least four rows and three columns of short entries such as names, places and roles; in such a table a cell that wraps onto further lines may stay in its row as one paragraph or come through as a row or a line of its own, as it does in the table's first column, where the wrap ends the table, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
+    "The page layout is not recreated, words are set in standard Office fonts, and only a table with at least three rows and a column of figures, or at least four rows and three columns of short entries such as names, places and roles, comes through as a Word table (a cell in it that wraps onto further lines may stay in its row or come through as a row or a line of its own, and in the table's first column the wrap ends the table), so it suits documents where the words matter more than the look.",
+  ];
+  const denies = (t: string) =>
+    Object.values(DENIES_TEXT_TABLES).some((re) => re.test(t));
+
+  it("both ways: every shape catches a sentence, every sentence is caught, and the honest ones pass", () => {
+    for (const [name, re] of Object.entries(DENIES_TEXT_TABLES))
+      expect(
+        [...SHIPPED, ...SYNONYMS].some((c) => re.test(c)),
+        `${name} catches nothing`,
+      ).toBe(true);
+    expect([...SHIPPED, ...SYNONYMS].filter((c) => !denies(c))).toEqual([]);
+    expect(HONEST.filter(denies)).toEqual([]);
+  });
+
+  it("the engine writes a four-row words-only table as a Word table, and no surface denies it", async () => {
+    const { wordsOnlyTablePdf } = await import("@/tests/pdf-office-fixtures");
+    const run = await runPdfOfficeExport(
+      PDF_TO_WORD_TOOL,
+      await wordsOnlyTablePdf(false),
+      { extractFlow: flowStandIn, scanPages: scanPdfPages },
+    );
+    if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
+    const tables = (await readDocxStructure(run.output)).blocks.filter(
+      (b) => b.kind === "tbl",
+    );
+    expect(tables).toHaveLength(1);
+    const out: string[] = [];
+    let seen = 0;
+    for (const container of await containersFor(PDF_TO_WORD_TOOL))
+      for (const { sentence, masked } of attributedTo(
+        container,
+        PDF_TO_WORD_TOOL,
+      )) {
+        seen += 1;
+        if (denies(masked)) out.push(`${container.where}: ${sentence}`);
+      }
+    // Health: the walk reads the tool's surfaces, not nothing.
+    expect(seen).toBeGreaterThan(50);
+    expect(out).toEqual([]);
+    // Every honest sentence is served whole somewhere.
+    const served: string[] = [];
+    for (const container of await containersFor(PDF_TO_WORD_TOOL))
+      for (const { sentence } of attributedTo(container, PDF_TO_WORD_TOOL))
+        served.push(sentence);
+    for (const h of HONEST) expect(served).toContain(h);
+  });
+});
+
 describe("PDF to Word: the wrapped-cell sentences hold of the engine", () => {
   const DENIES_WRAPS: Record<string, RegExp> = {
     "is not laid out as one Word table":
@@ -4279,8 +4363,8 @@ describe("PDF to Word: the wrapped-cell sentences hold of the engine", () => {
     // the tables FAQ's list.
     WRAPS_SHORT,
     ...WRAPS_LIST_SENTENCES,
-    "Headings keep their bold and size but not a Word heading style, lists arrive as lines of text, and a table comes through as a Word table only when it has at least three rows and one of its columns holds figures; in such a table a cell that wraps onto further lines may stay in its row as one paragraph or come through as a row or a line of its own, as it does in the table's first column, where the wrap ends the table, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
-    "The page layout is not recreated, words are set in standard Office fonts, and only a table with at least three rows and a column of figures comes through as a Word table (a cell in it that wraps onto further lines may stay in its row or come through as a row or a line of its own, and in the table's first column the wrap ends the table), so it suits documents where the words matter more than the look.",
+    "Headings keep their bold and size but not a Word heading style, lists arrive as lines of text, and a table comes through as a Word table only when it has at least three rows and one of its columns holds figures, or at least four rows and three columns of short entries such as names, places and roles; in such a table a cell that wraps onto further lines may stay in its row as one paragraph or come through as a row or a line of its own, as it does in the table's first column, where the wrap ends the table, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
+    "The page layout is not recreated, words are set in standard Office fonts, and only a table with at least three rows and a column of figures, or at least four rows and three columns of short entries such as names, places and roles, comes through as a Word table (a cell in it that wraps onto further lines may stay in its row or come through as a row or a line of its own, and in the table's first column the wrap ends the table), so it suits documents where the words matter more than the look.",
   ];
   const OVERCLAIMS_WRAPS: Record<string, RegExp> = {
     "every wrapped cell stays in its row":
@@ -5050,7 +5134,7 @@ describe("PDF to Word: the typeface sentences hold of the engine", () => {
     // Until 2026-11-16 (#28 slice 3, wraps; PR-2) the parenthesis read
     // "(one whose cells wrap onto further lines may come through whole, in
     // part or as lines of text)" — now a denial (the wrapped-cell describe).
-    "The page layout is not recreated, words are set in standard Office fonts, and only a table with at least three rows and a column of figures comes through as a Word table (a cell in it that wraps onto further lines may stay in its row or come through as a row or a line of its own, and in the table's first column the wrap ends the table), so it suits documents where the words matter more than the look.",
+    "The page layout is not recreated, words are set in standard Office fonts, and only a table with at least three rows and a column of figures, or at least four rows and three columns of short entries such as names, places and roles, comes through as a Word table (a cell in it that wraps onto further lines may stay in its row or come through as a row or a line of its own, and in the table's first column the wrap ends the table), so it suits documents where the words matter more than the look.",
     "Turn PDF text and pictures into editable Word (DOCX) in reading order and Office fonts.",
   ];
   /**

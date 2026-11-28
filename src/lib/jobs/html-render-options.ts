@@ -64,7 +64,8 @@ export const HTML_MARGINS: readonly {
 ];
 
 /** The screen the page is laid out for. `auto` = the paper's own width. */
-export type HtmlViewport = "auto" | "desktop" | "tablet" | "phone";
+export type HtmlViewport =
+  "auto" | "fullhd" | "wide" | "desktop" | "tablet" | "phone";
 export const HTML_VIEWPORTS: readonly {
   id: HtmlViewport;
   label: string;
@@ -74,6 +75,10 @@ export const HTML_VIEWPORTS: readonly {
   height: number | null;
 }[] = [
   { id: "auto", label: "Paper width", width: null, height: null },
+  // Audit wave 2, webpage-to-pdf#5: the two most common large screens.
+  // An image built before them refuses either with a field error (`oneOf`).
+  { id: "fullhd", label: "Full HD (1920 px)", width: 1920, height: 1080 },
+  { id: "wide", label: "Large desktop (1440 px)", width: 1440, height: 900 },
   { id: "desktop", label: "Desktop (1280 px)", width: 1280, height: 800 },
   { id: "tablet", label: "Tablet (768 px)", width: 768, height: 1024 },
   { id: "phone", label: "Phone (390 px)", width: 390, height: 844 },
@@ -102,6 +107,21 @@ export const DEFAULT_HTML_RENDER_OPTIONS: HtmlRenderOptions = {
   viewport: "auto",
   onePage: false,
 };
+
+/**
+ * The Screen width each panel STARTS on (audit wave 2, webpage-to-pdf#5).
+ * A website is drawn for a screen, and most sites with no print stylesheet
+ * switch to their tablet or phone layout below 768 px, which "Paper width"
+ * (about 739 px on Letter) falls under; so Webpage to PDF starts on Desktop.
+ * An HTML file is often written for paper, so HTML to PDF keeps Paper width.
+ *
+ * The job API's default ({@link DEFAULT_HTML_RENDER_OPTIONS}, what a request
+ * that names no width gets) stays "auto": the panel SENDS "desktop", so an
+ * image of any age draws the layout the panel says.
+ */
+export const HTML_START_VIEWPORT: Readonly<
+  Record<"file" | "site", HtmlViewport>
+> = { file: "auto", site: "desktop" };
 
 /** True when `options` asks for nothing beyond the job as it always ran. */
 export function isDefaultHtmlRenderOptions(

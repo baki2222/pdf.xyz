@@ -45,12 +45,34 @@ export interface LibreOfficePdfRunner {
   convertToPdf(
     input: Uint8Array,
     filename: string,
-    run?: RunControl,
+    run?: OfficeRunControl,
     /** Excel to PDF's page layout; absent is LibreOffice's plain export. */
     layout?: SheetLayout,
     /** A .csv's delimiter and character set (`./csv-import`); absent is Auto. */
     csv?: CsvImportChoice,
   ): Promise<Uint8Array>;
+  /**
+   * Save a .csv, .xls or .ods as .xlsx, so Excel to PDF can write its page
+   * setup (audit wave 2 excel-to-pdf#1). Absent on a runner built before
+   * it, and the engine then refuses page setup on such a file, as before.
+   */
+  convertToXlsx?(
+    input: Uint8Array,
+    filename: string,
+    run?: OfficeRunControl,
+    csv?: CsvImportChoice,
+  ): Promise<Uint8Array>;
+}
+
+/**
+ * A run's controls, plus the time limit it SHARES with the job's other
+ * soffice starts (review of excel-to-pdf#1, 2026-11-28). The via-.xlsx path
+ * starts soffice twice; both carry the same `timeLimit` object, the runner
+ * stamps the first start's time on it, and every start gets only what is
+ * left of the one limit, so the job never runs past it.
+ */
+export interface OfficeRunControl extends RunControl {
+  timeLimit?: { startedAt?: number };
 }
 
 export interface OfficeConversionDeps {
@@ -216,9 +238,6 @@ export async function runOfficeToPdf(
     kind: "unreadable",
     message: `This ${words.noun} could not be converted. ${resaveAdvice(tool, extensionOf(filename))}`,
   };
-  // Orientation and fit-to-width are written into the workbook's own page
-  // setup before LibreOffice opens it (`./xlsx-page-setup`, loaded only
-  // here). Refused, never ignored, on a file that rewrite cannot reach.
   // A delimiter or character set is a .csv's alone. Refused, never ignored,
   // on any other file, before anything is rewritten or converted.
   const csvChosen = tool === EXCEL_TO_PDF_TOOL && choosesCsvImport(csv);
@@ -228,53 +247,78 @@ export async function runOfficeToPdf(
       kind: "invalid_input",
       message: CSV_IMPORT_CSV_ONLY_MESSAGE,
     };
-  let source = input;
-  if (tool === EXCEL_TO_PDF_TOOL && layout && needsPageSetup(layout)) {
-    if (!acceptsPageSetup(filename))
-      return {
-        ok: false,
-        kind: "invalid_input",
-        message: `${ORIENTATION_LABEL} and ${FIT_COLUMNS_TO_WIDTH_LABEL} work on .xlsx files only, so this file was not converted. Convert it without them.`,
-      };
-    const { applyXlsxPageSetup } = await import("./xlsx-page-setup");
-    const applied = await applyXlsxPageSetup(input, {
-      orientation: layout.orientation,
-      fitColumnsToWidth: layout.fitColumnsToWidth,
-    });
-    if (!applied.ok)
-      return {
-        ok: false,
-        kind: "unreadable",
-        message: `This workbook's page setup could not be changed, so it was not converted. Convert it without ${ORIENTATION_LABEL} and ${FIT_COLUMNS_TO_WIDTH_LABEL}, or open it in Excel, save it again as .xlsx, and retry.`,
-      };
-    source = applied.bytes;
-  }
+  const pageSetup =
+    tool === EXCEL_TO_PDF_TOOL && layout && needsPageSetup(layout)
+      ? layout
+      : null;
+  // Audit wave 2 excel-to-pdf#1: a .csv, .xls or .ods is saved as .xlsx by
+  // LibreOffice first, and that .xlsx is rewritten and converted. A runner
+  // without that step (built before it) refuses, as every file but .xlsx
+  // was refused until then.
+  const viaXlsx = pageSetup !== null && !acceptsPageSetup(filename);
+  const libreoffice = deps.libreoffice;
+  if (
+    viaXlsx &&
+    !(acceptsPageSetup(filename, true) && libreoffice.convertToXlsx)
+  )
+    return {
+      ok: false,
+      kind: "invalid_input",
+      message: `${ORIENTATION_LABEL} and ${FIT_COLUMNS_TO_WIDTH_LABEL} work on .xlsx files only, so this file was not converted. Convert it without them.`,
+    };
   let output: Uint8Array;
   try {
+    let source = input;
+    let name = filename;
+    let csvForPdf = csvChosen;
+    // The two starts of the via-.xlsx path share one time limit.
+    const run: OfficeRunControl = viaXlsx
+      ? { ...signalOption(signal), timeLimit: {} }
+      : signalOption(signal);
+    if (pageSetup) {
+      if (viaXlsx) {
+        // A .csv's choices are read HERE, where the CSV is opened; the
+        // .xlsx it becomes needs none.
+        source = await libreoffice.convertToXlsx!(
+          input,
+          filename,
+          run,
+          csvChosen ? csv : undefined,
+        );
+        name = `${filename.slice(0, filename.lastIndexOf("."))}.xlsx`;
+        csvForPdf = false;
+      }
+      // Orientation and fit-to-width are written into the workbook's own
+      // page setup before LibreOffice opens it (`./xlsx-page-setup`,
+      // loaded only here).
+      const { applyXlsxPageSetup } = await import("./xlsx-page-setup");
+      const applied = await applyXlsxPageSetup(source, {
+        orientation: pageSetup.orientation,
+        fitColumnsToWidth: pageSetup.fitColumnsToWidth,
+      });
+      if (!applied.ok)
+        return {
+          ok: false,
+          kind: "unreadable",
+          message: `This workbook's page setup could not be changed, so it was not converted. Convert it without ${ORIENTATION_LABEL} and ${FIT_COLUMNS_TO_WIDTH_LABEL}, or open it in Excel, save it again as .xlsx, and retry.`,
+        };
+      source = applied.bytes;
+    }
     // The layout and the CSV choices go to LibreOffice only for a
     // spreadsheet that asked for more than the default, so every other run
     // is called exactly as before.
     const onePage = tool === EXCEL_TO_PDF_TOOL && layout?.onePagePerSheet;
-    output = csvChosen
-      ? await deps.libreoffice.convertToPdf(
+    output = csvForPdf
+      ? await libreoffice.convertToPdf(
           source,
-          filename,
-          signalOption(signal),
+          name,
+          run,
           onePage ? layout : undefined,
           csv,
         )
       : onePage
-        ? await deps.libreoffice.convertToPdf(
-            source,
-            filename,
-            signalOption(signal),
-            layout,
-          )
-        : await deps.libreoffice.convertToPdf(
-            source,
-            filename,
-            signalOption(signal),
-          );
+        ? await libreoffice.convertToPdf(source, name, run, layout)
+        : await libreoffice.convertToPdf(source, name, run);
   } catch (error) {
     rethrowIfAttemptAbort(error);
     if (!(error instanceof LibreOfficeRunError))

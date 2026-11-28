@@ -129,7 +129,11 @@ export function officeInputName(filename: string): string {
  * a name ending in a dot; no supported upload has one, and the runner no
  * longer depends on that.
  */
-export function officeOutputName(inputName: string): string {
+export function officeOutputName(
+  inputName: string,
+  /** `--convert-to`'s format: "pdf", or "xlsx" for the page-setup step. */
+  ext: "pdf" | "xlsx" = "pdf",
+): string {
   const dot = inputName.lastIndexOf(".");
-  return `${dot > 0 ? inputName.slice(0, dot) : inputName}.pdf`;
+  return `${dot > 0 ? inputName.slice(0, dot) : inputName}.${ext}`;
 }

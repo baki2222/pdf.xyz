@@ -22,9 +22,10 @@
  * pages as it takes". The first run printed Letter, not A4, because a new
  * `<pageSetup>` without a paperSize means Letter; see A4_PAPER_SIZE.
  *
- * .xlsx only. An .xls, .ods or .csv keeps its own page setup; the panel
- * shows the controls only for an .xlsx, and the engine refuses the options
- * on anything else rather than ignore them.
+ * .xlsx only, as input. Since 2026-11-28 (audit wave 2 excel-to-pdf#1) an
+ * .xls, .ods or .csv is first saved as .xlsx by LibreOffice
+ * (`convertToXlsx` in `./native`) and that .xlsx comes here; a runner
+ * without that step refuses the options rather than ignore them.
  *
  * The package is opened with the BOUNDED reader EPUB to PDF uses
  * (`../epub/zip`): its directory is judged before anything is inflated, and

@@ -1004,20 +1004,28 @@ export async function wrappedCellTablePdf(
 /**
  * Review round 2 (2026-11-15): a four-row table of words — Name / City /
  * Role — at x = 72, 220 and 380. `figures` adds a fourth column of
- * quantities at 500, which makes it a Word table; without it the table has
- * no column of figures and stays tabbed rows (`wordTableDoubt` "numbers").
+ * quantities at 500, which makes it a Word table. Without it the table has
+ * no column of figures: until 2026-11-28 it then stayed tabbed rows
+ * (`wordTableDoubt` "numbers"); since audit wave 2 pdf-to-word#2 its four
+ * rows of short entries make it a Word table too (`isTextTable`), and only
+ * `rows` = 3 (the header and two rows) stays tabbed.
  */
-export async function wordsOnlyTablePdf(figures: boolean): Promise<Uint8Array> {
-  const rows = [
+export async function wordsOnlyTablePdf(
+  figures: boolean,
+  rows: 3 | 4 = 4,
+): Promise<Uint8Array> {
+  const table = [
     ["Name", "City", "Role", "Staff"],
     ["Ada", "London", "Engineer", "12"],
     ["Grace", "Arlington", "Admiral", "30"],
     ["Jamal", "Dhaka", "Physicist", "18"],
-  ].map((r) => (figures ? r : r.slice(0, 3)));
+  ]
+    .slice(0, rows)
+    .map((r) => (figures ? r : r.slice(0, 3)));
   const doc = await PDFDocument.create();
-  const font = await embedDrawingFont(doc, rows.flat());
+  const font = await embedDrawingFont(doc, table.flat());
   const page = doc.addPage([612, 792]);
-  rows.forEach((row, r) =>
+  table.forEach((row, r) =>
     row.forEach((cell, c) =>
       page.drawText(cell, {
         x: [72, 220, 380, 500][c]!,

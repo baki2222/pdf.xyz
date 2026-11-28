@@ -9,7 +9,10 @@ import {
 } from "@/lib/workers/office-conversion/engine";
 import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conversion/native-config";
 import { officePdfOutputName } from "@/lib/workers/processor/office-conversion";
-import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
+import {
+  COMBINE_PDFS_LABEL,
+  workerBatchPageSentence,
+} from "@/lib/batch/worker-copy";
 
 /**
  * The deck ceiling: the smaller of what `/api/uploads` accepts and what the
@@ -123,7 +126,7 @@ const content: ToolContent = {
     },
     {
       title: "Build one handout from several decks",
-      body: "Add every deck at once and they convert in turn, as a batch, one presentation per job; then combine the resulting PDFs with Merge PDF to hand out a single file for a whole workshop.",
+      body: `Add every deck at once and they convert in turn, as a batch, one presentation per job. Tick ${COMBINE_PDFS_LABEL} before you start, and when the batch ends you can download all of them as one PDF, in the order you added them, to hand out a single file for a whole workshop.`,
     },
   ],
 

@@ -56,9 +56,12 @@ import { provesTranslateReadingOrder } from "@/lib/workers/translate/reading-ord
 import { provesTranslatePageMap } from "@/lib/workers/translate/page-map-capability";
 import { provesTranslatePageRange } from "@/lib/workers/translate/page-range-capability";
 import { provesCsvImportOptions } from "@/lib/workers/office-conversion/csv-capability";
+import { provesSheetPageSetupAnyFormat } from "@/lib/workers/office-conversion/sheet-setup-capability";
 import { provesOcrOwnerPassword } from "@/lib/workers/ocr-owner-capability";
 import { provesRequestSignatureLabels } from "@/lib/workers/request-signatures/labels-capability";
 import { provesHtmlZip } from "@/lib/workers/html-render/zip-capability";
+import { provesHtmlAdBlock } from "@/lib/workers/html-render/ads-capability";
+import { provesPdfaUnicodeDocInfo } from "@/lib/workers/pdf-archive/docinfo-capability";
 import { provesChatRetrieval } from "@/lib/workers/chat-with-pdf/retrieval-capability";
 import { provesSummarizePages } from "@/lib/workers/summarize/pages-capability";
 import { translatePdfLanguages } from "@/lib/workers/translate/pdf-capability";
@@ -68,6 +71,7 @@ import {
   provesDocxRunStyles,
   provesDocxTables,
   provesDocxTableWraps,
+  provesDocxTextTables,
   provesDocxTypefaces,
   provesPptxPictures,
   provesPptxPresentationChain,
@@ -206,6 +210,29 @@ export const PROVED_CAPABILITIES = defineProvers({
   // so it runs in-process and needs no native tool.
   requestSignatureLabels: {
     prove: (env) => provesRequestSignatureLabels(env),
+    parse: bool,
+  },
+  // Audit wave 2 webpage-to-pdf#1: "Hide common ads" reaches the renderer
+  // through the daemon's own registry, and the renderer's request test and
+  // slot script cover the in-house lists. A stub Chromium; pure, in-process.
+  htmlAdBlock: { prove: () => provesHtmlAdBlock(), parse: bool },
+  // Audit wave 2 pdf-to-pdfa#3: one real PDF/A job with this image's own
+  // Ghostscript, its Info and XMP read back for a bracket and accents.
+  pdfaUnicodeDocInfo: {
+    prove: (env) => provesPdfaUnicodeDocInfo(env),
+    parse: bool,
+  },
+  // Audit wave 2 pdf-to-word#2: the text-tables probe (a staff list with no
+  // figures, a numbered list under it) through the executor on the image's
+  // own extractor and page reader.
+  docxTextTables: {
+    prove: (env) => provesDocxTextTables(pdfOfficeExportDeps(env)),
+    parse: bool,
+  },
+  // Audit wave 2 excel-to-pdf#1: a .csv and an .ods with page setup through
+  // the executor on the daemon's registry and the image's own runner.
+  sheetPageSetupAnyFormat: {
+    prove: (env) => provesSheetPageSetupAnyFormat(env),
     parse: bool,
   },
 });

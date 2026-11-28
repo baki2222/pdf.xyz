@@ -195,6 +195,9 @@ const WorkerBatch = dynamic(
   },
 );
 
+/** PowerPoint to PDF's joined batch download (audit powerpoint-to-pdf#1). */
+const COMBINED_DECKS_NAME = "pdfxyz-presentations.pdf";
+
 function OfficeRunArea({
   tool,
   catalogTool,
@@ -222,6 +225,17 @@ function OfficeRunArea({
     tool === "excel-to-pdf" && status?.csvImportOptions === true;
   const csv = csvOffered ? { delimiter, charset } : undefined;
   const onePagePerSheet = checked[ONE_PAGE_PER_SHEET_OPTION] === true;
+  // Orientation and fit for a .csv, .xls or .ods (audit wave 2
+  // excel-to-pdf#1): offered only while the live worker proves
+  // `sheetPageSetupAnyFormat`; an older image refuses them on any file but
+  // .xlsx, and the panel then shows the .xlsx-only note instead.
+  const pageSetupAnyFormat = status?.sheetPageSetupAnyFormat === true;
+  // Page setup does nothing beside one page per sheet, and is sent only
+  // for a file the live worker can apply it to (`sheet-layout.ts`).
+  const pageSetupShown = !onePagePerSheet;
+  const pageSetupFits =
+    !file || acceptsPageSetup(file.name, pageSetupAnyFormat);
+  const pageSetupSent = pageSetupShown && pageSetupFits;
   const job = useWorkerJob<OfficeConversionWorkerResult>({
     tool: tool,
     resume: (id, controls) =>
@@ -245,10 +259,12 @@ function OfficeRunArea({
           bytes: new Uint8Array(await file.arrayBuffer()),
           layout: {
             onePagePerSheet,
-            orientation,
-            fitColumnsToWidth: checked[FIT_COLUMNS_TO_WIDTH_OPTION] === true,
+            orientation: pageSetupSent ? orientation : null,
+            fitColumnsToWidth:
+              pageSetupSent && checked[FIT_COLUMNS_TO_WIDTH_OPTION] === true,
           },
           csv: csvOffered ? { delimiter, charset } : undefined,
+          pageSetupAnyFormat,
         },
         controls,
       );
@@ -261,6 +277,8 @@ function OfficeRunArea({
     available,
     onePagePerSheet,
     orientation,
+    pageSetupSent,
+    pageSetupAnyFormat,
     checked,
     delimiter,
     charset,
@@ -268,10 +286,6 @@ function OfficeRunArea({
   ]);
 
   const orientationId = `${layoutId}-orientation`;
-  // Page setup does nothing beside one page per sheet, and the worker can
-  // rewrite it only in an .xlsx (`sheet-layout.ts`).
-  const pageSetupShown = !onePagePerSheet;
-  const pageSetupFits = !file || acceptsPageSetup(file.name);
 
   const layoutOptions =
     tool === "excel-to-pdf" &&
@@ -433,10 +447,17 @@ function OfficeRunArea({
                     checked[FIT_COLUMNS_TO_WIDTH_OPTION] === true,
                 },
                 csv,
+                // Each row is judged by its own name against what the live
+                // worker proves, as a single file is (office-conversion-
+                // client.ts `officeJobOptions`).
+                pageSetupAnyFormat,
               },
               controls,
             )
           }
+          {...(tool === "powerpoint-to-pdf"
+            ? { combine: { fileName: COMBINED_DECKS_NAME } }
+            : {})}
           settings={
             tool === "excel-to-pdf" ? (
               <>

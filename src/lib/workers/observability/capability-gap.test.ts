@@ -193,6 +193,10 @@ describe("the 2026-08-12 worker, as it actually was", () => {
         csvImportOptions: true,
         ocrOwnerPassword: true,
         requestSignatureLabels: true,
+        pdfaUnicodeDocInfo: true,
+        docxTextTables: true,
+        sheetPageSetupAnyFormat: true,
+        htmlAdBlock: true,
       },
     });
     const row = collectWebOperationsSnapshot(DRAINABLE_ENV, {
@@ -318,6 +322,10 @@ describe("the build fingerprint reaches the operator, or says it could not", () 
           csvImportOptions: chunked,
           ocrOwnerPassword: chunked,
           requestSignatureLabels: chunked,
+          pdfaUnicodeDocInfo: chunked,
+          docxTextTables: chunked,
+          sheetPageSetupAnyFormat: chunked,
+          htmlAdBlock: chunked,
           chatRetrieval: chunked,
           summarizePages: chunked,
         },

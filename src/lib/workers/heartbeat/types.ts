@@ -529,6 +529,68 @@ export interface HeartbeatCapabilities {
    * `false`.
    */
   readonly requestSignatureLabels: boolean;
+  /**
+   * This image's Webpage to PDF honours "Hide common ads" (`hideAds`,
+   * audit wave 2 webpage-to-pdf#1): requests to the in-house ad hosts are
+   * refused and the slot markup is hidden. An older image IGNORES the key
+   * (the capture parser leaves unknown keys alone) and prints every ad, so
+   * the panel offers the box only while a fresh beat carries this.
+   *
+   * PROVEN AT START-UP (`html-render/ads-capability.ts`,
+   * `provesHtmlAdBlock`): a webpage job through the daemon's own registry
+   * reaches the renderer with the option exactly when asked, and the
+   * renderer's own request test and slot script cover the lists. Chromium
+   * is a stub there; `ads.chromium.test.ts` proves the printed PDF. The
+   * absence parses as `false`.
+   */
+  readonly htmlAdBlock: boolean;
+  /**
+   * This image's PDF to PDF/A carries a Title, Author, Subject or Keywords
+   * that Ghostscript 10.00.0 drops — a round bracket, a backslash, an accent,
+   * another script — into the copy's Info dictionary AND its XMP packet,
+   * written after Ghostscript (audit wave 2 pdf-to-pdfa#3,
+   * `pdf-archive/docinfo-xmp.ts`). An older image carries plain ASCII only.
+   *
+   * PROVEN AT START-UP (`pdf-archive/docinfo-capability.ts`,
+   * `provesPdfaUnicodeDocInfo`): one real job through the executor's order
+   * on `nativePdfArchiveDeps(env)` — this image's real Ghostscript — read
+   * back with pdf-lib and as XMP text; true only when all four fields hold
+   * the exact strings in both. The panel's notes state the wider rule only
+   * while a fresh beat carries this. The absence parses as `false`.
+   */
+  readonly pdfaUnicodeDocInfo: boolean;
+  /**
+   * This image's PDF to Word writes a table with NO column of figures — a
+   * staff list of names, cities and roles (three columns or more) — as a
+   * Word table when it is clearly a table of short entries (audit wave 2
+   * pdf-to-word#2, `pdf-text/table-grid.ts` `isTextTable`: at least four
+   * rows and three columns, every cell short, an entry in every row's first column, no column
+   * of list numbering). An older image writes such a table as tabbed rows.
+   *
+   * PROVEN AT START-UP (`pdf-office-export/capability.ts`,
+   * `provesDocxTextTables`): the text-tables probe PDF through the
+   * executor's order on `pdfOfficeExportDeps(env)`, read back by
+   * `docx-structure`; true only when the .docx holds exactly one Word table
+   * of the probe's rows and columns, each cell the page's text, and the
+   * numbered list below it outside any table. The absence parses as
+   * `false`.
+   */
+  readonly docxTextTables: boolean;
+  /**
+   * This image's Excel to PDF applies Orientation and "Fit all columns on
+   * the page width" to a .csv, .xls or .ods by saving it as .xlsx with
+   * LibreOffice first (audit wave 2 excel-to-pdf#1). An older image refuses
+   * those options on any file but .xlsx.
+   *
+   * PROVEN AT START-UP (`office-conversion/sheet-setup-capability.ts`,
+   * `provesSheetPageSetupAnyFormat`): a .csv and an .ods through the
+   * executor's order on the daemon's registry and the image's own runner
+   * (soffice a recording stand-in): two starts, the second on an .xlsx
+   * carrying the page setup; the control with no options one start. The
+   * panel offers the controls for those files only while a fresh beat
+   * carries this. The absence parses as `false`.
+   */
+  readonly sheetPageSetupAnyFormat: boolean;
 }
 
 /**

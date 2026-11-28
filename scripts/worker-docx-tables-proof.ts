@@ -59,7 +59,11 @@
  *  9. a subheading, a note and a description-only row set BETWEEN two rows
  *     in a poppler block of their own (S17, review 2026-11-16) must each
  *     come out as {@link EXPECTED.interrupts}: the Word tables kept apart,
- *     nothing absorbed, and the line in no table cell.
+ *     nothing absorbed, and the line in no table cell;
+ * 10. `provesDocxTextTables` on the same deps — the heartbeat's
+ *     `docxTextTables` (audit wave 2 pdf-to-word#2): a staff list with no
+ *     column of figures is one Word table on the image's poppler, and the
+ *     numbered list under it is in none — must be true.
  *
  * Exit codes: 0 = proven; 1 = a check failed; 2 = an engine is not
  * available in this image. Run by `.github/workflows/container.yml`; no
@@ -71,6 +75,7 @@ import {
   docxTablesProbePdf,
   provesDocxTables,
   provesDocxTableWraps,
+  provesDocxTextTables,
   provesDocxTypefaces,
 } from "@/lib/workers/pdf-office-export/capability";
 import { readDocxStructure } from "@/lib/workers/pdf-office-export/docx-structure";
@@ -325,6 +330,10 @@ async function main(): Promise<number> {
     );
     ok &&= same(got.rows, want.rows) && flow.wrapLines === 0 && !inCell;
   }
+  // 10. The heartbeat's docxTextTables (pdf-to-word#2), on the image's deps.
+  const textTables = await provesDocxTextTables(deps);
+  console.log(`provesDocxTextTables: ${textTables}`);
+  ok &&= textTables;
   console.log(ok ? "PROVEN" : "FAIL");
   return ok ? 0 : 1;
 }

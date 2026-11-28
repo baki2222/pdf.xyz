@@ -3,7 +3,10 @@ import {
   createOfficeConversionProcessor,
   officePdfOutputName,
 } from "./office-conversion";
-import { createNativeLibreOfficePdfRunner } from "../office-conversion/native";
+import {
+  createNativeLibreOfficePdfRunner,
+  XLSX_CONVERT_TARGET,
+} from "../office-conversion/native";
 import type { NativeOfficeConversionConfig } from "../office-conversion/native-config";
 import { readFileSync } from "node:fs";
 import JSZip from "jszip";
@@ -12,6 +15,10 @@ const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
 );
 const DOCX = new TextEncoder().encode("docx");
+/** The OLE2 compound-file signature every legacy .xls starts with. */
+const XLS_MAGIC = new Uint8Array([
+  0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0, 0, 0, 0,
+]);
 
 describe("office-conversion processor", () => {
   it("owns Word/Excel/PowerPoint to PDF and reports readiness", () => {
@@ -590,11 +597,178 @@ describe("excel-to-pdf orientation and fit-to-width reach the workbook soffice o
     expect(sheet).toBe(SHEET);
   });
 
-  it("refused before soffice on a file its rewrite cannot reach", async () => {
-    const { result, argv } = await run("excel-to-pdf", "towns.csv", {
-      fitColumnsToWidth: true,
+  // INVERTED 2026-11-28 (audit wave 2 excel-to-pdf#1). Until then a .csv
+  // (and an .xls or .ods) with fit or orientation was "refused before
+  // soffice on a file its rewrite cannot reach": no soffice start, and the
+  // message "work on .xlsx files only". Each is now converted to .xlsx by
+  // soffice first, rewritten, and converted from that .xlsx to PDF.
+  for (const [name, bytesOf] of [
+    ["towns.csv", async () => new TextEncoder().encode("a;b\n1;2\n")],
+    ["towns.ods", async () => odsBytes()],
+    ["towns.xls", async () => XLS_MAGIC],
+  ] as const)
+    it(`${name}: soffice makes an .xlsx first, and the PDF is made from that .xlsx with the page setup written`, async () => {
+      const { result, calls, written } = await runVia(name, await bytesOf(), {
+        orientation: "landscape",
+        fitColumnsToWidth: true,
+      });
+      expect(result.ok).toBe(true);
+      expect(calls).toHaveLength(2);
+      const [first, second] = calls as [string[], string[]];
+      expect(first[first.indexOf("--convert-to") + 1]).toBe(
+        XLSX_CONVERT_TARGET,
+      );
+      expect(first.at(-1)).toMatch(new RegExp(`towns\\.${name.slice(-3)}$`));
+      // A .csv's import filter goes to the first start only.
+      expect(first.some((a) => a.startsWith("--infilter="))).toBe(
+        name.endsWith(".csv"),
+      );
+      expect(second[second.indexOf("--convert-to") + 1]).toBe("pdf");
+      expect(second.some((a) => a.startsWith("--infilter="))).toBe(false);
+      expect(second.at(-1)).toMatch(/towns\.xlsx$/);
+      const sheet = await (
+        await JSZip.loadAsync(written[1]!)
+      )
+        .file("xl/worksheets/sheet1.xml")
+        ?.async("string");
+      expect(sheet).toContain(
+        '<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>',
+      );
     });
-    expect(argv).toBeNull();
+
+  it("CONTROL: the same .csv with no page setup is ONE soffice start, straight to PDF", async () => {
+    const { result, calls } = await runVia(
+      "towns.csv",
+      new TextEncoder().encode("a;b\n1;2\n"),
+      {},
+    );
+    expect(result.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![calls[0]!.indexOf("--convert-to") + 1]).toBe("pdf");
+  });
+
+  // Review of excel-to-pdf#1 (2026-11-28): a mutant that dropped the CSV
+  // choices on the way to the .xlsx step (convertToXlsx's last argument)
+  // left every test green, so a reader who chose a delimiter or character
+  // set AND page setup silently got auto-detect. The filter the .xlsx step
+  // opens the CSV with must be the one a run without page setup uses.
+  it("a .csv's delimiter and character set reach the .xlsx step: the same filter a run without page setup uses", async () => {
+    const bytes = new TextEncoder().encode("a,b\n1,2\n");
+    const choices = { csvDelimiter: "pipe", csvCharset: "windows-1251" };
+    const setup = { orientation: "landscape", fitColumnsToWidth: true };
+    const via = await runVia("towns.csv", bytes, { ...choices, ...setup });
+    const direct = await runVia("towns.csv", bytes, choices);
+    const auto = await runVia("towns.csv", bytes, setup);
+    const filterOf = (args: readonly string[] | undefined) =>
+      args?.find((x) => x.startsWith("--infilter="));
+    expect(via.result.ok).toBe(true);
+    expect(via.calls).toHaveLength(2);
+    expect(direct.calls).toHaveLength(1);
+    expect(filterOf(direct.calls[0])).toBeDefined();
+    expect(filterOf(via.calls[0])).toBe(filterOf(direct.calls[0]));
+    // CONTROL: on auto the .xlsx step's filter differs, so the comparison
+    // above can see a choice that went missing.
+    expect(filterOf(auto.calls[0])).not.toBe(filterOf(direct.calls[0]));
+  });
+
+  // Review of excel-to-pdf#1 (2026-11-28): the via-.xlsx path started
+  // soffice twice, each with the whole time limit, so a .csv, .xls or .ods
+  // with page setup could run for twice the "120 seconds by default" the
+  // page states. The two starts now share ONE limit. Timed on a fake clock
+  // the stand-in soffice advances; no real time passes.
+  describe("the two soffice starts share one time limit", () => {
+    async function timed(spendMs: number) {
+      let clock = 1_000_000;
+      const timeouts: number[] = [];
+      const exec = vi.fn(
+        async (
+          _bin: string,
+          _args: readonly string[],
+          options: { timeout: number },
+        ) => {
+          timeouts.push(options.timeout);
+          clock += spendMs;
+          return { code: 0, timedOut: false };
+        },
+      );
+      const book = await workbook();
+      const libreoffice = createNativeLibreOfficePdfRunner(
+        {
+          enabled: true,
+          candidates: ["soffice"],
+          overridden: false,
+          timeoutMs: 120_000,
+          maxInputBytes: 1_000_000,
+          maxOutputBytes: 1_000_000,
+          tmpDir: "/tmp",
+        },
+        {
+          exec,
+          now: () => clock,
+          resolveOnPath: (bin) => bin === "soffice",
+          fs: {
+            mkdtemp: async () => "/tmp/pdfxyz-office-1",
+            writeFile: async () => {},
+            readFile: async (file) => (/\.xlsx$/.test(file) ? book : PDF),
+            rm: async () => {},
+          },
+        },
+      );
+      const result = await createOfficeConversionProcessor({
+        libreoffice,
+      }).process({
+        tool: "excel-to-pdf",
+        options: { orientation: "landscape", fitColumnsToWidth: true },
+        inputs: [
+          {
+            fileId: "f",
+            filename: "towns.csv",
+            contentType: "text/csv",
+            bytes: new TextEncoder().encode("a,b\n1,2\n"),
+          },
+        ],
+      });
+      return { result, timeouts };
+    }
+
+    it("the second start gets what the first left of the limit", async () => {
+      const { result, timeouts } = await timed(80_000);
+      expect(result.ok).toBe(true);
+      expect(timeouts).toEqual([120_000, 40_000]);
+    });
+
+    it("a first start that spent the whole limit ends the job as a timeout, with no second start", async () => {
+      const { result, timeouts } = await timed(120_000);
+      expect(timeouts).toEqual([120_000]);
+      expect(result.ok).toBe(false);
+      if (!result.ok)
+        expect(result.error.message).toMatch(/time limit|took too long/i);
+    });
+
+    it("CONTROL: two starts that spend no time each get the whole limit", async () => {
+      const { result, timeouts } = await timed(0);
+      expect(result.ok).toBe(true);
+      expect(timeouts).toEqual([120_000, 120_000]);
+    });
+  });
+
+  it("a runner with no .xlsx step (an older one) still refuses, before soffice", async () => {
+    const convertToPdf = vi.fn(async () => PDF);
+    const result = await createOfficeConversionProcessor({
+      libreoffice: { convertToPdf },
+    }).process({
+      tool: "excel-to-pdf",
+      options: { fitColumnsToWidth: true },
+      inputs: [
+        {
+          fileId: "f",
+          filename: "towns.csv",
+          contentType: "text/csv",
+          bytes: new TextEncoder().encode("a,b\n1,2\n"),
+        },
+      ],
+    });
+    expect(convertToPdf).not.toHaveBeenCalled();
     expect(result.ok).toBe(false);
     if (!result.ok)
       expect(result.error).toMatchObject({
@@ -603,6 +777,62 @@ describe("excel-to-pdf orientation and fit-to-width reach the workbook soffice o
         message: expect.stringContaining("work on .xlsx files only"),
       });
   });
+
+  /** An .ods the content check accepts: a ZIP whose first entry is its type. */
+  async function odsBytes(): Promise<Uint8Array> {
+    const zip = new JSZip();
+    zip.file("mimetype", "application/vnd.oasis.opendocument.spreadsheet", {
+      compression: "STORE",
+    });
+    zip.file("content.xml", "<office:document-content/>");
+    return zip.generateAsync({ type: "uint8array" });
+  }
+
+  /** The native runner, exec and fs stubbed: an .xlsx out for `xlsx`, a PDF for `pdf`. */
+  async function runVia(
+    filename: string,
+    bytes: Uint8Array,
+    options: Record<string, unknown>,
+  ) {
+    const written: Uint8Array[] = [];
+    const calls: string[][] = [];
+    const exec = vi.fn(async (_bin: string, args: readonly string[]) => {
+      calls.push([...args]);
+      return { code: 0, timedOut: false };
+    });
+    const book = await workbook();
+    const libreoffice = createNativeLibreOfficePdfRunner(
+      {
+        enabled: true,
+        candidates: ["soffice"],
+        overridden: false,
+        timeoutMs: 120_000,
+        maxInputBytes: 1_000_000,
+        maxOutputBytes: 1_000_000,
+        tmpDir: "/tmp",
+      },
+      {
+        exec,
+        resolveOnPath: (bin) => bin === "soffice",
+        fs: {
+          mkdtemp: async () => "/tmp/pdfxyz-office-1",
+          writeFile: async (_file, data) => {
+            written.push(data);
+          },
+          readFile: async (file) => (/\.xlsx$/.test(file) ? book : PDF),
+          rm: async () => {},
+        },
+      },
+    );
+    const result = await createOfficeConversionProcessor({
+      libreoffice,
+    }).process({
+      tool: "excel-to-pdf",
+      options,
+      inputs: [{ fileId: "f", filename, contentType: "x", bytes }],
+    });
+    return { result, calls, written };
+  }
 
   it("refuses one page per sheet combined with page setup", async () => {
     const { result, argv } = await run("excel-to-pdf", "wide.xlsx", {

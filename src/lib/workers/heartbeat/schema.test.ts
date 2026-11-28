@@ -44,6 +44,10 @@ const CAPS: HeartbeatCapabilities = {
   csvImportOptions: true,
   ocrOwnerPassword: true,
   requestSignatureLabels: true,
+  pdfaUnicodeDocInfo: true,
+  docxTextTables: true,
+  sheetPageSetupAnyFormat: true,
+  htmlAdBlock: true,
 };
 
 describe("coarseRelease", () => {
@@ -122,6 +126,10 @@ describe("buildHeartbeat / serialize / parse", () => {
       csvImportOptions: false,
       ocrOwnerPassword: false,
       requestSignatureLabels: false,
+      pdfaUnicodeDocInfo: false,
+      docxTextTables: false,
+      sheetPageSetupAnyFormat: false,
+      htmlAdBlock: false,
     });
     expect(JSON.stringify(hb)).not.toContain("evil.example.com");
     expect(JSON.stringify(hb)).not.toContain("secretEndpoint");
@@ -284,6 +292,10 @@ describe("buildHeartbeat / serialize / parse", () => {
         csvImportOptions: false,
         ocrOwnerPassword: false,
         requestSignatureLabels: false,
+        pdfaUnicodeDocInfo: false,
+        docxTextTables: false,
+        sheetPageSetupAnyFormat: false,
+        htmlAdBlock: false,
       },
       at: 1234,
     });

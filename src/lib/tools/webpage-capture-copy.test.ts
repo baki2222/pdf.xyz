@@ -24,8 +24,15 @@ import {
   WEBPAGE_CAPTURE_GROUP_LABEL,
 } from "@/lib/jobs/webpage-capture-options";
 import { CONSENT_MANAGERS } from "@/lib/workers/html-render/overlays";
+import {
+  AD_COMPANIES,
+  AD_EXAMPLE_COMPANIES,
+} from "@/lib/workers/html-render/ads";
 import { toolContent } from "./content";
 import { getGuideBySlug } from "@/lib/guides";
+
+const list = (items: readonly string[]) =>
+  new Intl.ListFormat("en", { type: "conjunction" }).format(items);
 
 /**
  * The Capture sentences are built from the lists the panel draws and the
@@ -49,8 +56,28 @@ describe("Webpage to PDF capture copy", () => {
     expect(WEBPAGE_OVERLAY_ANSWER).toContain(
       `under ${WEBPAGE_CAPTURE_GROUP_LABEL}`,
     );
-    // Ads are named as NOT removed — the option does not block them.
-    expect(WEBPAGE_OVERLAY_ANSWER).toMatch(/adverts are not removed/);
+    // INVERTED 2026-11-22 (audit wave 2 webpage-to-pdf#1). Until then this
+    // pinned "adverts are not removed", true while no option blocked them.
+    // Now the answer names Hide common ads with the count of hosts it
+    // blocks, says COMMON ads, and never claims every ad.
+    expect(WEBPAGE_OVERLAY_ANSWER).not.toMatch(/adverts are not removed/);
+    expect(WEBPAGE_OVERLAY_ANSWER).toContain(WEBPAGE_CAPTURE_LABELS.hideAds);
+    // INVERTED 2026-11-28 (review of webpage-to-pdf#1): this held
+    // "blocks ${AD_HOSTS.length} of the largest ad networks", which counted
+    // HOST NAMES as networks (Google alone was 4 of the 18, Criteo 2) and
+    // included moatads.com, a measurement service that closed in 2024. The
+    // answer now names companies from the grouped table and states no count.
+    expect(WEBPAGE_OVERLAY_ANSWER).not.toMatch(
+      /[0-9]+ (?:of the )?(?:largest )?ad/,
+    );
+    expect(WEBPAGE_OVERLAY_ANSWER).not.toMatch(/largest/);
+    expect(WEBPAGE_OVERLAY_ANSWER).toContain(
+      `ad servers of well-known ad companies such as ${list(AD_EXAMPLE_COMPANIES)}`,
+    );
+    for (const name of AD_EXAMPLE_COMPANIES)
+      expect(AD_COMPANIES.map((c) => c.name)).toContain(name);
+    expect(WEBPAGE_OVERLAY_ANSWER).toMatch(/\bcommon ads\b/);
+    expect(WEBPAGE_OVERLAY_ANSWER).not.toMatch(/\ball (?:ads|adverts)\b/i);
   });
 
   it("every capture choice is named on the tool page and in the guide", () => {

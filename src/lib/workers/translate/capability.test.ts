@@ -286,6 +286,10 @@ describe("the advertised set and the wire contract agree", () => {
       csvImportOptions: true,
       ocrOwnerPassword: true,
       requestSignatureLabels: true,
+      pdfaUnicodeDocInfo: true,
+      docxTextTables: true,
+      sheetPageSetupAnyFormat: true,
+      htmlAdBlock: true,
     };
     expect(Object.keys(proven).sort()).toEqual(
       ADVERTISED_WORKER_CAPABILITIES.map((c) => c.key).sort(),

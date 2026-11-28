@@ -70,6 +70,7 @@ import {
   imageDefaultPaperCopy,
   MARKDOWN_PAGE_FACT,
   TEXT_PAGE_SETUP_SENTENCE,
+  TEXT_TAB_PHRASE,
   TRANSLATE_LANGUAGES_ANSWER,
   countWord,
   forgottenPasswordAnswer,
@@ -268,6 +269,7 @@ import {
   imagePageLayout,
 } from "@/lib/pdf/image-page-layout";
 import { TEXT_PAGE_SETUP_LABELS } from "@/lib/pdf/text-page-options";
+import { COMBINE_PDFS_LABEL } from "@/lib/batch/worker-copy";
 import { A4_SCAN_SETUP_COPY, IGNORED_DPI_COPY } from "@/lib/pdf/image-density";
 import {
   SMALL_IMAGES_CHOICES,
@@ -1343,7 +1345,7 @@ export const guides: Guide[] = [
         heading: "What to expect from the converted document",
         body: [
           `The output is a DOCX file, the standard editable Word format. ${PDF_TO_WORD_KEEPS}`,
-          "Headings keep their bold and size but not a Word heading style, lists arrive as lines of text, and a table comes through as a Word table only when it has at least three rows and one of its columns holds figures; in such a table a cell that wraps onto further lines may stay in its row as one paragraph or come through as a row or a line of its own, as it does in the table's first column, where the wrap ends the table, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
+          "Headings keep their bold and size but not a Word heading style, lists arrive as lines of text, and a table comes through as a Word table only when it has at least three rows and one of its columns holds figures, or at least four rows and three columns of short entries such as names, places and roles; in such a table a cell that wraps onto further lines may stay in its row as one paragraph or come through as a row or a line of its own, as it does in the table's first column, where the wrap ends the table, so expect to restyle the document: the conversion saves you the retyping, not all of the formatting.",
           "That makes PDF to Word the right tool when you need the words back to rework them — rewrite a paragraph, fix a date, reuse a section — and the wrong one when the look of the page is what matters. For that, keep the PDF itself.",
         ],
       },
@@ -1400,7 +1402,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-11-16",
+    updated: "2026-11-28",
   },
   {
     slug: "how-to-convert-jpg-to-pdf",
@@ -1762,7 +1764,7 @@ export const guides: Guide[] = [
         id: "changing-existing-text",
         heading: "Changing the text that is already there",
         body: [
-          `To rework the wording itself, convert the file with ${nameOf("pdf-to-word")}: it exports the PDF's selectable text as an editable Word document, in reading order, each word keeping its bold, italics, size and colour where our reader matches it, with each picture between the paragraphs. The page layout is not recreated, words are set in standard Office fonts, and only a table with at least three rows and a column of figures comes through as a Word table (a cell in it that wraps onto further lines may stay in its row or come through as a row or a line of its own, and in the table's first column the wrap ends the table), so it suits documents where the words matter more than the look.`,
+          `To rework the wording itself, convert the file with ${nameOf("pdf-to-word")}: it exports the PDF's selectable text as an editable Word document, in reading order, each word keeping its bold, italics, size and colour where our reader matches it, with each picture between the paragraphs. The page layout is not recreated, words are set in standard Office fonts, and only a table with at least three rows and a column of figures, or at least four rows and three columns of short entries such as names, places and roles, comes through as a Word table (a cell in it that wraps onto further lines may stay in its row or come through as a row or a line of its own, and in the table's first column the wrap ends the table), so it suits documents where the words matter more than the look.`,
         ],
       },
       {
@@ -1809,7 +1811,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-11-16",
+    updated: "2026-11-28",
   },
   {
     slug: "how-to-create-a-fillable-pdf-form",
@@ -3616,7 +3618,7 @@ export const guides: Guide[] = [
         heading: "Page size, margins, screen width and one long page",
         body: [
           htmlLayoutAnswer("site"),
-          "One long page suits a long article or a receipt you want to scroll through without page breaks; a screen width suits a site whose print layout hides things you want, because it lays the page out as on that screen and scales it to fit the paper.",
+          "One long page suits a long article or a receipt you want to scroll through without page breaks; a screen width suits a site whose print layout hides things you want: for a webpage, untick “Use the site's print styles” as well, and it lays the page out as on that screen and scales it to fit the paper. While that box is ticked, a site whose print styles set a text size, a width or a paper size prints them at the paper's width.",
         ],
       },
       {
@@ -3624,7 +3626,7 @@ export const guides: Guide[] = [
         heading: "What ends up in the PDF",
         body: [
           `${WEBPAGE_STAMP_SENTENCE} ${WEBPAGE_OUTLINE_SENTENCE} Backgrounds are printed. ${WEBPAGE_PRINT_STYLES_SENTENCE} Words a site draws as a picture or on a canvas stay pictures.`,
-          `Its scripts run within a fixed budget of time. ${WEBPAGE_SCROLL_SENTENCE} Adverts shown to a new visitor can appear too, and so can cookie notices and pop-ups, though ticking ${WEBPAGE_CAPTURE_LABELS.hideOverlays} removes the common ones.`,
+          `Its scripts run within a fixed budget of time. ${WEBPAGE_SCROLL_SENTENCE} Ads shown to a new visitor can appear too, though ticking ${WEBPAGE_CAPTURE_LABELS.hideAds} leaves out common ones, and so can cookie notices and pop-ups, though ticking ${WEBPAGE_CAPTURE_LABELS.hideOverlays} removes the common ones.`,
         ],
       },
       {
@@ -3664,7 +3666,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-11-16",
+    updated: "2026-11-28",
   },
   {
     slug: "how-to-extract-images-from-a-pdf",
@@ -4902,7 +4904,7 @@ export const guides: Guide[] = [
     ],
     steps: [
       `Open the ${nameOf("excel-to-pdf")} tool.`,
-      `If a wide sheet must not split across pages, tick ${FIT_COLUMNS_TO_WIDTH_LABEL} in the tool (an .xlsx only, with Landscape under ${ORIENTATION_LABEL} if you like), or tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page.`,
+      `If a wide sheet must not split across pages, tick ${FIT_COLUMNS_TO_WIDTH_LABEL} in the tool (with Landscape under ${ORIENTATION_LABEL} if you like), or tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page.`,
       "Drag your .xlsx, .xls, .csv or .ods onto the box that says “Add your workbook, or browse”, or click it to choose the file. Remove swaps it for another.",
       "Press Convert to PDF. Your spreadsheet uploads over an encrypted connection, and the button follows the job while LibreOffice converts it.",
       `When “Your PDF is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the PDF before you close the tab.`,
@@ -4913,7 +4915,7 @@ export const guides: Guide[] = [
         heading: "How the pages are laid out",
         body: [
           "Left as it is, the converter follows your file: orientation, scaling and where wide columns break onto a new page come from the page setup saved in the workbook, and LibreOffice's defaults fill in the rest.",
-          `For an .xlsx file, the tool can change two of those settings. ${ORIENTATION_LABEL} sets ${ORIENTATION_CHOICE_WORDS} for every sheet, and ${FIT_COLUMNS_TO_WIDTH_LABEL} scales each sheet down until every column fits across the page, with rows carrying on to further pages. Both are written into the workbook's page setup before LibreOffice opens it. An .xls, .csv or .ods keeps the setup saved in it; save it as .xlsx to use them.`,
+          `The tool can change two of those settings, for any spreadsheet. ${ORIENTATION_LABEL} sets ${ORIENTATION_CHOICE_WORDS} for every sheet, and ${FIT_COLUMNS_TO_WIDTH_LABEL} scales each sheet down until every column fits across the page, with rows carrying on to further pages. Both are written into the workbook's page setup before LibreOffice opens it; an .xls, .csv or .ods is first saved as an .xlsx on our server so they can be.`,
           `Tick ${ONE_PAGE_PER_SHEET_LABEL} and nothing is split: each sheet becomes one page as large as its content, so a long sheet makes a long page. Its paper size and print areas are ignored, and hidden sheets are included. It works for a CSV too, which cannot store any page setup of its own, and while it is ticked the orientation and fit settings are hidden, because it overrides them.`,
         ],
       },
@@ -4951,7 +4953,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Why are my columns split across pages?",
-        answer: `Because, left as it is, the converter follows the workbook's own page setup. For an .xlsx, tick ${FIT_COLUMNS_TO_WIDTH_LABEL}, with Landscape under ${ORIENTATION_LABEL} if the sheet is wide, and every column fits across each page while rows carry on to the next. Or tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page sized to fit, CSV files included.`,
+        answer: `Because, left as it is, the converter follows the workbook's own page setup. Tick ${FIT_COLUMNS_TO_WIDTH_LABEL}, with Landscape under ${ORIENTATION_LABEL} if the sheet is wide, and every column fits across each page while rows carry on to the next. Or tick ${ONE_PAGE_PER_SHEET_LABEL} to make each sheet a single page sized to fit, CSV files included.`,
       },
       {
         question: "Which files can I convert?",
@@ -4973,7 +4975,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-17",
+    updated: "2026-11-28",
   },
   {
     slug: "how-to-convert-powerpoint-to-pdf",
@@ -5016,7 +5018,7 @@ export const guides: Guide[] = [
         id: "several-decks-and-other-formats",
         heading: "Several decks, and other presentation apps",
         body: [
-          `The tool converts one presentation per job; add several decks at once and they convert in turn, as a batch. For a workshop handout, combine the PDFs with ${nameOf("merge-pdf")}. Word documents go through ${nameOf("word-to-pdf")} the same way.`,
+          `The tool converts one presentation per job; add several decks at once and they convert in turn, as a batch. For a workshop handout, tick ${COMBINE_PDFS_LABEL} before you start and download them as one PDF in the order you added them; to pick pages or mix in other PDFs, use ${nameOf("merge-pdf")}. Word documents go through ${nameOf("word-to-pdf")} the same way.`,
           "PowerPoint's .pptx and .ppt and OpenDocument's .odp are accepted; any other type is refused before anything is uploaded. From Google Slides, download the deck as a Microsoft PowerPoint file first. From Keynote, export it to PowerPoint, then convert that file here.",
         ],
       },
@@ -5055,7 +5057,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-08",
+    updated: "2026-11-22",
   },
   {
     slug: "how-to-extract-pages-from-a-pdf",
@@ -5314,7 +5316,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-08",
+    updated: "2026-11-22",
   },
   {
     slug: "how-to-convert-pdf-to-png",
@@ -6035,14 +6037,14 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To convert a text file to PDF, open ${nameOf("text-to-pdf")}, drop your .txt file on the page or paste the text into the Text content box, press Create PDF, then press Download PDF. You get a paginated PDF. The paper starts on ${imageDefaultPaperCopy()}.`,
-      `Every page carries a small heading, the file's name without its extension, or “text” for pasted text, and a page-of-total count in the footer. Long lines wrap at spaces, a word too long for one line is broken, tabs become spaces, and blank lines and leading indentation are kept. ${TEXT_PAGE_SETUP_SENTENCE} The font and the margins are fixed.`,
+      `Every page carries a small heading, the file's name without its extension, or “text” for pasted text, and a page-of-total count in the footer. Long lines wrap at spaces, a word too long for one line is broken, ${TEXT_TAB_PHRASE}, and blank lines and leading indentation are kept. ${TEXT_PAGE_SETUP_SENTENCE} The font is fixed.`,
       `The PDF is made in your browser, so your text stays on your device and there is no account to create. The text can be up to ${MAX_SOURCE_MB} MB.`,
     ],
     steps: [
       `Open the ${nameOf("text-to-pdf")} tool.`,
       "Drop a .txt file on the box that says “Drop TXT files here, or browse”, or click browse to choose one. Loading a file replaces whatever is in the box; two or more files open a batch list instead, one PDF per file.",
       "Or paste or type straight into the Text content box. The figure beside its heading counts the characters and the size as you go, and you can edit the text before converting.",
-      `To change the paper size, orientation or text size, use ${TEXT_PAGE_SETUP_LABELS.pageSize}, ${TEXT_PAGE_SETUP_LABELS.orientation} and ${TEXT_PAGE_SETUP_LABELS.fontSize} below the box.`,
+      `To change the paper size, orientation, text size or margins, use ${TEXT_PAGE_SETUP_LABELS.pageSize}, ${TEXT_PAGE_SETUP_LABELS.orientation}, ${TEXT_PAGE_SETUP_LABELS.fontSize} and ${TEXT_PAGE_SETUP_LABELS.margin} below the box.`,
       "Press Create PDF. The button reads Creating PDF… while the pages are set.",
       `Under “PDF created”, press Download PDF. notes.txt is saved as ${TXT_EXAMPLE_OUT}, and pasted text as ${TXT_PASTED_OUT}.`,
       "Press Start over to clear the box for the next text.",
@@ -6086,7 +6088,7 @@ export const guides: Guide[] = [
       {
         question:
           "Can I make the PDF on A4 paper, in landscape or with bigger text?",
-        answer: `Yes. ${TEXT_PAGE_SETUP_SENTENCE} The font and the margins are fixed, and the page heading is also the document's Title property. For more control over the look, write Markdown and use ${nameOf("markdown-to-pdf")}.`,
+        answer: `Yes. ${TEXT_PAGE_SETUP_SENTENCE} The font is fixed, and the page heading is also the document's Title property. For more control over the look, write Markdown and use ${nameOf("markdown-to-pdf")}.`,
       },
       {
         question: "Which languages come out correctly?",
@@ -6099,7 +6101,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-17",
+    updated: "2026-11-22",
   },
   {
     slug: "how-to-prepare-a-pdf-for-others-to-sign",
@@ -6479,7 +6481,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-31",
-    updated: "2026-11-16",
+    updated: "2026-11-22",
   },
   // Overlay PDF, titled for the task it truly does: lay one PDF on every
   // page of another. Read off overlay.ts and overlay-runner.tsx: the overlay

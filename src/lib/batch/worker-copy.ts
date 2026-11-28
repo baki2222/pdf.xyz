@@ -63,3 +63,21 @@ export function workerBatchPageSentence(slug: WorkerBatchSlug): string {
   const { zipName, noun } = WORKER_BATCH_TOOLS[slug];
   return `Add two or more ${noun[1]} and they open as a batch list; any option you set applies to all of them. The button under the list then names the number of files; each one runs in turn on our secure server, one job at a time; download a file from its row, or press “Download all” for ${zipName}. ${batchLimitsSentence(slug)} ${workerBatchUploadSentence()} ${workerBatchEachFileSentence().slice(0, -1)}; if that limit is reached the batch pauses and carries on by itself when it lifts, as long as the page stays open.`;
 }
+
+/**
+ * PowerPoint to PDF's batch (audit wave 2, powerpoint-to-pdf#1): the tick
+ * that joins every converted deck into one PDF, in the order the files were
+ * added. The join runs in the browser with Merge PDF's own page assembler
+ * (`./combine-pdfs`) on the PDFs already downloaded for the rows, so nothing
+ * more is uploaded.
+ */
+export const COMBINE_PDFS_LABEL = "Combine into one PDF";
+export const COMBINE_PDFS_HINT =
+  "When the batch ends, download every PDF joined into one, in the order you added the files. They are joined in your browser; nothing more is uploaded.";
+
+/** The single-PDF download's button, with how many files it joins. */
+export function combinedDownloadLabel(joined: number, of: number): string {
+  return joined === of
+    ? `Download one PDF (${joined} files)`
+    : `Download one PDF (${joined} of ${of} files)`;
+}

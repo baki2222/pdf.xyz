@@ -80,5 +80,9 @@ export function emptyCapabilities(): HeartbeatCapabilities {
     csvImportOptions: false,
     ocrOwnerPassword: false,
     requestSignatureLabels: false,
+    pdfaUnicodeDocInfo: false,
+    docxTextTables: false,
+    sheetPageSetupAnyFormat: false,
+    htmlAdBlock: false,
   };
 }

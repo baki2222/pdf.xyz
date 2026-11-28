@@ -130,3 +130,49 @@ export const OFFICE_INPUT_FIXTURES: readonly OfficeInputFixture[] = [
     build: () => odpWith("Narwhalia"),
   },
 ];
+
+/**
+ * Audit wave 2 excel-to-pdf#1 (2026-11-28): the wide sheet of
+ * `sheet-layout-proof.ts` (`WIDE_SHEET`: numbers in every cell but the last
+ * of each row, which holds `QQ<row>`) as a .csv and as an .ods, so the
+ * container proof can run Orientation and fit on both formats through the
+ * image's LibreOffice and judge each PDF with `sheetLayoutProofVerdict`.
+ */
+function wideCells(cols: number, rows: number): string[][] {
+  return Array.from({ length: rows }, (_, i) => {
+    const r = i + 1;
+    return [
+      ...Array.from(
+        { length: cols - 1 },
+        (_, c) => `${(r * 31 + c * 7) % 997}`,
+      ),
+      `QQ${r}`,
+    ];
+  });
+}
+
+export function wideSheetCsv(cols = 40, rows = 400): Uint8Array {
+  return new TextEncoder().encode(
+    wideCells(cols, rows)
+      .map((row) => row.join(","))
+      .join("\n") + "\n",
+  );
+}
+
+export async function wideSheetOds(cols = 40, rows = 400): Promise<Uint8Array> {
+  const cell = (v: string) =>
+    v.startsWith("QQ")
+      ? `<table:table-cell office:value-type="string"><text:p>${v}</text:p></table:table-cell>`
+      : `<table:table-cell office:value-type="float" office:value="${v}"><text:p>${v}</text:p></table:table-cell>`;
+  const body = wideCells(cols, rows)
+    .map(
+      (row) => `<table:table-row>${row.map(cell).join("")}</table:table-row>`,
+    )
+    .join("");
+  return odfPackage("ods", {
+    "content.xml": documentContent(
+      `<office:spreadsheet><table:table table:name="Wide">${body}</table:table></office:spreadsheet>`,
+      ` xmlns:table="${TABLE}"`,
+    ),
+  });
+}

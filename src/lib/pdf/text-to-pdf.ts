@@ -5,6 +5,7 @@ import { PdfEngineError } from "./engine";
 import { embedDrawingFont } from "./unicode-font";
 import {
   DEFAULT_TEXT_PAGE_OPTIONS,
+  TEXT_TAB_STOP,
   textPageGeometry,
   type TextPageGeometry,
   type TextPageOptions,
@@ -55,8 +56,41 @@ export function textPdfOutputName(sourceName: string): string {
   return outputName(sourceName || "text", "pdf", "pdf");
 }
 
+const TAB = String.fromCharCode(9);
+
+/**
+ * Each tab moved to the next tab stop, every {@link TEXT_TAB_STOP} characters
+ * counted from the start of its line, as a terminal or a text editor draws
+ * it, so tab-separated columns line up (audit wave 2, text-to-pdf#7). A tab
+ * that sits on a stop moves a whole stop. Until then every tab became four
+ * spaces wherever it stood, and a TSV's columns drifted row by row.
+ */
+export function expandTabs(text: string, stop: number = TEXT_TAB_STOP): string {
+  if (!text.includes(TAB)) return text;
+  return text
+    .split("\n")
+    .map((line) => {
+      let out = "";
+      // Columns are characters (code points), not UTF-16 units: an astral
+      // character before a tab is one column (review 2026-11-28).
+      let column = 0;
+      for (const ch of line) {
+        if (ch === TAB) {
+          const n = stop - (column % stop);
+          out += " ".repeat(n);
+          column += n;
+        } else {
+          out += ch;
+          column += 1;
+        }
+      }
+      return out;
+    })
+    .join("\n");
+}
+
 function normalizeInput(text: string): string {
-  return text.replace(/\r\n?/g, "\n").replace(/\t/g, "    ");
+  return expandTabs(text.replace(/\r\n?/g, "\n"));
 }
 
 /** U+000C, built from its code: the page break of RFCs and man pages. */
@@ -116,6 +150,7 @@ function pageOf(options: TextToPdfOptions): Partial<TextPageOptions> {
   if (options.pageSize !== undefined) page.pageSize = options.pageSize;
   if (options.orientation !== undefined) page.orientation = options.orientation;
   if (options.fontSize !== undefined) page.fontSize = options.fontSize;
+  if (options.margin !== undefined) page.margin = options.margin;
   return page;
 }
 
@@ -161,7 +196,9 @@ export async function textToPdf(
     const page = doc.addPage([g.width, g.height]);
     page.drawText(title, {
       x: g.margin,
-      y: g.height - 34,
+      // 34 pt from the top on the Normal and Wide margins, as it always was;
+      // closer to the edge on Narrow so it stays clear of the first line.
+      y: g.height - Math.min(34, g.margin - 16),
       size: 9,
       font: bold,
       color: rgb(0.35, 0.38, 0.45),
@@ -169,7 +206,7 @@ export async function textToPdf(
     });
     page.drawText(`${index + 1} / ${layout.pages.length}`, {
       x: g.width - g.margin - 32,
-      y: 28,
+      y: Math.min(28, g.margin - 14),
       size: 8,
       font,
       color: rgb(0.45, 0.48, 0.55),

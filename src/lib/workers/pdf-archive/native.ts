@@ -20,8 +20,11 @@ import { PDFA_COLOUR_STRATEGY } from "./colour";
 import {
   docInfoPdfmark,
   readCarriedDocInfo,
+  readWidenedDocInfo,
+  CARRIED_DOCINFO_FIELDS,
   type CarriedDocInfo,
 } from "./docinfo";
+import { rewriteDocInfo } from "./docinfo-xmp";
 import { QPDF_EXIT_ERROR, QPDF_EXIT_WARNINGS } from "../qpdf-exit";
 import {
   AttemptAbortedError,
@@ -449,6 +452,13 @@ export function createNativeGhostscriptPdfARunner(
       // The original's title, author, subject and keywords, for the prefix.
       // Never throws: an unreadable or encrypted input carries none.
       const docInfo = await readCarriedDocInfo(input);
+      // The same fields as Ghostscript would DROP them (audit wave 2,
+      // pdf-to-pdfa#3): a bracket, a backslash, an accent, another script.
+      // Written into Info and XMP after Ghostscript, only when one differs.
+      const wide = await readWidenedDocInfo(input);
+      const needsRewrite = CARRIED_DOCINFO_FIELDS.some(
+        (field) => wide[field] !== docInfo[field],
+      );
       try {
         try {
           await fs.writeFile(inputPath, input);
@@ -512,8 +522,16 @@ export function createNativeGhostscriptPdfARunner(
             );
           throw new GhostscriptRunError("io", "Could not read the output.");
         }
-        const bytes =
+        let bytes =
           output instanceof Uint8Array ? output : new Uint8Array(output);
+        if (needsRewrite && looksLikePdf(bytes)) {
+          try {
+            bytes = await rewriteDocInfo(bytes, wide);
+          } catch {
+            // No XMP packet, or a file pdf-lib cannot reopen: Ghostscript's
+            // output stands, with the fields it kept.
+          }
+        }
         if (
           bytes.byteLength === 0 ||
           bytes.byteLength > config.maxOutputBytes ||

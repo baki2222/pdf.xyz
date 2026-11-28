@@ -671,6 +671,49 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /\btooltips?\b|\blabels?\b(?:[^.?!]|\.(?=\w)){0,160}\bprepared\.pdf\b|\bprepared\.pdf\b(?:[^.?!]|\.(?=\w)){0,160}\blabels?\b/i,
     catalogueCopy: true,
   },
+  htmlAdBlock: {
+    // Added 2026-11-22 with the key (audit wave 2 webpage-to-pdf#1). The
+    // sentences about ads on a captured page: the option's own name, or
+    // ads, adverts or advertisements.
+    // TRUE: Webpage to PDF's FAQ answer says what Hide common ads blocks and
+    // hides, with no hedge (the panel shows the box only on a worker that
+    // proves it).
+    subject: /\bHide common ads\b|\bads\b|\badverts?\b|\badvertisements?\b/i,
+    catalogueCopy: true,
+  },
+  pdfaUnicodeDocInfo: {
+    // Added 2026-11-22 with the key (audit wave 2 pdf-to-pdfa#3). The
+    // sentences about a PDF/A copy's carried document properties: the
+    // carried-fields words, DOCINFO, or a field "carried" with accents or
+    // brackets named.
+    // TRUE: CARRIED_DOCINFO_RULE on PDF to PDF/A's intro, FAQ, facts and
+    // guide says fields with accents and brackets are carried, with no
+    // hedge (the panel's notes state it only on a worker that proves it).
+    subject:
+      /\btitle, author, subject and keywords\b|\bDOCINFO\b|\bcarried\b[^.]{0,120}\b(?:accented|brackets?)\b/i,
+    catalogueCopy: true,
+  },
+  docxTextTables: {
+    // Added 2026-11-28 with the key (audit wave 2 pdf-to-word#2). The
+    // sentences about tables with no figures: "rows of short entries", the
+    // shape PDF_TO_WORD_TEXT_TABLE and the guides use.
+    // TRUE: PDF to Word's intro, FAQ, facts and two guides say such a table
+    // comes through as a Word table, with no hedge (the publish workflow
+    // ships the worker image with the page).
+    // Since 2026-11-28 the shape is "rows and three columns of short
+    // entries" (MIN_TEXT_TABLE_COLUMNS); either spelling is the subject.
+    subject: /\b(?:rows|columns) of short entries\b/i,
+    catalogueCopy: true,
+  },
+  sheetPageSetupAnyFormat: {
+    // Added 2026-11-28 with the key (audit wave 2 excel-to-pdf#1). The
+    // sentences about page setup on a .csv, .xls or .ods: one saved as an
+    // .xlsx on our server first, the shape Excel to PDF's page and guide use.
+    // TRUE: they say a .csv, .xls or .ods takes Orientation and fit, with no
+    // hedge (the panel shows the controls only on a worker that proves it).
+    subject: /\bsaved as an \.xlsx\b/i,
+    catalogueCopy: true,
+  },
 };
 
 /* ------------------------------------------------------------------ *

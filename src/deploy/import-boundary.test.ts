@@ -118,12 +118,22 @@ const ALLOWED = new Set(
     // around a recording stand-in for soffice. Reached only by the daemon's
     // proved-capability table and tests.
     "src/lib/workers/office-conversion/csv-capability.ts",
+    // Excel to PDF's page-setup-for-any-format proof (2026-11-28, audit wave
+    // 2 excel-to-pdf#1): the image's own LibreOffice runner around a
+    // recording stand-in for soffice, as the CSV proof above. Reached only
+    // by the daemon's proved-capability table and tests.
+    "src/lib/workers/office-conversion/sheet-setup-capability.ts",
     // OCR PDF's owner-password proof (2026-11-17, competitor-audit backlog
     // #11): it builds the image's own OCR runner (`ocr-native`) and qpdf
     // runner (`pdf-security/native`) around recording stand-ins for the two
     // processes. Reached only by the daemon's proved-capability table and
     // tests.
     "src/lib/workers/ocr-owner-capability.ts",
+    // PDF to PDF/A's carried-fields proof (2026-11-22, audit wave 2
+    // pdf-to-pdfa#3): one real job on `nativePdfArchiveDeps(env)`, the
+    // image's own Ghostscript. Reached only by the daemon's proved-capability
+    // table and tests.
+    "src/lib/workers/pdf-archive/docinfo-capability.ts",
     "src/lib/workers/local-dev.ts",
     "src/lib/workers/daemon/runtime.ts",
     // 2026-11-15: the daemon's proved-capability table (every proof, incl.
