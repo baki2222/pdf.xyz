@@ -163,6 +163,10 @@ export function copyFiles(): string[] {
     // listed singly — their folders hold engine code — and none carries a
     // trailing `//` comment.
     path.join(ROOT, "src", "lib", "structured-data.ts"),
+    // Redact PDF's Find and Detect (2026-11-22, audit redact-pdf#4): the
+    // sentence a "Find more from page N" step says, built in the module
+    // Find already loads so the page's first load does not carry it.
+    path.join(ROOT, "src", "lib", "pdf", "redact-find.ts"),
     path.join(ROOT, "src", "lib", "jobs", "capabilities.ts"),
     path.join(ROOT, "src", "lib", "jobs", "ocr.ts"),
     // What the OCR language picker starts on (2026-11-07), one sentence the

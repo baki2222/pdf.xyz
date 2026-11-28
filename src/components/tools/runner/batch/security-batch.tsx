@@ -189,6 +189,13 @@ export function checkSecurityDraft(
   };
 }
 
+/**
+ * The single-file Unlock panel's look before an upload (audit unlock-pdf#1),
+ * shipped in this chunk so it adds no chunk, and nothing, to the page's
+ * first load: the panel fetches it when a file is picked.
+ */
+export { lookForUnlock } from "../../unlock-preflight";
+
 /** The look before an upload: a skip for a file this mode has nothing to do with. */
 export async function securityPreflight(
   mode: Mode,
@@ -546,6 +553,9 @@ function PasswordFields({
         label={
           label ?? (mode === "protect" ? "New password" : "Current password")
         }
+        // An existing password in Unlock: never the sign-up hint, on which
+        // browsers offer a generated password (audit unlock-pdf#5).
+        autoComplete={mode === "protect" ? "new-password" : "current-password"}
         onInput={(v) => onInput("password", v)}
         note={[hint, check.passwordWarning].filter(Boolean).join(" ")}
         warn={check.passwordWarning !== null}
@@ -598,6 +608,7 @@ function SecretField({
   note,
   warn = false,
   onBlur,
+  autoComplete = "new-password",
 }: {
   id: string;
   label: string;
@@ -605,6 +616,7 @@ function SecretField({
   note?: string;
   warn?: boolean;
   onBlur?: () => void;
+  autoComplete?: "new-password" | "current-password";
 }) {
   const [reveal, setReveal] = useState(false);
   return (
@@ -618,7 +630,7 @@ function SecretField({
           type={reveal ? "text" : "password"}
           onChange={(event) => onInput(event.target.value)}
           onBlur={onBlur}
-          autoComplete="new-password"
+          autoComplete={autoComplete}
           spellCheck={false}
           aria-describedby={note ? `${id}-hint` : undefined}
           className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 focus:bg-wash rounded-ctl w-full border px-3 py-3 pr-11 text-sm transition outline-none"

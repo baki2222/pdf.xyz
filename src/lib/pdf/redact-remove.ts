@@ -14,6 +14,11 @@ import type { RedactionFill, RedactionRect } from "./redact-defaults";
 import { REDACT_METHODS } from "./redact-output";
 import { validateRedactions } from "./redact";
 import {
+  PLAIN_TEXT_ATTACHMENT_EXTENSIONS,
+  PLAIN_TEXT_ATTACHMENT_TYPES,
+  plainTextAttachmentList,
+} from "./redact-attachment-formats";
+import {
   readRedactText,
   searchPattern,
   type FoundText,
@@ -263,18 +268,144 @@ function scrubOffPage(
 }
 
 /**
+ * An attached file's bytes as the texts a chosen match could be written in,
+ * or `null` when they cannot be read as text — and so cannot be checked. A
+ * UTF-16 file is told by its byte-order mark; any other file is text when it
+ * has no NUL and next to no other control bytes, and is then read both as
+ * UTF-8 and as Latin-1 (windows-1252), so a name in either is seen.
+ */
+export function attachmentTexts(bytes: Uint8Array): string[] | null {
+  const bom16 =
+    bytes.length >= 2 &&
+    ((bytes[0] === 0xfe && bytes[1] === 0xff) ||
+      (bytes[0] === 0xff && bytes[1] === 0xfe));
+  if (bom16)
+    return [
+      new TextDecoder(bytes[0] === 0xfe ? "utf-16be" : "utf-16le").decode(
+        bytes,
+      ),
+    ];
+  let control = 0;
+  for (const b of bytes) {
+    if (b === 0) return null;
+    if (b < 0x09 || (b > 0x0d && b < 0x20)) control++;
+  }
+  if (control > bytes.length / 100) return null;
+  return [
+    new TextDecoder().decode(bytes),
+    new TextDecoder("latin1").decode(bytes),
+  ];
+}
+
+/**
+ * The attachment formats whose raw text IS their content, so a plain search
+ * of the bytes is a search of what a reader sees: by file extension, and by
+ * the stream's recorded /Subtype when it has one. Any other format can spell
+ * a name another way (an HTML or XML entity, a JSON escape, a base64 e-mail
+ * body, an RTF control word), so a plain search can miss it, and such an
+ * attachment is treated as one that cannot be checked (review 2026-11-28,
+ * finding 1: letter.html, data.json and message.eml were each saved with the
+ * name inside; redact-attachments.test.ts).
+ */
+const PLAIN_TEXT_EXTENSIONS = new Set<string>(PLAIN_TEXT_ATTACHMENT_EXTENSIONS);
+const PLAIN_TEXT_TYPES = new Set<string>(PLAIN_TEXT_ATTACHMENT_TYPES);
+
+function plainTextAttachment(name: string, subtype: string | null): boolean {
+  const dot = name.lastIndexOf(".");
+  if (dot < 0) return false;
+  if (!PLAIN_TEXT_EXTENSIONS.has(name.slice(dot + 1).toLowerCase()))
+    return false;
+  return subtype === null || PLAIN_TEXT_TYPES.has(subtype.toLowerCase());
+}
+
+/**
+ * Every file attached to the document: each embedded-file stream an /EF
+ * dictionary names (under its file's /UF or /F name), then any stream that
+ * calls itself /Type /EmbeddedFile and no /EF named (it has no name, so it
+ * cannot be checked). Its bytes are decoded through the stream's filters;
+ * one that is not a plain-text format ({@link plainTextAttachment}), cannot
+ * be decoded, or cannot be read as text has `texts: null`.
+ */
+function attachedFiles(
+  lib: PdfLibModule,
+  doc: PDFDocument,
+): { name: string; texts: string[] | null }[] {
+  const { PDFArray, PDFDict, PDFName, PDFRawStream } = lib;
+  const ctx = doc.context;
+  const files: { name: string; texts: string[] | null }[] = [];
+  const seen = new Set<PDFRawStreamT>();
+  const read = (stream: PDFRawStreamT, name: string): string[] | null => {
+    const subtype = stream.dict.get(PDFName.of("Subtype"));
+    const type = subtype instanceof PDFName ? subtype.decodeText() : null;
+    if (!plainTextAttachment(name, type)) return null;
+    try {
+      return attachmentTexts(lib.decodePDFRawStream(stream).decode());
+    } catch {
+      return null;
+    }
+  };
+  const objects = ctx.enumerateIndirectObjects().map(([, o]) => o);
+  // Every dictionary in the file, not only the top-level ones: a filespec
+  // may be written inline — in a FileAttachment annotation's /FS, or in the
+  // EmbeddedFiles name tree — over a stream with no /Type (the key is
+  // optional), and neither pass below saw that shape (verify 2026-11-28,
+  // redact-attachments.test.ts "inline filespec"). References are not
+  // followed: what they point at is an indirect object, walked on its own.
+  const dicts: PdfDict[] = [];
+  const stack: PDFObject[] = [...objects];
+  while (stack.length) {
+    const o = stack.pop()!;
+    if (o instanceof PDFRawStream) stack.push(o.dict);
+    else if (o instanceof PDFDict) {
+      dicts.push(o);
+      for (const [, v] of o.entries()) stack.push(v);
+    } else if (o instanceof PDFArray) stack.push(...o.asArray());
+  }
+  for (const obj of dicts) {
+    const ef = obj.lookup(PDFName.of("EF"));
+    if (!(ef instanceof PDFDict)) continue;
+    const name =
+      stringText(lib, obj.lookup(PDFName.of("UF"))) ??
+      stringText(lib, obj.lookup(PDFName.of("F"))) ??
+      "unnamed";
+    for (const [, ref] of ef.entries()) {
+      const stream = ctx.lookup(ref);
+      if (!(stream instanceof PDFRawStream) || seen.has(stream)) continue;
+      seen.add(stream);
+      files.push({ name, texts: read(stream, name) });
+    }
+  }
+  for (const obj of objects) {
+    if (
+      obj instanceof PDFRawStream &&
+      !seen.has(obj) &&
+      obj.dict.get(PDFName.of("Type")) === PDFName.of("EmbeddedFile")
+    ) {
+      seen.add(obj);
+      files.push({ name: "unnamed", texts: read(obj, "unnamed") });
+    }
+  }
+  return files;
+}
+
+/**
  * Where a chosen string is still in a saved file outside its page text: every
  * string in every object (a form field's value, a link, an attachment's name,
- * and what {@link scrubOffPage} rewrote) and every XMP packet. Page content
- * streams are not read here — the page text check covers them, through the
- * reader a person would use. Read from the OUTPUT bytes, not from the
- * document that wrote them.
+ * and what {@link scrubOffPage} rewrote), every XMP packet, and the CONTENTS
+ * of every attached file ({@link attachedFiles}; added 2026-11-22, audit
+ * redact-pdf#1 — until then an attachment's bytes were skipped, so a name in
+ * an attached notes.txt was saved while the result said it was not in the
+ * file). An attached file that cannot be read as text cannot be checked, and
+ * is reported as such. Page content streams are not read here — the page
+ * text check covers them, through the reader a person would use. Read from
+ * the OUTPUT bytes, not from the document that wrote them. Returns the
+ * sentence that says why the file was not saved, or `null`.
  */
 async function offPageHit(
   lib: PdfLibModule,
   bytes: Uint8Array,
   chosen: readonly Chosen[],
-): Promise<{ text: string; where: string } | null> {
+): Promise<string | null> {
   const { PDFDict, PDFArray, PDFName, PDFRawStream } = lib;
   // Not `loadPdf`: its default `updateMetadata` would write pdf-lib's own
   // Producer and Creator over the output's before they are read.
@@ -309,14 +440,23 @@ async function offPageHit(
   }
   const info = out.context.trailerInfo.Info;
   if (info) roots.push([info, null]);
+  const notSaved = `so the file was not saved. Choose “${FLATTEN_LABEL}” instead`;
+  const files = attachedFiles(lib, out);
   for (const { text, plain: pattern, xml } of offPagePatterns(chosen)) {
+    for (const file of files) {
+      if (file.texts === null)
+        return `The attached file “${file.name}” could not be checked for “${text}” (only plain ${plainTextAttachmentList("and")} files can be), ${notSaved}, which leaves attached files out.`;
+      if (file.texts.some((t) => anyMatch(t, [pattern])))
+        return `“${text}” is still in the attached file “${file.name}”, ${notSaved}, which leaves attached files out.`;
+    }
     const stack = [...roots];
     while (stack.length) {
       const [o, key] = stack.pop()!;
       if (key !== null && NOT_TEXT.has(key)) continue;
       const value = stringText(lib, o);
       if (value !== null) {
-        if (anyMatch(value, [pattern])) return { text, where: where(key) };
+        if (anyMatch(value, [pattern]))
+          return `“${text}” is still in the file outside the page text (in ${where(key)}), ${notSaved}.`;
       } else if (o instanceof PDFDict) {
         for (const [k, v] of o.entries()) stack.push([v, k.decodeText()]);
       } else if (o instanceof PDFArray) {
@@ -325,7 +465,8 @@ async function offPageHit(
         stack.push([o.dict, null]);
         if (o.dict.get(PDFName.of("Type")) !== PDFName.of("Metadata")) continue;
         const packet = decodePacket(lib, o);
-        if (anyMatch(packet, [xml])) return { text, where: where("XMP") };
+        if (anyMatch(packet, [xml]))
+          return `“${text}” is still in the file outside the page text (in ${where("XMP")}), ${notSaved}.`;
       }
     }
   }
@@ -447,11 +588,7 @@ export async function redactPdfByRemoval(
       verified += n;
     }
     const hidden = await offPageHit(lib, out, chosenTexts);
-    if (hidden) {
-      throw new PdfEngineError(
-        `“${hidden.text}” is still in the file outside the page text (in ${hidden.where}), so the file was not saved. Choose “${FLATTEN_LABEL}” instead.`,
-      );
-    }
+    if (hidden) throw new PdfEngineError(hidden);
   }
 
   return {

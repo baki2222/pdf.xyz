@@ -1,8 +1,8 @@
 "use client";
 
-import { usePickRefusal } from "@/components/tools/use-pick";
+import { usePickFacts, usePickRefusal } from "@/components/tools/use-pick";
 import { RunReason } from "@/components/tools/runner/run-reason";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   Eye,
@@ -15,7 +15,7 @@ import {
   Timer,
   Unlock,
 } from "lucide-react";
-import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
+import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import {
   AES128_PASSWORD_CHARSET_MESSAGE,
   DEFAULT_PDF_KEY_LENGTH,
@@ -55,6 +55,7 @@ import { ChosenFileTarget } from "./chosen-file-target";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import { useStagedHandoff } from "./use-staged-handoff";
+import type { UnlockLook } from "./unlock-preflight";
 import {
   useWorkerPanel,
   WorkerGate,
@@ -219,6 +220,10 @@ const COPY: Record<
  */
 export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
   const pickRefuse = usePickRefusal(tool);
+  // The ceiling the page states and the pick check refuses above (audit
+  // optimize-web#7): this row read `JOB_LIMITS.maxFileBytes`, the worker's
+  // global cap, which agrees with the tool's own ceiling only by chance.
+  const ceilingBytes = usePickFacts(tool)?.ceilingBytes ?? null;
   const mode: Mode = tool.slug === "protect-pdf" ? "protect" : "unlock";
   const copy = COPY[mode];
 
@@ -236,11 +241,15 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
           label: "Your files",
           value: `Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`,
         },
-        {
-          icon: ShieldCheck,
-          label: "Largest file",
-          value: `${formatBytes(JOB_LIMITS.maxFileBytes)}/file`,
-        },
+        ...(ceilingBytes !== null
+          ? [
+              {
+                icon: ShieldCheck,
+                label: "Largest file",
+                value: `${formatBytes(ceilingBytes)}/file`,
+              },
+            ]
+          : []),
       ]}
       footer={
         <p className="text-muted text-xs leading-relaxed">
@@ -424,6 +433,25 @@ function SecurityRunArea({
       }),
   });
   const { busy, outcome, setOutcome, run } = job;
+  // Unlock only: what the picked file is, read in the browser before any
+  // upload (audit unlock-pdf#1; `lookForUnlock`, fetched with the batch's
+  // chunk). Run waits on the same look; one that fails sends the file to
+  // our server as before.
+  const lookRef = useRef<Promise<UnlockLook | null>>(null);
+  const [look, setLook] = useState<UnlockLook | null>(null);
+  useEffect(() => {
+    if (mode !== "unlock" || !file) return;
+    const next = import("./runner/batch/security-batch")
+      .then((m) => m.lookForUnlock(file))
+      .catch(() => null);
+    lookRef.current = next;
+    void next.then((l) => {
+      if (lookRef.current === next) setLook(l);
+    });
+  }, [mode, file]);
+  const seen = look?.file === file ? look : null;
+  const refusal = seen?.refused === password ? seen.refusal : null;
+  const [checking, setChecking] = useState(false);
   // A file carried here (a merge's "Continue with", an encrypted PDF's
   // remedy) is staged: it waits beside the password field, and nothing —
   // file or password — leaves this browser until Run.
@@ -457,6 +485,9 @@ function SecurityRunArea({
     restricting && needsConfirming(ownerPassword, ownerPasswordAgain);
   const canSubmit =
     file !== null &&
+    !seen?.stop &&
+    !refusal &&
+    !checking &&
     !passwordMissing &&
     !unconfirmed &&
     !ownerUnconfirmed &&
@@ -474,9 +505,23 @@ function SecurityRunArea({
       tooLong ||
       notLatinFor128 ||
       ownerProblem ||
-      !available
+      !available ||
+      checking
     )
       return;
+    if (mode === "unlock") {
+      // Nothing leaves the browser for a file that is not locked, or with a
+      // password that does not open it; anything the browser cannot judge
+      // goes to our server, which decides.
+      setChecking(true);
+      const l = await lookRef.current;
+      const line = l?.stop ?? (await l?.check(password));
+      setChecking(false);
+      if (l && line) {
+        if (!l.stop) setLook({ ...l, refused: password, refusal: line });
+        return;
+      }
+    }
     await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const result =
@@ -515,6 +560,7 @@ function SecurityRunArea({
     permissions,
     run,
     available,
+    checking,
   ]);
 
   if (batch)
@@ -537,30 +583,37 @@ function SecurityRunArea({
     <div className="flex flex-col gap-4">
       {staged}
       {file ? (
-        <ChosenFileTarget
-          file={file}
-          accept="application/pdf"
-          busy={busy}
-          refuse={refuse}
-          onReplace={(files) => {
-            setOutcome(null);
-            setFile(files[0] ?? null);
-          }}
-        >
-          <div className="border-line bg-wash text-fg rounded-ctl flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-sm">
-            <span className="truncate">{file.name}</span>
-            <button
-              type="button"
-              onClick={() => {
-                setFile(null);
-                setOutcome(null);
-              }}
-              className="text-muted hover:text-fg tap-y shrink-0 text-sm font-medium transition"
-            >
-              Remove
-            </button>
-          </div>
-        </ChosenFileTarget>
+        <>
+          <ChosenFileTarget
+            file={file}
+            accept="application/pdf"
+            busy={busy}
+            refuse={refuse}
+            onReplace={(files) => {
+              setOutcome(null);
+              setFile(files[0] ?? null);
+            }}
+          >
+            <div className="border-line bg-wash text-fg rounded-ctl flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-sm">
+              <span className="truncate">{file.name}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setFile(null);
+                  setOutcome(null);
+                }}
+                className="text-muted hover:text-fg tap-y shrink-0 text-sm font-medium transition"
+              >
+                Remove
+              </button>
+            </div>
+          </ChosenFileTarget>
+          {seen?.stop && (
+            <p role="status" className="text-muted text-xs leading-relaxed">
+              {seen.stop}
+            </p>
+          )}
+        </>
       ) : (
         <Dropzone
           pageTarget
@@ -592,28 +645,41 @@ function SecurityRunArea({
 
       <PasswordField
         id="pdf-security-password"
-        label={mode === "protect" ? "New password" : "Current password"}
+        label={
+          mode === "protect"
+            ? "New password"
+            : (seen?.label ?? "Current password")
+        }
         value={password}
         onChange={setPassword}
         busy={busy}
-        // "new-password" avoids the browser offering a saved login for unlock, and
-        // avoids prompting to save the just-set encryption password for protect.
-        autoComplete="new-password"
+        // Protect sets a NEW password: "new-password" keeps the browser from
+        // offering a saved login and lets a password manager store it. Unlock
+        // asks for an EXISTING one, and "new-password" there made browsers
+        // offer a generated password that can never open the file (audit
+        // unlock-pdf#5), so it says "current-password", the token for an
+        // existing password ("off" until review 2026-11-28; Chrome ignores
+        // "off" on password fields).
+        autoComplete={mode === "protect" ? "new-password" : "current-password"}
       />
       <p
         id="pdf-security-password-hint"
+        role={refusal ? "alert" : undefined}
         className={cn(
           "text-xs leading-relaxed",
-          tooLong || notLatinFor128 ? "text-warn" : "text-muted",
+          tooLong || notLatinFor128 || refusal ? "text-warn" : "text-muted",
         )}
       >
-        {mode === "protect"
-          ? "Anyone opening the PDF will need this password. Store it somewhere safe — it can't be recovered."
-          : // A PDF that opens freely but locks printing or copying has no
-            // password that "opens" it; its owner password is the one qpdf
-            // accepts. Until 2026-09 this hint named only the open password,
-            // so that user had nothing true to type.
-            "Enter the password that opens this PDF — or, if it opens without one, its owner (permissions) password."}
+        {refusal
+          ? refusal
+          : mode === "protect"
+            ? "Anyone opening the PDF will need this password. Store it somewhere safe — it can't be recovered."
+            : // A PDF that opens freely but locks printing or copying has no
+              // password that "opens" it; its owner password is the one qpdf
+              // accepts. Until 2026-09 this hint named only the open password,
+              // so that user had nothing true to type.
+              (seen?.hint ??
+              "Enter the password that opens this PDF — or, if it opens without one, its owner (permissions) password.")}
         {tooLong
           ? ` Too long: ${passwordBytes}/${MAX_PDF_PASSWORD_BYTES} bytes.`
           : ""}
@@ -704,17 +770,19 @@ function SecurityRunArea({
           <RunReason
             after
             reason={
-              !ready || file === null
+              !ready || file === null || seen?.stop
                 ? null
-                : passwordMissing
-                  ? mode === "protect"
-                    ? "Type a new password first."
-                    : "Type the password that opens this PDF first."
-                  : unconfirmed
-                    ? CONFIRM_PASSWORD_FIRST
-                    : ownerUnconfirmed && ownerProblem === null
-                      ? CONFIRM_OWNER_PASSWORD_FIRST
-                      : null
+                : checking
+                  ? (seen?.checking ?? null)
+                  : passwordMissing
+                    ? mode === "protect"
+                      ? "Type a new password first."
+                      : "Type the password that opens this PDF first."
+                    : unconfirmed
+                      ? CONFIRM_PASSWORD_FIRST
+                      : ownerUnconfirmed && ownerProblem === null
+                        ? CONFIRM_OWNER_PASSWORD_FIRST
+                        : null
             }
           >
             {(describedBy) => (

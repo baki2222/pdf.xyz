@@ -9,6 +9,8 @@ import {
   type PiiCategory,
 } from "@/lib/pdf/redact-categories";
 import type {
+  FindAsk,
+  FindCursor,
   FoundKind,
   FoundText,
   RedactTextIndex,
@@ -60,10 +62,18 @@ export function RedactFindPanel({
   );
   // Not a tool run: Find and Detect write no file and report no outcome —
   // the run is "Redact PDF" (useAsyncRun in redact-runner.tsx).
-  const [searching, setSearching] = useState<"search" | "detect" | null>(null);
+  const [searching, setSearching] = useState<
+    "search" | "detect" | "more" | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [index, setIndex] = useState<RedactTextIndex | null>(null);
+  // Where the last capped step stopped, and the same search to carry on with
+  // (audit redact-pdf#4): past MAX_FOUND, "Find more from page N" lists the
+  // next matches instead of the first ones again.
+  const [more, setMore] = useState<{ ask: FindAsk; from: FindCursor } | null>(
+    null,
+  );
   const indexRef = useRef<Promise<RedactTextIndex> | null>(null);
   const ids = { query: useId(), matchCase: useId(), wholeWord: useId() };
 
@@ -83,32 +93,55 @@ export function RedactFindPanel({
     return indexRef.current;
   };
 
+  const runMore = async () => {
+    if (!more || searching) return;
+    setError(null);
+    setSearching("more");
+    try {
+      const m = await import("@/lib/pdf/redact-find");
+      const step = m.findMore(await readIndex(), more.ask, more.from);
+      onFound(step.matches);
+      setStatus(step.status);
+      setMore(step.next ? { ask: more.ask, from: step.next } : null);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSearching(null);
+    }
+  };
+
   const runFind = async (kind: "search" | "detect") => {
     setError(null);
     setStatus(null);
+    setMore(null);
     setSearching(kind);
     try {
       const read = await readIndex();
       const m = await import("@/lib/pdf/redact-find");
       if (kind === "search") {
-        const { matches, capped } = m.findTextMatches(read, query, {
-          matchCase,
-          wholeWord,
-        });
+        const options = { matchCase, wholeWord };
+        const { matches, capped, next } = m.findTextMatches(
+          read,
+          query,
+          options,
+        );
         onFound(matches);
+        if (next) setMore({ ask: { query, options }, from: next });
         setStatus(
           matches.length === 0
             ? `No matches for “${query.trim()}”.`
             : `${matches.length}${capped ? "+" : ""} match${matches.length === 1 ? "" : "es"} for “${query.trim()}” added to the list below${capped ? ` (the first ${MAX_FOUND})` : ""}.`,
         );
       } else {
-        const { matches, capped } = m.detectPersonalData(read, [...categories]);
+        const kinds = [...categories];
+        const { matches, capped, next } = m.detectPersonalData(read, kinds);
         onFound(matches);
+        if (next) setMore({ ask: { categories: kinds }, from: next });
         setStatus(
           matches.length === 0
             ? "Nothing in the ticked categories was found."
             : capped
-              ? `More than ${MAX_FOUND} items found. Detect stopped at the first ${MAX_FOUND} (up to page ${matches[matches.length - 1]!.page}) and added them to the list below; anything after them was not searched.`
+              ? `More than ${MAX_FOUND} items found. Detect stopped at the first ${MAX_FOUND} (up to page ${matches[matches.length - 1]!.page}) and added them to the list below. Find more lists the ones after them.`
               : `${matches.length} item${matches.length === 1 ? "" : "s"} found and added to the list below.`,
         );
       }
@@ -119,18 +152,31 @@ export function RedactFindPanel({
     }
   };
 
+  // A continuation belongs to the search that made it (review 2026-11-28):
+  // editing that search, or clearing the list, drops it, so "Find more"
+  // never carries on a search the panel no longer shows.
+  const dropMore = (of: "search" | "detect") =>
+    setMore((m) => (m && "query" in m.ask === (of === "search") ? null : m));
+  const clear = () => {
+    setMore(null);
+    setStatus(null);
+    onClear();
+  };
+
   const noTextAtAll =
     index !== null && index.pagesWithoutText.length === index.pageCount;
   const someNoText =
     index !== null && !noTextAtAll && index.pagesWithoutText.length > 0;
 
-  const toggleCategory = (c: PiiCategory) =>
+  const toggleCategory = (c: PiiCategory) => {
+    dropMore("detect");
     setCategories((prev) => {
       const next = new Set(prev);
       if (next.has(c)) next.delete(c);
       else next.add(c);
       return next;
     });
+  };
 
   const chosenCount = found.filter((f) => chosen.has(f.key)).length;
 
@@ -152,7 +198,10 @@ export function RedactFindPanel({
               id={ids.query}
               type="search"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                dropMore("search");
+                setQuery(e.target.value);
+              }}
               placeholder="A name, a number, a word…"
               spellCheck={false}
               className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 rounded-ctl min-w-0 flex-1 border px-3.5 py-2 text-sm transition outline-none focus:ring-2"
@@ -179,7 +228,10 @@ export function RedactFindPanel({
                 id={ids.matchCase}
                 type="checkbox"
                 checked={matchCase}
-                onChange={(e) => setMatchCase(e.target.checked)}
+                onChange={(e) => {
+                  dropMore("search");
+                  setMatchCase(e.target.checked);
+                }}
               />
               Match case
             </label>
@@ -191,7 +243,10 @@ export function RedactFindPanel({
                 id={ids.wholeWord}
                 type="checkbox"
                 checked={wholeWord}
-                onChange={(e) => setWholeWord(e.target.checked)}
+                onChange={(e) => {
+                  dropMore("search");
+                  setWholeWord(e.target.checked);
+                }}
               />
               Whole word
             </label>
@@ -261,6 +316,23 @@ export function RedactFindPanel({
             {status}
           </p>
         )}
+        {more && (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => void runMore()}
+              aria-disabled={searching !== null || undefined}
+              className={buttonVariants({ variant: "secondary", size: "sm" })}
+            >
+              {searching === "more" ? (
+                <Spinner />
+              ) : (
+                <ScanSearch className="size-4" aria-hidden />
+              )}
+              Find more from page {more.from.page}
+            </button>
+          </div>
+        )}
         {error && <ErrorNote message={error} />}
         {noTextAtAll && (
           <NoSelectableTextNote extra="Then search the recognized copy here, or draw areas by position below." />
@@ -295,7 +367,7 @@ export function RedactFindPanel({
                 </button>
                 <button
                   type="button"
-                  onClick={onClear}
+                  onClick={clear}
                   className={buttonVariants({ variant: "ghost", size: "sm" })}
                 >
                   <X className="size-4" aria-hidden />

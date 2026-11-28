@@ -293,8 +293,8 @@ export function RedactEditor({
             Checked: {result.verified === 1 ? "the" : `all ${result.verified}`}{" "}
             chosen text {result.verified === 1 ? "match was" : "matches were"}{" "}
             searched for again in the redacted file — its page text, properties,
-            bookmarks, comments and form fields — and{" "}
-            {result.verified === 1 ? "is" : "are"} not in it.
+            bookmarks, comments, form fields and the contents of any attached
+            file — and {result.verified === 1 ? "is" : "are"} not in it.
           </p>
         )}
         <button

@@ -529,7 +529,9 @@ test("Unlock PDF at 360: a tap on Run ends with the result on the screen", async
     mimeType: "application/pdf",
     buffer: Buffer.from(USER_PASSWORD_PDF_BASE64, "base64"),
   });
-  await page.getByLabel("Current password").fill("user-pass");
+  // The fixture's real open password: since audit unlock-pdf#1 the panel
+  // tries the password in the browser first, and a wrong one never uploads.
+  await page.getByLabel("Current password").fill("open-sesame");
   const run = page.getByRole("button", { name: "Unlock PDF" });
   await run.tap();
   const card = page.getByRole("group", {

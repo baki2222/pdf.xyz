@@ -27,6 +27,18 @@ import {
  *    disabled until a file AND a non-empty password are present), then
  *    "Your PDF is unlocked and ready." and "Download <name>". When no worker
  *    is available the panel shows no uploader and no password field at all.
+ *    ADDED 2026-11-22 (audit unlock-pdf#1): before any upload the panel
+ *    reads the picked file in the browser (classifyPdfAccess, the batch's
+ *    securityPreflight check). A PDF that is not encrypted gets
+ *    UNLOCK_NOT_LOCKED_LINE under its name and Run stays off; one that opens
+ *    freely but is restricted relabels the field UNLOCK_OWNER_PASSWORD_LABEL
+ *    ("Owner (permissions) password") with its own hint; for one that needs
+ *    a password to open, pressing Run first tries the password with our own
+ *    Standard security handler (src/lib/pdf/open-password.ts) and, when it
+ *    is plain printable ASCII and does not open the file, shows
+ *    UNLOCK_WRONG_PASSWORD_LINE under the field and sends nothing. A
+ *    non-ASCII password, or a file the browser cannot read, goes to our
+ *    server as before. Pinned in unlock-preflight.dom.test.tsx.
  *    The Remove control is a <button>, not a link; the run button blocks via
  *    aria-disabled (WorkerRunButton) and shows a spinner for the entire
  *    runSecurityJob call (upload, poll, download), its label following the
@@ -115,7 +127,7 @@ const content: ToolContent = {
     "Remove the password from a PDF you can already open: type it once, qpdf decrypts the file, and you download an unlocked copy. It won't crack unknown passwords.",
 
   intro: [
-    "Unlock PDF takes an encrypted PDF plus the password that opens it and gives you back the same document with the encryption removed, so it opens without a prompt and other tools can work on it. It is for files you are entitled to open and whose password is known to you, such as a statement or a contract a colleague locked before emailing it. It is not a password cracker: if the password you type does not open the file, the job stops and says so.",
+    "Unlock PDF takes an encrypted PDF plus the password that opens it and gives you back the same document with the encryption removed, so it opens without a prompt and other tools can work on it. It is for files you are entitled to open and whose password is known to you, such as a statement or a contract a colleague locked before emailing it. It is not a password cracker: if the password you type does not open the file, the page says so and nothing is unlocked.",
     `The decryption is done by qpdf, which rewrites the file without its security settings rather than printing the pages to images, so any text the original had stays selectable and searchable. Before anything is delivered our server checks the result again, and a copy that still reports encryption counts as a failure, not a download.`,
     `This tool runs on a server: your PDF, up to ${ceilingMb} MB, is uploaded over TLS to pdf.xyz's secure server, and the password rides along in the job request, where it waits in the job queue until the job finishes. The input is deleted when the job finishes, the download link stops working after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that.`,
   ],
@@ -150,11 +162,11 @@ const content: ToolContent = {
     },
     {
       title: "Type the current password",
-      body: `Put the password that opens the file into the Current password field; for a file that views without a prompt but is restricted, use its owner password. Dots hide what you type until you press the Show password eye icon at the end of the field. The limit is ${MAX_PDF_PASSWORD_BYTES} bytes, not characters, so accented or non-Latin letters use it up faster; past it, the hint reads "Too long: n/${MAX_PDF_PASSWORD_BYTES} bytes."`,
+      body: `Put the password that opens the file into the Current password field. For a file that views without a prompt but is restricted, the field is labelled Owner (permissions) password instead, because its owner password is the one that works. Dots hide what you type until you press the Show password eye icon at the end of the field. The limit is ${MAX_PDF_PASSWORD_BYTES} bytes, not characters, so accented or non-Latin letters use it up faster; past it, the hint reads "Too long: n/${MAX_PDF_PASSWORD_BYTES} bytes."`,
     },
     {
       title: "Select Unlock PDF",
-      body: "Nothing happens when you press it without a file, without a password, or with a password over the limit. Otherwise it shows a spinner for the whole run, and its label follows the job: Uploading your file…, Waiting for our server…, Unlocking on our secure server… while qpdf decrypts, then Downloading the result… as the unlocked copy comes back to your browser.",
+      body: "Nothing happens when you press it without a file, without a password, or with a password over the limit. Your browser checks the file first, without sending it: a PDF that is not locked gets a note under its name saying there is nothing to unlock, and a password typed in plain English letters, digits, spaces and common symbols that does not open the file gets a note under the field instead. Either way it stops there and sends nothing. Otherwise it shows a spinner for the whole run, and its label follows the job: Uploading your file…, Waiting for our server…, Unlocking on our secure server… while qpdf decrypts, then Downloading the result… as the unlocked copy comes back to your browser.",
     },
     {
       title: "Download the unlocked copy",
@@ -169,7 +181,7 @@ const content: ToolContent = {
     },
     {
       q: "Which password do I need to enter?",
-      a: "The decryption is done by qpdf, which accepts either of a PDF's two passwords: the user password asked for when the file is opened, or the owner password that governs printing and editing. Because Unlock PDF stays inactive while Current password is blank, a PDF with no open password but locked-down permissions can only be unlocked here with its owner password.",
+      a: "The decryption is done by qpdf, which accepts either of a PDF's two passwords: the user password asked for when the file is opened, or the owner password that governs printing and editing. Because Unlock PDF stays inactive while the password field is blank, a PDF with no open password but locked-down permissions can only be unlocked here with its owner password; for such a file the field is labelled Owner (permissions) password.",
     },
     {
       q: "Why did I get 'The password is incorrect, or this PDF cannot be unlocked with it'?",
@@ -177,7 +189,7 @@ const content: ToolContent = {
     },
     {
       q: "Is my file and password uploaded?",
-      a: `Yes. Decryption needs the native qpdf engine, so the PDF is uploaded over TLS to pdf.xyz's secure server and the password is sent in the job request. The password is kept in the queue's record of the job while it waits and runs, including any automatic retry; that record is deleted when the job finishes, and one for a job that never finishes expires on the queue's own timer. qpdf receives it from a one-line-per-argument file in a scratch folder rather than on the process command line, and the folder is deleted when that qpdf call returns. The input PDF is deleted when the job finishes, the download link expires after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that.`,
+      a: `Yes, when you press Unlock PDF. Before that your browser opens the file to check it is locked and, for most passwords, that the password opens it; those checks send nothing. Decryption itself needs the native qpdf engine, so the PDF is uploaded over TLS to pdf.xyz's secure server and the password is sent in the job request. The password is kept in the queue's record of the job while it waits and runs, including any automatic retry; that record is deleted when the job finishes, and one for a job that never finishes expires on the queue's own timer. qpdf receives it from a one-line-per-argument file in a scratch folder rather than on the process command line, and the folder is deleted when that qpdf call returns. The input PDF is deleted when the job finishes, the download link expires after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that.`,
     },
     {
       q: "Does unlocking change anything else in the document?",

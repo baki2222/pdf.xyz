@@ -8,6 +8,7 @@ import { repairedOutputName } from "@/lib/workers/processor/pdf-structure";
 import { DEFAULT_INTAKE_POLICY } from "@/lib/uploads/intake";
 import { DEFAULT_SOUNDNESS_POLICY } from "@/lib/workers/soundness/policy";
 import { workerBatchPageSentence } from "@/lib/batch/worker-copy";
+import { REPAIR_TAKES, REPAIR_WARNINGS_ANSWER } from "@/lib/tools/tool-facts";
 
 /*
  * Behaviour claims below were read from the code on 2026-09-27:
@@ -172,13 +173,28 @@ const content: ToolContent = {
       q: "Can every corrupted PDF be repaired?",
       a: "No. qpdf can reconstruct a damaged or missing cross-reference table when the objects are still in the file, but it cannot bring back bytes that are not there. If qpdf refuses the file, the job stops straight away without a retry, saying either that the file could not be rebuilt into a PDF or that it is password-protected and needs Unlock PDF first. A run that goes past our server's time limit ends the job at once, saying the file took too long, since the same file would take just as long again. A run that writes something without a PDF header and end-of-file marker is tried again and then fails the job with no file produced.",
     },
+    // Asked in the derived questions' OWN words (audit repair-pdf#7): the
+    // page carried "Why was my file refused before the repair started?" and
+    // "What do the warnings after a repair mean?" beside the derived "Which
+    // damaged files can Repair PDF take?" and "What does it mean when the
+    // repair lists warnings?", because `pageFaq` drops a derived question
+    // only when the author asked it word for word. Asking it so retires the
+    // derived copy; each answer is the derived fact plus the detail only the
+    // authored one had. `repair-faq-once.test.ts` holds both halves.
     {
-      q: "Why was my file refused before the repair started?",
-      a: "Our server looks for the PDF header (%PDF-) near the start of the file. Without it the file is probably not a PDF at all, such as a renamed image or an HTML error page saved with a .pdf name, or it has lost its beginning, so no repair is attempted and the job is not retried.",
+      q: `Which damaged files can ${repairTool!.name} take?`,
+      a: `${REPAIR_TAKES} Our server looks for the PDF header (%PDF-) near the start of the file. Without it the file is probably not a PDF at all, such as a renamed image or an HTML error page saved with a .pdf name, or it has lost its beginning, so no repair is attempted and the job is not retried.`,
     },
     {
-      q: "What do the warnings after a repair mean?",
-      a: "They are qpdf's own messages from rebuilding the file, for example that the cross-reference table was damaged or an object was not where the file said. The repair still produced a PDF, but check those parts against the original.",
+      q: "What does it mean when the repair lists warnings?",
+      // The example illustrates the messages, so it goes right after the
+      // sentence that introduces them (review 2026-11-28, finding 3);
+      // repair-faq-once.test.ts holds the order and every derived sentence.
+      a: REPAIR_WARNINGS_ANSWER.replace(
+        /(holds qpdf's own messages[^.]*\.)/,
+        (said) =>
+          `${said} For example, a message can say that the cross-reference table was damaged or that an object was not where the file said.`,
+      ),
     },
     {
       q: "Does repairing change how my pages look?",

@@ -1672,7 +1672,11 @@ describe("Repair PDF takes what its page says, and returns no rubble", () => {
       },
     });
     expect(rubble.ok).toBe(false);
-    expect(answer("repair-pdf", /damaged files/i)).toBe(REPAIR_TAKES);
+    // REPAIR_TAKES first, then the %PDF- detail the authored refusal question
+    // carried before it merged into this one (audit repair-pdf#7).
+    expect(answer("repair-pdf", /damaged files/i)).toMatch(
+      new RegExp(`^${REPAIR_TAKES.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+    );
   });
 });
 

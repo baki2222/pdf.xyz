@@ -119,7 +119,10 @@ function batchModulesOf(runner: string): string[] {
     const closure = valueClosure(resolved).map(relOf);
     if (closure.includes(BATCH_VIEW)) out.push(relOf(resolved));
   }
-  return out;
+  // A module loaded from two places is one module: Unlock's panel imports
+  // the security batch for its view and for the single file's look
+  // (audit unlock-pdf#1).
+  return [...new Set(out)];
 }
 
 /** Everything a tool page serves a reader about the tool. */
