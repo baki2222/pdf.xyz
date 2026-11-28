@@ -366,6 +366,46 @@ test.describe("at 1280 px", () => {
 test.describe("at 375 px", () => {
   test.use({ viewport: { width: 375, height: 812 } });
 
+  test("Enter on Show changes on the pages leaves the focused pages in view (keyboard)", async ({
+    page,
+  }) => {
+    // The page view takes focus when it mounts, without scrolling. On a
+    // phone the pages opened below the screen, so focus went out of sight
+    // (review of #404: the group's top at 839 of 812). axe cannot see
+    // this; only where focus lands can.
+    const { left, right } = pair();
+    const changes = await compared(page, await pdf(left), await pdf(right));
+    await changes
+      .getByRole("button", { name: "Show changes on the pages" })
+      .focus();
+    await page.keyboard.press("Enter");
+    await expect(
+      page.getByRole("group", { name: "Changes on the pages" }),
+    ).toBeFocused({ timeout: 30_000 });
+    const seen = await page.evaluate(async () => {
+      // Until the window is still: three frames with scrollY unchanged.
+      let last = window.scrollY;
+      for (let n = 0, held = 0; held < 3 && n < 240; n++) {
+        await new Promise((r) => requestAnimationFrame(r));
+        held = window.scrollY === last ? held + 1 : 0;
+        last = window.scrollY;
+      }
+      const el = document.activeElement as HTMLElement;
+      const r = el.getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      // Rows of the focused element a person can see: on screen, and not
+      // under the sticky header or the consent banner.
+      let rows = 0;
+      for (let y = Math.max(0, r.top); y < Math.min(r.bottom, innerHeight); y += 4) {
+        const hit = document.elementFromPoint(x, y);
+        if (hit && el.contains(hit)) rows++;
+      }
+      return { label: el.getAttribute("aria-label"), seenPx: rows * 4 };
+    });
+    expect(seen.label).toBe("Changes on the pages");
+    expect(seen.seenPx).toBeGreaterThanOrEqual(100);
+  });
+
   test("44 px controls, no sideways scroll, Revised shows its marks, and Next brings the pages into view", async ({
     page,
   }) => {

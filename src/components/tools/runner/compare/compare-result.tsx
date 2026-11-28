@@ -863,6 +863,13 @@ export function CompareChanges({
                   onPointerEnter={warmPages}
                   onFocus={warmPages}
                   onClick={() => {
+                    // The page view takes focus when it mounts, without
+                    // scrolling (compare-viewer.tsx). On a phone the bar is
+                    // not pinned, and the pages opened below the screen:
+                    // focus went where nobody could see it (review of #404,
+                    // keyboard Enter at 375 x 812, the group's top at 839).
+                    // Bring them into the window, as Next and Previous do.
+                    focusNext.current = { pages: true };
                     setView("pages");
                     setNavToken((t) => t + 1);
                   }}
