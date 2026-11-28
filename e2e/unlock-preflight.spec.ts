@@ -22,10 +22,10 @@ import {
  *  - a PDF that is not locked: the "not locked" line, 0 requests;
  *  - a PDF that needs a password, with a wrong one: an inline error under
  *    the field, 0 requests;
- *  - the same file with its real password: it uploads, and the download
- *    the page saves opens with no password and carries no /Encrypt. (The
- *    decryption is the mocked worker's here; what this proves is the
- *    page's chain from the field to the saved file.)
+ *  - the same file with its real password: the picked bytes are uploaded,
+ *    the typed password is in the job request, and the bytes the (mocked)
+ *    worker returns are the bytes saved. Decryption itself is qpdf's on the
+ *    worker and is NOT proven here; this proves the page's chain only.
  *  - a restricted file: the field asks for the owner (permissions) password;
  *  - the field's autocomplete as served: "current-password" on Unlock,
  *    "new-password" on Protect (the control).
@@ -44,8 +44,18 @@ const json = (route: Route, status: number, body: unknown) =>
     body: JSON.stringify(body),
   });
 
+/** What reached the mocked wire, per page: the uploaded bytes and the job request. */
+const wire = new WeakMap<
+  Page,
+  { put?: Buffer; job?: string; served: Uint8Array }
+>();
+
 async function mockWorker(page: Page, output: Uint8Array) {
   const sent: string[] = [];
+  const seen: { put?: Buffer; job?: string; served: Uint8Array } = {
+    served: output,
+  };
+  wire.set(page, seen);
   await page.route("**/api/worker/status", (route) =>
     json(route, 200, READY_WORKER_STATUS),
   );
@@ -69,6 +79,7 @@ async function mockWorker(page: Page, output: Uint8Array) {
   });
   await page.route("**/__e2e/unlock-upload/**", async (route) => {
     sent.push(`put ${route.request().method()}`);
+    seen.put = route.request().postDataBuffer() ?? undefined;
     await json(route, 200, {});
   });
   const job = (status: string) => {
@@ -102,6 +113,7 @@ async function mockWorker(page: Page, output: Uint8Array) {
   await page.route("**/api/jobs", async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
     sent.push("job POST");
+    seen.job = route.request().postData() ?? undefined;
     await json(route, 200, job("queued"));
   });
   await page.route("**/api/jobs/job_u1", (route) =>
@@ -161,10 +173,11 @@ test("a wrong open password is caught in the browser, inline, and nothing is sen
   expect(sent).toEqual([]);
 });
 
-test("the right password uploads, and the saved file opens with no password", async ({
+test("the right password uploads the picked file and that password, and saves what the worker returns", async ({
   page,
 }) => {
-  const sent = await openUnlock(page, locked());
+  const file = locked();
+  const sent = await openUnlock(page, file);
   await page.getByLabel("Current password").fill("open-sesame");
   await page.getByRole("button", { name: "Unlock PDF" }).click();
   const download = page.waitForEvent("download");
@@ -172,11 +185,19 @@ test("the right password uploads, and the saved file opens with no password", as
     .getByRole("button", { name: "Download locked-unlocked.pdf" })
     .click({ timeout: 20_000 });
   const saved = await readFile((await (await download).path())!);
-  // Decoded: pdf-lib refuses any /Encrypt unless told to ignore it.
-  const doc = await PDFDocument.load(saved);
-  expect(doc.getPageCount()).toBe(1);
-  expect(saved.toString("latin1")).not.toContain("/Encrypt");
   expect(sent).toEqual(["reserve POST", "put PUT", "job POST"]);
+  // Review 2026-11-28 findings 4 and 10: the worker here is a mock that
+  // serves the same unlocked file whatever it is sent, so "the download
+  // has no /Encrypt" proved nothing about decryption. What this test CAN
+  // prove is the page's half of the chain: the bytes picked are the bytes
+  // uploaded, the password typed is in the job request, and the bytes the
+  // worker returns are the bytes saved. Decryption itself is qpdf's, on the
+  // worker, which this change does not touch.
+  const seen = wire.get(page)!;
+  expect(seen.put?.equals(file.buffer)).toBe(true);
+  expect(seen.job).toContain('"open-sesame"');
+  expect(saved.equals(Buffer.from(seen.served))).toBe(true);
+  expect((await PDFDocument.load(saved)).getPageCount()).toBe(1);
   await expect(page.getByText(UNLOCK_WRONG_PASSWORD_LINE)).toHaveCount(0);
 });
 
