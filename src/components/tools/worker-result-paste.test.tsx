@@ -136,7 +136,16 @@ const DRIVERS: Record<
     run: /prepare signature request/i,
   },
   SummarizeWorkerPanel: { run: /summarize pdf/i },
-  TranslateWorkerPanel: { run: /translate pdf/i },
+  TranslateWorkerPanel: {
+    // The fixture is English: into English, the default, the panel stops
+    // before upload (translate-pdf#1), so this run goes into Spanish.
+    prepare: async () => {
+      fireEvent.change(await screen.findByLabelText("Translate into"), {
+        target: { value: "es" },
+      });
+    },
+    run: /translate pdf/i,
+  },
   AiExtractWorkerPanel: {
     prepare: async () => {
       fireEvent.change(

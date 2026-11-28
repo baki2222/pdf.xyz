@@ -132,6 +132,12 @@ async function runOnce(run: HTMLElement) {
       ],
     },
   });
+  // The fixture's text is English and these runs keep the English target
+  // (the PDF is proven for it), so the source is named: an Auto-detect run
+  // into the language the PDF is in stops before upload (translate-pdf#1).
+  fireEvent.change(screen.getByLabelText("Source language"), {
+    target: { value: "de" },
+  });
   await waitFor(
     () => expect(run.getAttribute("aria-disabled")).not.toBe("true"),
     { timeout: WAIT_MS },

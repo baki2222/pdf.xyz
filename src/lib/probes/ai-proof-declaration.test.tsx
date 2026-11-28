@@ -410,6 +410,13 @@ async function panelJobBodies(
       );
       await drop(bytes, spec.name);
       await screen.findByText(spec.name, {}, { timeout: WAIT_MS });
+      // The panel is driven to the proof's own target (its fixture is
+      // English, and into English with Auto-detect the panel stops before
+      // upload: translate-pdf#1).
+      if (typeof spec.options?.targetLanguage === "string")
+        fireEvent.change(screen.getByLabelText("Translate into"), {
+          target: { value: spec.options.targetLanguage },
+        });
       await press(/translate pdf/i);
       break;
     case "ai-extract":

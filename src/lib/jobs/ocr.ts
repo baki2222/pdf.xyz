@@ -934,3 +934,38 @@ export function buildOcrResultMeta(input: OcrResultMetaInput): OcrResultMeta {
     ),
   };
 }
+
+/**
+ * PHOTOS GET THE PDF PATH WHEN IT IS ASKED FOR (audit ocr-pdf#2, 2026-11-22).
+ * A JPG or PNG sent as it is goes to Tesseract, which has no straighten or
+ * turn step. With either box ticked, the panel first puts the photo on a PDF
+ * page in the browser (`@/lib/pdf/ocr-photo-pdf`) and sends that, so the
+ * worker's PDF path applies both. Unticked, a photo goes as before (and keeps
+ * its Confidence row, which only Tesseract reports).
+ */
+export function ocrSendsPhotoAsPdf(
+  contentType: string,
+  options: Pick<OcrOptions, "deskew" | "rotatePages">,
+): boolean {
+  return (
+    contentType.toLowerCase().startsWith("image/") &&
+    (options.deskew === true || options.rotatePages === true)
+  );
+}
+
+/**
+ * "Combine into one PDF" (audit ocr-pdf#3): several photos or scans become
+ * one PDF in the browser, in the order listed, sent as ONE job. The worker
+ * still reads one file per job ({@link OCR_MAX_INPUT_FILES}); the combined
+ * file is that one file, so it must fit the per-file ceiling.
+ */
+export const OCR_COMBINE_LABEL = "Combine into one PDF";
+
+export const OCR_COMBINE_HINT =
+  "Every file becomes part of one searchable PDF, in the order listed, sent as one job: each photo a page, each PDF all its pages.";
+
+/** Said when the combined PDF would be over the per-file ceiling. */
+export function ocrCombineTooLarge(bytes: number, ceiling: number): string {
+  const mb = (n: number) => `${Math.ceil(n / (1024 * 1024))} MB`;
+  return `These files come to about ${mb(bytes)} together, and one combined PDF can be at most ${mb(ceiling)}. Nothing was uploaded. Remove some files, or untick ${OCR_COMBINE_LABEL} to read each file as its own job.`;
+}

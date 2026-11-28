@@ -70,7 +70,9 @@ import { planTranslateChunks } from "@/lib/workers/translate/chunking";
 import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
 import { translateSameLanguageMessage } from "@/lib/jobs/translate-pdf";
 import {
+  latinLanguage,
   scriptOnlyLanguage,
+  translateAlreadyInLanguageMessage,
   translateAutoSameLanguageWarning,
 } from "@/lib/jobs/translate-script";
 import { textToPdf } from "@/lib/pdf/text-to-pdf";
@@ -84,6 +86,7 @@ import { resetTelemetry } from "@/lib/telemetry/track";
 import { userPasswordEncryptedPdf } from "@/tests/encrypted-pdf-fixture";
 import { READY_WORKER_STATUS as READY } from "@/tests/ready-worker-status";
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
+import { LiveRegion } from "@/components/a11y/live-region";
 import { TranslateWorkerPanel } from "./translate-worker-panel";
 
 /**
@@ -414,6 +417,132 @@ describe("TranslateWorkerPanel: Auto-detect into the document's own language is 
     // The extraction has landed: only now is the absence read.
     await extracted();
     expect(screen.queryByText(/looks like it is already in/)).toBeNull();
+  });
+});
+
+/**
+ * translate-pdf#1, the Latin half. Script decides nothing for English, Spanish,
+ * French...; the common words do (`latinLanguage`). An English PDF with the
+ * defaults (Auto-detect into English) used to be uploaded and charged for an
+ * English-to-English copy. It now stops before anything is sent, and the reader
+ * can still go on by choosing the source language.
+ */
+describe("TranslateWorkerPanel: an English PDF into English with Auto-detect stops before upload", () => {
+  const ENGLISH = [
+    "This agreement is made between the company and the tenant.",
+    "The tenant will pay the rent on the first day of each month.",
+    "The company will repair the roof when it is needed.",
+    "If either party wants to end this agreement, they should give notice.",
+  ];
+  const SPANISH = [
+    "Este contrato se firma entre la empresa y el inquilino.",
+    "El inquilino pagará el alquiler el primer día de cada mes.",
+    "La empresa reparará el techo cuando sea necesario.",
+    "Si una de las partes quiere terminar el contrato, debe avisar por escrito.",
+  ];
+  async function linesPdf(lines: readonly string[]): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([612, 400]);
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    lines.forEach((line, i) =>
+      page.drawText(line, { x: 20, y: 360 - i * 20, size: 10, font }),
+    );
+    return doc.save();
+  }
+  const STOP = translateAlreadyInLanguageMessage("en");
+  const pick = (label: RegExp, value: string) =>
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+
+  it("health: the fixtures come back out as English and Spanish", async () => {
+    expect(
+      latinLanguage((await realExtract(await linesPdf(ENGLISH))).text),
+    ).toBe("en");
+    expect(
+      latinLanguage((await realExtract(await linesPdf(SPANISH))).text),
+    ).toBe("es");
+  });
+
+  it("defaults: the stop is shown, Run is blocked, and no job is requested even when pressed", async () => {
+    const { fetchMock, run } = await renderReadyPanel();
+    fireEvent.change(fileInput(), {
+      target: { files: [pdfFile(await linesPdf(ENGLISH), "lease.pdf")] },
+    });
+    fireEvent.click(run);
+    expect(await screen.findByText(STOP)).toBeInTheDocument();
+    await waitFor(() => expect(blocked(run)).toBe(true));
+    fireEvent.click(run);
+    expect(jobRequests(fetchMock)).toEqual([]);
+  });
+
+  it("choosing the source language by hand lets the reader go on", async () => {
+    const { run } = await renderReadyPanel();
+    fireEvent.change(fileInput(), {
+      target: { files: [pdfFile(await linesPdf(ENGLISH), "lease.pdf")] },
+    });
+    expect(await screen.findByText(STOP)).toBeInTheDocument();
+    pick(/source language/i, "fr");
+    expect(screen.queryByText(STOP)).toBeNull();
+    await waitFor(() => expect(blocked(run)).toBe(false));
+  });
+
+  it("a Run pressed BEFORE the language check answers is stopped by Run's own check, and says so", async () => {
+    // Review of 7b498d92 (finding 13): the check inside start() exists only
+    // for this race, and mutating it to `if (false)` stayed green. Here the
+    // extraction is held until Run has been pressed, so the render-time stop
+    // cannot have blocked the button first. The witness is POSITIVE: Run's
+    // check speaks the stop in the live region; nothing else does.
+    const fetchMock = stubNetwork();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const gatedExtract = (bytes: Uint8Array) =>
+      gate.then(() => realExtract(bytes));
+    render(
+      <InToolPage tool={translateTool}>
+        <LiveRegion />
+        <TranslateWorkerPanel tool={translateTool} extractText={gatedExtract} />
+      </InToolPage>,
+    );
+    const run = await screen.findByRole(
+      "button",
+      { name: /translate pdf/i },
+      { timeout: WAIT_MS },
+    );
+    fireEvent.change(fileInput(), {
+      target: { files: [pdfFile(await linesPdf(ENGLISH), "lease.pdf")] },
+    });
+    // Health: the language check has NOT answered, so Run can be pressed.
+    await waitFor(() => expect(blocked(run)).toBe(false));
+    expect(screen.queryByText(STOP)).toBeNull();
+    fireEvent.click(run);
+    release();
+    expect(
+      await screen.findByText(
+        (_, el) =>
+          el?.getAttribute("aria-live") === "polite" && el.textContent === STOP,
+        {},
+        { timeout: WAIT_MS },
+      ),
+    ).toBeInTheDocument();
+    expect(jobRequests(fetchMock)).toEqual([]);
+    await waitFor(() => expect(blocked(run)).toBe(true));
+  });
+
+  it("CONTROL: a Spanish PDF into English is not stopped", async () => {
+    const { run } = await renderReadyPanel();
+    fireEvent.change(fileInput(), {
+      target: { files: [pdfFile(await linesPdf(SPANISH), "contrato.pdf")] },
+    });
+    // Proof the detector ran on this file: into Spanish it stops...
+    pick(/translate into/i, "es");
+    expect(
+      await screen.findByText(translateAlreadyInLanguageMessage("es")),
+    ).toBeInTheDocument();
+    // ...and into English, the default, it does not.
+    pick(/translate into/i, "en");
+    expect(screen.queryByText(/looks like it is already in/)).toBeNull();
+    await waitFor(() => expect(blocked(run)).toBe(false));
   });
 });
 

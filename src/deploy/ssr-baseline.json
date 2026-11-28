@@ -13765,7 +13765,7 @@
       "description": "PDF to PPT, as a .pptx file: each page becomes a slide with its pictures where the page shows them, each line of text in a text box, other drawing as pictures.",
       "canonical": "https://pdf.xyz/tools/pdf-to-powerpoint",
       "robots": "index, follow",
-      "h1": ["PDF to PowerPoint"],
+      "h1": ["PDF to PowerPoint (PPTX)"],
       "h2": [
         "About this tool",
         "Common questions",

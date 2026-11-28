@@ -29,6 +29,7 @@ import {
 } from "./engine";
 import { combineRanges, splitPdfBySize } from "./split-modes";
 import { mergeAlternating } from "./merge-alternate";
+import { buildOcrPdf } from "./ocr-photo-pdf";
 import { splitPagesInHalf } from "./split-half";
 import { loadPdfjs } from "./pdfjs";
 import { rangesPerPage } from "./ranges";
@@ -1414,8 +1415,14 @@ describe("page tools keep the document's bookmarks, page labels and metadata", (
     // PDF's Alternate pages mode (`merge-alternate.ts`) became the second
     // merge-state assembler — this line went red on its arrival, as it
     // should, and "every merge carrier carries what mergePdfs carries" below
-    // is what it now holds it to.
-    expect(carriers("merge")).toEqual(["mergeAlternating", "mergePdfs"]);
+    // is what it now holds it to. WIDENED 2026-11-22: OCR PDF's photo and
+    // combine step (`ocr-photo-pdf.ts`, audits ocr-pdf#2/#3) joins its
+    // sources through the same merge; held to mergePdfs below.
+    expect(carriers("merge")).toEqual([
+      "buildOcrPdf",
+      "mergeAlternating",
+      "mergePdfs",
+    ]);
     expect(carriers("subset")).toEqual(
       [
         ...Object.keys(SUBSET_TOOLS),
@@ -1970,6 +1977,31 @@ describe("merge keeps every source's form fillable and its bookmarks", () => {
     // Health: the comparison is not between two empty outlines.
     expect((await sorted(plain)).length).toBeGreaterThan(3);
     const inspected = await inspect(alternate);
+    expect(inspected.pageCount).toBe((await inspect(plain)).pageCount);
+    expect(inspected.pageDicts).toBe(inspected.pageCount);
+    expect(inspected.dangling).toEqual([]);
+  });
+
+  it("OCR PDF's combine (buildOcrPdf) carries what mergePdfs carries for the same PDFs", async () => {
+    const handbook = await handbookDoc();
+    const form = await formDoc();
+    const files = [handbook, form, handbook];
+    const plain = await mergePdfs(files);
+    const combined = await buildOcrPdf(
+      files.map((bytes, i) => ({
+        name: `part-${i}.pdf`,
+        type: "application/pdf",
+        bytes,
+      })),
+    );
+    expect((await viewerFields(combined)).values).toEqual(
+      (await viewerFields(plain)).values,
+    );
+    const sorted = async (b: Uint8Array) =>
+      titles((await readAsViewer(b)).outline).sort();
+    expect(await sorted(combined)).toEqual(await sorted(plain));
+    expect((await sorted(plain)).length).toBeGreaterThan(3);
+    const inspected = await inspect(combined);
     expect(inspected.pageCount).toBe((await inspect(plain)).pageCount);
     expect(inspected.pageDicts).toBe(inspected.pageCount);
     expect(inspected.dangling).toEqual([]);

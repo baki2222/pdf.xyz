@@ -66,9 +66,12 @@ import {
 } from "./ocr-language-picker";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { PdfEngineError } from "@/lib/pdf/engine";
+import { announceOutcome } from "@/components/a11y/live-region";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import {
+  latinLanguage,
   scriptOnlyLanguage,
+  translateAlreadyInLanguageMessage,
   translateAutoSameLanguageWarning,
 } from "@/lib/jobs/translate-script";
 import {
@@ -368,7 +371,6 @@ function TranslateBuilder({
   // The parser refuses this pair; blocking it here keeps the PDF from uploading
   // only to be told so, with the same sentence.
   const sameLanguage = sourceLanguage === targetLanguage;
-  const canRun = file != null && !busy && !sameLanguage;
 
   /**
    * The text, extracted ONCE per file and shared: by the script check below,
@@ -409,6 +411,12 @@ function TranslateBuilder({
      * no-text verdict, so this and the refusal at Run cannot disagree.
      */
     scan: boolean;
+    /**
+     * The Latin-script language the common words show (translate-pdf#1), or
+     * null. Unlike a script this names a language, so Auto-detect into it is
+     * stopped, not warned about.
+     */
+    words: TranslateLanguage | null;
   } | null>(null);
   useEffect(() => {
     if (!file) return;
@@ -422,6 +430,7 @@ function TranslateBuilder({
             scan:
               translatePreflight(extracted, TRANSLATE_MAX_INPUT_CHARS)
                 .refusal === TRANSLATE_NO_TEXT_MESSAGE,
+            words: latinLanguage(extracted.text),
           });
       },
       // A PDF that cannot be read is reported when the run starts, in words.
@@ -435,6 +444,15 @@ function TranslateBuilder({
     sourceLanguage === TRANSLATE_SOURCE_AUTO &&
     scriptLanguage?.file === file &&
     scriptLanguage.language === targetLanguage;
+  // AUTO-DETECT INTO A LATIN-SCRIPT DOCUMENT'S OWN LANGUAGE (translate-pdf#1):
+  // an English PDF with the defaults was uploaded and charged for an
+  // English-to-English copy. The common words name the language, so Run stops
+  // here; choosing the source language by hand goes on.
+  const autoAlreadyIn =
+    sourceLanguage === TRANSLATE_SOURCE_AUTO &&
+    scriptLanguage?.file === file &&
+    scriptLanguage.words === targetLanguage;
+  const canRun = file != null && !busy && !sameLanguage && !autoAlreadyIn;
 
   /**
    * OCR INSIDE TRANSLATE (audit translate-pdf#3). Offered only while the live
@@ -490,6 +508,28 @@ function TranslateBuilder({
 
   const start = useCallback(async () => {
     if (!file || !available) return;
+    // A Run pressed before the language check answered answers it here, so
+    // an Auto-detect run into the language the PDF is already in is never
+    // sent (translate-pdf#1). The extraction is shared and cached per file.
+    if (sourceLanguage === TRANSLATE_SOURCE_AUTO) {
+      let text: string | null = null;
+      try {
+        text = (await extractionFor(file)).text;
+      } catch {
+        // Reported in words by the run below.
+      }
+      if (text !== null && latinLanguage(text) === targetLanguage) {
+        setScriptLanguage({
+          file,
+          language: scriptOnlyLanguage(text),
+          scan: false,
+          words: targetLanguage,
+        });
+        // Said aloud too: a press that sends nothing must not be silent.
+        announceOutcome(translateAlreadyInLanguageMessage(targetLanguage));
+        return;
+      }
+    }
     // A SCAN IS SENT FOR OCR ONLY ONCE ITS SECTION HAS BEEN SHOWN (review
     // finding, 2026-11-09). Run is enabled as soon as the file is listed, and
     // a Run pressed before the scan check drew the section used to send an
@@ -514,6 +554,7 @@ function TranslateBuilder({
           file,
           language: scriptOnlyLanguage(extracted.text),
           scan: true,
+          words: null,
         });
         return;
       }
@@ -756,6 +797,11 @@ function TranslateBuilder({
         {sameLanguage ? (
           <p className="text-warn text-xs leading-relaxed sm:col-span-2">
             {translateSameLanguageMessage(targetLanguage)}
+          </p>
+        ) : null}
+        {autoAlreadyIn ? (
+          <p className="text-warn text-xs leading-relaxed sm:col-span-2">
+            {translateAlreadyInLanguageMessage(targetLanguage)}
           </p>
         ) : null}
         {autoSameLanguage ? (

@@ -24,6 +24,7 @@ import {
   describeOcrLanguage,
   describeOcrRequest,
   ocrConfidenceLooksLow,
+  ocrSendsPhotoAsPdf,
   ocrOutputsForMode,
   parseOcrOptions,
   type OcrOptions,
@@ -199,17 +200,16 @@ function OcrBody({
   const [redoOcr, setRedoOcr] = useState(false);
   const [deskewChoice, setDeskew] = useState(false);
   const deskewId = useId();
-  // Here, not in the run area: whether straightening can apply depends on
-  // the file. A JPG or PNG goes to Tesseract, which has no deskew step, so
-  // the box is turned off for one and the request never carries it.
+  // A JPG or PNG with either box ticked is put on a PDF page in the browser
+  // and sent as a PDF (audit ocr-pdf#2, `ocrSendsPhotoAsPdf`), so both boxes
+  // apply to a photo as to a scan. Until 2026-11-22 they were off for one.
   const [file, setFile] = useState<File | null>(null);
   const imageChosen = file !== null && isImageFile(file);
-  const deskewBlocked = imageChosen || redoOcr;
+  const deskewBlocked = redoOcr;
   const deskew = deskewChoice && !deskewBlocked;
-  // "Turn pages upright" (--rotate-pages): off for an image, as above. It
-  // pairs with both other boxes, so nothing else blocks it.
+  // "Turn pages upright" (--rotate-pages) pairs with both other boxes.
   const [rotateChoice, setRotate] = useState(false);
-  const rotatePages = rotateChoice && !imageChosen;
+  const rotatePages = rotateChoice;
   // The Owner password field (competitor-audit backlog #11): offered only
   // while the live worker proves `ocrOwnerPassword`, for a PDF, and drawn
   // by its own chunk only once the file is found to be restricted. Its
@@ -361,8 +361,8 @@ function OcrBody({
             id={`${deskewId}-hint`}
             className="text-muted text-xs leading-relaxed"
           >
-            For scanned pages without text; each one it levels is saved as a new
-            image. Not with Redo existing OCR. PDFs only.
+            For scanned pages and photos without text; each one it levels is
+            saved as a new image. Not with Redo existing OCR.
           </span>
         </span>
       </label>
@@ -378,23 +378,19 @@ function OcrBody({
           type="checkbox"
           checked={rotatePages}
           // Guarded, never `disabled`, as the boxes above.
-          onChange={(event) => {
-            if (!imageChosen) setRotate(event.target.checked);
-          }}
-          aria-disabled={imageChosen || undefined}
+          onChange={(event) => setRotate(event.target.checked)}
           className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4 aria-disabled:opacity-50"
         />
         <span className="flex flex-col gap-0.5">
           <span className="text-fg font-medium">Turn pages upright</span>
           <span className="text-muted text-xs leading-relaxed">
-            Sideways or upside-down scanned pages without text. PDFs only.
+            Sideways or upside-down scanned pages and photos without text.
           </span>
         </span>
       </label>
-      {imageChosen && (
+      {imageChosen && (deskew || rotatePages) && (
         <p className="text-muted text-xs leading-relaxed">
-          Straighten and turn are off for this file. A phone photo is still read
-          the way up your phone shows it.
+          {OCR_PHOTO_AS_PDF_NOTE}
         </p>
       )}
 
@@ -439,6 +435,13 @@ const OcrOwnerPassword = dynamic(
 );
 
 const RUN_LABEL = "Recognize text";
+
+/** Said under the boxes when a photo will be sent as a PDF (ocr-pdf#2). */
+const OCR_PHOTO_AS_PDF_NOTE =
+  "Your browser puts this photo on a PDF page before it is uploaded, so it can be straightened and turned. The result has no Confidence row, which only a photo read on its own gets.";
+
+/** The photo-to-PDF builder's own chunk (`@/lib/pdf/ocr-photo-pdf`). */
+const loadOcrPhotoPdf = () => import("@/lib/pdf/ocr-photo-pdf");
 
 /** Run is held while a selected language has no pack on our server. */
 const NO_PACK =
@@ -531,11 +534,21 @@ function OcrRunArea({
     if (!file || !available) return;
     await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
+      const contentType = contentTypeFor(file);
+      // A photo with Straighten or Turn ticked goes as a one-page PDF made
+      // here, so the worker's PDF path applies both (audit ocr-pdf#2).
+      const upload = ocrSendsPhotoAsPdf(contentType, request)
+        ? await loadOcrPhotoPdf().then(async (m) => ({
+            filename: m.ocrPdfName([file]),
+            bytes: await m.buildOcrPdf([
+              { name: file.name, type: contentType, bytes },
+            ]),
+            contentType: "application/pdf",
+          }))
+        : { filename: file.name, bytes, contentType };
       const result = await runWorkerOcr(
         {
-          filename: file.name,
-          bytes,
-          contentType: contentTypeFor(file),
+          ...upload,
           options: ownerPassword ? { ...request, ownerPassword } : request,
         },
         controls,
