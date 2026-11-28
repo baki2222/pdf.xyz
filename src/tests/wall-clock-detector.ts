@@ -256,14 +256,25 @@ function leaves(node: ts.Node, sf: ts.SourceFile, out: ts.Node[]): void {
 export function keyTextOf(node: ts.Node, sf: ts.SourceFile): string {
   const ls: ts.Node[] = [];
   leaves(node, sf, ls);
+  return keyOfLeaves(ls, sf);
+}
+
+/** {@link keyTextOf} over a given token stream, `rename` replacing a leaf's text. */
+function keyOfLeaves(
+  ls: readonly ts.Node[],
+  sf: ts.SourceFile,
+  rename?: ReadonlyMap<ts.Node, string>,
+): string {
+  const textOf = (leaf: ts.Node) =>
+    rename?.get(leaf) ?? collapse(leaf.getText(sf));
   let out = "";
   let prevEnd = -1;
   let prev = "";
   for (let i = 0; i < ls.length; i++) {
     const leaf = ls[i]!;
-    const text = collapse(leaf.getText(sf));
+    const text = textOf(leaf);
     if (text === ",") {
-      const next = ls[i + 1] ? leaf && collapse(ls[i + 1]!.getText(sf)) : "";
+      const next = ls[i + 1] ? textOf(ls[i + 1]!) : "";
       if (CLOSERS.has(next)) {
         prevEnd = leaf.getEnd();
         continue;
@@ -1035,6 +1046,97 @@ function resolveHelper(
   return undefined;
 }
 
+/**
+ * The key a test body is hashed by for calibration: {@link keyTextOf}, with
+ * the mode switch of every routed call in it taken out.
+ *
+ * Calibration counts a CI value only for the test body it was measured on.
+ * The mode does not change what is measured, only whether the bound fails.
+ * Hashing it made the planned flip impossible: harvest CI's measure-mode
+ * values, then flip to assert, and the flip itself re-keyed the body, so
+ * every flipped bound was "calibrated against a different test body"
+ * (found 2026-11-28, when the first harvest tried its first flip; no test
+ * had flipped one).
+ *
+ * Taken out, and nothing else:
+ * - a `mode` property in a routed call's options, with its comma;
+ * - an options object left with no other property, with the comma before
+ *   it (so `{}` and `{ mode: "measure" }` are no options at all);
+ * - `measureTime`, named `expectFasterThan`. It IS `expectFasterThan` in
+ *   measure mode.
+ * Any other edit, its bound included, still changes the key.
+ */
+function flipInvariantKey(
+  node: ts.Node,
+  st: FileState,
+  imp: HelperImports,
+): string {
+  const sf = st.sf;
+  const dropped: ts.Node[] = [];
+  const commaAfter: ts.Node[] = [];
+  const commaBefore: ts.Node[] = [];
+  const rename = new Map<ts.Node, string>();
+  const visit = (m: ts.Node): void => {
+    if (ts.isCallExpression(m)) {
+      const name = resolveHelper(m.expression, imp);
+      if (name && (ROUTED_HELPERS as readonly string[]).includes(name)) {
+        const helper = name as RoutedHelper;
+        if (helper === "measureTime")
+          rename.set(
+            ts.isPropertyAccessExpression(m.expression)
+              ? m.expression.name
+              : m.expression,
+            "expectFasterThan",
+          );
+        const raw =
+          m.arguments[helper === "timedWait" ? 3 : BOUND_ARG[helper] + 1];
+        const obj =
+          raw && ts.isObjectLiteralExpression(unwrap(raw))
+            ? (unwrap(raw) as ts.ObjectLiteralExpression)
+            : undefined;
+        if (raw && obj) {
+          const modes = obj.properties.filter(
+            (p) => ts.isPropertyAssignment(p) && p.name.getText(sf) === "mode",
+          );
+          if (modes.length === obj.properties.length) {
+            dropped.push(raw);
+            commaBefore.push(raw);
+          } else
+            for (const p of modes) {
+              dropped.push(p);
+              commaAfter.push(p);
+            }
+        }
+      }
+    }
+    ts.forEachChild(m, visit);
+  };
+  visit(node);
+  const all: ts.Node[] = [];
+  leaves(node, sf, all);
+  const gone = new Set<ts.Node>();
+  for (const d of dropped) {
+    const s = d.getStart(sf);
+    const e = d.getEnd();
+    for (const l of all)
+      if (l.getStart(sf) >= s && l.getEnd() <= e) gone.add(l);
+  }
+  for (const d of commaAfter) {
+    const next = all.find((l) => l.getStart(sf) >= d.getEnd());
+    if (next?.kind === ts.SyntaxKind.CommaToken) gone.add(next);
+  }
+  for (const d of commaBefore) {
+    const s = d.getStart(sf);
+    const prev = all.filter((l) => l.getEnd() <= s).at(-1);
+    if (prev?.kind === ts.SyntaxKind.CommaToken) gone.add(prev);
+  }
+  return keyOfLeaves(
+    all.filter((l) => !gone.has(l)),
+    sf,
+    rename,
+  );
+}
+
 function routedCall(
   n: ts.CallExpression,
   st: FileState,
@@ -1154,7 +1256,7 @@ function routedCall(
     ...(bound === undefined ? {} : { bound }),
     boundText: boundArg ? keyTextOf(boundArg, sf) : "",
     ...(t?.name === undefined ? {} : { test: t.name }),
-    bodyHash: bodyHashOf(keyTextOf(t ? t.body : n, sf)),
+    bodyHash: bodyHashOf(flipInvariantKey(t ? t.body : n, st, imp)),
     snippet: keyTextOf(n, sf),
   };
 }
