@@ -25,14 +25,17 @@ import { captureDownload, pdfPageTexts } from "./client-proof/artifacts";
 
 const NAME = "Jane Q. Example";
 
-async function nameWithAttachment(attached: string): Promise<Buffer> {
+async function nameWithAttachment(
+  attached: string,
+  file = { name: "notes.txt", mimeType: "text/plain" },
+): Promise<Buffer> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const page = doc.addPage([420, 300]);
   page.drawText(`Patient: ${NAME}`, { x: 24, y: 260, size: 12, font });
   page.drawText("Keep this line exactly.", { x: 24, y: 236, size: 12, font });
-  await doc.attach(new TextEncoder().encode(attached), "notes.txt", {
-    mimeType: "text/plain",
+  await doc.attach(new TextEncoder().encode(attached), file.name, {
+    mimeType: file.mimeType,
   });
   return Buffer.from(await doc.save());
 }
@@ -84,6 +87,32 @@ test("redact: a name inside an attached file stops the save, and names the file"
   await expect(
     page.getByText(
       `“${NAME}” is still in the attached file “notes.txt”, so the file was not saved.`,
+      { exact: false },
+    ),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(
+    page.getByRole("button", { name: /download redacted pdf/i }),
+  ).toHaveCount(0);
+});
+
+test("redact: an HTML attachment that spells the name with entities is refused as uncheckable", async ({
+  page,
+}) => {
+  // Review 2026-11-28 finding 1: this file was SAVED, the name still inside
+  // the attachment, under a note saying every attached file was checked.
+  await open(
+    page,
+    "chart.pdf",
+    await nameWithAttachment("<p>Dear Jane&nbsp;Q.&nbsp;Example,</p>", {
+      name: "letter.html",
+      mimeType: "text/html",
+    }),
+  );
+  await findName(page);
+  await page.getByRole("button", { name: /^redact pdf$/i }).click();
+  await expect(
+    page.getByText(
+      `The attached file “letter.html” could not be checked for “${NAME}” (only plain .txt, .csv and .tsv files can be), so the file was not saved.`,
       { exact: false },
     ),
   ).toBeVisible({ timeout: 30_000 });

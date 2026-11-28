@@ -3,6 +3,7 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { REDACT_DPI_PRESETS, redactPresetById } from "@/lib/pdf/redact";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
 import { MAX_FOUND } from "@/lib/pdf/redact-categories";
+import { plainTextAttachmentList } from "@/lib/pdf/redact-attachment-formats";
 
 /*
  * Every behavioral claim below was read from the code on 2026-09-27:
@@ -154,7 +155,7 @@ const content: ToolContent = {
     },
     {
       q: "Why can't I select or search text in the redacted PDF?",
-      a: `Because Flatten every page, the method the tool opens with, rebuilds every page as an image, which is what makes the removal permanent; nothing of the original's text, form fields, links or document information survives on any page. Choose “Remove text under boxes” when the rest must stay searchable: only what is under each box is taken out, and bookmarks, links and properties elsewhere stay, except that text you chose with Find text or Detect personal data is also taken out of the properties and bookmark titles, and comments that carry it are removed. If it meets something it cannot take out safely, such as vertical text or a form field under a box, it stops and says so, and flattening handles it. After flattening, OCR PDF can add a searchable text layer back, and the boxed areas give it nothing to read. OCR PDF does not run in the browser: the file goes over TLS to pdf.xyz's secure server, the upload is deleted when the job finishes, the result's link expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.`,
+      a: `Because Flatten every page, the method the tool opens with, rebuilds every page as an image, which is what makes the removal permanent; nothing of the original's text, form fields, links or document information survives on any page. Choose “Remove text under boxes” when the rest must stay searchable: only what is under each box is taken out, and bookmarks, links and properties elsewhere stay, except that text you chose with Find text or Detect personal data is also taken out of the properties and bookmark titles, and comments that carry it are removed. If it meets something it cannot take out safely, such as vertical text or a form field under a box, it stops and says so, and flattening handles it. It also stops, when you chose text with Find text or Detect personal data, if the file has an attached file it cannot check for that text (anything but a plain ${plainTextAttachmentList("or")} file) or one that still holds it; flattening leaves attached files out. After flattening, OCR PDF can add a searchable text layer back, and the boxed areas give it nothing to read. OCR PDF does not run in the browser: the file goes over TLS to pdf.xyz's secure server, the upload is deleted when the job finishes, the result's link expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.`,
     },
     {
       q: "Is my file uploaded when I redact it here?",

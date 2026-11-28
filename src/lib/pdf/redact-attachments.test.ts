@@ -27,6 +27,12 @@ import {
 } from "pdf-lib";
 import { findTextMatches, readRedactText } from "./redact-find";
 import { redactPdfByRemoval } from "./redact-remove";
+import {
+  PLAIN_TEXT_ATTACHMENT_EXTENSIONS,
+  PLAIN_TEXT_ATTACHMENT_TYPES,
+  plainTextAttachmentList,
+} from "./redact-attachment-formats";
+import redactContent from "@/lib/tools/content/redact-pdf";
 import { extractPdfText, type PdfTextReader } from "./text";
 
 const legacy: PdfTextReader = async () =>
@@ -37,12 +43,17 @@ const legacy: PdfTextReader = async () =>
 const NAME = "Jane Q. Example";
 
 async function withAttachment(
-  attachments: readonly { name: string; bytes: Uint8Array }[],
+  attachments: readonly {
+    name: string;
+    bytes: Uint8Array;
+    mimeType?: string;
+  }[],
+  name: string = NAME,
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const page = doc.addPage([595, 842]);
-  page.drawText(`Patient: ${NAME}`, { x: 56, y: 780, size: 12, font });
+  page.drawText(`Patient: ${name}`, { x: 56, y: 780, size: 12, font });
   page.drawText("Keep this sentence exactly.", {
     x: 56,
     y: 756,
@@ -50,7 +61,9 @@ async function withAttachment(
     font,
   });
   for (const a of attachments)
-    await doc.attach(a.bytes, a.name, { mimeType: "text/plain" });
+    await doc.attach(a.bytes, a.name, {
+      mimeType: a.mimeType ?? "text/plain",
+    });
   return doc.save();
 }
 
@@ -75,9 +88,9 @@ async function embeddedFiles(bytes: Uint8Array): Promise<Map<string, string>> {
   return out;
 }
 
-async function removeName(bytes: Uint8Array) {
+async function removeName(bytes: Uint8Array, name: string = NAME) {
   const index = await readRedactText(bytes, legacy);
-  const { matches } = findTextMatches(index, NAME, {
+  const { matches } = findTextMatches(index, name, {
     matchCase: true,
     wholeWord: false,
   });
@@ -131,7 +144,155 @@ describe("redactPdfByRemoval: the chosen text inside an attached file", () => {
     const binary = new Uint8Array(256).map((_, i) => i);
     const source = await withAttachment([{ name: "scan.bin", bytes: binary }]);
     await expect(removeName(source)).rejects.toThrow(
-      /attached file “scan\.bin” could not be checked for “Jane Q\. Example”, so the file was not saved/,
+      /attached file “scan\.bin” could not be checked for “Jane Q\. Example” \(only plain \.txt, \.csv and \.tsv files can be\), so the file was not saved/,
+    );
+  });
+
+  it("refuses a .txt whose bytes are not text, since it cannot check it", async () => {
+    const binary = new Uint8Array(256).map((_, i) => i);
+    const source = await withAttachment([{ name: "scan.txt", bytes: binary }]);
+    await expect(removeName(source)).rejects.toThrow(
+      /attached file “scan\.txt” could not be checked/,
+    );
+  });
+
+  /*
+   * Review 2026-11-28 (finding 1, reproduced on the served page): the check
+   * ran the plain search over an attachment's raw bytes, so a format that
+   * can write the name ANOTHER way — an HTML entity, a JSON \u escape, a
+   * base64 e-mail body, an XML &amp;, an RTF \'e9 — was saved with the name
+   * still inside, under a note saying every attached file had been checked.
+   * Only formats whose raw text IS their content (.txt, .csv, .tsv, typed as
+   * such) can be checked; every other attachment is refused as uncheckable,
+   * like a binary one. Each case below holds the name ONLY in its encoded
+   * spelling, so a plain search cannot see it.
+   */
+  const b64 = (s: string) => btoa(s);
+  const ENCODED: readonly {
+    name: string;
+    mimeType: string;
+    text: string;
+  }[] = [
+    {
+      name: "letter.html",
+      mimeType: "text/html",
+      text: "<p>Dear Jane&nbsp;Q.&nbsp;Example,</p>",
+    },
+    {
+      name: "data.json",
+      mimeType: "application/json",
+      text: '{"patient":"Jane\\u0020Q.\\u0020Example"}',
+    },
+    {
+      name: "message.eml",
+      mimeType: "message/rfc822",
+      text: `Content-Transfer-Encoding: base64\r\n\r\n${b64(`Dear ${NAME},`)}\r\n`,
+    },
+    {
+      name: "invoice.xml",
+      mimeType: "text/xml",
+      text: "<buyer>Jane&#32;Q.&#32;Example</buyer>",
+    },
+    {
+      name: "letter.rtf",
+      mimeType: "application/rtf",
+      text: "{\\rtf1 Jane\\~Q.\\~Example}",
+    },
+  ];
+
+  it("health: no encoded case holds the name in a spelling the plain search sees", () => {
+    expect(ENCODED.length).toBe(5);
+    for (const c of ENCODED) expect(c.text).not.toContain(NAME);
+  });
+
+  it.each(ENCODED)(
+    "refuses $name, a format that can spell the name another way",
+    async ({ name, mimeType, text }) => {
+      const source = await withAttachment([
+        { name, mimeType, bytes: utf8(text) },
+      ]);
+      await expect(removeName(source)).rejects.toThrow(
+        new RegExp(
+          `attached file “${name.replace(".", "\\.")}” could not be checked for “Jane Q\\. Example”`,
+        ),
+      );
+    },
+  );
+
+  it.each(
+    PLAIN_TEXT_ATTACHMENT_EXTENSIONS.map((ext, i) => ({
+      ext,
+      mimeType: PLAIN_TEXT_ATTACHMENT_TYPES[i]!,
+    })),
+  )(
+    "checks every listed format ($ext) and finds the name in it",
+    async ({ ext, mimeType }) => {
+      const source = await withAttachment([
+        { name: `notes.${ext}`, mimeType, bytes: utf8(`id\t${NAME}\n`) },
+      ]);
+      await expect(removeName(source)).rejects.toThrow(
+        new RegExp(`is still in the attached file “notes\\.${ext}”`),
+      );
+    },
+  );
+
+  it("the page copy names exactly the formats the check takes", () => {
+    expect(PLAIN_TEXT_ATTACHMENT_EXTENSIONS.length).toBe(3);
+    const answers = redactContent.faqs.map((f) => f.a).join("\n");
+    expect(answers).toContain(
+      `anything but a plain ${plainTextAttachmentList("or")} file`,
+    );
+    expect(plainTextAttachmentList("or")).toBe(".txt, .csv or .tsv");
+  });
+
+  it("refuses a .txt whose recorded type is not plain text", async () => {
+    const source = await withAttachment([
+      {
+        name: "notes.txt",
+        mimeType: "text/html",
+        bytes: utf8("<b>Jane&nbsp;Q.&nbsp;Example</b>"),
+      },
+    ]);
+    await expect(removeName(source)).rejects.toThrow(
+      /attached file “notes\.txt” could not be checked/,
+    );
+  });
+
+  it("control: a typed .csv without the name is kept and the save goes ahead", async () => {
+    const kept = "date,room\n2026-11-28,4\n";
+    const source = await withAttachment([
+      { name: "visits.csv", mimeType: "text/csv", bytes: utf8(kept) },
+    ]);
+    const result = await removeName(source);
+    const files = await embeddedFiles(result.bytes);
+    expect(files.size).toBe(1);
+    expect(files.get("visits.csv")).toBe(kept);
+  });
+
+  it("sees a name written in Latin-1 (windows-1252), not only UTF-8", async () => {
+    const latin = "José Núñez";
+    const text = `Call ${latin}.\n`;
+    // One byte per character: é and ñ are single bytes, which UTF-8 rejects.
+    const bytes = Uint8Array.from(text, (c) => c.charCodeAt(0));
+    expect(new TextDecoder().decode(bytes)).not.toContain(latin);
+    const source = await withAttachment([{ name: "latin.txt", bytes }], latin);
+    await expect(removeName(source, latin)).rejects.toThrow(
+      /“José Núñez” is still in the attached file “latin\.txt”/,
+    );
+  });
+
+  it("checks an embedded-file stream that no /EF entry names", async () => {
+    const source = await withAttachment([]);
+    const doc = await PDFDocument.load(source, { updateMetadata: false });
+    const stream = doc.context.flateStream(utf8(`Call ${NAME}.\n`), {
+      Type: "EmbeddedFile",
+    });
+    doc.catalog.set(PDFName.of("XYZData"), doc.context.register(stream));
+    const orphaned = await doc.save();
+    // Health: the stream is in the source and no /EF names it.
+    expect(await embeddedFiles(orphaned)).toEqual(new Map());
+    await expect(removeName(orphaned)).rejects.toThrow(
+      /attached file “unnamed”/,
     );
   });
 

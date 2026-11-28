@@ -14,6 +14,11 @@ import type { RedactionFill, RedactionRect } from "./redact-defaults";
 import { REDACT_METHODS } from "./redact-output";
 import { validateRedactions } from "./redact";
 import {
+  PLAIN_TEXT_ATTACHMENT_EXTENSIONS,
+  PLAIN_TEXT_ATTACHMENT_TYPES,
+  plainTextAttachmentList,
+} from "./redact-attachment-formats";
+import {
   readRedactText,
   searchPattern,
   type FoundText,
@@ -293,11 +298,33 @@ export function attachmentTexts(bytes: Uint8Array): string[] | null {
 }
 
 /**
+ * The attachment formats whose raw text IS their content, so a plain search
+ * of the bytes is a search of what a reader sees: by file extension, and by
+ * the stream's recorded /Subtype when it has one. Any other format can spell
+ * a name another way (an HTML or XML entity, a JSON escape, a base64 e-mail
+ * body, an RTF control word), so a plain search can miss it, and such an
+ * attachment is treated as one that cannot be checked (review 2026-11-28,
+ * finding 1: letter.html, data.json and message.eml were each saved with the
+ * name inside; redact-attachments.test.ts).
+ */
+const PLAIN_TEXT_EXTENSIONS = new Set<string>(PLAIN_TEXT_ATTACHMENT_EXTENSIONS);
+const PLAIN_TEXT_TYPES = new Set<string>(PLAIN_TEXT_ATTACHMENT_TYPES);
+
+function plainTextAttachment(name: string, subtype: string | null): boolean {
+  const dot = name.lastIndexOf(".");
+  if (dot < 0) return false;
+  if (!PLAIN_TEXT_EXTENSIONS.has(name.slice(dot + 1).toLowerCase()))
+    return false;
+  return subtype === null || PLAIN_TEXT_TYPES.has(subtype.toLowerCase());
+}
+
+/**
  * Every file attached to the document: each embedded-file stream an /EF
  * dictionary names (under its file's /UF or /F name), then any stream that
- * calls itself /Type /EmbeddedFile and no /EF named. Its bytes are decoded
- * through the stream's filters; one that cannot be decoded, or read as text,
- * has `texts: null`.
+ * calls itself /Type /EmbeddedFile and no /EF named (it has no name, so it
+ * cannot be checked). Its bytes are decoded through the stream's filters;
+ * one that is not a plain-text format ({@link plainTextAttachment}), cannot
+ * be decoded, or cannot be read as text has `texts: null`.
  */
 function attachedFiles(
   lib: PdfLibModule,
@@ -307,7 +334,10 @@ function attachedFiles(
   const ctx = doc.context;
   const files: { name: string; texts: string[] | null }[] = [];
   const seen = new Set<PDFRawStreamT>();
-  const read = (stream: PDFRawStreamT): string[] | null => {
+  const read = (stream: PDFRawStreamT, name: string): string[] | null => {
+    const subtype = stream.dict.get(PDFName.of("Subtype"));
+    const type = subtype instanceof PDFName ? subtype.decodeText() : null;
+    if (!plainTextAttachment(name, type)) return null;
     try {
       return attachmentTexts(lib.decodePDFRawStream(stream).decode());
     } catch {
@@ -327,7 +357,7 @@ function attachedFiles(
       const stream = ctx.lookup(ref);
       if (!(stream instanceof PDFRawStream) || seen.has(stream)) continue;
       seen.add(stream);
-      files.push({ name, texts: read(stream) });
+      files.push({ name, texts: read(stream, name) });
     }
   }
   for (const obj of objects) {
@@ -337,7 +367,7 @@ function attachedFiles(
       obj.dict.get(PDFName.of("Type")) === PDFName.of("EmbeddedFile")
     ) {
       seen.add(obj);
-      files.push({ name: "unnamed", texts: read(obj) });
+      files.push({ name: "unnamed", texts: read(obj, "unnamed") });
     }
   }
   return files;
@@ -400,7 +430,7 @@ async function offPageHit(
   for (const { text, plain: pattern, xml } of offPagePatterns(chosen)) {
     for (const file of files) {
       if (file.texts === null)
-        return `The attached file “${file.name}” could not be checked for “${text}”, ${notSaved}, which leaves attached files out.`;
+        return `The attached file “${file.name}” could not be checked for “${text}” (only plain ${plainTextAttachmentList("and")} files can be), ${notSaved}, which leaves attached files out.`;
       if (file.texts.some((t) => anyMatch(t, [pattern])))
         return `“${text}” is still in the attached file “${file.name}”, ${notSaved}, which leaves attached files out.`;
     }
