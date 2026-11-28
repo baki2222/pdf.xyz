@@ -330,7 +330,7 @@ function attachedFiles(
   lib: PdfLibModule,
   doc: PDFDocument,
 ): { name: string; texts: string[] | null }[] {
-  const { PDFDict, PDFName, PDFRawStream } = lib;
+  const { PDFArray, PDFDict, PDFName, PDFRawStream } = lib;
   const ctx = doc.context;
   const files: { name: string; texts: string[] | null }[] = [];
   const seen = new Set<PDFRawStreamT>();
@@ -345,8 +345,23 @@ function attachedFiles(
     }
   };
   const objects = ctx.enumerateIndirectObjects().map(([, o]) => o);
-  for (const obj of objects) {
-    if (!(obj instanceof PDFDict)) continue;
+  // Every dictionary in the file, not only the top-level ones: a filespec
+  // may be written inline — in a FileAttachment annotation's /FS, or in the
+  // EmbeddedFiles name tree — over a stream with no /Type (the key is
+  // optional), and neither pass below saw that shape (verify 2026-11-28,
+  // redact-attachments.test.ts "inline filespec"). References are not
+  // followed: what they point at is an indirect object, walked on its own.
+  const dicts: PDFDict[] = [];
+  const stack: PDFObject[] = [...objects];
+  while (stack.length) {
+    const o = stack.pop()!;
+    if (o instanceof PDFRawStream) stack.push(o.dict);
+    else if (o instanceof PDFDict) {
+      dicts.push(o);
+      for (const [, v] of o.entries()) stack.push(v);
+    } else if (o instanceof PDFArray) stack.push(...o.asArray());
+  }
+  for (const obj of dicts) {
     const ef = obj.lookup(PDFName.of("EF"));
     if (!(ef instanceof PDFDict)) continue;
     const name =

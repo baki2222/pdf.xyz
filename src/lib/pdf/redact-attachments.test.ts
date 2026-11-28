@@ -22,6 +22,7 @@ import {
   PDFDocument,
   PDFName,
   PDFRawStream,
+  PDFString,
   StandardFonts,
   decodePDFRawStream,
 } from "pdf-lib";
@@ -295,6 +296,101 @@ describe("redactPdfByRemoval: the chosen text inside an attached file", () => {
       /attached file “unnamed”/,
     );
   });
+
+  /*
+   * Verify 2026-11-28 (reproduced on the served page): the check found /EF
+   * only in top-level objects, and its fallback only streams that carry the
+   * OPTIONAL /Type /EmbeddedFile. A filespec written inline — in a
+   * FileAttachment annotation's /FS, or in the EmbeddedFiles name tree — over
+   * an untyped stream was never read, so the name inside was saved under a
+   * note saying every attached file had been checked. pdf-lib's attach()
+   * always writes an indirect filespec and a typed stream, so every fixture
+   * above missed it. These build the inline shapes by hand.
+   */
+  async function inlineFilespec(
+    where: "annotation" | "name tree",
+    content: string,
+  ): Promise<Uint8Array> {
+    const source = await withAttachment([]);
+    const doc = await PDFDocument.load(source, { updateMetadata: false });
+    const ctx = doc.context;
+    // No /Type: the key is optional, and the fallback keyed on it.
+    const stream = ctx.register(ctx.flateStream(utf8(content), {}));
+    const fs = ctx.obj({
+      Type: "Filespec",
+      F: PDFString.of("notes.txt"),
+      UF: PDFString.of("notes.txt"),
+      EF: { F: stream },
+    });
+    if (where === "annotation") {
+      const annot = ctx.obj({
+        Type: "Annot",
+        Subtype: "FileAttachment",
+        Rect: [10, 10, 30, 30],
+        Name: "PushPin",
+        FS: fs,
+      });
+      doc
+        .getPage(0)
+        .node.set(PDFName.of("Annots"), ctx.obj([ctx.register(annot)]));
+    } else {
+      const tree = ctx.obj({ Names: [PDFString.of("notes.txt"), fs] });
+      doc.catalog.set(
+        PDFName.of("Names"),
+        ctx.register(ctx.obj({ EmbeddedFiles: tree })),
+      );
+    }
+    return doc.save({ useObjectStreams: false });
+  }
+
+  /** Every stream in `bytes`, inflated, that holds `text`. */
+  async function streamsHolding(bytes: Uint8Array, text: string) {
+    const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+    let streams = 0;
+    let holding = 0;
+    for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+      if (!(obj instanceof PDFRawStream)) continue;
+      streams++;
+      const raw = new TextDecoder("latin1").decode(
+        decodePDFRawStream(obj).decode(),
+      );
+      if (raw.includes(text)) holding++;
+    }
+    return { streams, holding };
+  }
+
+  it.each(["annotation", "name tree"] as const)(
+    "refuses to save when an attachment held by an inline filespec in the %s still holds the name",
+    async (where) => {
+      const source = await inlineFilespec(where, `Call ${NAME} on Monday.\n`);
+      // Health: the shape is the one the old walk could not see — no
+      // top-level object carries /EF, and no stream calls itself an
+      // embedded file — and the name really is inside a stream.
+      expect(await embeddedFiles(source)).toEqual(new Map());
+      // (/EmbeddedFiles, the name tree's key, is allowed; the type is not.)
+      expect(new TextDecoder("latin1").decode(source)).not.toMatch(
+        /\/EmbeddedFile(?!s)/,
+      );
+      expect((await streamsHolding(source, NAME)).holding).toBe(1);
+      await expect(removeName(source)).rejects.toThrow(
+        /“Jane Q\. Example” is still in the attached file “notes\.txt”, so the file was not saved/,
+      );
+    },
+  );
+
+  it.each(["annotation", "name tree"] as const)(
+    "control: an inline-filespec attachment in the %s without the name is kept and the save goes ahead",
+    async (where) => {
+      const kept = "Appointment on Monday at 10.\n";
+      const source = await inlineFilespec(where, kept);
+      const result = await removeName(source);
+      const out = await streamsHolding(result.bytes, kept);
+      // Health: the attachment survived into the output, and nothing holds the name.
+      expect(out.holding).toBe(1);
+      expect((await streamsHolding(result.bytes, NAME)).holding).toBe(0);
+      expect(result.verified).toBe(1);
+    },
+  );
 
   it("control: an attachment without the name is kept, byte for byte, and the save goes ahead", async () => {
     const kept = `Appointment on Monday at 10.\n`;
