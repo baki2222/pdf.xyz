@@ -78,7 +78,18 @@ describe("Repair PDF asks each FAQ topic once", () => {
     expect(refusal.answer).toContain("%PDF-");
     expect(refusal.answer).toMatch(/HTML error page/);
     expect(refusal.answer).toMatch(/not retried/);
-    expect(warnings.answer).toContain(REPAIR_WARNINGS_ANSWER);
+    // Every sentence of the derived answer is still said (the example now
+    // sits inside it, so the whole string no longer appears in one piece).
+    const sentences = REPAIR_WARNINGS_ANSWER.split(/(?<=\.) /);
+    expect(sentences.length).toBeGreaterThanOrEqual(4);
+    for (const s of sentences) expect(warnings.answer).toContain(s);
+    // Review 2026-11-28 finding 3: the example illustrates the messages, so
+    // it follows the sentence that introduces them, before "No list means".
+    const example = warnings.answer.indexOf("For example");
+    expect(example).toBeGreaterThan(
+      warnings.answer.indexOf("holds qpdf's own messages"),
+    );
+    expect(example).toBeLessThan(warnings.answer.indexOf("No list means"));
     expect(warnings.answer).toMatch(/cross-reference table/);
   });
 });

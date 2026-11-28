@@ -187,7 +187,13 @@ const content: ToolContent = {
     },
     {
       q: "What does it mean when the repair lists warnings?",
-      a: `${REPAIR_WARNINGS_ANSWER} For example, a message can say that the cross-reference table was damaged or that an object was not where the file said.`,
+      // The example illustrates the messages, so it goes right after the
+      // sentence that introduces them (review 2026-11-28, finding 3);
+      // repair-faq-once.test.ts holds the order and every derived sentence.
+      a: REPAIR_WARNINGS_ANSWER.replace(
+        /(holds qpdf's own messages[^.]*\.)/,
+        "$1 For example, a message can say that the cross-reference table was damaged or that an object was not where the file said.",
+      ),
     },
     {
       q: "Does repairing change how my pages look?",
