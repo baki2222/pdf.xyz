@@ -27,8 +27,8 @@ import {
  *    decryption is the mocked worker's here; what this proves is the
  *    page's chain from the field to the saved file.)
  *  - a restricted file: the field asks for the owner (permissions) password;
- *  - the field's autocomplete as served: "off" on Unlock, "new-password" on
- *    Protect (the control).
+ *  - the field's autocomplete as served: "current-password" on Unlock,
+ *    "new-password" on Protect (the control).
  */
 
 test.beforeEach(async ({ page }) => {
@@ -192,14 +192,14 @@ test("a restricted PDF asks for its owner (permissions) password", async ({
   expect(sent).toEqual([]);
 });
 
-test("the password field's autocomplete as served: off on Unlock, new-password on Protect", async ({
+test("the password field's autocomplete as served: current-password on Unlock, new-password on Protect", async ({
   page,
 }) => {
   await mockWorker(page, new Uint8Array());
   await page.goto("/tools/unlock-pdf");
   await expect(page.locator("#pdf-security-password")).toHaveAttribute(
     "autocomplete",
-    "off",
+    "current-password",
   );
   await page.goto("/tools/protect-pdf");
   await expect(page.locator("#pdf-security-password")).toHaveAttribute(

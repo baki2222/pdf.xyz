@@ -657,8 +657,10 @@ function SecurityRunArea({
         // offering a saved login and lets a password manager store it. Unlock
         // asks for an EXISTING one, and "new-password" there made browsers
         // offer a generated password that can never open the file (audit
-        // unlock-pdf#5), so it says "off".
-        autoComplete={mode === "protect" ? "new-password" : "off"}
+        // unlock-pdf#5), so it says "current-password", the token for an
+        // existing password ("off" until review 2026-11-28; Chrome ignores
+        // "off" on password fields).
+        autoComplete={mode === "protect" ? "new-password" : "current-password"}
       />
       <p
         id="pdf-security-password-hint"

@@ -8,7 +8,9 @@
  * `autocomplete="new-password"` — the sign-up hint, on which Chrome and
  * Safari offer "Use suggested strong password" and then offer to save it.
  * That suggestion can never open a file someone else locked. Unlock now
- * says `off`; Protect, which really does set a new password, keeps
+ * says `current-password`, the HTML token for an existing password (it
+ * said `off` until review 2026-11-28 finding 11; Chrome ignores `off` on
+ * password fields). Protect, which really does set a new password, keeps
  * `new-password` (the control).
  *
  * Every password input each form renders is read, so a field added later
@@ -93,16 +95,16 @@ async function batchForm(slug: Slug) {
 }
 
 describe("Unlock's existing-password fields are not marked new-password", () => {
-  it("single file: Unlock's field says off", async () => {
+  it("single file: Unlock's field says current-password", async () => {
     const fields = await singleForm("unlock-pdf");
     expect(Object.keys(fields)).toEqual(["Current password"]);
-    expect(fields["Current password"]).toBe("off");
+    expect(fields["Current password"]).toBe("current-password");
   });
 
-  it("batch: Unlock's field says off", async () => {
+  it("batch: Unlock's field says current-password", async () => {
     const fields = await batchForm("unlock-pdf");
     expect(Object.keys(fields)).toEqual(["Current password"]);
-    expect(fields["Current password"]).toBe("off");
+    expect(fields["Current password"]).toBe("current-password");
   });
 
   it("control, single file: every Protect field still says new-password", async () => {

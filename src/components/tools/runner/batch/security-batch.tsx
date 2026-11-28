@@ -555,7 +555,7 @@ function PasswordFields({
         }
         // An existing password in Unlock: never the sign-up hint, on which
         // browsers offer a generated password (audit unlock-pdf#5).
-        autoComplete={mode === "protect" ? "new-password" : "off"}
+        autoComplete={mode === "protect" ? "new-password" : "current-password"}
         onInput={(v) => onInput("password", v)}
         note={[hint, check.passwordWarning].filter(Boolean).join(" ")}
         warn={check.passwordWarning !== null}
@@ -616,7 +616,7 @@ function SecretField({
   note?: string;
   warn?: boolean;
   onBlur?: () => void;
-  autoComplete?: "new-password" | "off";
+  autoComplete?: "new-password" | "current-password";
 }) {
   const [reveal, setReveal] = useState(false);
   return (
