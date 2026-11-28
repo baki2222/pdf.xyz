@@ -1,5 +1,4 @@
 import type { Job } from "@/lib/jobs/types";
-import { EPUB_MAX_SPINE_ITEMS } from "@/lib/workers/epub/native-config";
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
@@ -20,6 +19,12 @@ const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
  * batch row whose fonts were left out said nothing while the FAQ promised
  * the note would.
  *
+ * The chapter-file limit is named, not numbered: importing it from
+ * `@/lib/workers/epub/native-config` gave that leaf a second importer, so
+ * webpack stopped inlining it into the file-ceiling module the desk fetches
+ * (+58 B gz, over the ticket bound in `lazy-chunks.test.ts`). The FAQ
+ * states the number.
+ *
  * Fonts are spoken of as RESTORED, not used: a font restored and then
  * refused by Chromium still prints in a fallback font, and nothing counts
  * that (wave 3 review, mutant idpf-1024).
@@ -36,7 +41,7 @@ export function epubResultSentence(job: Job | undefined): string | null {
   const skipped = epub.extraSectionsLeftOut ?? 0;
   if (skipped > 0)
     lines.push(
-      `${skipped} ${extra > 0 ? "more " : ""}extra ${plural(skipped, "section was", "sections were")} left out, because a book can have at most ${EPUB_MAX_SPINE_ITEMS} chapter files.`,
+      `${skipped} ${extra > 0 ? "more " : ""}extra ${plural(skipped, "section was", "sections were")} left out, because the book reached the limit on chapter files.`,
     );
   const lost = epub.fontsLeftOut;
   if (lost > 0)

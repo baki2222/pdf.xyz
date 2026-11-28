@@ -105,7 +105,7 @@ describe("the EPUB note beside the download", () => {
     });
     render(<EpubResultNote job={job} />);
     expect(screen.getByRole("status").textContent).toBe(
-      `${EPUB_MAX_SPINE_ITEMS - 3} extra sections the book keeps outside its reading order, such as notes or answers, are printed at the end, after the last chapter. 1 more extra section was left out, because a book can have at most ${EPUB_MAX_SPINE_ITEMS} chapter files.`,
+      `${EPUB_MAX_SPINE_ITEMS - 3} extra sections the book keeps outside its reading order, such as notes or answers, are printed at the end, after the last chapter. 1 more extra section was left out, because the book reached the limit on chapter files.`,
     );
   }, 60_000);
 
