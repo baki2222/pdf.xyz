@@ -4,26 +4,50 @@
  * (`src/tests/docx-run-style-measure.ts`): the matcher at the per-page cap
  * in its three layouts, a page one word past the cap, and a 500-page
  * document through the whole engine with its check before delivery. The
- * figures measured on 2026-11-15 sit beside `MAX_STYLED_PIECES_PER_PAGE`;
- * the bounds here are generous multiples of them (CI's runners are slower
- * than the dev host), and each run carries its own health check — the work
- * was done (every word matched, every page read back), so a fast run is not
- * a run that did nothing.
+ * figures measured on 2026-11-15 sit beside `MAX_STYLED_PIECES_PER_PAGE`,
+ * and each run carries its own health check — the work was done (every word
+ * matched, every page read back), so a fast run is not a run that did
+ * nothing.
+ *
+ * Since 2026-11-22 (ci-flake audit 2026-11-19, line 82) the read-back's
+ * time is routed through `@/tests/time-bound` and RECORDS (measure mode)
+ * until CI calibrates it, on the pending list (src/tests/wall-clock-pending.ts):
+ * no count here moves with the read-back's own cost. The engine parsing
+ * twice, which that time never measured, fails speed-independently: the
+ * engine's ONE structural parse of what it delivers (`structureParses`). The matcher rows' 10 s and the engine's 60 s still
+ * assert, as on main (outside the lane's scope; a cap-40,000 mutant flips
+ * red or green with the runner CI draws, about 4.8 s on the fastest runner
+ * seen and 10.7 s on the slowest, and the matched counts cannot see it).
+ * The child also prints each row's cost shape (`capMs`, `refMs`); no
+ * record reads it since the witness audit of 2026-11-22.
  */
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { MAX_STYLED_PIECES_PER_PAGE } from "./docx-run-style";
+import { expectFasterThan } from "@/tests/time-bound";
 
 const ROOT = process.cwd();
 const TSX_CLI = path.join(ROOT, "node_modules", "tsx", "dist", "cli.mjs");
 const SCRIPT = path.join(ROOT, "src", "tests", "docx-run-style-measure.ts");
 
-function measure(mode: string, n: number): Record<string, number | boolean> {
+/**
+ * Runs one mode in a fresh child. `killMs` is enforced WHILE it runs:
+ * execFileSync blocks the worker, so vitest's timeout is only checked after
+ * it returns and a child that never exits would hold the job; each caller's
+ * value sits under its test's timeout, so ETIMEDOUT is what reports.
+ */
+function measure(
+  mode: string,
+  n: number,
+  killMs: number,
+): Record<string, number | boolean> {
   const out = execFileSync(process.execPath, [TSX_CLI, SCRIPT, mode, `${n}`], {
     cwd: ROOT,
     encoding: "utf8",
     maxBuffer: 1024 * 1024,
+    timeout: killMs,
+    killSignal: "SIGKILL",
   });
   return JSON.parse(out.trim().split("\n").at(-1)!) as Record<
     string,
@@ -41,9 +65,13 @@ describe("the formatting matcher is bounded per page", () => {
     ["match-one", MAX_STYLED_PIECES_PER_PAGE],
   ] as const)(
     "%s: a page AT the cap is matched, in bounded time and memory",
-    (mode, matched) => {
-      const got = measure(mode, MAX_STYLED_PIECES_PER_PAGE);
-      expect(got.matched, JSON.stringify(got)).toBe(matched);
+    (mode, want) => {
+      // Kill bound: the slowest row on CI took 3,814 ms for the whole test
+      // (match-wide, 44299285879; 3,685 ms over 14 attempts 2026-11-19..21),
+      // so 100 s is 26x that, under the 120 s timeout.
+      const got = measure(mode, MAX_STYLED_PIECES_PER_PAGE, 100_000);
+      const matched = got.matched;
+      expect(matched, JSON.stringify(got)).toBe(want);
       expect(got.total).toBe(MAX_STYLED_PIECES_PER_PAGE);
       expect(got.capped).toBe(false);
       // Measured 12 / 9 / 640 ms and +2 / +2 / +3 MB on the dev host
@@ -52,15 +80,25 @@ describe("the formatting matcher is bounded per page", () => {
       // run of 100,000 characters, searched within `TEXT_WINDOW`).
       // 2026-11-15 with parts (#28 slice 4): 45 / 49 / 781-1,143 / 31 ms and
       // +20 / +21 / +16-21 / +15 MB — about twice the base build's time,
-      // far inside these bounds.
+      // far inside these bounds. Outside lane 1b's scope (its item is line
+      // 82): it asserts as on main (CI: 3,814 ms for match-wide's whole
+      // test, 44299285879, so 10 s is 2.6x).
       expect(got.ms, JSON.stringify(got)).toBeLessThan(10_000);
+      // Witness audit 2026-11-22: the shape record that stood here
+      // (`docx-run-style-match-scale`, the cap against an eighth, witness
+      // `matched`) is dropped, as on main. `matched` cannot see a cost: a
+      // binary search started at 0 (a quadratic matcher) took match-line
+      // from 9.5x to 58x with `matched` unchanged. The child still prints
+      // `capMs` and `refMs`.
       expect(got.rssDeltaMb, JSON.stringify(got)).toBeLessThan(200);
     },
     120_000,
   );
 
   it("a page one word past the cap is not matched at all, and says so", () => {
-    const got = measure("match", MAX_STYLED_PIECES_PER_PAGE + 1);
+    // 1,230 ms on CI for the whole test (failed run 43998624497; 1,183 ms in
+    // passing runs, 44321190257): 100 s is 81x.
+    const got = measure("match", MAX_STYLED_PIECES_PER_PAGE + 1, 100_000);
     expect(got.capped, JSON.stringify(got)).toBe(true);
     expect(got.matched).toBe(0);
     expect(got.total).toBe(MAX_STYLED_PIECES_PER_PAGE + 1);
@@ -69,17 +107,52 @@ describe("the formatting matcher is bounded per page", () => {
 
 describe("a 500-page document through PDF to Word", () => {
   it("is converted with every word formatted and read back, in bounded time and memory", () => {
-    const got = measure("engine", 500);
-    // Health: every page went out, read back, formatted, and Word-clean.
-    expect(got.pagesRead, JSON.stringify(got)).toBe(500);
-    expect(got.problems).toBe(0);
-    expect(got.unformattedPages).toBe(0);
-    expect(got.unmatchedWords).toBe(0);
-    // Measured 2.0 s, a 200 ms read-back and +54 MB on the dev host. The
-    // read-back is the one parse the engine's check makes (under the 300 ms
-    // the design allowed before the runtime path had to stream).
+    // Kill bound: 13,323 ms on CI for the whole test (ci-flake audit
+    // 2026-11-19; 12,620 ms over 14 attempts 2026-11-19..21, 44428026069),
+    // so 280 s is 21x that, under the 300 s timeout.
+    const got = measure("engine", 500, 280_000);
+    const said = JSON.stringify(got);
+    // The times first, so a slow run that also tripped the page reader's
+    // deadline (a production limit, 120 s) is reported as time, not as a
+    // formatting failure. Measured 2.0 s, a 200 ms read-back and +54 MB on
+    // the dev host; 60 s is 4.5x the CI maximum above. It ASSERTS, as on
+    // main (line 81 is outside lane 1b's scope; review 2026-11-22: routed
+    // to measure mode, only the 280 s kill would have failed).
     expect(got.ms, JSON.stringify(got)).toBeLessThan(60_000);
-    expect(got.readBackMs, JSON.stringify(got)).toBeLessThan(3_000);
-    expect(got.rssDeltaMb, JSON.stringify(got)).toBeLessThan(500);
+    // WAS `readBackMs < 3_000`, said to guard "one parse": it times this
+    // script's OWN read-back, so the engine parsing twice could never move
+    // it (ci-flake audit 2026-11-19, line 82). The one parse is a count now,
+    // below; the read-back's time is a shape, 500 pages against 63 of the
+    // same engine (dev host 2026-11-22: 7.5; linear about 8), and both
+    // record until CI prints them. The scale's bound is 20, 2.4x the dev
+    // host's 8.4 and 3x under a quadratic read-back's 63.
+    //
+    // Witness audit 2026-11-22: both records named `structureParses` as
+    // their witness, a count of the ENGINE's parses that a slow read-back
+    // never moves (a quadratic docxPageTexts read 731 ms against 259 with
+    // the count still 1). The ceiling is on the pending list; the scale
+    // record (`docx-run-style-read-back-scale`) is dropped, as on main,
+    // and the child still prints `fullReadMs` and `smallReadMs`.
+    expectFasterThan(
+      "docx-run-style-read-back",
+      got.readBackMs as number,
+      3_000,
+      { mode: "measure" },
+    );
+    // Health: every page went out, read back, formatted, and Word-clean.
+    expect(got.pagesRead, said).toBe(500);
+    expect(got.problems, said).toBe(0);
+    expect(got.unformattedPages, said).toBe(0);
+    expect(got.unmatchedWords, said).toBe(0);
+    // The engine's check before delivery reads the structure and its
+    // problems from ONE parse of the package (docx-structure's
+    // inspectDocxStructure; two took 340 ms against 200 on the dev host).
+    // Counted in the child: two opens of the delivered bytes, the
+    // independent reader's and that one. Mutant: the check calling
+    // readDocxStructure and docxStructureProblems apart reads 2 here.
+    const structureParses = got.structureParses;
+    expect(structureParses, said).toBe(1);
+    expect(got.packageParses, said).toBe(2);
+    expect(got.rssDeltaMb, said).toBeLessThan(500);
   }, 300_000);
 });

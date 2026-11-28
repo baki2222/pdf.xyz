@@ -426,4 +426,22 @@ describe("the ratchet compares against an independent copy of the list (finding:
         .lostButPresent,
     ).toEqual([]);
   });
+
+  it("one of several identical comparisons fixed is progress; blind only while the file holds more copies than the list (2026-11-22)", () => {
+    // Lane 1b routed the 4th of four `expect(ms).toBeLessThan(5_000)` in one
+    // file and kept the other three: the ratchet, reading only "the snippet
+    // is still in the file", called entry #3 blind and refused the shrink.
+    const snippet = "expect(ms).toBeLessThan(5)";
+    const at = (n: number) => ({ ...e("a-spec.ts", snippet), n });
+    const base = [at(0), at(1)];
+    const once = new Map([["a-spec.ts", `it(x, () => { ${snippet}; });`]]);
+    expect(ratchet(base, [at(0)], once).lostButPresent).toEqual([]);
+    // Positive control: both copies still there, one entry gone, is blind.
+    const twice = new Map([
+      ["a-spec.ts", `it(x, () => { ${snippet}; ${snippet}; });`],
+    ]);
+    expect(
+      ratchet(base, [at(0)], twice).lostButPresent.map((x) => x.n),
+    ).toEqual([1]);
+  });
 });
