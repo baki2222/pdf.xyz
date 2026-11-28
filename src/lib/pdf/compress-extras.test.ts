@@ -13,6 +13,7 @@ import {
   PDFDict,
   PDFDocument,
   PDFName,
+  PDFRawStream,
   PDFString,
   StandardFonts,
 } from "pdf-lib";
@@ -100,6 +101,120 @@ async function decode(bytes: Uint8Array): Promise<Decoded> {
 const run = async (extras: CleanupExtras) =>
   analyzePdf(await fixture(), extras);
 
+const NOTHING_REMOVED = { attachments: 0, metadata: false, comments: 0 };
+
+/**
+ * A file attached to a PAGE with the paperclip (a /FileAttachment annotation,
+ * Acrobat's "Attach File" comment tool), and no document-level name tree.
+ * Review of 7b498d92 (finding 2/9): the name-tree-only fixture above could not
+ * see this shape, and "Remove attached files" left the 30,000 bytes in.
+ */
+async function paperclipFixture(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([400, 400]);
+  const ctx = doc.context;
+  const file = ctx.flateStream("s".repeat(30_000), { Type: "EmbeddedFile" });
+  const spec = ctx.obj({
+    Type: "Filespec",
+    F: PDFString.of("salaries.csv"),
+    UF: PDFString.of("salaries.csv"),
+    EF: { F: ctx.register(file) },
+  });
+  const clip = ctx.obj({
+    Type: "Annot",
+    Subtype: "FileAttachment",
+    Rect: [20, 300, 40, 320],
+    FS: ctx.register(spec),
+    Name: "PushPin",
+  });
+  const note = ctx.obj({
+    Type: "Annot",
+    Subtype: "Text",
+    Rect: [60, 300, 80, 320],
+    Contents: PDFString.of("pdfxyz-sticky-note"),
+  });
+  // Acrobat gives the paperclip a popup whose /Parent points back at it: left
+  // on the page, that popup alone would keep the file reachable.
+  const clipRef = ctx.register(clip);
+  const popup = ctx.obj({
+    Type: "Annot",
+    Subtype: "Popup",
+    Rect: [40, 300, 140, 360],
+    Parent: clipRef,
+  });
+  const popupRef = ctx.register(popup);
+  clip.set(PDFName.of("Popup"), popupRef);
+  page.node.set(
+    PDFName.of("Annots"),
+    ctx.obj([clipRef, popupRef, ctx.register(note)]),
+  );
+  return doc.save({ useObjectStreams: false });
+}
+
+/** Embedded file streams anywhere in the file, and the page's annot kinds. */
+async function decodePaperclip(bytes: Uint8Array) {
+  const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+  let embeddedFileStreams = 0;
+  for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+    if (
+      obj instanceof PDFRawStream &&
+      String(obj.dict.get(PDFName.of("Type"))) === "/EmbeddedFile"
+    )
+      embeddedFileStreams += 1;
+  }
+  const annots = doc
+    .getPage(0)
+    .node.lookupMaybe(PDFName.of("Annots"), PDFArray);
+  const subtypes: string[] = [];
+  for (let i = 0; i < (annots?.size() ?? 0); i++)
+    subtypes.push(
+      String(annots!.lookup(i, PDFDict).get(PDFName.of("Subtype"))),
+    );
+  return { embeddedFileStreams, annots: subtypes.sort() };
+}
+
+describe("Remove attached files also removes a page's paperclip attachment", () => {
+  it("health: the fixture holds one embedded file stream on a FileAttachment annot", async () => {
+    expect(await decodePaperclip(await paperclipFixture())).toEqual({
+      embeddedFileStreams: 1,
+      annots: ["/FileAttachment", "/Popup", "/Text"],
+    });
+  });
+
+  it("CONTROL: with every option off, the paperclip and its file stay", async () => {
+    const { optimized } = await analyzePdf(await paperclipFixture(), NO_EXTRAS);
+    expect(await decodePaperclip(optimized)).toEqual({
+      embeddedFileStreams: 1,
+      annots: ["/FileAttachment", "/Popup", "/Text"],
+    });
+  });
+
+  it("attached files: the paperclip and its bytes are gone, counted as an attached file", async () => {
+    const { optimized, analysis } = await analyzePdf(await paperclipFixture(), {
+      ...NO_EXTRAS,
+      attachments: true,
+    });
+    expect(await decodePaperclip(optimized)).toEqual({
+      embeddedFileStreams: 0,
+      annots: ["/Text"],
+    });
+    expect(analysis.extras.attachments).toBe(1);
+    expect(analysis.extras.comments).toBe(0);
+  });
+
+  it("comments alone keep the paperclip: an attached file is not a comment", async () => {
+    const { optimized, analysis } = await analyzePdf(await paperclipFixture(), {
+      ...NO_EXTRAS,
+      comments: true,
+    });
+    expect(await decodePaperclip(optimized)).toEqual({
+      embeddedFileStreams: 1,
+      annots: ["/FileAttachment", "/Popup"],
+    });
+    expect(analysis.extras.comments).toBe(1);
+  });
+});
+
 describe("Remove extras: each option removes what it names, and only that", () => {
   it("health: the fixture carries all three, plus a link and a form field", async () => {
     const d = await decode(await fixture());
@@ -186,6 +301,26 @@ describe("Remove extras: each option removes what it names, and only that", () =
     expect(extrasLine({ attachments: 0, metadata: false, comments: 0 })).toBe(
       null,
     );
+  });
+
+  it("a ticked option that found nothing says so, instead of saying nothing", () => {
+    expect(
+      extrasLine(NOTHING_REMOVED, undefined, {
+        ...NO_EXTRAS,
+        attachments: true,
+      }),
+    ).toBe("No attached files were found, so none were removed.");
+    expect(
+      extrasLine({ attachments: 0, metadata: false, comments: 2 }, 1024, {
+        attachments: true,
+        metadata: true,
+        comments: true,
+      }),
+    ).toBe(
+      "Removed 2 comments. That saved 1 KB. No attached files or document details were found, so none were removed.",
+    );
+    // Control: nothing ticked, nothing said.
+    expect(extrasLine(NOTHING_REMOVED, undefined, NO_EXTRAS)).toBeNull();
   });
 
   it("every option says what it removes, and the page describes the choice", () => {

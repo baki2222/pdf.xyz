@@ -21,7 +21,7 @@
  * pdf-lib's classes come from the caller's lazily loaded module (`lib`), so
  * this leaf adds no static import of the engine to whoever imports it.
  */
-import type { PDFDocument, PDFObject } from "pdf-lib";
+import type { PDFDict, PDFDocument, PDFObject } from "pdf-lib";
 import type { PdfLibModule } from "./pdf-lib";
 
 export interface RepackRemoved {
@@ -125,7 +125,10 @@ export function dropUnseen(lib: PdfLibModule, doc: PDFDocument): RepackRemoved {
  * output for every option and for the all-off control.
  */
 export interface CleanupExtras {
-  /** Files attached to the PDF (the document's EmbeddedFiles). */
+  /**
+   * Files attached to the PDF: the document's EmbeddedFiles, and files
+   * attached to a page with the paperclip (FileAttachment annotations).
+   */
   attachments: boolean;
   /** The document's title, author and other details (Info and XMP). */
   metadata: boolean;
@@ -151,7 +154,7 @@ export const CLEANUP_EXTRA_OPTIONS: readonly {
   {
     key: "attachments",
     label: "Remove attached files",
-    hint: "Removes files attached inside the PDF, such as a spreadsheet sent along with a report.",
+    hint: "Removes files attached inside the PDF, such as a spreadsheet sent along with a report, including files pinned to a page with a paperclip.",
   },
   {
     key: "metadata",
@@ -185,12 +188,48 @@ export function removedAnyExtra(removed: ExtrasRemoved): boolean {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
+/** What each option looks for, named for the "none were found" sentence. */
+const NOTHING_FOUND_NAMES: Record<keyof CleanupExtras, string> = {
+  attachments: "attached files",
+  metadata: "document details",
+  comments: "comments",
+};
+
+const joinList = (parts: string[], word: string) =>
+  parts.length === 1
+    ? parts[0]!
+    : `${parts.slice(0, -1).join(", ")} ${word} ${parts.at(-1)!}`;
+
 /**
  * The panel's line for what the ticked options removed, with what that saved
  * when it is known (`savedBytes`, the cleaned file against the same pass with
- * every option off); `null` when nothing was removed.
+ * every option off), and, for each ticked option (`asked`) that found nothing,
+ * a sentence saying so (review of 7b498d92: a ticked box that silently removed
+ * nothing read as success). `null` when nothing was asked and nothing removed.
  */
 export function extrasLine(
+  removed: ExtrasRemoved,
+  savedBytes?: number,
+  asked: CleanupExtras = NO_EXTRAS,
+): string | null {
+  const found: Record<keyof CleanupExtras, boolean> = {
+    attachments: removed.attachments > 0,
+    metadata: removed.metadata,
+    comments: removed.comments > 0,
+  };
+  const missing = CLEANUP_EXTRA_OPTIONS.filter(
+    (o) => asked[o.key] && !found[o.key],
+  ).map((o) => NOTHING_FOUND_NAMES[o.key]);
+  const none =
+    missing.length === 0
+      ? null
+      : `No ${joinList(missing, "or")} were found, so none were removed.`;
+  const line = removedSentence(removed, savedBytes);
+  if (line === null) return none;
+  return none === null ? line : `${line} ${none}`;
+}
+
+function removedSentence(
   removed: ExtrasRemoved,
   savedBytes?: number,
 ): string | null {
@@ -200,10 +239,7 @@ export function extrasLine(
   if (removed.metadata) parts.push("the document's metadata");
   if (removed.comments > 0) parts.push(plural(removed.comments, "comment"));
   if (parts.length === 0) return null;
-  const list =
-    parts.length === 1
-      ? parts[0]!
-      : `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)!}`;
+  const list = joinList(parts, "and");
   const saved =
     savedBytes !== undefined && savedBytes > 0
       ? ` That saved ${formatKb(savedBytes)}.`
@@ -219,8 +255,13 @@ function formatKb(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
-/** Annotation kinds the comments option keeps: they are not comments. */
-const KEPT_ANNOTS = new Set(["/Link", "/Widget"]);
+/**
+ * Annotation kinds the comments option keeps: they are not comments. A
+ * paperclip (`/FileAttachment`) is an attached file, so it is the attachments
+ * option's to remove, and counted there.
+ */
+const KEPT_ANNOTS = new Set(["/Link", "/Widget", "/FileAttachment"]);
+const FILE_ATTACHMENT = "/FileAttachment";
 
 /**
  * Remove what the person ticked. Call before `dropUnseen`, which then sweeps
@@ -235,6 +276,10 @@ export function removeExtras(
 ): ExtrasRemoved {
   const { PDFArray, PDFDict, PDFName } = lib;
   const removed: ExtrasRemoved = { ...NOTHING_EXTRA_REMOVED };
+  const subtypeOf = (annot: PDFDict | undefined) =>
+    annot ? String(annot.get(PDFName.of("Subtype"))) : "";
+  const parentOf = (annot: PDFDict | undefined) =>
+    annot?.lookupMaybe(PDFName.of("Parent"), PDFDict);
   const catalog = doc.catalog;
   if (extras.attachments) {
     const names = catalog.lookupMaybe(PDFName.of("Names"), PDFDict);
@@ -256,6 +301,24 @@ export function removeExtras(
     }
     // PDF 2.0's associated files point at the same file specifications.
     catalog.delete(PDFName.of("AF"));
+    // A file pinned to a page with the paperclip lives on the page, not in
+    // the name tree (review of 7b498d92: Acrobat's "Attach File" tool).
+    for (const page of doc.getPages()) {
+      const annots = page.node.lookupMaybe(PDFName.of("Annots"), PDFArray);
+      if (!annots) continue;
+      const kept: PDFObject[] = [];
+      for (let i = 0; i < annots.size(); i++) {
+        const annot = annots.lookupMaybe(i, PDFDict);
+        if (subtypeOf(annot) === FILE_ATTACHMENT) removed.attachments += 1;
+        // Its popup points back at it (/Parent), so leaving the popup would
+        // keep the attached bytes reachable through it.
+        else if (subtypeOf(parentOf(annot)) !== FILE_ATTACHMENT)
+          kept.push(annots.get(i));
+      }
+      if (kept.length === annots.size()) continue;
+      if (kept.length === 0) page.node.delete(PDFName.of("Annots"));
+      else page.node.set(PDFName.of("Annots"), doc.context.obj(kept));
+    }
   }
   if (extras.metadata) {
     const hadInfo = !!doc.context.trailerInfo.Info;
@@ -272,10 +335,14 @@ export function removeExtras(
       const kept: PDFObject[] = [];
       for (let i = 0; i < annots.size(); i++) {
         const annot = annots.lookupMaybe(i, PDFDict);
-        const subtype = annot ? String(annot.get(PDFName.of("Subtype"))) : "";
+        const subtype = subtypeOf(annot);
         if (KEPT_ANNOTS.has(subtype)) kept.push(annots.get(i));
-        // A popup is a comment's window, not a comment of its own.
-        else if (subtype !== "/Popup") removed.comments += 1;
+        // A popup is a comment's window, not a comment of its own; it stays
+        // with a kept paperclip.
+        else if (subtype === "/Popup") {
+          if (KEPT_ANNOTS.has(subtypeOf(parentOf(annot))))
+            kept.push(annots.get(i));
+        } else removed.comments += 1;
       }
       if (kept.length === 0) page.node.delete(PDFName.of("Annots"));
       else page.node.set(PDFName.of("Annots"), doc.context.obj(kept));

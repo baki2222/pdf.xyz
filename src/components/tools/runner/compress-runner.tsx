@@ -777,14 +777,15 @@ function CompressEditor({
         ))}
         {extrasPending && <Pending>Removing what you ticked…</Pending>}
         {cleanedNow?.error && <ErrorNote message={cleanedNow.error} />}
-        {cleanedNow?.result && extrasLine(analysis.extras, extrasSaved) && (
-          <p
-            data-extras-removed=""
-            className="text-muted text-xs leading-relaxed"
-          >
-            {extrasLine(analysis.extras, extrasSaved)}
-          </p>
-        )}
+        {cleanedNow?.result &&
+          extrasLine(analysis.extras, extrasSaved, extras) && (
+            <p
+              data-extras-removed=""
+              className="text-muted text-xs leading-relaxed"
+            >
+              {extrasLine(analysis.extras, extrasSaved, extras)}
+            </p>
+          )}
       </div>
 
       {removedLine(analysis.removed) && (
