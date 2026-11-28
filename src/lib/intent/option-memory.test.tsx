@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * Option memory (`pdfxyz.options.v1`, redesign E.9 and E.14) keeps a few
  * choices between visits, and NEVER anything a person typed. Held three

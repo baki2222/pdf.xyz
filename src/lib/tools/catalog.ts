@@ -1103,7 +1103,7 @@ export const tools: Tool[] = [
     seoTitle: "Flatten PDF Forms — Lock Filled Fields",
     tagline: "Lock fillable form fields into the page.",
     description:
-      "Flatten a filled PDF form in your browser, so its answers become part of the page and can't be edited. Comments and layers are kept as they are.",
+      "Flatten a filled PDF form in your browser, so its answers become part of the page and can't be edited. Comments stay as they are unless you flatten them too.",
     category: "security",
     icon: "flatten",
     processing: "client",

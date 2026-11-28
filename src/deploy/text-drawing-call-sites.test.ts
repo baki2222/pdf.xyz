@@ -440,10 +440,13 @@ describe("the AcroForm family, which draws text WITHOUT calling drawText", () =>
    * precisely why they were missed by every hand-carried list: they are text
    * drawing that never mentions text drawing.
    *
-   * They are NOT fixed by the Unicode chooser. They refuse, which is correct,
+   * Most are NOT fixed by the Unicode chooser. They refuse, which is correct,
    * and `assertFormFieldTextDrawable` makes the refusal say so in words instead
    * of leaking `WinAnsi cannot encode "গ" (0x0997)` out of `save()`. This test
    * is the tie that stops a new AcroForm call site from shipping without it.
+   * Fill Forms (`forms.ts`, audit fill-forms#6, 2026-11-22) now draws a
+   * changed non-WinAnsi value with the chooser's face, and asserts what still
+   * reaches the form's Helvetica; `forms-unicode.test.ts` renders the result.
    */
   /**
    * WHICH spellings make pdf-lib draw field text is DERIVED from pdf-lib, not

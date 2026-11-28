@@ -82,6 +82,9 @@ export const OPTION_SCHEMAS = {
   watermark: {
     opacity: int(5, 100),
     rotation: int(-90, 90),
+    // An image mark's own angle (audit watermark-pdf#6): a logo starts
+    // upright, and a tilt chosen for text never carries over to it.
+    imageRotation: int(-90, 90),
   },
   // Positions only: a header's words are typed text. The box the footer's
   // single line was in, where the next document's default footer starts.

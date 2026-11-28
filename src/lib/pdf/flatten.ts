@@ -1,3 +1,4 @@
+import type { isolatePageContent as IsolatePageContent } from "./content-isolation";
 import type {
   PDFDict,
   PDFDocument,
@@ -29,10 +30,12 @@ import {
  * interactive field is removed, so the values become permanent and can no
  * longer be edited or cleared in a viewer.
  *
- * HONEST SCOPE: this flattens AcroForm *form fields* only (text inputs,
- * checkboxes, radio groups, dropdowns, list boxes, buttons). It does NOT flatten
- * other annotation types (comments, ink, stamps) or optional-content layers
- * (OCGs) — those are re-saved unchanged. Signature fields are never flattened
+ * HONEST SCOPE: by default this flattens AcroForm *form fields* only (text
+ * inputs, checkboxes, radio groups, dropdowns, list boxes, buttons). With
+ * `annotations: true` (audit flatten-pdf#3, 2026-11-22) it also draws every
+ * visible annotation that is not a Link, a widget or a pop-up into its page
+ * and removes it — see {@link flattenAnnotations}. Optional-content layers
+ * (OCGs) are re-saved unchanged either way. Signature fields are never flattened
  * (see {@link flattenFormFields}), and any field that cannot be drawn is left
  * exactly as it was and REPORTED, never dropped. The runner states all of this.
  *
@@ -58,8 +61,20 @@ export interface FlattenSkip {
   reason: string;
 }
 
+export interface FlattenOptions {
+  /**
+   * Also draw comments and markup (highlights, ink, stamps, free text, notes,
+   * shapes) into the page and remove them. Off by default: fields only.
+   */
+  annotations?: boolean;
+}
+
 export interface FlattenResult {
   bytes: Uint8Array;
+  /** Annotations drawn into their pages and removed (0 unless asked). */
+  flattenedAnnotations: number;
+  /** Annotations left exactly as they were, and why (only when asked). */
+  annotationsLeft: FlattenSkip[];
   /** How many AcroForm fields were actually drawn into page content. */
   flattenedFields: number;
   /** How many AcroForm fields the source had (flattened + skipped). */
@@ -89,6 +104,11 @@ export interface FormInspection {
    * only in the XFA, which no browser engine renders. Refused, never saved.
    */
   dynamicXfa: boolean;
+  /**
+   * Comments and markup "Also flatten comments and markup" would act on:
+   * every annotation that is not a Link, a form widget or a pop-up.
+   */
+  annotations: number;
 }
 
 /** The refusal for a dynamic XFA form — shown by the runner and the engine. */
@@ -106,9 +126,10 @@ export function flattenedOutputName(sourceName: string): string {
  */
 export function flattenDownloadName(
   sourceName: string,
-  result: Pick<FlattenResult, "flattenedFields">,
+  result: Pick<FlattenResult, "flattenedFields"> &
+    Partial<Pick<FlattenResult, "flattenedAnnotations">>,
 ): string {
-  return result.flattenedFields > 0
+  return result.flattenedFields > 0 || (result.flattenedAnnotations ?? 0) > 0
     ? flattenedOutputName(sourceName)
     : outputName(sourceName || "document", "resaved");
 }
@@ -139,6 +160,21 @@ export async function inspectForm(bytes: Uint8Array): Promise<FormInspection> {
     ...signatureState(fields, lib),
     xfa: xfa.xfa,
     dynamicXfa: isDynamicXfa(xfa, fields.length),
+    annotations: doc.getPages().reduce((sum, page) => {
+      const annots = page.node.lookup(lib.PDFName.of("Annots"));
+      if (!(annots instanceof lib.PDFArray)) return sum;
+      let count = 0;
+      for (let i = 0; i < annots.size(); i += 1) {
+        const dict = annots.lookup(i);
+        const subtype =
+          dict instanceof lib.PDFDict
+            ? dict.lookup(lib.PDFName.of("Subtype"))
+            : undefined;
+        if (subtype instanceof lib.PDFName && isDrawnKind(subtype.decodeText()))
+          count += 1;
+      }
+      return sum + count;
+    }, 0),
   };
 }
 
@@ -230,6 +266,7 @@ const SKIP = {
   noPage: "its box isn't on any page of this PDF",
   noAppearance: "it has no appearance to draw",
   undrawable: "its value couldn't be drawn",
+  hidden: "hidden, so there is nothing to draw",
 } as const;
 
 type Matrix = [number, number, number, number, number, number];
@@ -297,16 +334,44 @@ function appearanceToRectMatrix(
 function drawWidget(placed: PlacedWidget, lib: PdfLibModule): void {
   const { page, appearance, widget } = placed;
   if (!appearance) return;
+  drawAppearance(page, appearance, widget.getRectangle(), lib);
+}
+
+/**
+ * Draw an appearance stream on `rect` of `page` as a reader does (12.5.5).
+ * With `state` (an annotation's /CA, /ca, /BM) the stream is painted as a
+ * transparency group under that state, so the opacity applies to the whole
+ * appearance at once, as a reader applies /CA, and a `gs` inside the stream
+ * cannot override it.
+ */
+function drawAppearance(
+  page: PDFPage,
+  appearance: PDFRef,
+  rect: { x: number; y: number; width: number; height: number },
+  lib: PdfLibModule,
+  state?: PDFDict,
+): void {
   const stream = page.doc.context.lookup(appearance);
   const dict = stream instanceof lib.PDFStream ? stream.dict : undefined;
   const key = page.node.newXObject("FlatWidget", appearance);
   const placement = appearanceToRectMatrix(
-    widget.getRectangle(),
+    rect,
     dict && numbers(dict, "BBox", 4, lib),
     dict && numbers(dict, "Matrix", 6, lib),
   );
+  const ops = [lib.pushGraphicsState()];
+  if (state && dict) {
+    if (!dict.has(lib.PDFName.of("Group")))
+      dict.set(
+        lib.PDFName.of("Group"),
+        page.doc.context.obj({ Type: "Group", S: "Transparency" }),
+      );
+    ops.push(
+      lib.setGraphicsState(page.node.newExtGState("FlatAnnotGS", state)),
+    );
+  }
   page.pushOperators(
-    lib.pushGraphicsState(),
+    ...ops,
     lib.concatTransformationMatrix(...placement),
     lib.drawObject(key),
     lib.popGraphicsState(),
@@ -470,12 +535,206 @@ export function flattenFormFields(
 }
 
 /**
+ * Content isolation (`./content-isolation`) runs only when a page is written,
+ * so it is imported at call time, as the stamp tools do.
+ */
+const isolatePageContent = async (
+  page: Parameters<typeof IsolatePageContent>[0],
+  lib: PdfLibModule,
+): ReturnType<typeof IsolatePageContent> =>
+  (await import("./content-isolation")).isolatePageContent(page, lib);
+
+/** Annotation kinds never flattened: kept live, or not a mark of their own. */
+const KEPT_LIVE = new Set(["Link", "Widget", "Popup"]);
+
+/**
+ * Kinds that carry data or are not a drawing: kept as they are and LISTED,
+ * because drawing their look and deleting them loses something. A pending
+ * redaction drawn in looks done while the text under it stays in the file,
+ * and it can no longer be applied (review finding 1, 2026-11-28). An attached
+ * file or sound would lose the file; media and 3D would stop playing. Checked
+ * against Remove Annotations' groups in `flatten-annotations.test.ts`.
+ */
+const KEPT_LISTED: ReadonlyMap<string, string> = new Map([
+  [
+    "Redact",
+    "a redaction mark not yet applied, so the text under it is still there; use Redact PDF to remove it",
+  ],
+  ["FileAttachment", "an attached file, kept so it is not lost"],
+  ["Sound", "a sound clip, kept so it is not lost"],
+  ["Movie", "a video, kept so it still plays"],
+  ["Screen", "a media player, kept so it still plays"],
+  ["RichMedia", "a media player, kept so it still plays"],
+  ["3D", "a 3D model, kept so it still works"],
+]);
+
+/** Whether "Also flatten comments and markup" draws this kind at all. */
+const isDrawnKind = (kind: string): boolean =>
+  !KEPT_LIVE.has(kind) && !KEPT_LISTED.has(kind);
+
+/**
+ * The annotation's own opacity and blend mode (ISO 32000 12.5.2: /CA applies
+ * to everything it shows, /ca in PDF 2.0 to fills, /BM its blend), as an
+ * ExtGState for the drawn appearance, or `undefined` when it is opaque and
+ * normal. Without it a highlight whose look is an opaque box made see-through
+ * only by /CA was drawn as a solid block over the text (review findings 4 and
+ * 6, 2026-11-28).
+ */
+function annotationState(
+  dict: PDFDict,
+  lib: PdfLibModule,
+): PDFDict | undefined {
+  const { PDFName, PDFNumber } = lib;
+  const read = (key: string): number | undefined => {
+    const value = dict.lookup(PDFName.of(key));
+    return value instanceof PDFNumber
+      ? Math.min(1, Math.max(0, value.asNumber()))
+      : undefined;
+  };
+  const stroke = read("CA") ?? 1;
+  const fill = read("ca") ?? stroke;
+  const blend = dict.lookup(PDFName.of("BM"));
+  const hasBlend = blend instanceof PDFName && blend.decodeText() !== "Normal";
+  if (stroke === 1 && fill === 1 && !hasBlend) return undefined;
+  const state = dict.context.obj({
+    Type: "ExtGState",
+    CA: stroke,
+    ca: fill,
+  });
+  if (hasBlend) state.set(PDFName.of("BM"), blend);
+  return state;
+}
+
+/**
+ * The appearance an annotation shows right now: its /AP /N stream, or the
+ * state its /AS names when /N is a dictionary of states.
+ */
+function annotationAppearance(
+  dict: PDFDict,
+  lib: PdfLibModule,
+): PDFRef | undefined {
+  const { PDFDict, PDFName, PDFRef, PDFStream } = lib;
+  const ap = dict.lookup(PDFName.of("AP"));
+  if (!(ap instanceof PDFDict)) return undefined;
+  const normal = ap.get(PDFName.of("N"));
+  const states =
+    normal instanceof PDFRef ? dict.context.lookup(normal) : normal;
+  if (normal instanceof PDFRef && states instanceof PDFStream) return normal;
+  if (!(states instanceof PDFDict)) return undefined;
+  const state = dict.lookup(PDFName.of("AS"));
+  const chosen = state instanceof PDFName ? states.get(state) : undefined;
+  return chosen instanceof PDFRef &&
+    dict.context.lookup(chosen) instanceof PDFStream
+    ? chosen
+    : undefined;
+}
+
+/**
+ * Draw comments and markup into the page (audit flatten-pdf#3): every
+ * annotation on every page that is not a Link (kept clickable), a widget (a
+ * form field, handled by {@link flattenFormFields}) or a pop-up (part of its
+ * comment) has its current appearance drawn where a reader shows it (ISO
+ * 32000 12.5.5, the placement fields use) and is removed, with the pop-up
+ * that belongs to it. A sticky note becomes its icon; its text goes with it.
+ *
+ * Left exactly as they were, and listed: an annotation with no appearance
+ * stream (a reader makes one up, and this will not guess what it drew) and a
+ * hidden one (nothing on screen to draw). The page's existing content is
+ * wrapped first, so a stream that leaves its graphics state changed cannot
+ * move or recolour what is drawn after it.
+ */
+export async function flattenAnnotations(
+  doc: PDFDocument,
+  lib: PdfLibModule,
+): Promise<{ flattened: number; left: FlattenSkip[] }> {
+  const { PDFArray, PDFDict, PDFName, PDFNumber, PDFRef } = lib;
+  let flattened = 0;
+  const left: FlattenSkip[] = [];
+  for (const [index, page] of doc.getPages().entries()) {
+    const annots = page.node.lookup(PDFName.of("Annots"));
+    if (!(annots instanceof PDFArray)) continue;
+    const drawn: { dict: PDFDict; appearance: PDFRef; rect: number[] }[] = [];
+    for (let i = 0; i < annots.size(); i += 1) {
+      const dict = annots.lookup(i);
+      if (!(dict instanceof PDFDict)) continue;
+      const subtype = dict.lookup(PDFName.of("Subtype"));
+      const kind = subtype instanceof PDFName ? subtype.decodeText() : "";
+      if (KEPT_LIVE.has(kind)) continue;
+      const name = `${kind || "Annotation"} on page ${index + 1}`;
+      const keptReason = KEPT_LISTED.get(kind);
+      if (keptReason) {
+        left.push({ name, reason: keptReason });
+        continue;
+      }
+      const flags = dict.lookup(PDFName.of("F"));
+      const bits =
+        flags instanceof PDFNumber ? Math.trunc(flags.asNumber()) : 0;
+      if ((bits & (ANNOT_HIDDEN | ANNOT_NO_VIEW)) !== 0) {
+        left.push({ name, reason: SKIP.hidden });
+        continue;
+      }
+      const appearance = annotationAppearance(dict, lib);
+      const rect = numbers(dict, "Rect", 4, lib);
+      if (!appearance || !rect) {
+        left.push({ name, reason: SKIP.noAppearance });
+        continue;
+      }
+      drawn.push({ dict, appearance, rect });
+    }
+    if (drawn.length === 0) continue;
+
+    await isolatePageContent(page, lib);
+    for (const { dict, appearance, rect } of drawn) {
+      const [x0 = 0, y0 = 0, x1 = 0, y1 = 0] = rect;
+      drawAppearance(
+        page,
+        appearance,
+        {
+          x: Math.min(x0, x1),
+          y: Math.min(y0, y1),
+          width: Math.abs(x1 - x0),
+          height: Math.abs(y1 - y0),
+        },
+        lib,
+        annotationState(dict, lib),
+      );
+      flattened += 1;
+    }
+
+    // Keep what was not drawn, minus every pop-up whose comment was drawn.
+    const gone = new Set(drawn.map((d) => d.dict));
+    const keep = annots.asArray().filter((_, i) => {
+      const dict = annots.lookup(i);
+      if (!(dict instanceof PDFDict)) return true;
+      if (gone.has(dict)) return false;
+      const parent = dict.lookup(PDFName.of("Parent"));
+      const subtype = dict.lookup(PDFName.of("Subtype"));
+      return !(
+        subtype instanceof PDFName &&
+        subtype.decodeText() === "Popup" &&
+        parent instanceof PDFDict &&
+        gone.has(parent)
+      );
+    });
+    const removed = annots.asArray().filter((ref) => !keep.includes(ref));
+    if (keep.length === 0) page.node.delete(PDFName.of("Annots"));
+    else page.node.set(PDFName.of("Annots"), doc.context.obj(keep));
+    for (const ref of removed)
+      if (ref instanceof PDFRef) doc.context.delete(ref);
+  }
+  return { flattened, left };
+}
+
+/**
  * Flatten every AcroForm field into page content. When the PDF has no form
  * fields this is honest about it: nothing is flattened, and the document is
  * simply re-saved (with our metadata) so the tool still produces a valid file.
  * A dynamic XFA form is refused: re-saving it would keep only its placeholder.
  */
-export async function flattenPdf(bytes: Uint8Array): Promise<FlattenResult> {
+export async function flattenPdf(
+  bytes: Uint8Array,
+  options: FlattenOptions = {},
+): Promise<FlattenResult> {
   const lib = await loadPdfLib();
   const doc = await loadPdf(bytes);
   const xfa = readXfa(doc, lib);
@@ -507,10 +766,16 @@ export async function flattenPdf(bytes: Uint8Array): Promise<FlattenResult> {
     }
   }
 
+  const annotations = options.annotations
+    ? await flattenAnnotations(doc, lib)
+    : { flattened: 0, left: [] };
+
   stampProducer(doc);
   const out = await doc.save({ updateFieldAppearances: false });
   return {
     bytes: out,
+    flattenedAnnotations: annotations.flattened,
+    annotationsLeft: annotations.left,
     flattenedFields: outcome.flattened.length,
     totalFields,
     hadForm: totalFields > 0,

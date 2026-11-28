@@ -155,9 +155,12 @@ describe("Watermark PDF's page names its controls and its fit as shipped", () =>
     expect(SLUGS).toEqual(["watermark-pdf"]);
     // Two since 2026-11-08 (batch plan P1): the runner and its batch, which
     // draws a subset of the same sliders under the same labels; the page
-    // names them all once either way.
+    // names them all once either way. Three since 2026-11-22 (audit
+    // watermark-pdf#1): the live preview imports the engine's layout, and
+    // draws no slider of its own.
     expect(RUNNERS.map((file) => path.basename(file)).sort()).toEqual([
       "watermark-batch.tsx",
+      "watermark-preview.tsx",
       "watermark-runner.tsx",
     ]);
     expect(SLIDERS.length).toBeGreaterThanOrEqual(3);

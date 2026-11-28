@@ -13,11 +13,13 @@ import {
   DEFAULT_PAGE_NUMBER_FORMAT,
   numberedOutputName,
   numberingPlan,
+  PAGE_NUMBER_BOX_COLOR,
   type PageNumberOptions,
 } from "@/lib/pdf/page-numbers";
 import type { StampPosition } from "@/lib/pdf/stamp";
 import type { SinglePdfBatch } from "../single-pdf-runner";
 import { CheckboxField, NumberField, PositionPicker } from "../stamp-controls";
+import { PAGE_NUMBER_BOX_HINT } from "../page-number-box-copy";
 import { BatchChoice } from "./batch-choice";
 import {
   SettingsBatchRunner,
@@ -54,7 +56,14 @@ export type PageNumberBatchOptions = Required<
     PageNumberOptions,
     "format" | "position" | "startAt" | "skipCover" | "facing"
   >
->;
+> &
+  Pick<PageNumberOptions, "background">;
+
+/** The batch's box behind each number: white and solid, the editor's start. */
+export const PAGE_NUMBER_BATCH_BOX = {
+  color: PAGE_NUMBER_BOX_COLOR,
+  opacity: 1,
+} as const;
 
 /** Number one file, from its own first page; the count restarts per file. */
 export async function numberOneFile(
@@ -78,10 +87,18 @@ export function PageNumbersBatch(props: SinglePdfBatch) {
   const [startAt, setStartAt] = useState(1);
   const [skipCover, setSkipCover] = useState(false);
   const [facing, setFacing] = useState(false);
+  const [boxed, setBoxed] = useState(false);
   const process = useCallback(
     (opened: OpenedPdf) =>
-      numberOneFile(opened, { format, position, startAt, skipCover, facing }),
-    [format, position, startAt, skipCover, facing],
+      numberOneFile(opened, {
+        format,
+        position,
+        startAt,
+        skipCover,
+        facing,
+        ...(boxed ? { background: PAGE_NUMBER_BATCH_BOX } : {}),
+      }),
+    [format, position, startAt, skipCover, facing, boxed],
   );
   return (
     <SettingsBatchRunner
@@ -123,6 +140,12 @@ export function PageNumbersBatch(props: SinglePdfBatch) {
                 checked={facing}
                 onChange={setFacing}
                 hint="Swaps left and right on even pages, for printing as a book."
+              />
+              <CheckboxField
+                label="Box behind the number"
+                checked={boxed}
+                onChange={setBoxed}
+                hint={`White. ${PAGE_NUMBER_BOX_HINT}`}
               />
             </div>
           </div>

@@ -91,7 +91,26 @@ export interface PageNumberOptions {
   font?: StampFontFamily;
   /** Ink color (0–1 channels). Defaults to a dark slate. */
   color?: RGB;
+  /**
+   * A filled box drawn behind each number, so it stays readable over a
+   * full-bleed scan or a dark footer. Absent means no box, as before.
+   */
+  background?: PageNumberBackground;
 }
+
+/** The box behind a number: its fill and how opaque it is (0–1). */
+export interface PageNumberBackground {
+  /** Fill colour. Defaults to white. */
+  color?: RGB;
+  /** 0.1–1. Defaults to 1 (solid). */
+  opacity?: number;
+}
+
+/** White, the box's default fill. */
+export const PAGE_NUMBER_BOX_COLOR: RGB = { r: 1, g: 1, b: 1 };
+
+/** Room between the number and the box's edge, as a share of the font size. */
+export const PAGE_NUMBER_BOX_PADDING = 0.35;
 
 /**
  * The runner's two numbering styles, by their on-screen labels. "Bates
@@ -260,6 +279,30 @@ export async function addPageNumbers(
       v,
       margin,
     });
+
+    if (options.background) {
+      // The box in the text's own frame: from just left of the first glyph
+      // to just right of the last, from the descender to the ascender, plus
+      // padding. Then turned with the text, about the text's origin, so it
+      // still holds the number on a /Rotate page.
+      const pad = fontSize * PAGE_NUMBER_BOX_PADDING;
+      const ascent = font.heightAtSize(fontSize, { descender: false });
+      const descent = textHeight - ascent;
+      const lx = -pad;
+      const ly = -descent - pad;
+      const theta = (placement.rotate * Math.PI) / 180;
+      const cos = Math.cos(theta);
+      const sin = Math.sin(theta);
+      page.drawRectangle({
+        x: placement.x + lx * cos - ly * sin,
+        y: placement.y + lx * sin + ly * cos,
+        width: textWidth + 2 * pad,
+        height: textHeight + 2 * pad,
+        color: toRgb(rgb, options.background.color ?? PAGE_NUMBER_BOX_COLOR),
+        opacity: clamp(options.background.opacity ?? 1, 0.1, 1),
+        rotate: degrees(placement.rotate),
+      });
+    }
 
     page.drawText(text, {
       x: placement.x,

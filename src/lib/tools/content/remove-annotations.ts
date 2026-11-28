@@ -41,7 +41,7 @@ const content: ToolContent = {
   intro: [
     `Annotations are what reviewers and PDF apps add on top of a page: sticky notes and their replies, highlights, freehand ink, stamps, attached files, links and form fields. Remove Annotations opens a PDF, lists what it carries by kind with a count for each — ${ALL_GROUPS} — and saves a copy without the kinds you tick. The page text and images under them are not touched.`,
     `It runs in your browser with pdf-lib, so the PDF you pick is not uploaded. The file gate refuses PDFs over ${MAX_MB} MB, and encrypted PDFs are turned away with a note to unlock them first. Removed means removed from the file, not hidden: an annotation's text, the appearance a reader draws for it, its pop-up window and the replies to it are deleted, and so is a file attached only through a removed attachment pin. The one exception is something a kept part of the file still uses, such as a picture a kept page also draws; it stays so that page still shows. Signature fields are never removed, whatever you tick, but the copy is a rewritten file, so a digital signature in the original no longer verifies in it.`,
-    `It is not Flatten PDF. Flatten PDF draws a filled form's answers into the page and then removes the fields, and leaves comments as they are. Remove Annotations draws nothing: a removed form field takes its value with it. To keep a form's answers and delete everything else, flatten the form first, then remove the comments here.`,
+    `It is not Flatten PDF. Flatten PDF draws a filled form's answers into the page and then removes the fields, and leaves comments as they are unless you tick its Also flatten comments and markup. Remove Annotations draws nothing: a removed form field takes its value with it. To keep a form's answers and delete everything else, flatten the form first, then remove the comments here.`,
   ],
 
   useCases: [
@@ -89,7 +89,7 @@ const content: ToolContent = {
     },
     {
       q: "How is this different from Flatten PDF?",
-      a: "Flatten PDF works on form fields only: it draws each field's answer into the page and then removes the field, and it leaves comments, highlights and other annotations as they are. Remove Annotations deletes the kinds you tick and draws nothing in their place, so a removed form field's answer is gone. Flatten first if you want to keep the answers.",
+      a: "Flatten PDF works on form fields only, unless you tick its Also flatten comments and markup: it draws each field's answer into the page and then removes the field, and it leaves comments, highlights and other annotations as they are. With that box ticked it draws those into the page too, so they can no longer be moved or deleted, and they still show. Remove Annotations deletes the kinds you tick and draws nothing in their place, so a removed form field's answer is gone. Flatten first if you want to keep the answers.",
     },
     {
       q: "What does it not remove?",

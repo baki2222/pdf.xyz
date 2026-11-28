@@ -26,17 +26,28 @@ async function docked(page: Page): Promise<boolean> {
   });
 }
 
-/** Resolve once the page has not scrolled for two frames running. */
+/**
+ * Resolve once the page has not scrolled for two frames running AFTER it
+ * moved, or once it has not moved at all for ten frames. Two still frames
+ * from the start was not enough (2026-11-22): a smooth focus scroll can begin
+ * a few frames after the Tab, and the walk then measured a control BEFORE
+ * the page brought it up — 3 runs in 6 on Add Watermark's preview handle,
+ * which the page does scroll clear of the dock (bottom 564.5 -> 313.5).
+ */
 async function settled(page: Page): Promise<void> {
   await page.evaluate(
     () =>
       new Promise<void>((resolve) => {
-        let last = window.scrollY;
+        const start = window.scrollY;
+        let last = start;
         let still = 0;
+        let frames = 0;
         const tick = () => {
+          frames += 1;
           still = window.scrollY === last ? still + 1 : 0;
           last = window.scrollY;
-          if (still >= 2) resolve();
+          const moved = window.scrollY !== start;
+          if ((moved && still >= 2) || (!moved && frames >= 10)) resolve();
           else requestAnimationFrame(tick);
         };
         requestAnimationFrame(tick);

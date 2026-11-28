@@ -5,11 +5,14 @@ import { RunReason } from "@/components/tools/runner/run-reason";
 import { useState } from "react";
 import { Download, ImageIcon, Stamp, X } from "lucide-react";
 import {
+  DEFAULT_IMAGE_ROTATION,
   DEFAULT_IMAGE_SCALE,
+  DEFAULT_TEXT_ROTATION,
   watermarkImageProblem,
   watermarkPdf,
   watermarkedOutputName,
   type WatermarkLayer,
+  type WatermarkPoint,
   type WatermarkReport,
 } from "@/lib/pdf/watermark";
 import {
@@ -52,6 +55,7 @@ import {
   TextField,
 } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
+import { WatermarkPreview } from "./watermark-preview";
 
 const COLORS: Record<"gray" | "red" | "blue", RGB> = {
   gray: WATERMARK_INK,
@@ -111,12 +115,23 @@ export function WatermarkEditor({
   const [imageError, setImageError] = useState<string | null>(null);
   const [imageScale, setImageScale] = useState(DEFAULT_IMAGE_SCALE);
   const [opacity, setOpacity] = useState(kept.opacity ?? 18);
-  const [rotation, setRotation] = useState(kept.rotation ?? 45);
+  // Text and image marks each keep their own angle (audit watermark-pdf#6):
+  // a diagonal word reads as a watermark, a tilted logo reads as a mistake.
+  const [textRotation, setTextRotation] = useState(
+    kept.rotation ?? DEFAULT_TEXT_ROTATION,
+  );
+  const [imageRotation, setImageRotation] = useState(
+    kept.imageRotation ?? DEFAULT_IMAGE_ROTATION,
+  );
+  const rotation = mode === "image" ? imageRotation : textRotation;
+  const setRotation = mode === "image" ? setImageRotation : setTextRotation;
   const [fontSize, setFontSize] = useState(60);
   const [font, setFont] = useState<StampFontFamily>("helvetica");
   const [color, setColor] = useState<ColorChoice>("gray");
   const [customHex, setCustomHex] = useState(() => rgbToHex(WATERMARK_INK));
   const [position, setPosition] = useState<StampPosition>("middle-center");
+  // A spot picked on the preview, in place of a cell; a cell clears it.
+  const [point, setPoint] = useState<WatermarkPoint | null>(null);
   const [tile, setTile] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [pageMode, setPageMode] = useState<"all" | "some">("all");
@@ -147,7 +162,11 @@ export function WatermarkEditor({
     color === "custom" ? (hexToRgb(customHex) ?? WATERMARK_INK) : COLORS[color];
 
   const onRun = () => {
-    rememberOptions("watermark", { opacity, rotation });
+    rememberOptions("watermark", {
+      opacity,
+      rotation: textRotation,
+      imageRotation,
+    });
     return run(() =>
       watermarkPdf(pdf.bytes, mode === "text" ? text : "", {
         opacity: opacity / 100,
@@ -155,7 +174,7 @@ export function WatermarkEditor({
         fontSize,
         color: inkColor,
         font,
-        position: tile ? "tile" : position,
+        position: tile ? "tile" : (point ?? position),
         pages: pageMode === "some" ? pageList : undefined,
         layer,
         ...(mode === "image" && image
@@ -258,6 +277,24 @@ export function WatermarkEditor({
         </div>
       </RunnerSection>
 
+      <RunnerSection title="Preview">
+        <WatermarkPreview
+          bytes={pdf.bytes}
+          pageCount={pdf.pageCount}
+          mode={mode}
+          text={text}
+          font={font}
+          fontSize={fontSize}
+          image={mode === "image" ? (image?.bytes ?? null) : null}
+          imageScale={imageScale}
+          opacity={opacity}
+          rotation={rotation}
+          colorHex={rgbToHex(inkColor)}
+          position={tile ? "tile" : (point ?? position)}
+          onPlace={setPoint}
+        />
+      </RunnerSection>
+
       <RunnerSection title="Appearance">
         <div className="grid gap-5 sm:grid-cols-2">
           <RangeField
@@ -341,11 +378,22 @@ export function WatermarkEditor({
         <div className="flex flex-wrap items-start gap-6">
           <PositionPicker
             label="Watermark position"
-            value={position}
-            onChange={setPosition}
+            // A spot dragged on the preview is no cell: none is shown as
+            // chosen until one is picked again.
+            value={(point ? "" : position) as StampPosition}
+            onChange={(cell) => {
+              setPoint(null);
+              setPosition(cell);
+            }}
             disabled={tile}
           />
           <div className="flex min-w-52 flex-1 flex-col gap-3">
+            {point && !tile && (
+              <p className="text-muted text-xs">
+                Placed where you put it on the preview. Pick a spot on the grid
+                to snap it back.
+              </p>
+            )}
             <CheckboxField
               label="Tile across the page"
               checked={tile}

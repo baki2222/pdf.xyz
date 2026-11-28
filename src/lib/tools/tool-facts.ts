@@ -997,7 +997,8 @@ export const RUNNER_MID_RUN_FETCHES: Readonly<
   "image-to-pdf": [],
   "pdf-to-image": ["image-decoder", "character-map"],
   "page-numbers": ["drawing-font"],
-  watermark: ["drawing-font"],
+  // The live preview renders the page (audit watermark-pdf#1, 2026-11-22).
+  watermark: ["image-decoder", "character-map", "drawing-font"],
   "header-footer": ["drawing-font"],
   // Auto renders every page through pdf.js to find its margins (2026-10-24).
   crop: ["image-decoder", "character-map"],
@@ -1006,7 +1007,9 @@ export const RUNNER_MID_RUN_FETCHES: Readonly<
   overlay: [],
   grayscale: ["image-decoder", "character-map"],
   redact: ["image-decoder", "character-map"],
-  "fill-forms": [],
+  // A value outside the Western alphabet is drawn with a downloaded face
+  // (audit fill-forms#6, 2026-11-22).
+  "fill-forms": ["drawing-font"],
   // The page preview draws the selected card's page through pdf.js
   // (backlog #17, 2026-11-17): an image decoder or a character map when a
   // page needs one.
@@ -1551,7 +1554,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: `Does ${tool.name} flatten comments and annotations too?`,
           answer:
-            "No — only fillable form fields: text boxes, checkboxes, radio buttons, dropdowns, list boxes and push buttons. Comments, ink drawings and layers are saved as they were.",
+            "Only if you tick Also flatten comments and markup. Without it, only fillable form fields are flattened: text boxes, checkboxes, radio buttons, dropdowns, list boxes and push buttons. Layers are never flattened.",
         },
       ];
     case "overlay":

@@ -13,6 +13,7 @@ import {
   numberedOutputName,
   numberingPlan,
   NUMBER_STYLES,
+  PAGE_NUMBER_BOX_COLOR,
   PAGE_NUMBER_MARGINS,
   previewPageNumber,
   validatePageNumberFormat,
@@ -64,6 +65,7 @@ import {
   TextField,
 } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
+import { PAGE_NUMBER_BOX_HINT } from "./page-number-box-copy";
 
 /**
  * The offered presets. Exported so the tool page's stated facts can be pinned
@@ -89,6 +91,9 @@ const DEFAULT_POSITION: StampPosition = "bottom-center";
 
 /** The default ink as a colour-input value; any other value is a choice. */
 const DEFAULT_INK_HEX = rgbToHex(INK);
+
+/** The box's starting fill (white) as a colour-input value. */
+const DEFAULT_BOX_HEX = rgbToHex(PAGE_NUMBER_BOX_COLOR);
 
 /**
  * Two or more PDFs: the batch (batch plan P1), its own chunk, fetched only
@@ -150,6 +155,9 @@ export function PageNumbersEditor({
   const [style, setStyle] = useState<NumberStyle>("pages");
   const [batesPrefix, setBatesPrefix] = useState("");
   const [batesDigits, setBatesDigits] = useState(DEFAULT_BATES_DIGITS);
+  const [boxed, setBoxed] = useState(false);
+  const [boxHex, setBoxHex] = useState(DEFAULT_BOX_HEX);
+  const [boxOpacity, setBoxOpacity] = useState(100);
   const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
 
   // What came back from the last visit and is still in use — said on screen,
@@ -229,6 +237,14 @@ export function PageNumbersEditor({
         // draws exactly the colour it always did.
         ...(inkHex !== DEFAULT_INK_HEX && hexToRgb(inkHex)
           ? { color: hexToRgb(inkHex)! }
+          : {}),
+        ...(boxed
+          ? {
+              background: {
+                color: hexToRgb(boxHex) ?? PAGE_NUMBER_BOX_COLOR,
+                opacity: boxOpacity / 100,
+              },
+            }
           : {}),
       }),
     );
@@ -382,6 +398,30 @@ export function PageNumbersEditor({
                 ).map((key) => ({ value: key, label: MARGIN_LABELS[key] }))}
               />
             </div>
+            <CheckboxField
+              label="Box behind the number"
+              checked={boxed}
+              onChange={setBoxed}
+              hint={PAGE_NUMBER_BOX_HINT}
+            />
+            {boxed && (
+              <div className="flex flex-col gap-3">
+                <ColorField
+                  label="Box color"
+                  value={boxHex}
+                  onChange={setBoxHex}
+                />
+                <RangeField
+                  label="Box opacity"
+                  value={boxOpacity}
+                  min={10}
+                  max={100}
+                  step={5}
+                  onChange={setBoxOpacity}
+                  format={(v) => `${v}%`}
+                />
+              </div>
+            )}
           </div>
         </div>
       </RunnerSection>

@@ -644,6 +644,12 @@ export function loadFaceBytes(face: ShippedFace): Promise<Uint8Array> {
  * Bengali. Saying otherwise here would be a claim that is false in the same
  * breath it is made, and the kind of sentence that survives long after the
  * capability it describes has changed.
+ *
+ * It did survive once: until 2026-11-28 it said "a fillable field cannot
+ * yet", while Fill Forms (audit fill-forms#6) had started embedding a face
+ * for typed answers. It now names Fill Forms and says only that THIS step
+ * redraws with the form's font. The ban on the shipped sentence is in
+ * `forms-unicode.test.ts` ("the shared refusal stops saying ...").
  */
 export function assertFormFieldTextDrawable(texts: readonly string[]): void {
   const blocked = new Set<string>();
@@ -652,12 +658,12 @@ export function assertFormFieldTextDrawable(texts: readonly string[]): void {
   }
   if (blocked.size === 0) return;
   throw new PdfEngineError(
-    `Interactive form fields can only carry the built-in PDF alphabet, and ` +
+    `Here a form field can only carry the built-in PDF alphabet, and ` +
       `these characters are outside it: ${showCharacters([...blocked])}. ` +
       `The stamping tools (watermark, page numbers, header/footer, notes, ` +
-      `signature) do embed a Unicode font and can draw them — a fillable field ` +
-      `cannot yet, because a PDF reader regenerates its appearance from the ` +
-      `form's own font. ${NEVER_SUBSTITUTE}`,
+      `signature) embed a Unicode font and can draw them, and Fill Forms can ` +
+      `type them into a field. This step cannot, because it would redraw the ` +
+      `field with the form's own font. ${NEVER_SUBSTITUTE}`,
   );
 }
 

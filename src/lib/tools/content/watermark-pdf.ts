@@ -6,7 +6,12 @@ import {
   batchLimitsSentence,
 } from "@/lib/batch/tools";
 import { FONT_PACKS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
-import { TILE_FIT, WATERMARK_FIT } from "@/lib/pdf/watermark";
+import {
+  DEFAULT_IMAGE_ROTATION,
+  DEFAULT_TEXT_ROTATION,
+  TILE_FIT,
+  WATERMARK_FIT,
+} from "@/lib/pdf/watermark";
 import {
   STAMP_FONT_FAMILIES,
   STAMP_FONT_LABELS,
@@ -90,7 +95,12 @@ const NO_FACE_EXAMPLE =
  * the page's /Rotate. `stampProducer`
  * rewrites Producer and Creator, and `doc.save()` writes the whole file anew
  * after new page content is appended, so an existing signature's byte range no
- * longer matches. The runner has no preview; "Back to adjust" clears the
+ * longer matches. SUPERSEDED, history kept: "The runner has no preview".
+ * Since audit watermark-pdf#1 (2026-11-22) it draws the page with the mark
+ * over it (`watermark-preview.tsx`), placed by the engine's own layout
+ * (`watermarkPreviewLayout`, held to pdf.js's reading of the saved file by
+ * `watermark-point.test.ts`), and a mark dragged there is run at that
+ * point. "Back to adjust" clears the
  * result and nothing else (`onAdjust` = the run's `reset`), so the options
  * and the loaded file survive it, while "Start over" clears the loaded file
  * (`onReset` = `clear` in useSinglePdf). Until Back to adjust existed the FAQ
@@ -140,7 +150,7 @@ const content: ToolContent = {
     "Stamp CONFIDENTIAL, DRAFT or your logo on PDF pages: any position or tiled, chosen pages, opacity, angle, font and color. Your PDF stays in your browser.",
 
   intro: [
-    `Add Watermark stamps a line of text or a picture on the pages of a PDF: CONFIDENTIAL, DRAFT, a recipient's name, or your logo as a PNG or JPEG. The Text field starts with CONFIDENTIAL typed in, and switching the Watermark type to Image takes a picture instead. Opacity, Rotation and Max font size sliders shape a text mark, which can be set in ${FONT_NAMES} and in Gray, Red, Blue or a Custom color; for a picture, the Image size slider replaces Max font size. By default the mark sits diagonally in the middle of every page. The position grid moves it to any of ${POSITION_COUNT} spots, Tile across the page repeats it in rows, and Pages and layer picks which pages get it and whether it goes over or behind the page's content. Each page is measured on its own, so in a document mixing portrait and landscape sheets every mark lands where it should on its page, and on pages saved with a rotation flag the angle is corrected so the diagonal leans the same way as on upright pages.`,
+    `Add Watermark stamps a line of text or a picture on the pages of a PDF: CONFIDENTIAL, DRAFT, a recipient's name, or your logo as a PNG or JPEG. The Text field starts with CONFIDENTIAL typed in, and switching the Watermark type to Image takes a picture instead. Opacity, Rotation and Max font size sliders shape a text mark, which can be set in ${FONT_NAMES} and in Gray, Red, Blue or a Custom color; for a picture, the Image size slider replaces Max font size. By default a text mark sits diagonally in the middle of every page, and a picture sits upright there. The Preview shows a page with the mark drawn on it, changing as you change the settings, and you can drag the mark on it to put it anywhere. The position grid moves it to any of ${POSITION_COUNT} spots, Tile across the page repeats it in rows, and Pages and layer picks which pages get it and whether it goes over or behind the page's content. Each page is measured on its own, so in a document mixing portrait and landscape sheets every mark lands where it should on its page, and on pages saved with a rotation flag the angle is corrected so the diagonal leans the same way as on upright pages.`,
     `Your browser does the stamping, using pdf-lib, and the PDF and the picture never leave the tab. Western European text, accents like é and ü included, is set in the font you pick, one built into the PDF format. Letters outside that set, such as a Polish Ł, and ${EXTRA_SCRIPTS} text first make the page download the matching Noto typeface, served by pdf.xyz: the font travels to you, the document stays put. ${RTL_REFUSED} stop the run with an error that lists the characters, rather than being stamped with the letters in reverse order. The page takes PDFs of up to ${CEILING_MB} MB each, and a password-protected one has to go through Unlock PDF before it will open here.`,
     `The mark is real text, or an embedded picture, drawn into each page's content: over it by default, or under it with Behind content, where anything opaque on the page covers it. Page order and rotation, the title and author, and fillable form fields with their typed values all come through, and the fields stay editable; a field's own box is drawn above the page, so a filled one can cover part of the mark. The saved copy names pdf.xyz as its producer and creator, and because the saved file is rebuilt around new page content, a digital signature on the original stops validating in the watermarked copy.`,
   ],
@@ -179,11 +189,11 @@ const content: ToolContent = {
     },
     {
       title: "Set the appearance",
-      body: `Under Appearance, drag Opacity for how faint the mark is, Rotation for its angle (positive runs uphill from lower left, negative runs downhill, zero lies flat) and Max font size in points, the largest size used (a page too small for it gets the largest size that fits). A picture has Image size instead: its width as a share of the page width, also shrunk where it would not fit. For text, pick ${FONT_NAMES_OR}, and Gray, Red, Blue or Custom for any color.`,
+      body: `Under Appearance, drag Opacity for how faint the mark is, Rotation for its angle (positive runs uphill from lower left, negative runs downhill, zero lies flat; it starts at ${DEFAULT_TEXT_ROTATION} for text and at ${DEFAULT_IMAGE_ROTATION} for a picture, and each keeps its own angle) and Max font size in points, the largest size used (a page too small for it gets the largest size that fits). A picture has Image size instead: its width as a share of the page width, also shrunk where it would not fit. For text, pick ${FONT_NAMES_OR}, and Gray, Red, Blue or Custom for any color.`,
     },
     {
       title: "Place it",
-      body: `Under Placement, click one of the ${POSITION_COUNT} cells, or tick Tile across the page to repeat the mark in rows; only copies that fit whole on the page are drawn, so a smaller size gives more of them. Pages and layer opens two more choices: Selected pages takes a list such as 1-3, 5, and Behind content draws the mark under the page's content instead of over it.`,
+      body: `Drag the mark on the Preview to put it anywhere on the page, or move it with the arrow keys from the round handle on it; it is kept whole on the page. Under Placement, click one of the ${POSITION_COUNT} cells to snap it to a corner, an edge or the middle, or tick Tile across the page to repeat the mark in rows; only copies that fit whole on the page are drawn, so a smaller size gives more of them. Pages and layer opens two more choices: Selected pages takes a list such as 1-3, 5, and Behind content draws the mark under the page's content instead of over it.`,
     },
     {
       title: "Stamp and download",
@@ -198,7 +208,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I watermark only some pages, or move the mark off-center?",
-      a: "Yes. Open Pages and layer, choose Selected pages and type them as 1-3, 5, or 4- for page 4 to the end; the other pages are left as they were. The position grid puts the mark in a corner, along an edge or in the middle, and Tile across the page repeats it over the whole page. For a line of text along the top or bottom edge, Header & Footer is made for that.",
+      a: "Yes. Open Pages and layer, choose Selected pages and type them as 1-3, 5, or 4- for page 4 to the end; the other pages are left as they were. The position grid puts the mark in a corner, along an edge or in the middle, and Tile across the page repeats it over the whole page. To put it anywhere else, drag it on the Preview. For a line of text along the top or bottom edge, Header & Footer is made for that.",
     },
     {
       q: "What does Behind content do?",
@@ -214,7 +224,7 @@ const content: ToolContent = {
     },
     {
       q: "Why is my watermark smaller than I set, or cut off?",
-      a: `It should not be cut off. Max font size and Image size are upper limits: on a page too small for the mark at that size, it is drawn at the largest size whose tilted outline spans no more than ${WATERMARK_FIT_PERCENT}% of the visible page, and it is placed on the part of the page a reader sees, including a page trimmed with Crop PDF. Tiled, each copy is held to ${TILE_FIT_PERCENT}% of the page instead, so the rows have room to repeat. The result panel says on how many pages it was shrunk. For a larger text mark, shorten the text. There is no preview: to try other settings, press Back to adjust after a run, and the options come back as you left them with the same file still loaded.`,
+      a: `It should not be cut off. Max font size and Image size are upper limits: on a page too small for the mark at that size, it is drawn at the largest size whose tilted outline spans no more than ${WATERMARK_FIT_PERCENT}% of the visible page, and it is placed on the part of the page a reader sees, including a page trimmed with Crop PDF. Tiled, each copy is held to ${TILE_FIT_PERCENT}% of the page instead, so the rows have room to repeat. The result panel says on how many pages it was shrunk. For a larger text mark, shorten the text. The Preview draws the mark at the size it gets on the page shown, shrunk the same way. After a run, Back to adjust brings the options back as you left them with the same file still loaded.`,
     },
   ],
 

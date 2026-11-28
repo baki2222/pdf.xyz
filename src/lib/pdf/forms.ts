@@ -1,5 +1,6 @@
 import {
   PDFArray,
+  PDFBool,
   PDFButton,
   PDFCheckBox,
   PDFDict,
@@ -15,7 +16,9 @@ import {
 } from "pdf-lib";
 import { repairFieldTree } from "./form-tree";
 import { loadPdf, stampProducer } from "./stamp";
-import { assertFormFieldTextDrawable } from "./unicode-font";
+import { assertFormFieldTextDrawable, embedDrawingFont } from "./unicode-font";
+import { allWinAnsi } from "./winansi";
+import type { PDFDocument, PDFForm } from "pdf-lib";
 
 /**
  * Pure, in-browser AcroForm filling built on pdf-lib only — no uploads, no
@@ -251,6 +254,121 @@ function selectChoices(
       ? values[0]
       : field.doc.context.obj(values),
   );
+}
+
+/**
+ * The text a supplied value makes pdf-lib draw into the field's appearance:
+ * a text field's value, a dropdown's chosen display text, and EVERY option of
+ * a list box (its appearance lists them all). Checkboxes and radios draw no
+ * field text. Read from the value as supplied, before anything is written.
+ */
+function textsDrawnFor(
+  field: PDFField,
+  info: FormFieldInfo,
+  value: FieldValue,
+): string[] {
+  if (info.type === "text") return [toText(value)];
+  if (field instanceof PDFDropdown || field instanceof PDFOptionList) {
+    const listed = safe(() => choiceOptions(field), []);
+    const shown = toChoices(value).map(
+      (c) => optionFor(listed, c)?.display ?? c,
+    );
+    return field instanceof PDFOptionList
+      ? [...listed.map((o) => o.display), ...shown]
+      : shown;
+  }
+  return [];
+}
+
+/**
+ * Point the field's /DA at `font` and list the face in the form's /DR, so a
+ * reader that regenerates the field (on editing it, or when the form asks it
+ * to) draws it with the same embedded face instead of the form's Helvetica,
+ * which has no glyphs for these letters. The size and colour stay as they
+ * were.
+ */
+function pointDefaultAppearanceAt(
+  doc: PDFDocument,
+  form: PDFForm,
+  field: PDFField,
+  font: PDFFont,
+): void {
+  const acro = field.acroField as unknown as {
+    getDefaultAppearance(): string | undefined;
+    setDefaultAppearance(da: string): void;
+  };
+  const da = safe(() => acro.getDefaultAppearance() ?? "", "");
+  const tf = /\/\S+\s+([\d.]+)\s+Tf/.exec(da);
+  const rest = da.replace(/\/\S+\s+[\d.]+\s+Tf/, "").trim();
+  acro.setDefaultAppearance(
+    `/${font.name} ${tf?.[1] ?? "0"} Tf ${rest || "0 g"}`.trim(),
+  );
+  const dict = form.acroForm.dict;
+  let dr = dict.lookup(PDFName.of("DR"));
+  if (!(dr instanceof PDFDict)) {
+    dr = doc.context.obj({});
+    dict.set(PDFName.of("DR"), dr as PDFDict);
+  }
+  let fonts = (dr as PDFDict).lookup(PDFName.of("Font"));
+  if (!(fonts instanceof PDFDict)) {
+    fonts = doc.context.obj({});
+    (dr as PDFDict).set(PDFName.of("Font"), fonts as PDFDict);
+  }
+  (fonts as PDFDict).set(PDFName.of(font.name), font.ref);
+}
+
+/**
+ * A form flagged `/NeedAppearances true` tells every reader to redraw every
+ * field from its `/V` and `/DA`, ignoring the appearance drawn here. For an
+ * answer this run drew with an embedded face that is wrong twice over: the
+ * face is a subset holding only the typed glyphs, and a reader redrawing
+ * from it does not shape (pdf.js cut a Bengali answer short and dropped a
+ * conjunct), and Flatten PDF, which honours the flag, refused the file.
+ *
+ * So every OTHER text, dropdown and list-box field is drawn here too, each
+ * with a face that covers what it shows, and the flag is cleared: from then
+ * on readers show what was drawn. A field whose answer lived only in `/V`
+ * keeps it on the page that way. When one of them cannot be drawn (no face
+ * covers its text) the flag is kept and nothing else changes. Review
+ * finding 2 (2026-11-28); pinned in `forms-unicode.test.ts`.
+ */
+async function settleNeedAppearances(
+  doc: PDFDocument,
+  form: PDFForm,
+  written: ReadonlySet<string>,
+  font: PDFFont,
+): Promise<void> {
+  const flag = form.acroForm.dict.lookup(PDFName.of("NeedAppearances"));
+  if (!(flag instanceof PDFBool) || !flag.asBoolean()) return;
+  const plan: { field: PDFField; face: PDFFont; embedded: boolean }[] = [];
+  for (const field of form.getFields()) {
+    if (written.has(field.getName())) continue;
+    let texts: string[];
+    if (field instanceof PDFTextField) texts = [field.getText() ?? ""];
+    else if (field instanceof PDFDropdown) texts = field.getSelected();
+    else if (field instanceof PDFOptionList)
+      texts = safe(() => field.getOptions(), []);
+    else continue;
+    if (allWinAnsi(texts)) {
+      plan.push({ field, face: font, embedded: false });
+      continue;
+    }
+    try {
+      const face = await embedDrawingFont(doc, texts);
+      plan.push({ field, face, embedded: true });
+    } catch {
+      return;
+    }
+  }
+  try {
+    for (const { field, face, embedded } of plan) {
+      field.defaultUpdateAppearances(face);
+      if (embedded) pointDefaultAppearanceAt(doc, form, field, face);
+    }
+  } catch {
+    return;
+  }
+  form.acroForm.dict.delete(PDFName.of("NeedAppearances"));
 }
 
 /** Build safe, display-ready metadata for a single field. */
@@ -529,16 +647,39 @@ export async function applyFormValues(
     ]),
   );
 
-  // Before anything is written. A field value outside the built-in alphabet
-  // does not fail where it is set — it fails inside `doc.save()`, where pdf-lib
-  // regenerates the field's appearance from the form's own Helvetica and throws
-  // the raw string `WinAnsi cannot encode "গ" (0x0997)`. Correct refusal, no
-  // usable message, and only after every other field has already been applied.
-  assertFormFieldTextDrawable(
-    Object.values(values).flatMap((value) =>
-      typeof value === "boolean" ? [] : value,
-    ),
-  );
+  // Before anything is written: which face draws each field. A value inside
+  // the built-in alphabet keeps the form's own Helvetica. A value outside it
+  // (audit fill-forms#6: Cyrillic, Greek, Bengali, Chinese, Ł, č) gets an
+  // embedded Unicode face, chosen from ALL the text that field will draw, so
+  // pdf-lib never reaches Helvetica with it — where it failed inside
+  // `doc.save()` with the raw `WinAnsi cannot encode "গ" (0x0997)`. A value
+  // no shipped face can draw (right-to-left Arabic, a script with no face) is
+  // refused for THAT field, in the font module's words, and left unchanged.
+  const unicodeFaces = new Map<string, PDFFont>();
+  const faceProblems = new Map<string, string>();
+  const helveticaTexts: string[] = [];
+  for (const [name, value] of Object.entries(values)) {
+    const entry = byName.get(name);
+    if (!entry || entry.info.readOnly || !isFillableType(entry.info.type))
+      continue;
+    const texts = textsDrawnFor(entry.field, entry.info, value);
+    if (allWinAnsi(texts)) {
+      helveticaTexts.push(...texts);
+      continue;
+    }
+    try {
+      unicodeFaces.set(name, await embedDrawingFont(doc, texts));
+    } catch (err) {
+      faceProblems.set(
+        name,
+        err instanceof Error ? err.message : "This text cannot be drawn",
+      );
+    }
+  }
+  // What the form's Helvetica is handed is inside its alphabet by the split
+  // above; asserted anyway, so a change to the split cannot quietly send it
+  // Bengali.
+  assertFormFieldTextDrawable(helveticaTexts);
   const font = form.getDefaultFont();
 
   const outcomes: FieldApplyOutcome[] = [];
@@ -553,12 +694,39 @@ export async function applyFormValues(
       });
       continue;
     }
-    outcomes.push(applyToField(entry.field, entry.info, value, font));
+    const problem = faceProblems.get(name);
+    if (problem) {
+      outcomes.push({
+        name,
+        type: entry.info.type,
+        status: "invalid",
+        detail: problem,
+      });
+      continue;
+    }
+    const face = unicodeFaces.get(name);
+    const outcome = applyToField(entry.field, entry.info, value, face ?? font);
+    if (face && outcome.status === "applied")
+      pointDefaultAppearanceAt(doc, form, entry.field, face);
+    outcomes.push(outcome);
+  }
+
+  const wroteFace = outcomes.some(
+    (o) => o.status === "applied" && unicodeFaces.has(o.name),
+  );
+  if (wroteFace) {
+    const written = new Set(
+      outcomes.filter((o) => o.status === "applied").map((o) => o.name),
+    );
+    await settleNeedAppearances(doc, form, written, font);
   }
 
   stampProducer(doc);
   // Only the fields written above were redrawn (see `redraw`); every other
-  // field leaves exactly as it came. Pinned by the "audit #15" tests.
+  // field leaves exactly as it came — except on a form flagged
+  // /NeedAppearances that this run gave an embedded face, where
+  // `settleNeedAppearances` draws them all. Pinned by the "audit #15" tests
+  // and by "a form flagged /NeedAppearances" in `forms-unicode.test.ts`.
   const filledBytes = await doc.save({ updateFieldAppearances: false });
   const appliedCount = outcomes.filter((o) => o.status === "applied").length;
   const flattenRequested = options.flatten === true;

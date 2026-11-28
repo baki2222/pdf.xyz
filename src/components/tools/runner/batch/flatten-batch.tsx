@@ -1,8 +1,15 @@
 "use client";
 
+import { useCallback, useState } from "react";
 import { SETTINGS_BATCH_TOOLS } from "@/lib/batch/tools";
-import { flattenDownloadName, flattenPdf } from "@/lib/pdf/flatten";
+import {
+  flattenDownloadName,
+  flattenPdf,
+  type FlattenOptions,
+} from "@/lib/pdf/flatten";
 import type { SinglePdfBatch } from "../single-pdf-runner";
+import { CheckboxField } from "../stamp-controls";
+import { FLATTEN_MARKUP_HINT, markupCount } from "../flatten-markup-copy";
 import {
   SettingsBatchRunner,
   type BatchFileOutput,
@@ -15,38 +22,48 @@ export const FLATTEN_BATCH_NO_FORM =
 
 /**
  * Flatten one file: the single-file panel's own engine and download name
- * (`flattenDownloadName`: "-flattened" only when a field was flattened). A
+ * (`flattenDownloadName`: "-flattened" only when something was flattened). A
  * dynamic XFA form is refused by the engine, in its words, on its row.
  */
-export async function flattenOneFile({
-  file,
-  bytes,
-}: OpenedPdf): Promise<BatchFileOutput> {
-  const result = await flattenPdf(bytes);
+export async function flattenOneFile(
+  { file, bytes }: OpenedPdf,
+  options: FlattenOptions = {},
+): Promise<BatchFileOutput> {
+  const result = await flattenPdf(bytes, options);
   const plural = (n: number) => (n === 1 ? "" : "s");
-  const left = result.skipped.length;
+  const left = result.skipped.length + result.annotationsLeft.length;
+  const markup =
+    result.flattenedAnnotations > 0
+      ? ` · ${markupCount(result.flattenedAnnotations)}`
+      : "";
+  const nothing = !result.hadForm && result.flattenedAnnotations === 0;
   return {
     name: flattenDownloadName(file.name, result),
     bytes: result.bytes,
-    detail: !result.hadForm
+    detail: nothing
       ? "Re-saved"
-      : result.flattenedFields === result.totalFields
-        ? `${result.flattenedFields} form field${plural(result.flattenedFields)} flattened`
-        : `Flattened ${result.flattenedFields} of ${result.totalFields} form field${plural(result.totalFields)}`,
-    ...(!result.hadForm
+      : !result.hadForm
+        ? `${markupCount(result.flattenedAnnotations)} flattened`
+        : result.flattenedFields === result.totalFields
+          ? `${result.flattenedFields} form field${plural(result.flattenedFields)} flattened${markup}`
+          : `Flattened ${result.flattenedFields} of ${result.totalFields} form field${plural(result.totalFields)}${markup}`,
+    ...(nothing
       ? { note: FLATTEN_BATCH_NO_FORM }
       : left > 0
         ? {
-            note: `${left} field${plural(left)} left as-is, still interactive: open it on its own for the list`,
+            note: `${left} item${plural(left)} left as-is: open it on its own for the list`,
           }
         : {}),
   };
 }
 
-const process = (opened: OpenedPdf) => flattenOneFile(opened);
-
-/** Flatten PDF's batch: no settings; each file's form is flattened in turn. */
+/** Flatten PDF's batch: one choice, comments and markup or fields only. */
 export function FlattenBatch(props: SinglePdfBatch) {
+  const [markup, setMarkup] = useState(false);
+  const process = useCallback(
+    (opened: OpenedPdf) => flattenOneFile(opened, { annotations: markup }),
+    [markup],
+  );
   return (
     <SettingsBatchRunner
       {...props}
@@ -54,8 +71,20 @@ export function FlattenBatch(props: SinglePdfBatch) {
       verb="Flatten"
       runningLabel="Flattening…"
       zipName={SETTINGS_BATCH_TOOLS["flatten-pdf"].zipName}
-      appliesNote="Each file's fillable form fields are drawn into its pages; comments, layers and signature fields stay as they are."
+      appliesNote={
+        markup
+          ? "Each file's fillable form fields, comments and markup are drawn into its pages; links, layers and signature fields stay as they are."
+          : "Each file's fillable form fields are drawn into its pages; comments, layers and signature fields stay as they are."
+      }
       process={process}
+      settings={
+        <CheckboxField
+          label="Also flatten comments and markup"
+          checked={markup}
+          onChange={setMarkup}
+          hint={FLATTEN_MARKUP_HINT}
+        />
+      }
     />
   );
 }
