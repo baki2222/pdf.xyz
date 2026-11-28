@@ -23,7 +23,13 @@ import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { createNativeChromiumPdfRunner, resolveOnPath } from "./native";
 import { findChromium } from "./test-chromium";
-import { AD_HOSTS, AD_SELECTORS, isAdRequestUrl } from "./ads";
+import {
+  AD_COMPANIES,
+  AD_EXAMPLE_COMPANIES,
+  AD_HOSTS,
+  AD_SELECTORS,
+  isAdRequestUrl,
+} from "./ads";
 import type { PinnedFetch, Resolve } from "./network";
 import { DEFAULT_HTML_RENDER_OPTIONS } from "@/lib/jobs/html-render-options";
 import {
@@ -126,6 +132,19 @@ describe("the in-house ad lists (no Chromium needed)", () => {
     expect(AD_HOSTS.length).toBeGreaterThanOrEqual(8);
     expect(AD_HOSTS.length).toBeLessThan(60);
     expect(AD_SELECTORS.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("every host belongs to exactly one named company, and the copy's examples are in the table", () => {
+    expect(AD_HOSTS).toEqual(AD_COMPANIES.flatMap((c) => c.hosts));
+    expect(new Set(AD_HOSTS).size).toBe(AD_HOSTS.length);
+    for (const c of AD_COMPANIES) expect(c.hosts.length).toBeGreaterThan(0);
+    expect(AD_COMPANIES.length).toBeLessThan(AD_HOSTS.length);
+    expect(AD_EXAMPLE_COMPANIES.length).toBeGreaterThan(0);
+    for (const name of AD_EXAMPLE_COMPANIES)
+      expect(AD_COMPANIES.map((c) => c.name)).toContain(name);
+    // Review 2026-11-28: Oracle Moat measured ads, it did not serve them, and
+    // closed in 2024; it is not an ad company's ad server.
+    expect(AD_HOSTS).not.toContain("moatads.com");
   });
 
   it("a host and its subdomains match; a look-alike and a path do not", () => {

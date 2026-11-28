@@ -21,7 +21,7 @@ import {
   WEBPAGE_CAPTURE_GROUP_LABEL,
 } from "@/lib/jobs/webpage-capture-options";
 import { CONSENT_MANAGERS } from "@/lib/workers/html-render/overlays";
-import { AD_HOSTS } from "@/lib/workers/html-render/ads";
+import { AD_EXAMPLE_COMPANIES } from "@/lib/workers/html-render/ads";
 import { HTML_LAYOUT_STEP } from "@/lib/tools/html-layout-copy";
 import { LAZY_SCROLL_MAX_STEPS } from "@/lib/workers/html-render/lazy-scroll";
 import { stampDate } from "@/lib/workers/html-render/stamp";
@@ -51,7 +51,7 @@ export const WEBPAGE_STAMP_RETENTION_SENTENCE = `With ${STAMP} ticked, the addre
 const SHARE_PCT = Math.round(OVERLAY_MIN_SHARE * 100);
 
 /** The FAQ answer to "Can I hide cookie notices, pop-ups or ads?". */
-export const WEBPAGE_OVERLAY_ANSWER = `Cookie notices and pop-ups, usually: tick ${HIDE} under ${WEBPAGE_CAPTURE_GROUP_LABEL}. Before printing, it hides the consent windows of ${CONSENT_MANAGERS.length} widely used cookie-consent tools (${list(CONSENT_MANAGERS.map((m) => m.name))}) and anything pinned to the screen that covers at least ${SHARE_PCT}% of it, unless that holds the page's main content or most of its text, and it turns scrolling back on when a pop-up had locked it. It is off by default because a site can pin real content over the screen too, so glance at the PDF. A small bar pinned to an edge by a tool not on that list stays. For ads, tick ${ADS}: it blocks ${AD_HOSTS.length} of the largest ad networks and hides the ad spaces they use, so common ads are left out; an ad from another source, or from the site itself, still prints, as a new, signed-out visitor sees it.`;
+export const WEBPAGE_OVERLAY_ANSWER = `Cookie notices and pop-ups, usually: tick ${HIDE} under ${WEBPAGE_CAPTURE_GROUP_LABEL}. Before printing, it hides the consent windows of ${CONSENT_MANAGERS.length} widely used cookie-consent tools (${list(CONSENT_MANAGERS.map((m) => m.name))}) and anything pinned to the screen that covers at least ${SHARE_PCT}% of it, unless that holds the page's main content or most of its text, and it turns scrolling back on when a pop-up had locked it. It is off by default because a site can pin real content over the screen too, so glance at the PDF. A small bar pinned to an edge by a tool not on that list stays. For ads, tick ${ADS}: it blocks the ad servers of well-known ad companies such as ${list(AD_EXAMPLE_COMPANIES)} and hides the ad spaces they use, so common ads are left out; an ad from another source, or from the site itself, still prints, as a new, signed-out visitor sees it.`;
 
 /**
  * What "Use the site's print styles" does (audit webpage-to-pdf#3): on by

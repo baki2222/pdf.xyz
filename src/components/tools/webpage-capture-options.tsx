@@ -19,7 +19,7 @@ import {
 const HINTS: Readonly<Record<keyof WebpageCaptureOptions, string>> = {
   hideOverlays: `Hides the windows of common cookie-consent tools, and pop-ups covering at least ${Math.round(OVERLAY_MIN_SHARE * 100)}% of the screen. It can hide real content, so check the PDF.`,
   hideAds:
-    "Blocks the largest ad networks and hides the ad spaces they use. Ads from other sources can still appear.",
+    "Blocks the ad servers of well-known ad companies and hides the ad spaces they use. Ads from other sources can still appear.",
   printStyles:
     "Untick to print the page as it looks in a browser window, ignoring the layout the site made for printing.",
   stamp:

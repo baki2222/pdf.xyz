@@ -13,34 +13,54 @@
  *      every frame whose address is on an ad host, gets an inline
  *      `display: none !important`, so a blocked ad leaves no empty box.
  *
- * It is a SMALL IN-HOUSE LIST of the largest ad networks and the slot
+ * It is a SMALL IN-HOUSE LIST of well-known ad companies' servers and the slot
  * markup they ask sites to use, not a third-party filter list (adopting
  * one is a licence decision nobody has made). So it hides COMMON ads, never
  * all of them: an ad served from the site's own host, or from a network
  * not listed, still prints. The copy says "common ads" for that reason.
  */
 
-/** Ad-serving hosts. A request to one of these, or a subdomain, is refused. */
-export const AD_HOSTS: readonly string[] = [
-  "doubleclick.net",
-  "googlesyndication.com",
-  "googleadservices.com",
-  "adservice.google.com",
-  "amazon-adsystem.com",
-  "adnxs.com",
-  "taboola.com",
-  "outbrain.com",
-  "criteo.com",
-  "criteo.net",
-  "pubmatic.com",
-  "rubiconproject.com",
-  "openx.net",
-  "adsrvr.org",
-  "moatads.com",
-  "casalemedia.com",
-  "smartadserver.com",
-  "teads.tv",
+/**
+ * Ad-serving hosts, by the company that runs them (review of
+ * webpage-to-pdf#1, 2026-11-28: the copy once said "18 of the largest ad
+ * networks", counting host names; Google runs four of them). The copy names
+ * {@link AD_EXAMPLE_COMPANIES} from here and states no count.
+ */
+export const AD_COMPANIES: readonly {
+  name: string;
+  hosts: readonly string[];
+}[] = [
+  {
+    name: "Google",
+    hosts: [
+      "doubleclick.net",
+      "googlesyndication.com",
+      "googleadservices.com",
+      "adservice.google.com",
+    ],
+  },
+  { name: "Amazon", hosts: ["amazon-adsystem.com"] },
+  { name: "Taboola", hosts: ["taboola.com"] },
+  { name: "Criteo", hosts: ["criteo.com", "criteo.net"] },
+  { name: "Microsoft (Xandr)", hosts: ["adnxs.com"] },
+  { name: "Outbrain", hosts: ["outbrain.com"] },
+  { name: "PubMatic", hosts: ["pubmatic.com"] },
+  { name: "Magnite", hosts: ["rubiconproject.com"] },
+  { name: "OpenX", hosts: ["openx.net"] },
+  { name: "The Trade Desk", hosts: ["adsrvr.org"] },
+  { name: "Index Exchange", hosts: ["casalemedia.com"] },
+  { name: "Equativ", hosts: ["smartadserver.com"] },
+  { name: "Teads", hosts: ["teads.tv"] },
 ];
+
+/** The companies the copy names as examples: the first four of the table. */
+export const AD_EXAMPLE_COMPANIES: readonly string[] = AD_COMPANIES.slice(
+  0,
+  4,
+).map((c) => c.name);
+
+/** Ad-serving hosts. A request to one of these, or a subdomain, is refused. */
+export const AD_HOSTS: readonly string[] = AD_COMPANIES.flatMap((c) => c.hosts);
 
 /** The slot markup the listed networks ask a page to carry. */
 export const AD_SELECTORS: readonly string[] = [
