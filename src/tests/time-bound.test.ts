@@ -17,6 +17,7 @@ import {
   timeBoundReport,
   waitReport,
   type TimeBound,
+  type WaitRecord,
 } from "./time-bound-core";
 import {
   expectAtLeast,
@@ -262,6 +263,53 @@ describe("the core", () => {
     expect(lines.join("\n")).not.toMatch(/::warning[^\n]*proposed/);
     expect(lines).toContain(
       "time-bound measure-only: 1 bounds recorded, not asserted (worst vs proposed: proposed 70%)",
+    );
+  });
+
+  it("mixed defaults: the headline names both, and an unreadable timeout is judged by its own default, in either order (#400 review)", () => {
+    // Since Phase 0b, testing-library's default is 2000 and vi.waitFor's
+    // 1000. The report took the FIRST record's default for both, so the
+    // line and the "could not read" list changed with test order.
+    const src = `await vi.waitFor(() => a(), opts);\nawait findByText("b", {}, opts);\n`;
+    const vi = {
+      ms: 800,
+      file: "/r/a.ts",
+      line: 1,
+      column: 7,
+      defaultTimeoutMs: 1000,
+      rejected: false,
+      via: "vi.waitFor" as const,
+    };
+    const library = {
+      ms: 800,
+      file: "/r/a.ts",
+      line: 2,
+      column: 7,
+      defaultTimeoutMs: 2000,
+      rejected: false,
+    };
+    const report = (waits: WaitRecord[]) =>
+      waitReport(waits, { github: false, root: "/r", source: () => src });
+    const viFirst = report([vi, library]);
+    const libraryFirst = report([library, vi]);
+    for (const lines of [viFirst, libraryFirst]) {
+      expect(lines[0]).toBe(
+        "wait headroom: 0 of 2 waits (testing-library and vi.waitFor) took more than 50% of their timeout (default asyncUtilTimeout 2000 ms, vi.waitFor 1000 ms; 0 timed out)",
+      );
+      // 800 of an unread timeout that is at least 1000: over half, listed.
+      // 800 of one that is at least 2000: not.
+      const listed = lines.filter((l) => l.startsWith("        a.ts:"));
+      expect(listed).toEqual([
+        "        a.ts:1: 800 ms of ? ms (options: opts)",
+      ]);
+    }
+    // Health: with no vi.waitFor record the headline has no vi part, and
+    // with no testing-library record it says so, rather than inventing one.
+    expect(report([library])[0]).toContain(
+      "(default asyncUtilTimeout 2000 ms; 0 timed out)",
+    );
+    expect(report([vi])[0]).toContain(
+      "(no testing-library wait, vi.waitFor 1000 ms; 0 timed out)",
     );
   });
 
