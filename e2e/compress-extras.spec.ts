@@ -181,8 +181,16 @@ for (const [label, expected] of [
  * with its popup), and no name tree: the shape Acrobat's "Attach File" tool
  * writes. Review of 7b498d92 (findings 2 and 9): "Remove attached files" kept
  * it, and the panel said nothing.
+ *
+ * `tagged`: a structure tree points at the paperclip with /OBJR, as Acrobat
+ * tags its annotations (verify of 384a607d: the page said "Removed 1 attached
+ * file" and the file was still in the download). `pinned`: a key the cleanup
+ * knows nothing about holds the file, so it cannot leave and must be reported
+ * as still in the file.
  */
-async function paperclip(): Promise<Uint8Array> {
+async function paperclip(
+  shape: { tagged?: boolean; pinned?: boolean } = {},
+): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const page = doc.addPage([400, 400]);
@@ -194,11 +202,12 @@ async function paperclip(): Promise<Uint8Array> {
     F: PDFString.of("salaries.csv"),
     EF: { F: ctx.register(file) },
   });
+  const specRef = ctx.register(spec);
   const clip = ctx.obj({
     Type: "Annot",
     Subtype: "FileAttachment",
     Rect: [20, 300, 40, 320],
-    FS: ctx.register(spec),
+    FS: specRef,
   });
   const clipRef = ctx.register(clip);
   const popupRef = ctx.register(
@@ -211,6 +220,21 @@ async function paperclip(): Promise<Uint8Array> {
   );
   clip.set(PDFName.of("Popup"), popupRef);
   page.node.set(PDFName.of("Annots"), ctx.obj([clipRef, popupRef]));
+  if (shape.tagged) {
+    const rootRef = ctx.nextRef();
+    const elem = ctx.register(
+      ctx.obj({
+        Type: "StructElem",
+        S: "Annot",
+        P: rootRef,
+        Pg: page.ref,
+        K: [{ Type: "OBJR", Obj: clipRef, Pg: page.ref }],
+      }),
+    );
+    ctx.assign(rootRef, ctx.obj({ Type: "StructTreeRoot", K: elem }));
+    doc.catalog.set(PDFName.of("StructTreeRoot"), rootRef);
+  }
+  if (shape.pinned) doc.catalog.set(PDFName.of("PdfxyzKeep"), specRef);
   return doc.save({ useObjectStreams: false });
 }
 
@@ -218,18 +242,54 @@ const embeddedFileBytes = (bytes: Uint8Array) =>
   new TextDecoder("latin1").decode(bytes).split("/Type /EmbeddedFile").length -
   1;
 
-test("a paperclip attachment: Remove attached files takes it out of the downloaded PDF", async ({
+for (const tagged of [false, true])
+  test(`a ${tagged ? "tagged " : ""}paperclip attachment: Remove attached files takes it out of the downloaded PDF`, async ({
+    page,
+  }) => {
+    const input = await paperclip({ tagged });
+    // Health: the fixture's file stream is there to be found.
+    expect(embeddedFileBytes(input)).toBeGreaterThan(0);
+    await open(page, input);
+    await extras(page)
+      .getByRole("checkbox", { name: /Remove attached files/ })
+      .check();
+    await expect(page.locator("[data-extras-removed]")).toHaveText(
+      /^Removed 1 attached file\./,
+      { timeout: 20_000 },
+    );
+    const button = page.getByRole("button", {
+      name: /download (optimized|unchanged) pdf/i,
+    });
+    await expect(button).toBeVisible({ timeout: 20_000 });
+    const [file] = await Promise.all([
+      page.waitForEvent("download"),
+      button.click(),
+    ]);
+    const out = new Uint8Array(await readFile((await file.path())!));
+    const decoded = await decode(out);
+    expect(decoded.annots).toEqual([]);
+    const doc = await PDFDocument.load(out);
+    let streams = 0;
+    for (const [, obj] of doc.context.enumerateIndirectObjects())
+      if (
+        "dict" in obj &&
+        obj.dict instanceof PDFDict &&
+        String(obj.dict.get(PDFName.of("Type"))) === "/EmbeddedFile"
+      )
+        streams += 1;
+    expect(streams).toBe(0);
+  });
+
+test("a file something else in the PDF still holds is reported as still in the file", async ({
   page,
 }) => {
-  const input = await paperclip();
-  // Health: the fixture's file stream is there to be found.
-  expect(embeddedFileBytes(input)).toBeGreaterThan(0);
+  const input = await paperclip({ pinned: true });
   await open(page, input);
   await extras(page)
     .getByRole("checkbox", { name: /Remove attached files/ })
     .check();
   await expect(page.locator("[data-extras-removed]")).toHaveText(
-    /^Removed 1 attached file\./,
+    "1 attached file could not be removed and is still in the file.",
     { timeout: 20_000 },
   );
   const button = page.getByRole("button", {
@@ -241,18 +301,7 @@ test("a paperclip attachment: Remove attached files takes it out of the download
     button.click(),
   ]);
   const out = new Uint8Array(await readFile((await file.path())!));
-  const decoded = await decode(out);
-  expect(decoded.annots).toEqual([]);
-  const doc = await PDFDocument.load(out);
-  let streams = 0;
-  for (const [, obj] of doc.context.enumerateIndirectObjects())
-    if (
-      "dict" in obj &&
-      obj.dict instanceof PDFDict &&
-      String(obj.dict.get(PDFName.of("Type"))) === "/EmbeddedFile"
-    )
-      streams += 1;
-  expect(streams).toBe(0);
+  expect(embeddedFileBytes(out)).toBeGreaterThan(0);
 });
 
 test("a ticked option that finds nothing says so", async ({ page }) => {

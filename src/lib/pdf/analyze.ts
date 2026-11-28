@@ -6,6 +6,7 @@ import {
   NO_EXTRAS,
   dropUnseen,
   removeExtras,
+  settleExtras,
   type CleanupExtras,
   type ExtrasRemoved,
   type RepackRemoved,
@@ -152,8 +153,10 @@ export async function analyzePdf(
   // what no page shows (`./compress-cleanup`, audit compress-pdf#6).
   // The person's extras go first, so the sweep below also takes what they
   // left unreferenced (the attached bytes, the XMP stream).
-  const removedExtras = removeExtras(lib, doc, extras);
+  const pendingExtras = removeExtras(lib, doc, extras);
   const removed = dropUnseen(lib, doc);
+  // Counted after the sweep: what is still in the file was not removed.
+  const removedExtras = settleExtras(doc, pendingExtras);
   const optimized = await doc.save({ useObjectStreams: true });
 
   return {

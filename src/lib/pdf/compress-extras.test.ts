@@ -14,6 +14,7 @@ import {
   PDFDocument,
   PDFName,
   PDFRawStream,
+  PDFRef,
   PDFString,
   StandardFonts,
 } from "pdf-lib";
@@ -101,7 +102,13 @@ async function decode(bytes: Uint8Array): Promise<Decoded> {
 const run = async (extras: CleanupExtras) =>
   analyzePdf(await fixture(), extras);
 
-const NOTHING_REMOVED = { attachments: 0, metadata: false, comments: 0 };
+const NOTHING_REMOVED = {
+  attachments: 0,
+  attachmentsLeft: 0,
+  metadata: false,
+  comments: 0,
+  commentsLeft: 0,
+};
 
 /**
  * A file attached to a PAGE with the paperclip (a /FileAttachment annotation,
@@ -150,6 +157,263 @@ async function paperclipFixture(): Promise<Uint8Array> {
   );
   return doc.save({ useObjectStreams: false });
 }
+
+/**
+ * Shapes the plain paperclip fixture does not have (verify of 384a607d): each
+ * is another object pointing at a removed annotation, which kept it, and the
+ * file it carries, alive through `dropUnseen` while the page said "Removed".
+ *
+ *  - `tagged`: a structure tree whose element points at the paperclip and the
+ *    sticky note with /OBJR, as Acrobat tags its annotations.
+ *  - `reply`: a reply note on the page with /IRT pointing at the paperclip.
+ *  - `pinFile` / `pinNote`: a key the cleanup knows nothing about holds the
+ *    file specification (or the note). Nothing unlinks it, so these are the
+ *    positive controls for the count of what is still in the file.
+ *  - `pinClip`: the same unknown key holds the paperclip annotation itself.
+ *    Its file must leave anyway: a removed paperclip loses its /FS.
+ */
+async function linkedFixture(shape: {
+  tagged?: boolean;
+  reply?: boolean;
+  pinFile?: boolean;
+  pinNote?: boolean;
+  pinClip?: boolean;
+}): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([400, 400]);
+  const ctx = doc.context;
+  const file = ctx.flateStream("s".repeat(30_000), { Type: "EmbeddedFile" });
+  const specRef = ctx.register(
+    ctx.obj({
+      Type: "Filespec",
+      F: PDFString.of("salaries.csv"),
+      EF: { F: ctx.register(file) },
+    }),
+  );
+  const clipRef = ctx.register(
+    ctx.obj({
+      Type: "Annot",
+      Subtype: "FileAttachment",
+      Rect: [20, 300, 40, 320],
+      FS: specRef,
+      StructParent: 0,
+    }),
+  );
+  const noteRef = ctx.register(
+    ctx.obj({
+      Type: "Annot",
+      Subtype: "Text",
+      Rect: [60, 300, 80, 320],
+      Contents: PDFString.of("pdfxyz-sticky-note"),
+      StructParent: 1,
+    }),
+  );
+  const annots: PDFRef[] = [clipRef, noteRef];
+  if (shape.reply)
+    annots.push(
+      ctx.register(
+        ctx.obj({
+          Type: "Annot",
+          Subtype: "Text",
+          Rect: [60, 260, 80, 280],
+          Contents: PDFString.of("pdfxyz-reply"),
+          IRT: clipRef,
+        }),
+      ),
+    );
+  page.node.set(PDFName.of("Annots"), ctx.obj(annots));
+  if (shape.tagged) {
+    const rootRef = ctx.nextRef();
+    const elem = ctx.register(
+      ctx.obj({
+        Type: "StructElem",
+        S: "Annot",
+        P: rootRef,
+        Pg: page.ref,
+        K: [
+          { Type: "OBJR", Obj: clipRef, Pg: page.ref },
+          { Type: "OBJR", Obj: noteRef, Pg: page.ref },
+        ],
+      }),
+    );
+    ctx.assign(rootRef, ctx.obj({ Type: "StructTreeRoot", K: elem }));
+    doc.catalog.set(PDFName.of("StructTreeRoot"), rootRef);
+    doc.catalog.set(PDFName.of("MarkInfo"), ctx.obj({ Marked: true }));
+  }
+  if (shape.pinFile) doc.catalog.set(PDFName.of("PdfxyzKeep"), specRef);
+  if (shape.pinNote) doc.catalog.set(PDFName.of("PdfxyzNote"), noteRef);
+  if (shape.pinClip) doc.catalog.set(PDFName.of("PdfxyzClip"), clipRef);
+  return doc.save({ useObjectStreams: false });
+}
+
+/** What is still anywhere in the file: attached bytes, comment text, tags. */
+async function decodeLinked(bytes: Uint8Array) {
+  const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+  let embeddedFileStreams = 0;
+  const texts: string[] = [];
+  let objrs = 0;
+  for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+    if (
+      obj instanceof PDFRawStream &&
+      String(obj.dict.get(PDFName.of("Type"))) === "/EmbeddedFile"
+    )
+      embeddedFileStreams += 1;
+    if (obj instanceof PDFDict) {
+      const contents = obj.lookupMaybe(PDFName.of("Contents"), PDFString);
+      if (contents) texts.push(contents.decodeText());
+      // A structure root's /K is one element; an element's is an array.
+      const k = obj.lookup(PDFName.of("K"));
+      if (!(k instanceof PDFArray)) continue;
+      for (let i = 0; i < k.size(); i++) {
+        const kid = k.lookupMaybe(i, PDFDict);
+        if (String(kid?.get(PDFName.of("Type"))) === "/OBJR") objrs += 1;
+      }
+    }
+  }
+  const annots = doc
+    .getPage(0)
+    .node.lookupMaybe(PDFName.of("Annots"), PDFArray);
+  let irts = 0;
+  for (let i = 0; i < (annots?.size() ?? 0); i++)
+    if (annots!.lookup(i, PDFDict).get(PDFName.of("IRT"))) irts += 1;
+  return { embeddedFileStreams, texts: texts.sort(), objrs, irts };
+}
+
+describe("Removed means gone: nothing else in the file keeps a removed attachment or comment", () => {
+  const ATTACH = { ...NO_EXTRAS, attachments: true };
+  const BOTH = { ...NO_EXTRAS, attachments: true, comments: true };
+
+  it("health: the tagged fixture points at the paperclip and the note with /OBJR", async () => {
+    expect(await decodeLinked(await linkedFixture({ tagged: true }))).toEqual({
+      embeddedFileStreams: 1,
+      texts: ["pdfxyz-sticky-note"],
+      objrs: 2,
+      irts: 0,
+    });
+    expect(
+      (await decodeLinked(await linkedFixture({ reply: true }))).irts,
+    ).toBe(1);
+  });
+
+  it("CONTROL: tagged, every option off: the file, the note and both tags stay", async () => {
+    const { optimized, analysis } = await analyzePdf(
+      await linkedFixture({ tagged: true }),
+      NO_EXTRAS,
+    );
+    expect(await decodeLinked(optimized)).toEqual({
+      embeddedFileStreams: 1,
+      texts: ["pdfxyz-sticky-note"],
+      objrs: 2,
+      irts: 0,
+    });
+    expect(extrasLine(analysis.extras, undefined, NO_EXTRAS)).toBeNull();
+  });
+
+  it("tagged, attached files: the bytes leave, and only the paperclip's tag goes", async () => {
+    const { optimized, analysis } = await analyzePdf(
+      await linkedFixture({ tagged: true }),
+      ATTACH,
+    );
+    expect(await decodeLinked(optimized)).toEqual({
+      embeddedFileStreams: 0,
+      texts: ["pdfxyz-sticky-note"],
+      objrs: 1,
+      irts: 0,
+    });
+    expect(analysis.extras).toMatchObject({
+      attachments: 1,
+      attachmentsLeft: 0,
+    });
+  });
+
+  it("tagged, attached files and comments: the bytes and the note's text leave", async () => {
+    const { optimized, analysis } = await analyzePdf(
+      await linkedFixture({ tagged: true }),
+      BOTH,
+    );
+    expect(await decodeLinked(optimized)).toEqual({
+      embeddedFileStreams: 0,
+      texts: [],
+      objrs: 0,
+      irts: 0,
+    });
+    expect(analysis.extras).toMatchObject({
+      attachments: 1,
+      attachmentsLeft: 0,
+      comments: 1,
+      commentsLeft: 0,
+    });
+  });
+
+  it("a reply to the paperclip, comments kept: the bytes leave, the reply stays", async () => {
+    const { optimized, analysis } = await analyzePdf(
+      await linkedFixture({ reply: true }),
+      ATTACH,
+    );
+    expect(await decodeLinked(optimized)).toEqual({
+      embeddedFileStreams: 0,
+      texts: ["pdfxyz-reply", "pdfxyz-sticky-note"],
+      objrs: 0,
+      irts: 0,
+    });
+    expect(analysis.extras.attachments).toBe(1);
+  });
+
+  it("a paperclip something unknown still holds: its file leaves all the same", async () => {
+    const { optimized, analysis } = await analyzePdf(
+      await linkedFixture({ pinClip: true }),
+      ATTACH,
+    );
+    expect((await decodeLinked(optimized)).embeddedFileStreams).toBe(0);
+    expect(analysis.extras).toMatchObject({
+      attachments: 1,
+      attachmentsLeft: 0,
+    });
+  });
+
+  it("POSITIVE CONTROL: a file something unknown still holds is reported as left, not removed", async () => {
+    const { optimized, analysis } = await analyzePdf(
+      await linkedFixture({ pinFile: true }),
+      ATTACH,
+    );
+    expect((await decodeLinked(optimized)).embeddedFileStreams).toBe(1);
+    expect(analysis.extras).toMatchObject({
+      attachments: 0,
+      attachmentsLeft: 1,
+    });
+    expect(extrasLine(analysis.extras, undefined, ATTACH)).toBe(
+      "1 attached file could not be removed and is still in the file.",
+    );
+  });
+
+  it("POSITIVE CONTROL: a comment something unknown still holds is reported as left", async () => {
+    const { optimized, analysis } = await analyzePdf(
+      await linkedFixture({ pinNote: true }),
+      { ...NO_EXTRAS, comments: true },
+    );
+    expect((await decodeLinked(optimized)).texts).toEqual([
+      "pdfxyz-sticky-note",
+    ]);
+    expect(analysis.extras).toMatchObject({ comments: 0, commentsLeft: 1 });
+  });
+
+  it("the line names what was removed and what stayed; found-nothing only when nothing was found", () => {
+    expect(
+      extrasLine(
+        {
+          ...NOTHING_REMOVED,
+          attachments: 1,
+          attachmentsLeft: 1,
+          commentsLeft: 2,
+        },
+        2048,
+        BOTH,
+      ),
+    ).toBe(
+      "Removed 1 attached file. That saved 2 KB. 1 attached file and 2 comments could not be removed and are still in the file.",
+    );
+  });
+});
 
 /** Embedded file streams anywhere in the file, and the page's annot kinds. */
 async function decodePaperclip(bytes: Uint8Array) {
@@ -294,13 +558,14 @@ describe("Remove extras: each option removes what it names, and only that", () =
 
   it("the line says what each removed and how much smaller the file got", () => {
     expect(
-      extrasLine({ attachments: 2, metadata: true, comments: 1 }, 3 * 1024),
+      extrasLine(
+        { ...NOTHING_REMOVED, attachments: 2, metadata: true, comments: 1 },
+        3 * 1024,
+      ),
     ).toBe(
       "Removed 2 attached files, the document's metadata and 1 comment. That saved 3 KB.",
     );
-    expect(extrasLine({ attachments: 0, metadata: false, comments: 0 })).toBe(
-      null,
-    );
+    expect(extrasLine(NOTHING_REMOVED)).toBe(null);
   });
 
   it("a ticked option that found nothing says so, instead of saying nothing", () => {
@@ -311,7 +576,7 @@ describe("Remove extras: each option removes what it names, and only that", () =
       }),
     ).toBe("No attached files were found, so none were removed.");
     expect(
-      extrasLine({ attachments: 0, metadata: false, comments: 2 }, 1024, {
+      extrasLine({ ...NOTHING_REMOVED, comments: 2 }, 1024, {
         attachments: true,
         metadata: true,
         comments: true,
