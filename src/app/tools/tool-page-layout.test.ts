@@ -98,7 +98,9 @@ describe("every tool page: head, facts, panel, then the details", () => {
   // search-demand#3: the H1 reads `toolHeadline`, which is the short name
   // for every tool except those with a headline (PDF to PowerPoint names
   // PPT and PPTX). Read from the rendered markup of every page.
-  it("each page's one H1 reads its headline, which names PPT on PDF to PowerPoint", () => {
+  // Until the review of 7b498d92 this read "names PPT"; the H1 now names only
+  // the format the tool writes (headline.ts, finding 5).
+  it("each page's one H1 reads its headline, which names PPTX on PDF to PowerPoint", () => {
     const withHeadline: string[] = [];
     for (const tool of tools) {
       const html = markup.get(tool.slug)!;
@@ -115,7 +117,7 @@ describe("every tool page: head, facts, panel, then the details", () => {
           markup.get("pdf-to-powerpoint")!,
         )![1]!,
       ),
-    ).toMatch(/\bPPT\b/);
+    ).toBe("PDF to PowerPoint (PPTX)");
   });
 
   it("the facts row says where the tool runs and what goes in and out", () => {
