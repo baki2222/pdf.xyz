@@ -139,6 +139,7 @@ export function installViWaitRecorder(v: { waitFor: unknown }): boolean {
           ...site,
           defaultTimeoutMs: VI_WAIT_FOR_DEFAULT_MS,
           rejected,
+          via: "vi.waitFor",
         });
     }
   };
