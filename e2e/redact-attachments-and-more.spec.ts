@@ -4,6 +4,7 @@ import {
   PDFDocument,
   PDFName,
   PDFRawStream,
+  PDFString,
   StandardFonts,
   decodePDFRawStream,
 } from "pdf-lib";
@@ -113,6 +114,52 @@ test("redact: an HTML attachment that spells the name with entities is refused a
   await expect(
     page.getByText(
       `The attached file “letter.html” could not be checked for “${NAME}” (only plain .txt, .csv and .tsv files can be), so the file was not saved.`,
+      { exact: false },
+    ),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(
+    page.getByRole("button", { name: /download redacted pdf/i }),
+  ).toHaveCount(0);
+});
+
+test("redact: an attachment behind an inline file entry in a comment is checked too", async ({
+  page,
+}) => {
+  // Verify 2026-11-28: this file was SAVED on the served page, the name
+  // still inside the attachment. Its file entry sits inline in a
+  // FileAttachment annotation, over a stream with no /Type, a shape
+  // pdf-lib's attach() never writes and the check did not look for.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const p = doc.addPage([420, 300]);
+  p.drawText(`Patient: ${NAME}`, { x: 24, y: 260, size: 12, font });
+  p.drawText("Keep this line exactly.", { x: 24, y: 236, size: 12, font });
+  const ctx = doc.context;
+  const stream = ctx.register(
+    ctx.flateStream(new TextEncoder().encode(`Call ${NAME} on Monday.\n`), {}),
+  );
+  const annot = ctx.obj({
+    Type: "Annot",
+    Subtype: "FileAttachment",
+    Rect: [380, 10, 400, 30],
+    Name: "PushPin",
+    FS: {
+      Type: "Filespec",
+      F: PDFString.of("notes.txt"),
+      UF: PDFString.of("notes.txt"),
+      EF: { F: stream },
+    },
+  });
+  p.node.set(PDFName.of("Annots"), ctx.obj([ctx.register(annot)]));
+  const source = Buffer.from(await doc.save());
+  // Health: the shape is the one the old check missed.
+  expect(await attachments(source)).toEqual(new Map());
+  await open(page, "chart.pdf", source);
+  await findName(page);
+  await page.getByRole("button", { name: /^redact pdf$/i }).click();
+  await expect(
+    page.getByText(
+      `“${NAME}” is still in the attached file “notes.txt”, so the file was not saved.`,
       { exact: false },
     ),
   ).toBeVisible({ timeout: 30_000 });
