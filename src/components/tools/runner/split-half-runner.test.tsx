@@ -208,6 +208,37 @@ describe("Split PDF Pages in Half — where the cut falls", () => {
       Number((screen.getByLabelText("Cut position") as HTMLInputElement).value),
     ).toBe(39);
   });
+
+  // The FAQ and guide say "drag the dashed line"; until the review of lane
+  // w1a (2026-11-28) nothing dragged it, and PROOF_LIMITS named a Node test
+  // with no pointer code as the proof. A no-op pointer move stayed green.
+  it("dragging the line with a pointer moves the cut, and the saved file is cut there", async () => {
+    const saved = catchDownloads();
+    await openSpreads([[800, 500]]);
+    const line = await screen.findByRole("slider", { name: "Cut line" });
+    const sheet = document.querySelector<HTMLElement>("[data-split-sheet]")!;
+    // jsdom lays nothing out: the sheet is given the box a browser would.
+    sheet.getBoundingClientRect = () =>
+      ({ left: 100, top: 50, width: 200, height: 125 }) as DOMRect;
+    // Health: jsdom's pointer events carry clientX, or the drag below
+    // would measure nothing and pass on the default.
+    expect(new PointerEvent("pointermove", { clientX: 7 }).clientX).toBe(7);
+    // A move without a press is not a drag.
+    fireEvent.pointerMove(line, { clientX: 180, pointerId: 1 });
+    expect(line).toHaveAttribute("aria-valuenow", "50");
+    fireEvent.pointerDown(line, { clientX: 200, pointerId: 1 });
+    fireEvent.pointerMove(line, { clientX: 160, pointerId: 1 });
+    expect(line).toHaveAttribute("aria-valuenow", "30");
+    // Past the sheet's edge, the cut stops at the engine's bound.
+    fireEvent.pointerMove(line, { clientX: 90, pointerId: 1 });
+    expect(line).toHaveAttribute("aria-valuenow", "10");
+    fireEvent.pointerMove(line, { clientX: 150, pointerId: 1 });
+    fireEvent.pointerUp(line, { clientX: 150, pointerId: 1 });
+    // Released: a later move does nothing.
+    fireEvent.pointerMove(line, { clientX: 260, pointerId: 1 });
+    expect(line).toHaveAttribute("aria-valuenow", "25");
+    expect(await widthsAfterRun(saved)).toEqual([200, 600]);
+  });
 });
 
 describe("Split PDF Pages in Half — Booklet scan and the shape option", () => {

@@ -13,8 +13,10 @@ import {
 import { describe, expect, it } from "vitest";
 import { mergePdfs, PdfEncryptedError, PdfEngineError } from "./engine";
 import {
+  clampSplitPosition,
   halfMargins,
   pagesToSplit,
+  SPLIT_POSITION,
   splitHalfOutputName,
   splitPagesInHalf,
   type SplitDirection,
@@ -636,6 +638,30 @@ describe("the cut's position", () => {
       [400, 600],
       [600, 600],
     ]);
+  });
+
+  // The engine's own bound, for a caller the UI does not stand in front of
+  // (the batch, a hand-off). Untested until the review of lane w1a
+  // (2026-11-28): `return position;` in clampSplitPosition stayed green.
+  it("keeps a cut inside 10-90%, and makes a missing or broken one the middle", async () => {
+    expect(SPLIT_POSITION).toEqual({ min: 10, max: 90, middle: 50 });
+    expect(clampSplitPosition(37)).toBe(37);
+    expect(clampSplitPosition(2)).toBe(SPLIT_POSITION.min);
+    expect(clampSplitPosition(99)).toBe(SPLIT_POSITION.max);
+    expect(clampSplitPosition(-Infinity)).toBe(SPLIT_POSITION.middle);
+    expect(clampSplitPosition(Number.NaN)).toBe(SPLIT_POSITION.middle);
+    expect(clampSplitPosition(undefined)).toBe(SPLIT_POSITION.middle);
+    // Through the engine, read from the saved file: a 2% cut is a 10% cut,
+    // so no half comes out a sliver.
+    const doc = await PDFDocument.create();
+    doc.addPage([1000, 600]);
+    const out = await splitPagesInHalf(await doc.save(), {
+      direction: "left-right",
+      order: "left-first",
+      position: 2,
+    });
+    const pages = await asDisplayed(out.bytes);
+    expect(pages.map((p) => Math.round(p.width))).toEqual([100, 900]);
   });
 });
 
