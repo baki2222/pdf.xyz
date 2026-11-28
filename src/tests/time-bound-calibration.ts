@@ -10,7 +10,11 @@ import type { RoutedCall } from "./wall-clock-detector";
  * (rule 3), so each entry carries what lets it go stale visibly:
  *
  *  - `bodyHash`: the test body it was harvested from. An edited test is
- *    uncalibrated until re-harvested (critic P5);
+ *    uncalibrated until re-harvested (critic P5). The mode switch is not
+ *    an edit: the detector's key leaves it out (`flipInvariantKey`), so
+ *    a bound harvested in measure mode can be flipped to assert. With the
+ *    mode in the key, the flip re-keyed its own body, and no bound could
+ *    ever leave measure mode;
  *  - `runs` with each run's unit-suite duration: five fast runners cannot
  *    certify 2x on their own — the window must include a slow one
  *    (`slowRunnerFloorS`; CI's unit step ran 1010-1677 s over the 12

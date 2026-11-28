@@ -14,10 +14,140 @@
 import { describe, expect, it } from "vitest";
 import { ratchet } from "./wall-clock-audit";
 import { keyText, scanSource } from "./wall-clock-detector";
+import { calibrationProblem, type Calibration } from "./time-bound-calibration";
 
 const scan = (s: string, file = "control.ts") => scanSource(s, file);
 const rules = (s: string) =>
   scan(s).comparisons.map((m) => [m.rule, m.direction]);
+
+describe("a measure-to-assert flip keeps the calibration key; any other edit does not (2026-11-28)", () => {
+  // The first harvest's first flip failed: the body hash covered the mode,
+  // so the flip re-keyed the very body its CI values were measured on.
+  const hashes = (body: string) =>
+    scan(`test("t", async () => {\n${body}\n});`).routed.map((r) => [
+      r.id,
+      r.mode,
+      r.bodyHash,
+    ]);
+  const MEASURE = [
+    `const ms = f();`,
+    `expectRatioBelow("r", ms, 1, 10, { detail: d, mode: "measure" });`,
+    `measureTime("m", ms, 500);`,
+    `expectFasterThan("c", ms, 9, { mode: "measure" });`,
+    `expectAtLeast("a", ms, 1, {});`,
+  ].join("\n");
+  const FLIPPED = [
+    `const ms = f();`,
+    `expectRatioBelow("r", ms, 1, 10, { detail: d });`,
+    `expectFasterThan("m", ms, 500);`,
+    `expectFasterThan("c", ms, 9);`,
+    `expectAtLeast("a", ms, 1);`,
+  ].join("\n");
+  const key = (body: string) => hashes(body).map(([, , h]) => h);
+
+  it("health: the measure body has measure-mode calls, the flipped one has none, and one test body gives one key", () => {
+    expect(hashes(MEASURE).map(([id, mode]) => [id, mode])).toEqual([
+      ["r", "measure"],
+      ["m", "measure"],
+      ["c", "measure"],
+      ["a", "assert"],
+    ]);
+    expect(hashes(FLIPPED).every(([, mode]) => mode === "assert")).toBe(true);
+    expect(new Set(key(MEASURE)).size).toBe(1);
+  });
+
+  it("the flip, in every shape it takes, keys the same body", () => {
+    const shapes = [
+      FLIPPED,
+      // mode first, mode last, an explicit "assert", prettier's wrapping
+      // with trailing commas, and a namespace import of the helpers
+      MEASURE.replace(
+        `{ detail: d, mode: "measure" }`,
+        `{ mode: "measure", detail: d }`,
+      ),
+      FLIPPED.replace(
+        `expectFasterThan("c", ms, 9);`,
+        `expectFasterThan("c", ms, 9, { mode: "assert" });`,
+      ),
+      FLIPPED.replace(
+        `expectRatioBelow("r", ms, 1, 10, { detail: d });`,
+        `expectRatioBelow(\n  "r",\n  ms,\n  1,\n  10,\n  {\n    detail: d,\n    mode: "measure",\n  },\n);`,
+      ),
+    ];
+    for (const s of shapes) expect(key(s), s).toEqual(key(MEASURE));
+    const ns = (b: string) =>
+      scan(
+        `import * as tb from "@/tests/time-bound";\ntest("t", async () => {\n${b}\n});`,
+      ).routed.map((r) => r.bodyHash);
+    expect(ns(`tb.measureTime("m", ms, 500);`)).toEqual(
+      ns(`tb.expectFasterThan("m", ms, 500, { mode: "measure" });`),
+    );
+    // Renamed imports, which the detector supports (see the namespace and
+    // alias cases below): the flip m(…) -> fast(…) re-keyed while only
+    // measureTime was renamed (#402 review).
+    const aliased = (b: string) => {
+      const routed = scan(
+        `import { expectFasterThan as fast, measureTime as m } from "../../tests/time-bound";\ntest("t", async () => {\n${b}\n});`,
+      ).routed;
+      expect(routed).toHaveLength(1);
+      return routed[0]!;
+    };
+    const before = aliased(`m("id", ms, 500, { detail: d });`);
+    const after = aliased(`fast("id", ms, 500, { detail: d });`);
+    expect([before.mode, after.mode]).toEqual(["measure", "assert"]);
+    expect(after.bodyHash).toBe(before.bodyHash);
+  });
+
+  it("positive controls: a real edit, a new bound, or a `mode` outside a routed call's options still re-keys", () => {
+    for (const edited of [
+      MEASURE.replace(`f();`, `g();`),
+      MEASURE.replace(`ms, 1, 10,`, `ms, 1, 11,`),
+      MEASURE.replace(`{ detail: d, mode`, `{ detail: e, mode`),
+      `${MEASURE}\nrender(x, { mode: "measure" });`,
+    ])
+      expect(key(edited)[0], edited).not.toBe(key(MEASURE)[0]);
+    // The scoping control on its own: `mode` in a call that is not routed
+    // is kept, so dropping it there is an edit.
+    expect(key(`${FLIPPED}\nrender(x, { mode: "measure" });`)[0]).not.toBe(
+      key(`${FLIPPED}\nrender(x, {});`)[0],
+    );
+  });
+
+  it("the composed chain: a bound calibrated in measure mode passes calibration once flipped, and fails it once edited", () => {
+    const callOf = (body: string, id: string) =>
+      scan(`test("t", async () => {\n${body}\n});`).routed.find(
+        (r) => r.id === id,
+      )!;
+    const measured = callOf(MEASURE, "r");
+    const attempts = ["1/1", "2/1", "3/1", "4/1", "5/1"];
+    // Five runs, one of them slow, a CI max of 4 against the bound of 10.
+    const cal: Calibration = {
+      slowRunnerFloorS: 1300,
+      window: { workflow: "ci.yml", attempts },
+      runs: Object.fromEntries(
+        attempts.map((k, i) => [
+          k,
+          { conclusion: "success", unitSuiteS: i === 0 ? 1500 : 1000 },
+        ]),
+      ),
+      entries: {
+        r: {
+          kind: "ratio",
+          n: 5,
+          ciMax: 4,
+          ciP50: 3,
+          runs: attempts,
+          source: "time-bound lines",
+          bodyHash: measured.bodyHash,
+        },
+      },
+    };
+    expect(calibrationProblem(callOf(FLIPPED, "r"), cal)).toBeNull();
+    expect(
+      calibrationProblem(callOf(FLIPPED.replace(`f();`, `g();`), "r"), cal),
+    ).toMatch(/different test body/);
+  });
+});
 
 describe("measure mode cannot name the measured time as its witness (P6, rule 2)", () => {
   const routed = (body: string) =>
