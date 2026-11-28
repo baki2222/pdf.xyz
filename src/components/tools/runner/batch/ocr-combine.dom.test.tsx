@@ -310,6 +310,37 @@ describe("OCR PDF: Combine into one PDF", { timeout: 30_000 }, () => {
     ).toBeInTheDocument();
     expect(net.reserves).toEqual([]);
     expect(net.jobs).toBe(0);
+    // The refusal says "untick Combine into one PDF": that must still work,
+    // since no job exists (verify of 384a607d: the box stayed held).
+    const box = await combineBox();
+    expect(box).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(box);
+    expect(await combineBox()).not.toBeChecked();
+    expect(
+      await screen.findByRole("button", { name: runName(2) }),
+    ).toBeInTheDocument();
+  });
+
+  it("a PDF that could not be made (a locked file) lets go of the box too", async () => {
+    const net = worker(statusWith(["eng"]));
+    photoPdf.ocrCombineDeps.build = async () => {
+      throw new Error("two.jpg could not be read.");
+    };
+    await drop([jpg("one.jpg"), jpg("two.jpg")]);
+    fireEvent.click(await combineBox());
+    const run = await screen.findByRole("button", {
+      name: /recognize text in one pdf/i,
+    });
+    await waitFor(() => expect(run).not.toHaveAttribute("aria-disabled"));
+    fireEvent.click(run);
+    expect(
+      await screen.findByText(/two\.jpg could not be read\./, undefined, {
+        timeout: 10_000,
+      }),
+    ).toBeInTheDocument();
+    expect(net.jobs).toBe(0);
+    fireEvent.click(await combineBox());
+    expect(await combineBox()).not.toBeChecked();
   });
 
   it("the combine ceiling is the one the server enforces for OCR, not a copy of it", () => {

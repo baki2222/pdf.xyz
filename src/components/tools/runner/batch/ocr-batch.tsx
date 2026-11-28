@@ -22,7 +22,12 @@ import {
 } from "@/lib/jobs/ocr";
 import { ScanText } from "lucide-react";
 import { DownloadCta, ResultCard, WorkerRunButton } from "../runner-kit";
-import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "../../worker-job";
+import {
+  jobBusyLabel,
+  useWorkerJob,
+  WorkerJobStatus,
+  type WorkerJobFailure,
+} from "../../worker-job";
 import { useWorkerPanel, workerOutput } from "../../worker-panel-shell";
 import type { Tool } from "@/lib/tools/types";
 import {
@@ -159,7 +164,7 @@ function OcrCombined({
   runBlocked,
   contentTypeOf,
   onReset,
-  onStart,
+  onHold,
 }: {
   files: File[];
   request: OcrOptions;
@@ -167,8 +172,12 @@ function OcrCombined({
   runBlocked: string | null;
   contentTypeOf: (file: File) => string;
   onReset: () => void;
-  /** Run was pressed: the batch holds the Combine box from here on. */
-  onStart: () => void;
+  /**
+   * Whether the batch holds the Combine box: from the press of Run, and let
+   * go again when the run ends with no job left on the server, so a refusal
+   * that says "untick Combine into one PDF" can be followed.
+   */
+  onHold: (held: boolean) => void;
 }) {
   const { available } = useWorkerPanel();
   const job = useWorkerJob<OcrWorkerResult>({
@@ -186,8 +195,8 @@ function OcrCombined({
     if (!available || tooLarge || runBlocked) return;
     // Held from the press on: unticking would unmount this view and the job
     // with it, while the server kept running it (review of 7b498d92).
-    onStart();
-    await run(async (controls): Promise<OcrWorkerResult> => {
+    onHold(true);
+    const result = await run(async (controls): Promise<OcrWorkerResult> => {
       const { ocrCombineDeps, ocrPdfName } =
         await import("@/lib/pdf/ocr-photo-pdf");
       const sources = await Promise.all(
@@ -222,11 +231,21 @@ function OcrCombined({
         controls,
       );
     });
+    // Nothing left running on the server: refused before the upload (too
+    // large, a file that could not be read), failed, or canceled. A job that
+    // is still running, or one that finished with files to download, keeps
+    // the box held: unticking would unmount it (verify of 384a607d).
+    const stillRunning =
+      result !== null &&
+      result.ok === false &&
+      (result as WorkerJobFailure).stillRunning === true;
+    if (result === null || (result.ok === false && !stillRunning))
+      onHold(false);
   }, [
     available,
     tooLarge,
     runBlocked,
-    onStart,
+    onHold,
     run,
     files,
     contentTypeOf,
@@ -360,7 +379,7 @@ export function OcrBatch({
     request.languages.map(describeOcrLanguage),
   );
 
-  const onCombinedStart = useCallback(() => setStarted(true), []);
+  const onCombinedHold = useCallback((held: boolean) => setStarted(held), []);
   const languageSentence = (
     <p className="text-fg text-sm leading-relaxed" data-ocr-batch-language="">
       {ocrBatchLanguageSentence(languages)}
@@ -403,7 +422,7 @@ export function OcrBatch({
         runBlocked={runBlocked}
         contentTypeOf={contentTypeOf}
         onReset={onReset}
-        onStart={onCombinedStart}
+        onHold={onCombinedHold}
       />
     );
 
