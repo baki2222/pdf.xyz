@@ -1527,10 +1527,16 @@ describe("Compare PDF's redline is a chunk of its own", () => {
  * S6's verify round (2026-11-22, zlib -9, Windows, merged with main
  * e8421596): 30,358 B gz (29.65 KB), 85,019 B raw, +423 B over 29,935
  * for reading a stack's instructions as lines (joined items, the passage
- * over it, the note under it, a wrapped caption). Inside 29.7, so the
- * bound stands; stylesheet unchanged at 15,328 B gz.
+ * over it, the note under it, a wrapped caption). Stylesheet unchanged at
+ * 15,328 B gz.
+ *
+ * CORRECTED before landing (2026-11-28). 30,358 B is "inside 29.7" by about
+ * 50 B, so the bound no longer followed the rule every raise above uses
+ * (the latest measurement plus 5%), and the next change of any size would
+ * trip it for no reason. The bound is 30,358 B + 5% = 31.1. The chunk still
+ * loads only when someone presses Find fields; first load is unchanged.
  */
-const FIND_FIELDS_FETCH_GZ_KB = 29.7;
+const FIND_FIELDS_FETCH_GZ_KB = 31.1;
 /*
  * HISTORY (review rounds 7 and 8, 2026-11-19). Round 7 added a bound here
  * for the press on a page whose preview chunk never arrived: every chunk
