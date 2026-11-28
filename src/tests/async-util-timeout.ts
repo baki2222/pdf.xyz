@@ -9,8 +9,10 @@
  * The data (2026-11-28), from CI's "wait headroom" block. That block lists
  * every wait past half its timeout plus the worst five, so no slow wait can
  * hide below it. Two sources:
- * - all 8 main runs since the recorder landed (#390): 44931945692 to
- *   45001376223;
+ * - all 9 main runs since the recorder landed (#390): 44931945692 to
+ *   46131553554, the last one on 8f379e1a itself (its worst default wait,
+ *   worker-job.test.tsx:420 again, took 804 ms). The 9th was missed in
+ *   the first count and found in review;
  * - the 3 failed attempts in the same window: 44946891961/1, 44941026100/1
  *   and 44938151052/1.
  *
@@ -31,9 +33,13 @@
  * What it does NOT reach:
  * - `vi.waitFor`, which keeps its own 1000 ms default;
  * - vitest's `expect.poll`.
- * The recorder reads `getConfig().asyncUtilTimeout` on every wait, so its
- * "half the timeout" line moves with this value. Its worst-five list stays
- * printed, so creep stays visible.
+ * The recorder stores each wait's own default: `getConfig().asyncUtilTimeout`
+ * for testing-library, 1000 for vi.waitFor. The report judges every wait
+ * against the default it ran under, and its headline names the two
+ * defaults apart. It once printed the first record's default for both, so
+ * the line changed with test order; that was found in review, and is now
+ * pinned in time-bound.test.ts and time-bound-chain.test.ts. The report's
+ * worst-five list stays printed, so creep stays visible.
  */
 export const ASYNC_UTIL_TIMEOUT_MS = 2000;
 
