@@ -139,6 +139,100 @@ describe("Redact PDF reaches every match past the cap", () => {
     expect(await emailsIn(out)).toBe(0);
   }, 300000);
 
+  /*
+   * Review 2026-11-28 finding 6: only Detect went through the panel, so
+   * deleting the Find-text `setMore` left every test green. The search path
+   * is driven here the same way, counted at each hop.
+   */
+  it("Find text past the cap: Find more twice lists all 1,200 matches", async () => {
+    await openEditor(1200);
+    fireEvent.change(screen.getByLabelText("Search the text"), {
+      target: { value: "mail.test" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Find$/ }));
+    await screen.findByText(
+      new RegExp(`\\(the first ${MAX_FOUND}\\)`),
+      {},
+      { timeout: 30000 },
+    );
+    expect(review()).toBe(
+      `Review · ${MAX_FOUND} of ${MAX_FOUND} will be redacted`,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Find more from page 13" }),
+    );
+    const more = await screen.findByRole(
+      "button",
+      { name: /^Find more from page 2[56]$/ },
+      { timeout: 30000 },
+    );
+    expect(review()).toBe("Review · 1000 of 1000 will be redacted");
+    fireEvent.click(more);
+    await screen.findByText(
+      /more matches for “mail\.test” found .* That is all of them\./,
+      {},
+      { timeout: 30000 },
+    );
+    expect(screen.queryByRole("button", { name: /^Find more/ })).toBeNull();
+    expect(review()).toBe("Review · 1200 of 1200 will be redacted");
+  }, 120000);
+
+  /*
+   * Review 2026-11-28 finding 13: "Clear list" left "Find more" offering to
+   * continue a list that was gone, an edited query still continued the old
+   * search under the button, and Detect's capped status said "anything
+   * after them was not searched" above a button that searches them.
+   */
+  it("Detect's capped status points at Find more instead of saying the rest was not searched", async () => {
+    await openEditor(1200);
+    fireEvent.click(screen.getByRole("button", { name: /^Detect$/ }));
+    const status = await screen.findByText(
+      new RegExp(`Detect stopped at the first ${MAX_FOUND}`),
+      {},
+      { timeout: 30000 },
+    );
+    expect(screen.getByRole("button", { name: /^Find more/ })).toBeTruthy();
+    expect(status.textContent).not.toMatch(/not searched/);
+    expect(status.textContent).toMatch(/Find more/);
+  }, 120000);
+
+  it("Clear list drops Find more and the old status", async () => {
+    await openEditor(1200);
+    fireEvent.click(screen.getByRole("button", { name: /^Detect$/ }));
+    await screen.findByRole(
+      "button",
+      { name: "Find more from page 13" },
+      { timeout: 30000 },
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Clear list/ }));
+    expect(screen.queryByRole("button", { name: /^Find more/ })).toBeNull();
+    expect(screen.queryByText(/Detect stopped at the first/)).toBeNull();
+  }, 120000);
+
+  it("editing the query drops a Find more that would carry on the old search", async () => {
+    await openEditor(1200);
+    const box = screen.getByLabelText("Search the text");
+    fireEvent.change(box, { target: { value: "mail.test" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Find$/ }));
+    await screen.findByRole(
+      "button",
+      { name: "Find more from page 13" },
+      { timeout: 30000 },
+    );
+    fireEvent.change(box, { target: { value: "person1" } });
+    expect(screen.queryByRole("button", { name: /^Find more/ })).toBeNull();
+    // Control: a Detect continuation survives a query edit, since it does
+    // not depend on the query.
+    fireEvent.click(screen.getByRole("button", { name: /^Detect$/ }));
+    await screen.findByText(
+      new RegExp(`Detect stopped at the first ${MAX_FOUND}`),
+      {},
+      { timeout: 30000 },
+    );
+    fireEvent.change(box, { target: { value: "person2" } });
+    expect(screen.getByRole("button", { name: /^Find more/ })).toBeTruthy();
+  }, 120000);
+
   it("control: 300 addresses offer no Find more, and all 300 go", async () => {
     await openEditor(300);
     fireEvent.click(screen.getByRole("button", { name: /^Detect$/ }));

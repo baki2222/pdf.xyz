@@ -113,7 +113,7 @@ describe("RedactFindPanel says what Find and Detect could not see", () => {
       { timeout: 25000 },
     );
     expect(status.textContent).toBe(
-      `More than ${MAX_FOUND} items found. Detect stopped at the first ${MAX_FOUND} (up to page ${MAX_FOUND / perPage}) and added them to the list below; anything after them was not searched.`,
+      `More than ${MAX_FOUND} items found. Detect stopped at the first ${MAX_FOUND} (up to page ${MAX_FOUND / perPage}) and added them to the list below. Find more lists the ones after them.`,
     );
   }, 60000);
 });

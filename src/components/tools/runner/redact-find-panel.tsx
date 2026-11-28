@@ -141,7 +141,7 @@ export function RedactFindPanel({
           matches.length === 0
             ? "Nothing in the ticked categories was found."
             : capped
-              ? `More than ${MAX_FOUND} items found. Detect stopped at the first ${MAX_FOUND} (up to page ${matches[matches.length - 1]!.page}) and added them to the list below; anything after them was not searched.`
+              ? `More than ${MAX_FOUND} items found. Detect stopped at the first ${MAX_FOUND} (up to page ${matches[matches.length - 1]!.page}) and added them to the list below. Find more lists the ones after them.`
               : `${matches.length} item${matches.length === 1 ? "" : "s"} found and added to the list below.`,
         );
       }
@@ -152,18 +152,31 @@ export function RedactFindPanel({
     }
   };
 
+  // A continuation belongs to the search that made it (review 2026-11-28):
+  // editing that search, or clearing the list, drops it, so "Find more"
+  // never carries on a search the panel no longer shows.
+  const dropMore = (of: "search" | "detect") =>
+    setMore((m) => (m && "query" in m.ask === (of === "search") ? null : m));
+  const clear = () => {
+    setMore(null);
+    setStatus(null);
+    onClear();
+  };
+
   const noTextAtAll =
     index !== null && index.pagesWithoutText.length === index.pageCount;
   const someNoText =
     index !== null && !noTextAtAll && index.pagesWithoutText.length > 0;
 
-  const toggleCategory = (c: PiiCategory) =>
+  const toggleCategory = (c: PiiCategory) => {
+    dropMore("detect");
     setCategories((prev) => {
       const next = new Set(prev);
       if (next.has(c)) next.delete(c);
       else next.add(c);
       return next;
     });
+  };
 
   const chosenCount = found.filter((f) => chosen.has(f.key)).length;
 
@@ -185,7 +198,10 @@ export function RedactFindPanel({
               id={ids.query}
               type="search"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                dropMore("search");
+                setQuery(e.target.value);
+              }}
               placeholder="A name, a number, a word…"
               spellCheck={false}
               className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 rounded-ctl min-w-0 flex-1 border px-3.5 py-2 text-sm transition outline-none focus:ring-2"
@@ -212,7 +228,10 @@ export function RedactFindPanel({
                 id={ids.matchCase}
                 type="checkbox"
                 checked={matchCase}
-                onChange={(e) => setMatchCase(e.target.checked)}
+                onChange={(e) => {
+                  dropMore("search");
+                  setMatchCase(e.target.checked);
+                }}
               />
               Match case
             </label>
@@ -224,7 +243,10 @@ export function RedactFindPanel({
                 id={ids.wholeWord}
                 type="checkbox"
                 checked={wholeWord}
-                onChange={(e) => setWholeWord(e.target.checked)}
+                onChange={(e) => {
+                  dropMore("search");
+                  setWholeWord(e.target.checked);
+                }}
               />
               Whole word
             </label>
@@ -345,7 +367,7 @@ export function RedactFindPanel({
                 </button>
                 <button
                   type="button"
-                  onClick={onClear}
+                  onClick={clear}
                   className={buttonVariants({ variant: "ghost", size: "sm" })}
                 >
                   <X className="size-4" aria-hidden />
