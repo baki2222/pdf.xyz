@@ -7,7 +7,7 @@
  * becoming event-driven, or a declared observation window (`observeFor`).
  * Held both ways by wall-clock-bounds.test.ts.
  */
-export const FIXED_SLEEP_DEBT_CEILING = 102;
+export const FIXED_SLEEP_DEBT_CEILING = 101;
 
 /** lane, file, occurrence index, collapsed snippet — one per line. */
 export const FIXED_SLEEP_DEBT_TSV = `
@@ -96,7 +96,6 @@ export const FIXED_SLEEP_DEBT_TSV = `
 1a	src/app/tools/tool-page-registry.test.ts	0	new Promise((resolve) => setTimeout(resolve, 100))
 4	src/components/a11y/live-region.test.tsx	0	new Promise((resolve) => setTimeout(resolve, 80))
 4	src/components/layout/handoff-sweep.test.tsx	0	new Promise((r) => setTimeout(r, 50))
-1b	src/components/tools/runner/bookmarks-editor.test.tsx	0	new Promise((r) => setTimeout(r, 50))
 1a	src/components/tools/runner/compare/compare-docs.test.ts	0	new Promise((r) => setTimeout(r, 5))
 4	src/components/tools/runner/compare/compare-overlay.test.tsx	0	new Promise((r) => setTimeout(r, 20))
 4	src/components/tools/runner/compare/compare-overlay.test.tsx	0	new Promise((r) => setTimeout(r, 400))

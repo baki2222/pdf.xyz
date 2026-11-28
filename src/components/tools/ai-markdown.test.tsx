@@ -28,6 +28,7 @@ import {
   type Inline,
 } from "./ai-markdown";
 import { AI_RESULT_CHUNK } from "./ai-result-chunk";
+import { expectFasterThan, expectRatioBelow } from "@/tests/time-bound";
 
 afterEach(cleanup);
 
@@ -538,10 +539,20 @@ function blockText(blocks: Block[]): string {
 const KB200 = 200_000;
 const fill = (unit: string) => unit.repeat(Math.ceil(KB200 / unit.length));
 
-/** 200 KB in every shape that makes a naive parser quadratic or deep. */
+/**
+ * 200 KB in every shape that makes a naive parser quadratic or deep.
+ *
+ * REPAIRED 2026-11-22 (ci-flake audit 2026-11-19, line 543): `fill("*")`,
+ * `fill("_")` and `fill("- ")` were each ONE thematic break — a line made
+ * only of `*`, `_` or `- ` is an `hr` before it is anything else — so three
+ * members named for the emphasis scanner and for deep lists never reached
+ * either, and the health check (count and length) could not tell. A letter
+ * in front, or at the end, makes them the paragraph and the list their
+ * names promise; {@link reachOf} holds every member to what it is named for.
+ */
 const PATHOLOGICAL: [string, string][] = [
-  ["stars", fill("*")],
-  ["underscores", fill("_")],
+  ["stars", `x${fill("*")}`],
+  ["underscores", `x${fill("_")}`],
   ["open strong", fill("**a ")],
   ["star letter", fill("*a")],
   ["letter star", fill("a*")],
@@ -553,7 +564,7 @@ const PATHOLOGICAL: [string, string][] = [
   ["angle", fill("<")],
   ["angle letters", fill("<a")],
   ["quotes", fill("> ")],
-  ["bullets", fill("- ")],
+  ["bullets", `${fill("- ")}x`],
   ["backslashes", fill("\\")],
   ["urls", fill("http://")],
   ["url parens", `https://e.x/${fill(")")}`],
@@ -568,6 +579,68 @@ const PATHOLOGICAL: [string, string][] = [
   ["hostile answer", fill(`${HOSTILE.join(LF)}${LF}${FORMATTING}${LF}`)],
 ];
 
+/** Plain prose, the same 200 KB: the cost every shape is measured against. */
+const PROSE = fill("The lease runs for three years.\n");
+/** One time-boxed sample lasts at least this long. */
+const SAMPLE_MS = 100;
+/**
+ * The timeout that fails an unbounded parse (see the "inside the default
+ * timeout" test): vitest's 5 s default, written out.
+ */
+const PARSE_BACKSTOP_MS = 5_000;
+const PARSE_TESTS = { timeout: PARSE_BACKSTOP_MS };
+
+interface Reach {
+  /** The whole input became one thematic break. */
+  loneHr: boolean;
+  /** The deepest nesting of strong emphasis. */
+  strong: number;
+  /** The deepest nesting of lists. */
+  lists: number;
+}
+
+function reachOf(blocks: Block[]): Reach {
+  const strongIn = (nodes: Inline[]): number =>
+    Math.max(
+      0,
+      ...nodes.map((n) =>
+        n.t === "text" || n.t === "code"
+          ? 0
+          : (n.t === "strong" ? 1 : 0) + strongIn(n.c),
+      ),
+    );
+  const walk = (bs: Block[]): { strong: number; lists: number } => {
+    let strong = 0;
+    let lists = 0;
+    for (const b of bs) {
+      if (b.t === "h" || b.t === "p") strong = Math.max(strong, strongIn(b.c));
+      const inner =
+        b.t === "quote"
+          ? [walk(b.c)]
+          : b.t === "list"
+            ? b.items.map(walk).map((r) => ({ ...r, lists: r.lists + 1 }))
+            : [];
+      for (const r of inner) {
+        strong = Math.max(strong, r.strong);
+        lists = Math.max(lists, r.lists);
+      }
+    }
+    return { strong, lists };
+  };
+  return {
+    loneHr: blocks.length === 1 && blocks[0]!.t === "hr",
+    ...walk(blocks),
+  };
+}
+
+/** Whether a PATHOLOGICAL member reaches the code its name targets. */
+function reaches(name: string, reach: Reach): boolean {
+  if (name === "stars" || name === "underscores")
+    return reach.strong === MAX_DEPTH;
+  if (name === "bullets") return reach.lists === MAX_DEPTH;
+  return !reach.loneHr;
+}
+
 describe("bounded", () => {
   it("health check: every shape is at least 200 KB", () => {
     expect(PATHOLOGICAL).toHaveLength(21);
@@ -575,15 +648,104 @@ describe("bounded", () => {
       expect(text.length, name).toBeGreaterThanOrEqual(KB200 - 10);
   });
 
-  it("each 200 KB shape parses in well under a second, losing no more than its marks", () => {
+  it(
+    "health check: every shape reaches the code it is named for",
+    PARSE_TESTS,
+    () => {
+      for (const [name, text] of PATHOLOGICAL) {
+        const reach = reachOf(parseMarkdown(text));
+        expect(reaches(name, reach), `${name} ${JSON.stringify(reach)}`).toBe(
+          true,
+        );
+      }
+      // Positive control: the members as they were, one `hr` each, fail it.
+      for (const [name, was] of [
+        ["stars", fill("*")],
+        ["underscores", fill("_")],
+        ["bullets", fill("- ")],
+      ] as const)
+        expect(reaches(name, reachOf(parseMarkdown(was))), name).toBe(false);
+    },
+  );
+
+  /**
+   * WAS: each shape timed once against `took < 1_500` ms, in this test,
+   * under a title saying "well under a second" (ci-flake audit 2026-11-19,
+   * line 583: 1,219 ms for the whole loop on a CI run, so 1.23x proven).
+   * The timing is now its own test below; this one keeps vitest's 5 s
+   * default ON PURPOSE: with `CLOSER_TRIES` unbounded, "open strong" alone
+   * takes about 7 s on the dev host and more on CI, so the default fails it
+   * on every runner, a bound that does not move with the runner's speed the
+   * way a measured one does. Do not give this test a longer timeout.
+   *
+   * Written out (PARSE_BACKSTOP_MS), not left to the default, so a change
+   * to the suite's default cannot loosen it unseen. Review 2026-11-22
+   * proved it: `CLOSER_TRIES` 4096 (64 honest) fails this test and the
+   * health check above with "Test timed out in 5000ms" (10,088 and
+   * 11,205 ms on the dev host), while the ratio test below only records.
+   * CI maximum 1,219 ms for the loop (44373418087), so 5 s is 4.1x.
+   */
+  it(
+    "each 200 KB shape parses, losing no more than its marks, inside the default timeout",
+    () => {
+      for (const [name, text] of PATHOLOGICAL) {
+        const blocks = parseMarkdown(text);
+        expect(blockText(blocks).length, name).toBeLessThanOrEqual(text.length);
+      }
+    },
+    PARSE_BACKSTOP_MS,
+  );
+
+  /**
+   * The parse's cost shape, against plain prose of the same 200 KB parsed in
+   * the same run: each shape's best time per call over one time-boxed
+   * sample (at least SAMPLE_MS, so a cheap shape is many calls and a timer
+   * tick is noise), divided by the prose's best of three such samples.
+   * K = 100 comes from the audit's dev-host figures (repaired stars and
+   * underscores about 27x cold; `CLOSER_TRIES` 4096 puts open strong near
+   * 131x) and is NOT a CI figure — no CI run has printed one — so both
+   * bounds record (measure mode) until the harvest has five CI runs, one of
+   * them slow; then the bound is set at 2x the CI maximum or more. Both
+   * are on the pending list (src/tests/wall-clock-pending.ts), not
+   * witnessed: `reached` (every shape reaches the code it is named for,
+   * asserted here so the timing is of the work its name promises) cannot
+   * see a cost — `CLOSER_TRIES` 4096 left it true and this test green
+   * (witness audit 2026-11-22). What fails on that is the 5 s backstop of
+   * the test above; the 30 s timeout here cannot hide it.
+   */
+  it("each 200 KB shape parses in a bounded multiple of plain prose", () => {
+    const sample = (text: string) => {
+      let calls = 0;
+      let spent = 0;
+      let blocks: Block[] = [];
+      const t0 = performance.now();
+      do {
+        blocks = parseMarkdown(text);
+        calls += 1;
+        spent = performance.now() - t0;
+      } while (spent < SAMPLE_MS);
+      return { perCall: spent / calls, blocks };
+    };
+    sample(PROSE.slice(0, 2_000));
+    const prose = Math.min(
+      sample(PROSE).perCall,
+      sample(PROSE).perCall,
+      sample(PROSE).perCall,
+    );
     for (const [name, text] of PATHOLOGICAL) {
-      const started = performance.now();
-      const blocks = parseMarkdown(text);
-      const took = performance.now() - started;
-      expect(took, name).toBeLessThan(1_500);
-      expect(blockText(blocks).length, name).toBeLessThanOrEqual(text.length);
+      const { perCall, blocks } = sample(text);
+      const reached = reaches(name, reachOf(blocks));
+      expect(reached, name).toBe(true);
+      expectRatioBelow("ai-markdown-shape-vs-prose", perCall, prose, 100, {
+        mode: "measure",
+        instance: name,
+      });
+      expectFasterThan("ai-markdown-shape-ceiling", perCall, 1_500, {
+        mode: "measure",
+        instance: name,
+      });
     }
-  });
+  }, 30_000);
 
   it("text with no marks keeps every character", () => {
     expect(inlineText(parseInline(fill("a * ")))).toBe(fill("a * "));
